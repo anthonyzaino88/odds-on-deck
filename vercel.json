@@ -1,0 +1,14 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/refresh-slate",
+      "schedule": "0 */15 * * *"
+    }
+  ],
+  "functions": {
+    "app/api/cron/refresh-slate/route.js": {
+      "maxDuration": 60
+    }
+  }
+}
+

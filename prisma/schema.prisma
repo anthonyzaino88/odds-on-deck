@@ -1,0 +1,335 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Team {
+  id         String @id
+  name       String
+  abbr       String @unique
+  sport      String @default("mlb") // mlb, nfl, nhl
+  league     String? // AL/NL (MLB), AFC/NFC (NFL), Eastern/Western (NHL)
+  division   String? // Central, North, South, West, etc.
+  
+  // Sport-agnostic form tracking
+  parkFactor           Float? // 1.00 neutral, >1 favors offense (MLB: hitters, NFL: offense)
+  last10Record         String? // "7-3" format
+  avgPointsLast10      Float? // Average points/runs scored last 10 games
+  avgPointsAllowedLast10 Float? // Average points/runs allowed last 10 games
+  homeRecord           String? // "45-36" format
+  awayRecord           String? // "42-39" format
+
+  players   Player[]
+  homeGames Game[]   @relation("homeTeam")
+  awayGames Game[]   @relation("awayTeam")
+  
+  // NFL relationships
+  nflRosterEntries          NFLRosterEntry[]
+  nflOffenseMatchups        NFLMatchupHistory[] @relation("NFLOffenseTeam")
+  nflDefenseMatchups        NFLMatchupHistory[] @relation("NFLDefenseTeam")
+}
+
+model Player {
+  id        String      @id
+  fullName  String
+  
+  // MLB-specific fields
+  bats      String? // R/L/S (MLB)
+  throws    String? // R/L (MLB) 
+  isPitcher Boolean @default(false) // MLB
+  
+  // NFL-specific fields  
+  position  String? // QB, RB, WR, TE, K, DEF (NFL)
+  jersey    Int?    // Jersey number (NFL/NHL)
+  experience Int?   // Years in league (NFL/NHL)
+  
+  // NHL-specific fields (for future)
+  shoots    String? // L/R (NHL)
+  
+  teamId    String?
+  team      Team?       @relation(fields: [teamId], references: [id])
+  splits    SplitStat[]
+  pitchMix  PitchMix[]
+  lineups   Lineup[]
+  
+  // NFL roster/depth chart relationships
+  nflRosterEntries NFLRosterEntry[]
+  nflPlayerProps   NFLPlayerProp[]
+  
+  // Pitcher relations
+  homePitcherGames Game[] @relation("HomePitcher")
+  awayPitcherGames Game[] @relation("AwayPitcher")
+}
+
+model Game {
+  id                    String   @id // vendor game id
+  sport                 String   @default("mlb") // mlb, nfl, nhl
+  
+  // External API IDs
+  mlbGameId             String? // MLB's gamePk for API calls
+  espnGameId            String? // ESPN's game ID (NFL/NHL)
+  
+  date                  DateTime
+  homeId                String
+  awayId                String
+  home                  Team     @relation("homeTeam", fields: [homeId], references: [id])
+  away                  Team     @relation("awayTeam", fields: [awayId], references: [id])
+  
+  // Sport-specific starting players
+  probableHomePitcherId String? // MLB
+  probableAwayPitcherId String? // MLB
+  homeStartingQB        String? // NFL
+  awayStartingQB        String? // NFL
+  
+  status                String // scheduled, in_progress, final
+  
+  // NFL-specific fields
+  week                  Int?    // NFL week (1-18)
+  season                String? // "2024" for NFL, "2025" for MLB
+
+  // Live game data
+  homeScore    Int? // Current home team score
+  awayScore    Int? // Current away team score
+  inning       Int? // Current inning (1-9+)
+  inningHalf   String? // "top" or "bottom"
+  outs         Int? // Current outs (0-2)
+  balls        Int? // Current ball count (0-3)
+  strikes      Int? // Current strike count (0-2)
+  
+  // Baserunners
+  runnerOn1st  String? // Player ID on first base
+  runnerOn2nd  String? // Player ID on second base  
+  runnerOn3rd  String? // Player ID on third base
+  
+  // Current batter/pitcher
+  currentBatterId   String? // Current batter player ID
+  currentPitcherId  String? // Current pitcher player ID
+  
+  // Game state timestamps
+  lastPlay          String? // Description of last play
+  lastUpdate        DateTime? // When live data was last updated
+
+  // Weather data
+  temperature   Float? // Fahrenheit
+  windSpeed     Float? // mph
+  windDirection String? // in/out/cross
+  humidity      Float? // percentage
+  precipitation Float? // inches
+
+  odds    Odds[]
+  edges   EdgeSnapshot[]
+  lineups Lineup[]
+  nflData NFLGameData? // NFL-specific game data
+  nflPlayerProps NFLPlayerProp[]
+  nflMatchupHistory NFLMatchupHistory[]
+  
+  // Pitcher relations
+  probableHomePitcher Player? @relation("HomePitcher", fields: [probableHomePitcherId], references: [id])
+  probableAwayPitcher Player? @relation("AwayPitcher", fields: [probableAwayPitcherId], references: [id])
+}
+
+model Odds {
+  id        String @id @default(cuid())
+  gameId    String
+  game      Game   @relation(fields: [gameId], references: [id])
+  book      String
+  market    String // h2h, totals
+  priceHome Float? // American odds
+  priceAway Float?
+  total     Float?
+  spread    Float?
+
+  // Market movement tracking
+  openingPriceHome  Float? // Opening line
+  openingPriceAway  Float?
+  openingTotal      Float?
+  movementDirection String? // toward_home, toward_away, toward_over, toward_under
+  isSharpMoney      Boolean @default(false) // Professional money indicator
+
+  // Game timing
+  commence_time DateTime? // When the game starts
+
+  ts DateTime @default(now())
+}
+
+model SplitStat {
+  id       String @id @default(cuid())
+  playerId String
+  player   Player @relation(fields: [playerId], references: [id])
+  season   Int
+  vsHand   String // batter vs R/L; pitcher vs R/L hitters
+  wOBA     Float?
+  ISO      Float?
+  kRate    Float?
+  bbRate   Float?
+  xwOBA    Float?
+  samplePA Int?
+  scope    String // "season","last14","last30"
+}
+
+model PitchMix {
+  id       String @id @default(cuid())
+  playerId String
+  player   Player @relation(fields: [playerId], references: [id])
+  season   Int
+  pitch    String // FF, SL, CH, CU, etc.
+  usage    Float? // 0..1
+  whiff    Float?
+  xwOBA    Float?
+  runValue Float?
+}
+
+model EdgeSnapshot {
+  id         String   @id @default(cuid())
+  gameId     String
+  game       Game     @relation(fields: [gameId], references: [id])
+  edgeMlHome Float? // our ML edge% for home
+  edgeMlAway Float?
+  edgeTotalO Float? // our O/U edge%
+  edgeTotalU Float?
+  ourTotal   Float? // modeled game total (for display)
+  modelRun   String // version hash
+  ts         DateTime @default(now())
+}
+
+model Lineup {
+  id           String @id @default(cuid())
+  gameId       String
+  game         Game   @relation(fields: [gameId], references: [id])
+  playerId     String
+  player       Player @relation(fields: [playerId], references: [id])
+  team         String // "home" or "away"
+  battingOrder Int? // 1-9 for batting order (MLB), null for bench
+  position     String? // 1B, 2B, SS (MLB) or QB, RB, WR (NFL)
+  isStarting   Boolean @default(true)
+  ts           DateTime @default(now())
+  
+  @@unique([gameId, playerId])
+}
+
+// NFL-specific game data extension
+model NFLGameData {
+  gameId        String @id
+  game          Game   @relation(fields: [gameId], references: [id])
+  quarter       Int?    // 1-4 + overtime (5+)
+  timeLeft      String? // "14:23" in quarter
+  possession    String? // team abbreviation with ball
+  down          Int?    // 1-4
+  distance      Int?    // yards to first down
+  yardLine      String? // "NYG 25" (team 25-yard line)
+  redZone       Boolean @default(false) // offense in red zone
+  lastPlay      String? // description of last play
+  driveStart    String? // where current drive started
+  timeOfPossessionHome String? // "15:23" time of possession
+  timeOfPossessionAway String? // "14:37" time of possession
+}
+
+// NFL-specific models for roster and matchup analysis
+
+model NFLRosterEntry {
+  id              String   @id @default(cuid())
+  playerId        String
+  player          Player   @relation(fields: [playerId], references: [id])
+  teamId          String
+  team            Team     @relation(fields: [teamId], references: [id])
+  
+  // Depth chart info
+  positionGroup   String   // "QB", "RB", "WR", "TE", "OL", "DL", "LB", "DB", "ST"
+  specificPosition String  // "QB", "RB", "WR1", "WR2", "LT", "LG", "C", "RG", "RT", etc.
+  depthOrder      Int      // 1 = starter, 2 = backup, etc.
+  
+  // Status
+  injuryStatus    String?  // "healthy", "questionable", "doubtful", "out", "ir"
+  isActive        Boolean  @default(true)
+  
+  // Season info
+  season          String   // "2024"
+  week            Int?     // Current week this applies to
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@unique([playerId, teamId, season, specificPosition])
+  @@map("NFLRosterEntry")
+}
+
+model NFLPlayerProp {
+  id              String   @id @default(cuid())
+  playerId        String
+  player          Player   @relation(fields: [playerId], references: [id])
+  gameId          String
+  game            Game     @relation(fields: [gameId], references: [id])
+  
+  // Prop details
+  propType        String   // "passing_yards", "rushing_yards", "receiving_yards", "touchdowns", "interceptions", "tackles", "sacks"
+  threshold       Float    // The line (e.g., 249.5 passing yards)
+  overPrice       Int?     // Over odds
+  underPrice      Int?     // Under odds
+  
+  // Projection and edge
+  projection      Float?   // Our projected value
+  edge            Float?   // Calculated edge vs market
+  confidence      String?  // "very_high", "high", "medium", "low"
+  
+  // Analysis factors
+  vsDefenseRank   Int?     // Opponent defense rank vs this prop type
+  playerAverage   Float?   // Player's season average
+  recentForm      Float?   // Last 3 games average
+  
+  // Metadata
+  book            String?  // Which book this line is from
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@map("NFLPlayerProp")
+}
+
+model NFLMatchupHistory {
+  id              String   @id @default(cuid())
+  
+  // Teams involved
+  offenseTeamId   String
+  offenseTeam     Team     @relation("NFLOffenseTeam", fields: [offenseTeamId], references: [id])
+  defenseTeamId   String
+  defenseTeam     Team     @relation("NFLDefenseTeam", fields: [defenseTeamId], references: [id])
+  
+  // Game context
+  gameId          String?
+  game            Game?    @relation(fields: [gameId], references: [id])
+  week            Int
+  season          String
+  
+  // Offensive stats
+  pointsScored    Int?
+  totalYards      Int?
+  passingYards    Int?
+  rushingYards    Int?
+  turnovers       Int?
+  thirdDownPct    Float?   // Third down conversion %
+  redZonePct      Float?   // Red zone scoring %
+  timeOfPossession String? // "32:15"
+  
+  // Defensive stats allowed
+  passYardsAllowed Int?
+  rushYardsAllowed Int?
+  sacksRecorded    Int?
+  interceptionsRecorded Int?
+  fumbleRecoveries Int?
+  
+  // Game situation
+  weather         String?  // "clear", "rain", "snow", "wind"
+  temperature     Int?     // Fahrenheit
+  isHomeGame      Boolean  // For the offense team
+  
+  createdAt       DateTime @default(now())
+  
+  @@unique([offenseTeamId, defenseTeamId, gameId])
+  @@map("NFLMatchupHistory")
+}
