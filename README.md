@@ -180,10 +180,9 @@ MIT License - Feel free to use this project as inspiration!
 
 ## 👤 Contact
 
-**Your Name**  
-- Portfolio: [your-portfolio.com]
-- LinkedIn: [linkedin.com/in/yourprofile]
-- GitHub: [@yourusername](https://github.com/yourusername)
+**Anthony Zaino**  
+- Portfolio: https://anthony-zaino-portfolio.vercel.app/
+- GitHub: https://github.com/anthonyzaino88
 
 ---
 
