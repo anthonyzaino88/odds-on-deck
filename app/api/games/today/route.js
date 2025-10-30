@@ -1,7 +1,10 @@
 // API endpoint to fetch today's games data
 
+// Force dynamic rendering (required for Vercel deployment)
+export const dynamic = 'force-dynamic'
+
 import { NextResponse } from 'next/server'
-import { getTodaysGames } from '../../../../lib/db.js'
+import { getTodaysGames, prisma } from '../../../../lib/db.js'
 import { getThisWeeksNFLGames } from '../../../../lib/nfl-db.js'
 
 export async function GET() {
@@ -14,8 +17,6 @@ export async function GET() {
     ])
     
     // Fetch pitcher names for MLB games
-    const { PrismaClient } = await import('@prisma/client')
-    const prisma = new PrismaClient()
     
     const mlbGamesWithPitchers = await Promise.all(
       mlbGames.map(async (game) => {
@@ -35,8 +36,6 @@ export async function GET() {
         }
       })
     )
-    
-    await prisma.$disconnect()
     
     return NextResponse.json({
       success: true,
