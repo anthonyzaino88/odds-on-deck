@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/refresh-slate",
-      "schedule": "0 */15 * * *"
+      "schedule": "0 12 * * *"
     }
   ],
   "functions": {
