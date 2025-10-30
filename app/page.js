@@ -11,11 +11,11 @@ export default async function HomePage() {
     console.log('🚀 Home page loading - ensuring fresh data...')
     
     // Get all data from centralized data manager (will auto-refresh if stale)
-    const { mlbGames, nflGames, picks, playerProps, lastUpdated } = await getAllData()
+    const { mlbGames, nflGames, nhlGames, picks, playerProps, lastUpdated } = await getAllData()
   
   const topPicks = picks.slice(0, 3)
   const topProps = playerProps.slice(0, 3) // Top 3 props for home page
-  const allGames = [...mlbGames, ...nflGames]
+  const allGames = [...mlbGames, ...nflGames, ...(nhlGames || [])]
   
   // Helper function to check if game has actually started
   const hasGameStarted = (game) => {
@@ -68,8 +68,17 @@ export default async function HomePage() {
     return new Date(a.date) - new Date(b.date)
   })
   
+  const sortedNHLGames = (nhlGames || []).sort((a, b) => {
+    const aIsLive = isGameLive(a)
+    const bIsLive = isGameLive(b)
+    if (aIsLive && !bIsLive) return -1
+    if (!aIsLive && bIsLive) return 1
+    return new Date(a.date) - new Date(b.date)
+  })
+  
   const mlbLiveGames = sortedMLBGames.filter(g => isGameLive(g))
   const nflLiveGames = sortedNFLGames.filter(g => isGameLive(g))
+  const nhlLiveGames = sortedNHLGames.filter(g => isGameLive(g))
   
   return (
     <div className="min-h-screen bg-gray-50">
@@ -84,7 +93,7 @@ export default async function HomePage() {
             Multi-Sport Betting Intelligence & Live Game Data
           </p>
           <div className="text-sm text-gray-500 mt-1" suppressHydrationWarning>
-            {format(new Date(), 'EEEE, MMMM d, yyyy')} • ⚾ MLB • 🏈 NFL
+            {format(new Date(), 'EEEE, MMMM d, yyyy')} • ⚾ MLB • 🏈 NFL • 🏒 NHL
           </div>
         </div>
 
@@ -92,7 +101,8 @@ export default async function HomePage() {
         <SimpleRefreshButton />
 
         {/* Quick Navigation */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          {/* Sports Boxes */}
           <Link href="/games" className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:border-blue-300 transition-colors">
             <div className="text-center">
               <div className="text-3xl mb-2">⚾</div>
@@ -104,11 +114,22 @@ export default async function HomePage() {
           <Link href="/games" className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:border-blue-300 transition-colors">
             <div className="text-center">
               <div className="text-3xl mb-2">🏈</div>
-              <div className="font-semibold text-gray-900">All Games</div>
-              <div className="text-sm text-gray-600">{allGames.length} games total</div>
+              <div className="font-semibold text-gray-900">NFL Games</div>
+              <div className="text-sm text-gray-600">{nflGames.length} games this week</div>
             </div>
           </Link>
           
+          <Link href="/games" className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:border-blue-300 transition-colors">
+            <div className="text-center">
+              <div className="text-3xl mb-2">🏒</div>
+              <div className="font-semibold text-gray-900">NHL Games</div>
+              <div className="text-sm text-gray-600">{nhlGames.length} games today</div>
+            </div>
+          </Link>
+        </div>
+        
+        {/* Tools Navigation */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <Link href="/picks" className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:border-blue-300 transition-colors">
             <div className="text-center">
               <div className="text-3xl mb-2">🎯</div>
@@ -121,18 +142,27 @@ export default async function HomePage() {
             <div className="text-center">
               <div className="text-3xl mb-2">🏟️</div>
               <div className="font-semibold text-gray-900">Player Props</div>
-              <div className="text-sm text-gray-600">{topProps.length} props available</div>
+              <div className="text-sm text-gray-600">{playerProps.length} props available</div>
             </div>
           </Link>
           
-          <Link href="/dfs" className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:border-blue-300 transition-colors">
+          <Link href="/parlays" className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:border-blue-300 transition-colors">
             <div className="text-center">
-              <div className="text-3xl mb-2">💎</div>
-              <div className="font-semibold text-gray-900">DFS Rankings</div>
-              <div className="text-sm text-gray-600">Player values</div>
+              <div className="text-3xl mb-2">🎯</div>
+              <div className="font-semibold text-gray-900">Parlay Generator</div>
+              <div className="text-sm text-gray-600">Optimized combinations</div>
+            </div>
+          </Link>
+          
+          <Link href="/validation" className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:border-purple-300 transition-colors">
+            <div className="text-center">
+              <div className="text-3xl mb-2">📊</div>
+              <div className="font-semibold text-gray-900">Validation</div>
+              <div className="text-sm text-gray-600">Track accuracy</div>
             </div>
           </Link>
         </div>
+
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
@@ -240,6 +270,30 @@ export default async function HomePage() {
                           <div className="space-y-2">
                             {sortedNFLGames.filter(g => !isGameEnded(g.status) && isGameLive(g)).slice(0, 3).map((game) => (
                               <LiveScoreCard key={game.id} game={game} />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* NHL Games */}
+                      {sortedNHLGames.filter(g => !isGameEnded(g.status) && isGameLive(g)).length > 0 && (
+                        <div>
+                          <div className="text-sm font-medium text-gray-700 mb-2">🏒 NHL Live</div>
+                          <div className="space-y-2">
+                            {sortedNHLGames.filter(g => !isGameEnded(g.status) && isGameLive(g)).slice(0, 3).map((game) => (
+                              <LiveScoreCard key={game.id} game={game} />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* NHL Upcoming */}
+                      {sortedNHLGames.filter(g => !isGameEnded(g.status) && !isGameLive(g)).length > 0 && (
+                        <div>
+                          <div className="text-sm font-medium text-gray-700 mb-2">🏒 NHL Upcoming</div>
+                          <div className="space-y-2">
+                            {sortedNHLGames.filter(g => !isGameEnded(g.status) && !isGameLive(g)).slice(0, 3).map((game) => (
+                              <LiveGameCard key={game.id} game={game} />
                             ))}
                           </div>
                         </div>

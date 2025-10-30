@@ -14,7 +14,10 @@
     "prisma:reset": "prisma migrate reset",
     "seed": "node prisma/seed.js",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "backup": "node scripts/backup-data.js",
+    "export:csv": "curl http://localhost:3000/api/export/parlays?format=csv",
+    "export:stats": "curl http://localhost:3000/api/export/stats"
   },
   "dependencies": {
     "@prisma/client": "^5.15.0",
@@ -22,6 +25,7 @@
     "date-fns": "^3.6.0",
     "dotenv": "^17.2.3",
     "next": "14.2.0",
+    "node-fetch": "^3.3.2",
     "react": "^18",
     "react-dom": "^18"
   },

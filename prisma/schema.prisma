@@ -13,10 +13,12 @@ datasource db {
 model Team {
   id         String @id
   name       String
-  abbr       String @unique
+  abbr       String
   sport      String @default("mlb") // mlb, nfl, nhl
   league     String? // AL/NL (MLB), AFC/NFC (NFL), Eastern/Western (NHL)
   division   String? // Central, North, South, West, etc.
+  
+  @@unique([abbr, sport])
   
   // Sport-agnostic form tracking
   parkFactor           Float? // 1.00 neutral, >1 favors offense (MLB: hitters, NFL: offense)
@@ -156,7 +158,7 @@ model Odds {
   // Game timing
   commence_time DateTime? // When the game starts
 
-  ts DateTime @default(now())
+  ts DateTime
 }
 
 model SplitStat {
@@ -332,4 +334,152 @@ model NFLMatchupHistory {
   
   @@unique([offenseTeamId, defenseTeamId, gameId])
   @@map("NFLMatchupHistory")
+}
+
+model Parlay {
+  id              String   @id @default(cuid())
+  
+  // Parlay configuration
+  sport           String   // "mlb", "nfl", "mixed"
+  type            String   // "single_game", "multi_game", "cross_sport"
+  legCount        Int      // Number of legs (2-10)
+  
+  // Parlay metrics
+  totalOdds       Float    // Combined odds (e.g., 6.5)
+  probability     Float    // Calculated probability (e.g., 0.18)
+  edge            Float    // Calculated edge (e.g., 0.17)
+  expectedValue   Float    // Expected value (e.g., 0.12)
+  confidence      String   // "very_high", "high", "medium", "low"
+  
+  // Status tracking
+  status          String   @default("generated") // "generated", "active", "won", "lost", "cancelled"
+  outcome         String?  // "won", "lost", "cancelled", "pending"
+  actualResult    String?  // Actual outcome description
+  
+  // Metadata
+  generatedAt     DateTime @default(now())
+  expiresAt       DateTime? // When the parlay expires
+  notes           String?  // User notes or analysis
+  
+  // Relations
+  legs            ParlayLeg[]
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@map("Parlay")
+}
+
+model ParlayLeg {
+  id              String   @id @default(cuid())
+  parlayId        String
+  parlay          Parlay   @relation(fields: [parlayId], references: [id], onDelete: Cascade)
+  
+  // Leg details
+  gameIdRef       String   // Store as string, no foreign key
+  
+  // Bet information
+  betType         String   // "moneyline", "spread", "total", "prop"
+  selection       String   // "home", "away", "over", "under", "player_prop"
+  odds            Float    // Individual leg odds
+  probability     Float    // Individual leg probability
+  edge            Float    // Individual leg edge
+  confidence      String   // "very_high", "high", "medium", "low"
+  
+  // Prop-specific data (if applicable)
+  playerName      String?  // Player name (no foreign key)
+  propType        String?  // "hits", "rbis", "total_bases", etc.
+  threshold       Float?   // Prop threshold (e.g., 1.5 hits)
+  
+  // Outcome tracking
+  outcome         String?  // "won", "lost", "cancelled", "pending"
+  actualResult    String?  // Actual outcome description
+  
+  // Metadata
+  legOrder        Int      // Order in the parlay (1, 2, 3, etc.)
+  notes           String?  // Leg-specific notes
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@map("ParlayLeg")
+}
+
+// New model for prop validation and tracking
+model PropValidation {
+  id              String   @id @default(cuid())
+  
+  // Prop identification
+  propId          String   @unique // Original prop ID
+  gameIdRef       String   // Store game ID as string (not foreign key)
+  playerName      String   // Player name from API
+  
+  // Prop details
+  propType        String   // "hits", "strikeouts", etc.
+  threshold       Float    // The line (e.g., 1.5 hits)
+  prediction      String   // "over" or "under"
+  projectedValue  Float    // Our projected value
+  confidence      String   // "high", "medium", "low"
+  edge            Float    // Calculated edge
+  odds            Int?     // American odds
+  probability     Float?   // Win probability
+  qualityScore    Float?   // Combined quality metric (0-100)
+  
+  // Source tracking
+  source          String   @default("system_generated") // "user_saved", "parlay_leg", "system_generated"
+  parlayId        String?  // Link to parlay if from saved parlay
+  
+  // Result tracking
+  actualValue     Float?   // Actual statistical result
+  result          String?  // "correct", "incorrect", "push"
+  status          String   // "pending", "completed"
+  
+  // Metadata
+  sport           String?  // "mlb", "nfl"
+  timestamp       DateTime @default(now())
+  completedAt     DateTime?
+  notes           String?
+  
+  @@map("PropValidation")
+}
+
+// Cache for player props to reduce API calls
+model PlayerPropCache {
+  id              String   @id @default(cuid())
+  propId          String   @unique // Unique prop identifier
+  
+  // Game and player info
+  gameId          String
+  playerName      String
+  team            String?
+  
+  // Prop details
+  type            String   // "hits", "strikeouts", "points", "goals", etc.
+  pick            String   // "over" or "under"
+  threshold       Float    // The line value
+  odds            Int      // American odds
+  
+  // Analytics
+  probability     Float
+  edge            Float
+  confidence      String
+  qualityScore    Float
+  
+  // Metadata
+  sport           String   // "mlb", "nfl", "nhl"
+  category        String?  // "batting", "pitching", "player_prop", etc.
+  reasoning       String?
+  projection      Float?
+  bookmaker       String?
+  gameTime        DateTime
+  
+  // Cache management
+  fetchedAt       DateTime @default(now())
+  expiresAt       DateTime // When this data should be refreshed
+  isStale         Boolean  @default(false)
+  
+  @@index([sport, gameTime])
+  @@index([expiresAt])
+  @@index([gameId])
+  @@map("PlayerPropCache")
 }

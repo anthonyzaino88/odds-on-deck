@@ -34,16 +34,17 @@ export default async function GameDetailPage({ params }) {
   
   const edge = game.edges[0]
   const isNFL = game.sport === 'nfl'
+  const isNHL = game.sport === 'nhl'
   
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <Link
-          href={isNFL ? "/nfl" : "/games"}
+          href="/games"
           className="text-brand-blue hover:text-blue-700 text-sm font-medium"
         >
-          ← Back to {isNFL ? "NFL Games" : "Today's Slate"}
+          ← Back to Today's Slate
         </Link>
         <div className="text-sm text-gray-600">
           {format(new Date(game.date), 'EEEE, MMMM d, yyyy h:mm a')}
@@ -155,6 +156,38 @@ export default async function GameDetailPage({ params }) {
               subtitle="Season record"
             />
           </>
+        ) : isNHL ? (
+          <>
+            <StatCard
+              title="Puck Line"
+              value={(() => {
+                const spreadOdds = game.odds?.find(o => o.market === 'spreads')
+                return spreadOdds?.spread ? `${spreadOdds.spread > 0 ? '+' : ''}${spreadOdds.spread}` : 'N/A'
+              })()}
+              subtitle="Goal spread"
+            />
+            <StatCard
+              title="Total"
+              value={(() => {
+                const totalOdds = game.odds?.find(o => o.market === 'totals')
+                return totalOdds?.total || 'N/A'
+              })()}
+              subtitle="Over/Under goals"
+            />
+            <StatCard
+              title="ML Odds"
+              value={(() => {
+                const h2hOdds = game.odds?.find(o => o.market === 'h2h')
+                return h2hOdds ? `${h2hOdds.priceHome > 0 ? '+' : ''}${h2hOdds.priceHome} / ${h2hOdds.priceAway > 0 ? '+' : ''}${h2hOdds.priceAway}` : 'N/A'
+              })()}
+              subtitle="Home / Away"
+            />
+            <StatCard
+              title="Status"
+              value={game.status === 'in_progress' ? 'Live' : game.status}
+              subtitle={game.period || 'Pre-Game'}
+            />
+          </>
         ) : (
           <>
             <StatCard
@@ -184,7 +217,7 @@ export default async function GameDetailPage({ params }) {
       </div>
       
       {/* Probable Pitchers - Only for MLB */}
-      {!isNFL && (
+      {!isNFL && !isNHL && game.sport === 'mlb' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <PitcherCard
             team={game.away}
@@ -242,8 +275,8 @@ export default async function GameDetailPage({ params }) {
         </>
       )}
       
-      {/* Batting Lineups */}
-      {!isNFL && game.lineups && game.lineups.length > 0 && (
+      {/* Batting Lineups - Only for MLB */}
+      {!isNFL && !isNHL && game.sport === 'mlb' && game.lineups && game.lineups.length > 0 && (
         <div className="card">
           <div className="px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-semibold text-gray-900">
@@ -259,8 +292,8 @@ export default async function GameDetailPage({ params }) {
         </div>
       )}
       
-      {/* Batter vs Pitcher Analysis */}
-      {!isNFL && (game.probableHomePitcher || game.probableAwayPitcher) && (
+      {/* Batter vs Pitcher Analysis - Only for MLB */}
+      {!isNFL && !isNHL && game.sport === 'mlb' && (game.probableHomePitcher || game.probableAwayPitcher) && (
         <div className="card">
           <div className="px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-semibold text-gray-900">

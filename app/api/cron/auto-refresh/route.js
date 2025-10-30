@@ -30,7 +30,8 @@ export async function GET() {
         oddsUpdated: 0,
         edgesCalculated: 0,
         liveScoresUpdated: 0,
-        nflGamesUpdated: 0
+        nflGamesUpdated: 0,
+        validationsChecked: 0
       }
     }
     
@@ -185,7 +186,94 @@ export async function GET() {
     const nflResult = await fetchAndStoreNFLLiveData()
     results.stats.nflGamesUpdated = nflResult.gamesUpdated || 0
     
-    // 6. Cleanup old data
+    // 6. Check and update completed prop validations
+    console.log('✅ Checking prop validations...')
+    try {
+      const { getPlayerGameStat: getMLBStat } = await import('../../../../lib/vendors/mlb-game-stats.js')
+      const { getPlayerGameStat: getNFLStat } = await import('../../../../lib/vendors/nfl-game-stats.js')
+      
+      const pendingValidations = await prisma.propValidation.findMany({
+        where: { status: 'pending' }
+      })
+      
+      for (const validation of pendingValidations) {
+        try {
+          const game = await prisma.game.findFirst({
+            where: {
+              OR: [
+                { id: validation.gameIdRef },
+                { mlbGameId: validation.gameIdRef }
+              ]
+            }
+          })
+          
+          if (!game) continue
+          
+          // Check if game is final (by status OR by date)
+          const gameDate = new Date(game.date || game.ts || game.commence_time)
+          const yesterday = new Date()
+          yesterday.setDate(yesterday.getDate() - 1)
+          yesterday.setHours(23, 59, 59, 999)
+          
+          const isFinal = 
+            ['final', 'completed', 'f', 'closed'].includes(game.status?.toLowerCase()) ||
+            (gameDate < yesterday)
+          
+          if (!isFinal) continue
+          
+          const sport = validation.sport || game.sport || 'mlb'
+          let actualValue = null
+          
+          if (sport === 'mlb' && game.mlbGameId) {
+            actualValue = await getMLBStat(game.mlbGameId, validation.playerName, validation.propType)
+          } else if (sport === 'nfl' && game.espnGameId) {
+            actualValue = await getNFLStat(game.espnGameId, validation.playerName, validation.propType)
+          }
+          
+          if (actualValue === null || actualValue === undefined) {
+            await prisma.propValidation.update({
+              where: { id: validation.id },
+              data: {
+                status: 'needs_review',
+                notes: `Game finished but stat not available. Manual verification needed.`,
+                completedAt: new Date()
+              }
+            })
+            results.stats.validationsChecked++
+            continue
+          }
+          
+          let result = 'incorrect'
+          if (actualValue === validation.threshold) {
+            result = 'push'
+          } else if (
+            (validation.prediction === 'over' && actualValue > validation.threshold) ||
+            (validation.prediction === 'under' && actualValue < validation.threshold)
+          ) {
+            result = 'correct'
+          }
+          
+          await prisma.propValidation.update({
+            where: { id: validation.id },
+            data: {
+              actualValue,
+              result,
+              status: 'completed',
+              completedAt: new Date(),
+              notes: `Auto-validated: ${validation.prediction.toUpperCase()} ${validation.threshold} → Actual: ${actualValue}`
+            }
+          })
+          
+          results.stats.validationsChecked++
+        } catch (error) {
+          console.error(`Error processing validation ${validation.id}:`, error.message)
+        }
+      }
+    } catch (error) {
+      console.error('Error checking validations:', error.message)
+    }
+    
+    // 7. Cleanup old data
     console.log('🧹 Cleaning up old data...')
     await cleanupOldOdds()
     await cleanupOldEdgeSnapshots()
@@ -197,6 +285,7 @@ export async function GET() {
     console.log(`   Edges: ${results.stats.edgesCalculated}`)
     console.log(`   Live Scores: ${results.stats.liveScoresUpdated}`)
     console.log(`   NFL Games: ${results.stats.nflGamesUpdated}`)
+    console.log(`   Validations Checked: ${results.stats.validationsChecked}`)
     
     return NextResponse.json(results)
     

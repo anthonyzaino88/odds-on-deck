@@ -1,0 +1,242 @@
+-- SQL UPDATE SCRIPT FOR MANUAL VALIDATION
+-- Fill in the actual values and uncomment lines to run
+
+-- 1. Sebastian Aho - points OVER 1.5
+--    Game: CAR @ ANA (10/16/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802421
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'CAR_at_ANA_2025-10-17',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from CAR @ ANA'
+-- WHERE id = cmgu28kti01r8y2lyyjvi6fho;
+
+-- 2. Joel Eriksson Ek - goals OVER 0.5
+--    Game: CBJ @ MIN (10/11/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802384
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'CBJ_at_MIN_2025-10-12',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from CBJ @ MIN'
+-- WHERE id = cmgmwi2x40632y8ydymmkb2d2;
+
+-- 3. Matt Boldy - points OVER 1.5
+--    Game: CBJ @ MIN (10/11/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802384
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'CBJ_at_MIN_2025-10-12',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from CBJ @ MIN'
+-- WHERE id = cmgms45zx07897kidkwgm2uff;
+
+-- 4. Darnell Nurse - points OVER 0.5
+--    Game: VAN @ EDM (10/11/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802386
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'VAN_at_EDM_2025-10-12',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from VAN @ EDM'
+-- WHERE id = cmgmrlb8z02dig22uwefnczyo;
+
+-- 5. Steven Stamkos - assists OVER 0.5
+--    Game: UTA @ NSH (10/11/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802383
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'UTA_at_NSH_2025-10-12',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from UTA @ NSH'
+-- WHERE id = cmgmrlaxh02b4g22untonluy9;
+
+-- 6. Logan Stankoven - assists OVER 0.5
+--    Game: VAN @ DAL (10/16/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802419
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'VAN_at_DAL_2025-10-17',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from VAN @ DAL'
+-- WHERE id = cmgu2bldy03dxy2ly0fpby88j;
+
+-- 7. Jason Robertson - powerplay_points OVER 0.5
+--    Game: VAN @ DAL (10/16/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802419
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'VAN_at_DAL_2025-10-17',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from VAN @ DAL'
+-- WHERE id = cmgu29n6o02apy2lygd6bjbft;
+
+-- 8. Jakob Chychrun - assists OVER 0.5
+--    Game: WSH @ NYI (10/11/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802379
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'WSH_at_NYI_2025-10-11',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from WSH @ NYI'
+-- WHERE id = cmgmrlao50298g22ubc1tsufa;
+
+-- 9. Dylan Larkin - goals OVER 0.5
+--    Game: TB @ DET (10/17/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802423
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'TB_at_DET_2025-10-17',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from TB @ DET'
+-- WHERE id = cmgvgk16u013yypfjfgjxb3zw;
+
+-- 10. Mitch Marner - goals OVER 0.5
+--    Game: TOR @ DET (10/11/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802376
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'TOR_at_DET_2025-10-11',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from TOR @ DET'
+-- WHERE id = cmgmrmhns04yrg22ub72uow52;
+
+-- 11. Aliaksei Protas - assists OVER 0.5
+--    Game: WSH @ NYI (10/11/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802379
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'WSH_at_NYI_2025-10-11',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from WSH @ NYI'
+-- WHERE id = cmgmrlao90299g22ugcocg87u;
+
+-- 12. Matthew Knies - goals OVER 0.5
+--    Game: TOR @ DET (10/11/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802376
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'TOR_at_DET_2025-10-11',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from TOR @ DET'
+-- WHERE id = cmgmtvk8g024gf1q5mx2eigqt;
+
+-- 13. Steven Stamkos - assists OVER 0.5
+--    Game: UTA @ NSH (10/11/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802383
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'UTA_at_NSH_2025-10-12',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from UTA @ NSH'
+-- WHERE id = cmgmwi2xy0638y8ydhxl0xf67;
+
+-- 14. Seth Jarvis - points OVER 1.5
+--    Game: PHI @ CAR (10/11/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802381
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'PHI_at_CAR_2025-10-11',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from PHI @ CAR'
+-- WHERE id = cmgmrmgjq04r1g22uv3f4g89h;
+
+-- 15. Frank Nazar - assists OVER 0.5
+--    Game: MTL @ CHI (10/11/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802382
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'MTL_at_CHI_2025-10-11',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from MTL @ CHI'
+-- WHERE id = cmgmwi2so0624y8yduzoss8ja;
+
+-- 16. Jake DeBrusk - assists OVER 0.5
+--    Game: VAN @ CHI (10/17/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802425
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'VAN_at_CHI_2025-10-18',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from VAN @ CHI'
+-- WHERE id = cmgvj9zfq03qqypfjbh822g0i;
+
+-- 17. Ryan Hartman - points OVER 0.5
+--    Game: MIN @ WSH (10/17/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802424
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'MIN_at_WSH_2025-10-17',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from MIN @ WSH'
+-- WHERE id = cmgvgk1a6014fypfjxynu0ick;
+
+-- 18. Tyler Seguin - assists OVER 0.5
+--    Game: VAN @ DAL (10/16/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802419
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'VAN_at_DAL_2025-10-17',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from VAN @ DAL'
+-- WHERE id = cmgu29n5902agy2lyijsx7yef;
+
+-- 19. Chris Kreider - goals OVER 0.5
+--    Game: NYR @ PIT (10/11/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802380
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'NYR_at_PIT_2025-10-11',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from NYR @ PIT'
+-- WHERE id = cmgmrn8cf07hdg22uz0ptc5b6;
+
+-- 20. Alex DeBrincat - goals OVER 0.5
+--    Game: TOR @ DET (10/11/2025)
+--    ESPN: https://www.espn.com/nhl/game/_/gameId/401802376
+-- UPDATE PropValidation SET
+--   actualValue = [ENTER_VALUE],
+--   result = '[correct/incorrect/push]',
+--   status = 'completed',
+--   gameIdRef = 'TOR_at_DET_2025-10-11',
+--   completedAt = datetime('now'),
+--   notes = 'Manually validated from TOR @ DET'
+-- WHERE id = cmgmrlah2027zg22u4qxrroht;

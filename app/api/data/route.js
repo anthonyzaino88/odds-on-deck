@@ -12,8 +12,20 @@ export async function GET(request) {
     console.log(`📊 Data API called (force: ${forceRefresh})`)
     
     let data
+    let success = true
+    let error = null
+    
     if (forceRefresh) {
-      data = await forceRefreshAllData()
+      const result = await forceRefreshAllData(false) // Don't bypass cooldown
+      
+      // Check if refresh was successful
+      if (result.success === false) {
+        success = false
+        error = result.error
+        data = result.data // Use cached data
+      } else {
+        data = result
+      }
     } else {
       data = await getAllData()
     }
@@ -21,7 +33,8 @@ export async function GET(request) {
     const status = getDataStatus()
     
     return NextResponse.json({
-      success: true,
+      success,
+      error,
       data,
       status,
       timestamp: new Date().toISOString()

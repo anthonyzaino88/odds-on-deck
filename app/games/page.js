@@ -14,7 +14,7 @@ const prisma = new PrismaClient()
 
 export const metadata = {
   title: "Today's Slate - Odds on Deck",
-  description: 'MLB and NFL games with matchup edges and betting insights',
+  description: 'MLB, NFL, and NHL games with matchup edges and betting insights',
 }
 
 // Revalidate every 5 minutes
@@ -22,7 +22,7 @@ export const revalidate = 300
 
 export default async function GamesPage() {
   // Get all data from centralized data manager
-  const { mlbGames, nflGames, lastUpdated } = await getAllData()
+  const { mlbGames, nflGames, nhlGames, lastUpdated } = await getAllData()
   
   // Fetch pitcher names for MLB games
   const mlbGamesWithPitchers = await Promise.all(
@@ -65,8 +65,9 @@ export default async function GamesPage() {
   // Filter out finished games for display
   const activeMLBGames = mlbGamesWithPitchers.filter(g => !isGameEnded(g.status))
   const activeNFLGames = nflGames.filter(g => !isGameEnded(g.status))
+  const activeNHLGames = nhlGames.filter(g => !isGameEnded(g.status))
   
-  if (activeMLBGames.length === 0 && activeNFLGames.length === 0) {
+  if (activeMLBGames.length === 0 && activeNFLGames.length === 0 && activeNHLGames.length === 0) {
     return (
       <div className="text-center py-12">
         <h1 className="text-2xl font-bold text-gray-900 mb-4">Today's Slate</h1>
@@ -90,7 +91,7 @@ export default async function GamesPage() {
         <h1 className="text-2xl font-bold text-gray-900">All Games - Today's Slate</h1>
         <div className="flex items-center space-x-4">
           <span className="text-sm text-gray-600">
-            {activeMLBGames.length + activeNFLGames.length} games • ⚾ {activeMLBGames.length} MLB • 🏈 {activeNFLGames.length} NFL
+            {activeMLBGames.length + activeNFLGames.length + activeNHLGames.length} games • ⚾ {activeMLBGames.length} MLB • 🏈 {activeNFLGames.length} NFL • 🏒 {activeNHLGames.length} NHL
           </span>
           <Link
             href="/api/cron/refresh-slate"
@@ -122,6 +123,7 @@ export default async function GamesPage() {
                   <th className="table-header px-6 py-3">Our Total</th>
                   <th className="table-header px-6 py-3">ML Edge%</th>
                   <th className="table-header px-6 py-3">O/U Edge%</th>
+                  <th className="table-header px-6 py-3">ML Odds</th>
                   <th className="table-header px-6 py-3">Last Updated</th>
                   <th className="table-header px-6 py-3"></th>
                 </tr>
@@ -138,7 +140,7 @@ export default async function GamesPage() {
       
       {/* NFL Games Section */}
       {activeNFLGames.length > 0 && (
-        <div className="card overflow-hidden">
+        <div className="card overflow-hidden mb-6">
           <div className="px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-semibold text-gray-900">
               🏈 NFL Games • Week {nflGames[0]?.week || '?'}
@@ -153,12 +155,44 @@ export default async function GamesPage() {
                   <th className="table-header px-6 py-3">Score</th>
                   <th className="table-header px-6 py-3">Spread</th>
                   <th className="table-header px-6 py-3">Total</th>
+                  <th className="table-header px-6 py-3">ML Odds</th>
                   <th className="table-header px-6 py-3"></th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {activeNFLGames.map((game) => (
                   <NFLGameRow key={game.id} game={game} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* NHL Games Section */}
+      {activeNHLGames.length > 0 && (
+        <div className="card overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-900">
+              🏒 NHL Games • <ClientDate formatString="EEEE, MMMM d" />
+            </h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="table-header px-6 py-3">Game</th>
+                  <th className="table-header px-6 py-3">Status</th>
+                  <th className="table-header px-6 py-3">Score</th>
+                  <th className="table-header px-6 py-3">Puck Line</th>
+                  <th className="table-header px-6 py-3">Total</th>
+                  <th className="table-header px-6 py-3">ML Odds</th>
+                  <th className="table-header px-6 py-3"></th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {activeNHLGames.map((game) => (
+                  <NHLGameRow key={game.id} game={game} />
                 ))}
               </tbody>
             </table>
@@ -234,6 +268,18 @@ function GameRow({ game }) {
           </div>
         </div>
       </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+        {(() => {
+          const mlOdds = game.odds?.find(o => o.market === 'h2h')
+          if (!mlOdds) return 'N/A'
+          return (
+            <div className="flex flex-col">
+              <div className="text-xs text-gray-600">Away: {mlOdds.priceAway > 0 ? '+' : ''}{mlOdds.priceAway || 'N/A'}</div>
+              <div className="text-xs text-gray-600">Home: {mlOdds.priceHome > 0 ? '+' : ''}{mlOdds.priceHome || 'N/A'}</div>
+            </div>
+          )
+        })()}
+      </td>
       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500" suppressHydrationWarning>
         {edge?.ts ? format(new Date(edge.ts), 'h:mm a') : 'N/A'}
       </td>
@@ -296,6 +342,89 @@ function NFLGameRow({ game }) {
         {(() => {
           const totalOdds = game.odds?.find(o => o.market === 'totals')
           return totalOdds?.total || 'N/A'
+        })()}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+        {(() => {
+          const mlOdds = game.odds?.find(o => o.market === 'h2h')
+          if (!mlOdds) return 'N/A'
+          return (
+            <div className="flex flex-col">
+              <div className="text-xs text-gray-600">Away: {mlOdds.priceAway > 0 ? '+' : ''}{mlOdds.priceAway || 'N/A'}</div>
+              <div className="text-xs text-gray-600">Home: {mlOdds.priceHome > 0 ? '+' : ''}{mlOdds.priceHome || 'N/A'}</div>
+            </div>
+          )
+        })()}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+        <Link href={`/game/${game.id}`} className="text-blue-600 hover:text-blue-900">
+          View Details
+        </Link>
+      </td>
+    </tr>
+  )
+}
+
+function NHLGameRow({ game }) {
+  const hasLiveScore = game.homeScore !== null && game.awayScore !== null
+  const gameStatus = game.status
+  
+  return (
+    <tr className="hover:bg-gray-50">
+      <td className="px-6 py-4 whitespace-nowrap">
+        <Link href={`/game/${game.id}`} className="block hover:text-blue-600">
+          <div className="flex items-center">
+            <div>
+              <div className="text-sm font-medium text-gray-900">
+                {game.away.abbr} @ {game.home.abbr}
+              </div>
+              <div className="text-sm text-gray-500">
+                {format(new Date(game.date), 'h:mm a')}
+              </div>
+            </div>
+          </div>
+        </Link>
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+          game.status === 'in_progress' ? 'bg-green-100 text-green-800' :
+          game.status === 'final' ? 'bg-gray-100 text-gray-800' :
+          'bg-blue-100 text-blue-800'
+        }`}>
+          {gameStatus}
+        </span>
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm">
+        {hasLiveScore ? (
+          <div className="font-bold text-blue-600">
+            {game.awayScore}-{game.homeScore}
+          </div>
+        ) : (
+          <span className="text-gray-500">-</span>
+        )}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+        {(() => {
+          const spreadOdds = game.odds?.find(o => o.market === 'spreads')
+          return spreadOdds?.spread ? `${spreadOdds.spread > 0 ? '+' : ''}${spreadOdds.spread}` : 'N/A'
+        })()}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+        {(() => {
+          const totalOdds = game.odds?.find(o => o.market === 'totals')
+          return totalOdds?.total || 'N/A'
+        })()}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+        {(() => {
+          const mlOdds = game.odds?.find(o => o.market === 'h2h')
+          if (!mlOdds) return 'N/A'
+          return (
+            <div className="flex flex-col">
+              <div className="text-xs text-gray-600">Away: {mlOdds.priceAway > 0 ? '+' : ''}{mlOdds.priceAway || 'N/A'}</div>
+              <div className="text-xs text-gray-600">Home: {mlOdds.priceHome > 0 ? '+' : ''}{mlOdds.priceHome || 'N/A'}</div>
+            </div>
+          )
         })()}
       </td>
       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
