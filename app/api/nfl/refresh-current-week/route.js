@@ -10,24 +10,36 @@ import { fetchAndStoreNFLSchedule, fetchAndStoreNFLLiveData } from '../../../../
  */
 function getCurrentNFLWeek() {
   const now = new Date()
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth() // 0-11
   
-  // 2024 NFL Season schedule:
-  // Week 1: Sep 5-9, 2024
-  // Week 2: Sep 12-16, 2024
-  // Week 3: Sep 19-23, 2024
-  // Week 4: Sep 26-30, 2024
-  // Week 5: Oct 3-7, 2024
-  // Week 6: Oct 10-14, 2024
+  // Determine season year
+  // NFL season runs Sep-Feb, so Jan-Feb games are from previous year's season
+  const seasonYear = currentMonth <= 1 ? currentYear - 1 : currentYear
   
-  // For now, hardcode to Week 5 since we're in late September/early October
-  // In production, you'd use the ESPN API to get the current week
-  const currentWeek = 5
-  const seasonYear = 2024
+  // NFL 2025 season starts Thursday, September 4, 2025 (Week 1)
+  // 2024 season started Thursday, September 5, 2024
+  const seasonStartDate = new Date(seasonYear, 8, 4) // September 4 of season year
+  
+  // Calculate weeks since season start
+  const daysSinceStart = Math.floor((now - seasonStartDate) / (1000 * 60 * 60 * 24))
+  const weeksSinceStart = Math.floor(daysSinceStart / 7)
+  
+  // Week 1 starts on day 0, so add 1
+  let currentWeek = weeksSinceStart + 1
+  
+  // NFL regular season is weeks 1-18
+  if (currentWeek < 1) currentWeek = 1
+  if (currentWeek > 18) currentWeek = 18
+  
+  // Check if we're past the season (after February)
+  const isPastSeason = currentMonth > 1 && currentMonth < 8
   
   console.log(`📅 Current date: ${now.toISOString().split('T')[0]}`)
-  console.log(`🏈 Setting current week to: ${currentWeek}`)
+  console.log(`🏈 Calculated current week: ${currentWeek} (${seasonYear} season)`)
+  console.log(`📊 Days since season start: ${daysSinceStart}`)
   
-  return { week: currentWeek, seasonYear, isPastSeason: false }
+  return { week: currentWeek, seasonYear, isPastSeason }
 }
 
 export async function GET() {
