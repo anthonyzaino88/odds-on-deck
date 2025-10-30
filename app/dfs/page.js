@@ -1,14 +1,14 @@
 // DFS (Daily Fantasy Sports) Page - Player value rankings
 
+// Force dynamic rendering (required for Vercel deployment)
+export const dynamic = 'force-dynamic'
+
 import { getPlayersForDFS } from '../../lib/db.js'
 
 export const metadata = {
   title: 'DFS - Odds on Deck',
   description: 'Daily Fantasy Sports player value rankings and projections',
 }
-
-// Revalidate every 15 minutes
-export const revalidate = 900
 
 export default async function DFSPage() {
   const players = await getPlayersForDFS()

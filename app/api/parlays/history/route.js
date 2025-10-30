@@ -1,15 +1,10 @@
 // Parlay History API Endpoint
 
-import { NextResponse } from 'next/server'
-import { PrismaClient } from '@prisma/client'
+// Force dynamic rendering (required for Vercel deployment)
+export const dynamic = 'force-dynamic'
 
-const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: process.env.DATABASE_URL || "file:./prisma/dev.db"
-    }
-  }
-})
+import { NextResponse } from 'next/server'
+import { prisma } from '../../../../lib/db.js'
 
 export async function GET(request) {
   try {

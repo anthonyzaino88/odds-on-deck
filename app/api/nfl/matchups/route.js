@@ -1,5 +1,8 @@
 // NFL Matchup Analysis API
 
+// Force dynamic rendering (required for Vercel deployment)
+export const dynamic = 'force-dynamic'
+
 import { NextResponse } from 'next/server'
 import { 
   analyzeGameMatchup, 
