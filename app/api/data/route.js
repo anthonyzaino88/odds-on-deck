@@ -1,12 +1,11 @@
 // Unified Data API - Single endpoint for all application data
 // Replaces multiple scattered endpoints with one reliable source
 
-import { NextResponse } from 'next/server'
-
 // Force dynamic rendering (required for Vercel deployment)
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
+import { NextResponse } from 'next/server'
 import { getAllData, forceRefreshAllData, getDataStatus } from '../../../lib/data-manager.js'
 
 export async function GET(request) {

@@ -1,10 +1,10 @@
 // Export parlays and validation data to CSV/Excel format
-import { NextResponse } from 'next/server'
 
 // Force dynamic rendering (required for Vercel deployment)
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
+import { NextResponse } from 'next/server'
 import { prisma } from '../../../../lib/db.js'
 
 export async function GET(request) {

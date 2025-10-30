@@ -1,11 +1,10 @@
 // API endpoint to check and update completed prop validations
 
-import { NextResponse } from 'next/server'
-
 // Force dynamic rendering (required for Vercel deployment)
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
+import { NextResponse } from 'next/server'
 import { prisma } from '../../../../lib/db.js'
 import { getPlayerGameStat as getMLBStat } from '../../../../lib/vendors/mlb-game-stats.js'
 import { getPlayerGameStat as getNFLStat } from '../../../../lib/vendors/nfl-game-stats.js'

@@ -1,11 +1,11 @@
 // Automatic refresh endpoint to keep data current
 // This can be called by a cron job or scheduled task
 
-import { NextResponse } from 'next/server'
-
 // Force dynamic rendering (required for Vercel deployment)
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
+
+import { NextResponse } from 'next/server'
 import { fetchSchedule, fetchTeams } from '../../../../lib/vendors/stats.js'
 import { fetchOdds } from '../../../../lib/vendors/odds.js'
 import { fetchAndStoreNFLLiveData } from '../../../../lib/nfl-data.js'
