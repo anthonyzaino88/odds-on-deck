@@ -443,6 +443,45 @@ model PropValidation {
   @@map("PropValidation")
 }
 
+// Mock prop validation for training mode (using free APIs)
+model MockPropValidation {
+  id              String   @id @default(cuid())
+  
+  // Prop identification
+  propId          String   @unique // Unique prop ID
+  gameIdRef       String   // Game ID reference
+  playerName      String   // Player name
+  
+  // Prop details
+  propType        String   // "hits", "strikeouts", etc.
+  threshold       Float    // The line (e.g., 1.5 hits)
+  prediction      String   // "over" or "under"
+  expectedValue   Float    // Our expected value (average)
+  confidence      String   // "high", "medium", "low"
+  syntheticOdds   Int?     // Calculated odds from probability
+  probability     Float?   // Win probability
+  qualityScore    Float?   // Combined quality metric (0-100)
+  
+  // Source tracking
+  source          String   @default("mock_generated") // Always "mock_generated"
+  reasoning       String?  // Why this prediction was made
+  
+  // Result tracking
+  actualValue     Float?   // Actual statistical result
+  result          String?  // "correct", "incorrect", "push"
+  status          String   // "pending", "completed", "needs_review"
+  
+  // Metadata
+  sport           String?  // "mlb", "nfl", "nhl"
+  createdAt       DateTime @default(now())
+  validatedAt     DateTime?
+  notes           String?
+  
+  @@index([sport, status])
+  @@index([createdAt])
+  @@map("MockPropValidation")
+}
+
 // Cache for player props to reduce API calls
 model PlayerPropCache {
   id              String   @id @default(cuid())
