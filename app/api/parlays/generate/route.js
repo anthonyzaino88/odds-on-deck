@@ -1,6 +1,11 @@
 // Parlay Generation API Endpoint
 
 import { NextResponse } from 'next/server'
+
+// Force dynamic rendering (required for Vercel deployment)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 import { generateSimpleParlays } from '../../../../lib/simple-parlay-generator.js'
 
 // ✅ FIXED: Import single Prisma instance instead of creating new one

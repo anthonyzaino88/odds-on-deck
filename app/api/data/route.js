@@ -2,6 +2,11 @@
 // Replaces multiple scattered endpoints with one reliable source
 
 import { NextResponse } from 'next/server'
+
+// Force dynamic rendering (required for Vercel deployment)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 import { getAllData, forceRefreshAllData, getDataStatus } from '../../../lib/data-manager.js'
 
 export async function GET(request) {

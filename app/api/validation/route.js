@@ -1,4 +1,9 @@
 import { NextResponse } from 'next/server'
+
+// Force dynamic rendering (required for Vercel deployment)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 import { getValidationStats, getValidationRecords, getAccuracyByEdge, getMostAccuratePropTypes, updatePropResult } from '../../../lib/validation.js'
 
 export async function GET(request) {

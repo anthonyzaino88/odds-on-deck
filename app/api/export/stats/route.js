@@ -1,5 +1,10 @@
 // Export analytics and chart data for Excel
 import { NextResponse } from 'next/server'
+
+// Force dynamic rendering (required for Vercel deployment)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 import { prisma } from '../../../../lib/db.js'
 
 export async function GET(request) {
