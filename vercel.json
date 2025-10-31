@@ -1,14 +1,11 @@
 {
-  "crons": [
-    {
-      "path": "/api/cron/refresh-slate",
-      "schedule": "0 12 * * *"
-    }
-  ],
+  "crons": [],
+  "env": {
+    "DATABASE_URL": "file:./prisma/dev.db"
+  },
   "functions": {
-    "app/api/cron/refresh-slate/route.js": {
-      "maxDuration": 60
+    "app/api/**/*.js": {
+      "maxDuration": 10
     }
   }
 }
-
