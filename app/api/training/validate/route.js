@@ -12,7 +12,15 @@ export async function POST(request) {
   try {
     console.log('🔍 Validating completed mock props...')
     
-    const result = await validateCompletedMockProps()
+    // Check for force parameter
+    let body = {}
+    try {
+      body = await request.json()
+    } catch (e) {
+      // No body provided, that's ok
+    }
+    
+    const result = await validateCompletedMockProps(body.force)
     
     return NextResponse.json({
       success: true,

@@ -49,14 +49,15 @@ export default function TrainingPage() {
     }
   }
 
-  const validateMockProps = async () => {
+  const validateMockProps = async (force = false) => {
     setLoading(true)
     setResult(null)
 
     try {
       const response = await fetch('/api/training/validate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force })
       })
 
       const data = await response.json()
@@ -199,20 +200,34 @@ export default function TrainingPage() {
               </div>
             </div>
 
-            <button
-              onClick={validateMockProps}
-              disabled={loading}
-              className={`w-full py-3 px-4 rounded-lg font-medium transition-colors ${
-                loading
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-green-600 text-white hover:bg-green-700'
-              }`}
-            >
-              {loading ? '⏳ Validating...' : '✅ Validate Props'}
-            </button>
+            <div className="space-y-2">
+              <button
+                onClick={() => validateMockProps(false)}
+                disabled={loading}
+                className={`w-full py-3 px-4 rounded-lg font-medium transition-colors ${
+                  loading
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-green-600 text-white hover:bg-green-700'
+                }`}
+              >
+                {loading ? '⏳ Validating...' : '✅ Validate Finished Games'}
+              </button>
+
+              <button
+                onClick={() => validateMockProps(true)}
+                disabled={loading}
+                className={`w-full py-2 px-4 rounded-lg font-medium transition-colors ${
+                  loading
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-purple-600 text-white hover:bg-purple-700'
+                }`}
+              >
+                {loading ? '⏳ Validating...' : '⚡ Force Validate All (Testing)'}
+              </button>
+            </div>
 
             <p className="text-xs text-gray-500 mt-3">
-              Fetches actual stats from free APIs and checks accuracy
+              Use "Force Validate" to test with upcoming games
             </p>
           </div>
         </div>
