@@ -29,13 +29,47 @@ export async function POST(request) {
     }
     console.log(`✅ Upserted ${teamsAdded} NHL teams`)
     
-    // Fetch and upsert NHL games
-    console.log('🏒 Fetching NHL schedule...')
-    const games = await fetchNHLSchedule()
+    // Try multiple dates to handle timezone issues
+    // Fetch today, yesterday, and tomorrow to ensure we get games
+    const dates = []
+    const today = new Date()
     
-    console.log(`Found ${games.length} NHL games from ESPN`)
+    // Yesterday (in case server is ahead)
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
+    dates.push(yesterday.toISOString().split('T')[0])
     
-    for (const game of games) {
+    // Today
+    dates.push(today.toISOString().split('T')[0])
+    
+    // Tomorrow (in case server is behind)
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    dates.push(tomorrow.toISOString().split('T')[0])
+    
+    console.log(`🏒 Fetching NHL schedule for dates: ${dates.join(', ')}`)
+    
+    // Fetch games for all three dates
+    let allGames = []
+    for (const date of dates) {
+      try {
+        const games = await fetchNHLSchedule(date)
+        console.log(`Found ${games.length} NHL games for ${date}`)
+        allGames = [...allGames, ...games]
+      } catch (error) {
+        console.error(`Error fetching games for ${date}:`, error.message)
+      }
+    }
+    
+    // Remove duplicates by game ID
+    const uniqueGames = Array.from(
+      new Map(allGames.map(game => [game.id, game])).values()
+    )
+    
+    console.log(`Total unique NHL games found: ${uniqueGames.length}`)
+    
+    // Upsert all unique games
+    for (const game of uniqueGames) {
       try {
         console.log(`Upserting NHL game: ${game.id}`)
         await upsertGame(game)
@@ -51,7 +85,8 @@ export async function POST(request) {
       success: true,
       gamesAdded,
       teamsAdded,
-      message: `Fetched ${gamesAdded} NHL games and ${teamsAdded} teams`
+      datesChecked: dates,
+      message: `Fetched ${gamesAdded} NHL games and ${teamsAdded} teams (checked ${dates.length} dates)`
     })
     
   } catch (error) {
