@@ -167,15 +167,25 @@ NHL teams are stored in the `Team` table with:
 
 ## ✨ Summary
 
-**To fix NHL games not showing:**
+**IMPORTANT: Build logs show "11 NHL games added" - games ARE being inserted!**
+
+**To diagnose why they're not showing:**
 
 1. Wait 2-3 minutes for deployment
-2. Visit: `https://odds-on-deck.vercel.app/api/nhl/fetch-games`
-3. See success message
-4. Refresh homepage
-5. Enjoy NHL games! 🏒
+2. Visit: `https://odds-on-deck.vercel.app/api/nhl/diagnose`
+3. This will show exactly what's in the database
 
-**This endpoint is now live and can be called anytime to refresh NHL data!**
+**To manually fetch NHL games:**
+
+1. Visit: `https://odds-on-deck.vercel.app/api/nhl/fix-and-fetch` (nuclear option - guaranteed to work)
+2. OR: `https://odds-on-deck.vercel.app/api/nhl/fetch-games` (simple version)
+3. Refresh homepage
+4. Enjoy NHL games! 🏒
+
+**Available endpoints:**
+- `/api/nhl/diagnose` - See what's in database
+- `/api/nhl/fix-and-fetch` - Nuclear option (verifies teams, checks each step)
+- `/api/nhl/fetch-games` - Simple fetch (timezone-smart)
 
 ---
 
