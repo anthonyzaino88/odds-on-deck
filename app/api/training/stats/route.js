@@ -153,9 +153,7 @@ export async function GET(request) {
         id: true,
         sport: true,
         status: true,
-        date: true,
-        homeTeam: true,
-        awayTeam: true
+        date: true
       }
     })
     

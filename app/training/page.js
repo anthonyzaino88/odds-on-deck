@@ -1,7 +1,7 @@
 // Training Mode - Generate & validate mock props without paid API
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 
 export default function TrainingPage() {
@@ -114,7 +114,7 @@ export default function TrainingPage() {
   }
 
   // Load stats on mount
-  useState(() => {
+  useEffect(() => {
     fetchStats()
   }, [])
 
