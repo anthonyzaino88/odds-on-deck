@@ -11,7 +11,48 @@ export const metadata = {
 }
 
 export default async function DFSPage() {
-  const players = await getPlayersForDFS()
+  let players = []
+  
+  try {
+    players = await getPlayersForDFS()
+  } catch (error) {
+    console.error('Error fetching players for DFS:', error)
+    // Return empty array if database error
+    players = []
+  }
+  
+  // If no players, show empty state
+  if (!players || players.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">DFS Player Values</h1>
+          <p className="text-gray-600 mt-2">
+            Player projections and value rankings for daily fantasy sports.
+          </p>
+        </div>
+        
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
+          <div className="text-6xl mb-4">🎮</div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            No Player Data Available
+          </h3>
+          <p className="text-gray-600 mb-4">
+            The database is currently being populated. Player DFS values will appear once data is loaded.
+          </p>
+          <p className="text-sm text-gray-500">
+            This page will show player projections, salaries, and value rankings for daily fantasy sports.
+          </p>
+        </div>
+        
+        <div className="text-sm text-gray-600 space-y-2">
+          <p>
+            <strong>Coming Soon:</strong> Full DFS integration with player projections and value rankings.
+          </p>
+        </div>
+      </div>
+    )
+  }
   
   // Separate hitters and pitchers
   const hitters = players.filter(p => !p.isPitcher)
