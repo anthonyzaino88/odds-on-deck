@@ -71,15 +71,21 @@ export default async function GamesPage() {
     return (
       <div className="text-center py-12">
         <h1 className="text-2xl font-bold text-gray-900 mb-4">Today's Slate</h1>
-        <p className="text-gray-600">
+        <p className="text-gray-600 mb-4">
           No games scheduled for today. Check back tomorrow!
         </p>
-        <Link
-          href="/api/cron/refresh-slate"
-          className="btn btn-primary mt-4 inline-block"
-        >
-          Refresh Data
-        </Link>
+        <div className="text-sm text-gray-500 space-y-2">
+          <p>Try fetching games manually:</p>
+          <div className="flex gap-2 justify-center">
+            <a
+              href="/api/nhl/fetch-games"
+              target="_blank"
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            >
+              🏒 Fetch NHL Games
+            </a>
+          </div>
+        </div>
       </div>
     )
   }
@@ -93,12 +99,6 @@ export default async function GamesPage() {
           <span className="text-sm text-gray-600">
             {activeMLBGames.length + activeNFLGames.length + activeNHLGames.length} games • ⚾ {activeMLBGames.length} MLB • 🏈 {activeNFLGames.length} NFL • 🏒 {activeNHLGames.length} NHL
           </span>
-          <Link
-            href="/api/cron/refresh-slate"
-            className="btn btn-secondary text-sm"
-          >
-            Full Refresh
-          </Link>
         </div>
       </div>
 
