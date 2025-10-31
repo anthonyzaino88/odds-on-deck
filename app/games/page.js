@@ -17,8 +17,9 @@ export const metadata = {
   description: 'MLB, NFL, and NHL games with matchup edges and betting insights',
 }
 
-// Revalidate every 5 minutes
-export const revalidate = 300
+// Force dynamic rendering to always fetch fresh data
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 export default async function GamesPage() {
   // Get all data from centralized data manager

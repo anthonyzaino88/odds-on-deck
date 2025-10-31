@@ -5,6 +5,10 @@ import SimpleRefreshButton from '../components/SimpleRefreshButton'
 import AutoRefreshWrapper from '../components/AutoRefreshWrapper.js'
 import LiveScoreCard from '../components/LiveScoreCard.js'
 
+// Force dynamic rendering to always fetch fresh data
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export default async function HomePage() {
   try {
     // Initialize fresh data on startup
