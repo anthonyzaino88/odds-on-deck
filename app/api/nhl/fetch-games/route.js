@@ -19,15 +19,18 @@ export async function POST(request) {
     // Fetch and upsert NHL teams first
     console.log('🏒 Fetching NHL teams...')
     const teams = await fetchNHLTeams()
+    console.log(`Found ${teams.length} NHL teams from ESPN`)
+    
     for (const team of teams) {
       try {
+        console.log(`Upserting team: ${team.id} (${team.name})`)
         await upsertTeam(team)
         teamsAdded++
       } catch (error) {
-        // Skip duplicates
+        console.error(`Error upserting team ${team.id}:`, error.message)
       }
     }
-    console.log(`✅ Upserted ${teamsAdded} NHL teams`)
+    console.log(`✅ Upserted ${teamsAdded} NHL teams out of ${teams.length}`)
     
     // Try multiple dates to handle timezone issues
     // Fetch today, yesterday, and tomorrow to ensure we get games
@@ -71,11 +74,17 @@ export async function POST(request) {
     // Upsert all unique games
     for (const game of uniqueGames) {
       try {
-        console.log(`Upserting NHL game: ${game.id}`)
-        await upsertGame(game)
-        gamesAdded++
+        console.log(`Upserting NHL game: ${game.id} (${game.awayId} @ ${game.homeId})`)
+        const result = await upsertGame(game)
+        if (result) {
+          gamesAdded++
+          console.log(`✅ Game ${game.id} upserted successfully`)
+        } else {
+          console.warn(`⚠️ Game ${game.id} returned null (likely missing teams)`)
+        }
       } catch (error) {
-        console.error(`Error upserting game ${game.id}:`, error.message)
+        console.error(`❌ Error upserting game ${game.id}:`, error.message)
+        console.error(`   Game data:`, JSON.stringify(game, null, 2))
       }
     }
     
