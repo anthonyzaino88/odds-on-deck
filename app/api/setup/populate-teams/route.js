@@ -6,16 +6,8 @@ import { fetchNFLTeams } from '../../../../lib/vendors/nfl-stats.js'
 import { fetchNHLTeams } from '../../../../lib/vendors/nhl-stats.js'
 import { prisma } from '../../../../lib/db.js'
 
-export async function POST(request) {
-  try {
-    const { authorization } = await request.headers
-    
-    // Simple auth check (you can remove this after running once)
-    // if (authorization !== 'Bearer setup-teams-2025') {
-    //   return Response.json({ error: 'Unauthorized' }, { status: 401 })
-    // }
-    
-    console.log('🚀 SETUP: Populating NFL and NHL teams...')
+async function populateTeams() {
+  console.log('🚀 SETUP: Populating NFL and NHL teams...')
     
     let nflAdded = 0
     let nflUpdated = 0
@@ -106,7 +98,7 @@ export async function POST(request) {
     
     console.log('✅ SETUP COMPLETE!')
     
-    return Response.json({
+    return {
       success: true,
       results: {
         nfl: {
@@ -121,7 +113,27 @@ export async function POST(request) {
         }
       },
       message: `Successfully populated ${nflAdded + nhlAdded} new teams and updated ${nflUpdated + nhlUpdated} existing teams`
-    })
+    }
+}
+
+export async function GET(request) {
+  try {
+    const result = await populateTeams()
+    return Response.json(result)
+  } catch (error) {
+    console.error('Setup error:', error)
+    return Response.json({
+      success: false,
+      error: error.message,
+      stack: error.stack
+    }, { status: 500 })
+  }
+}
+
+export async function POST(request) {
+  try {
+    const result = await populateTeams()
+    return Response.json(result)
   } catch (error) {
     console.error('Setup error:', error)
     return Response.json({
