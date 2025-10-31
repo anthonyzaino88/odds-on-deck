@@ -112,6 +112,73 @@ export async function GET(request) {
       }
     })
     
+    // Props by sport
+    const propsBySport = await prisma.mockPropValidation.groupBy({
+      by: ['sport'],
+      _count: true
+    })
+    
+    const sportBreakdown = {}
+    for (const item of propsBySport) {
+      const sportPending = await prisma.mockPropValidation.count({
+        where: { sport: item.sport, status: 'pending' }
+      })
+      const sportCompleted = await prisma.mockPropValidation.count({
+        where: { sport: item.sport, status: 'completed' }
+      })
+      const sportCorrect = await prisma.mockPropValidation.count({
+        where: { sport: item.sport, status: 'completed', result: 'correct' }
+      })
+      
+      sportBreakdown[item.sport] = {
+        total: item._count,
+        pending: sportPending,
+        completed: sportCompleted,
+        correct: sportCorrect,
+        accuracy: sportCompleted > 0 ? (sportCorrect / sportCompleted * 100).toFixed(1) : 0
+      }
+    }
+    
+    // Game status breakdown
+    const mockProps = await prisma.mockPropValidation.findMany({
+      where: { status: 'pending' },
+      select: { gameIdRef: true },
+      distinct: ['gameIdRef']
+    })
+    
+    const gameIds = mockProps.map(p => p.gameIdRef)
+    const games = await prisma.game.findMany({
+      where: { id: { in: gameIds } },
+      select: {
+        id: true,
+        sport: true,
+        status: true,
+        date: true,
+        homeTeam: true,
+        awayTeam: true
+      }
+    })
+    
+    const gameStatusBreakdown = {
+      upcoming: 0,
+      inProgress: 0,
+      finished: 0,
+      total: games.length
+    }
+    
+    const now = new Date()
+    for (const game of games) {
+      const gameDate = new Date(game.date)
+      const hoursAgo = (now - gameDate) / (1000 * 60 * 60)
+      
+      const isFinal = ['final', 'completed', 'f', 'closed'].includes(game.status?.toLowerCase()) || hoursAgo > 5
+      const isInProgress = !isFinal && hoursAgo > 0 && hoursAgo < 5
+      
+      if (isFinal) gameStatusBreakdown.finished++
+      else if (isInProgress) gameStatusBreakdown.inProgress++
+      else gameStatusBreakdown.upcoming++
+    }
+    
     // Calculate cost savings (vs paid API)
     // Assuming $0.01 per odds API call, and we'd need 1 call per prop
     const costSaved = (totalProps * 0.01).toFixed(2)
@@ -128,6 +195,8 @@ export async function GET(request) {
         accuracy: parseFloat(accuracy),
         costSaved: `$${costSaved}`
       },
+      sportBreakdown,
+      gameStatusBreakdown,
       propTypeAccuracy,
       confidenceStats: confidenceStats2,
       recentPredictions

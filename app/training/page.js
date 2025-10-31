@@ -96,7 +96,17 @@ export default function TrainingPage() {
       const data = await response.json()
       
       if (data.success) {
-        setStats(data.stats)
+        setStats({
+          total: data.summary.totalProps,
+          pending: data.summary.pendingProps,
+          completed: data.summary.completedProps,
+          correct: data.summary.correctProps,
+          incorrect: data.summary.incorrectProps,
+          pushes: data.summary.pushProps,
+          accuracy: data.summary.accuracy,
+          sportBreakdown: data.sportBreakdown,
+          gameStatusBreakdown: data.gameStatusBreakdown
+        })
       }
     } catch (error) {
       console.error('Error fetching stats:', error)
@@ -272,64 +282,145 @@ export default function TrainingPage() {
 
         {/* Current Stats */}
         {stats && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              📊 Training Mode Statistics
-            </h3>
+          <>
+            <div className="bg-white rounded-lg shadow p-6 mb-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                📊 Overall Statistics
+              </h3>
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="text-2xl font-bold text-gray-900">
-                  {stats.total || 0}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <div className="text-2xl font-bold text-gray-900">
+                    {stats.total || 0}
+                  </div>
+                  <div className="text-sm text-gray-600">Total Props</div>
                 </div>
-                <div className="text-sm text-gray-600">Total Props</div>
+
+                <div className="bg-yellow-50 rounded-lg p-4">
+                  <div className="text-2xl font-bold text-yellow-800">
+                    {stats.pending || 0}
+                  </div>
+                  <div className="text-sm text-gray-600">Pending</div>
+                </div>
+
+                <div className="bg-green-50 rounded-lg p-4">
+                  <div className="text-2xl font-bold text-green-800">
+                    {stats.completed || 0}
+                  </div>
+                  <div className="text-sm text-gray-600">Completed</div>
+                </div>
+
+                <div className="bg-blue-50 rounded-lg p-4">
+                  <div className="text-2xl font-bold text-blue-800">
+                    {stats.accuracy ? stats.accuracy.toFixed(1) : '0.0'}%
+                  </div>
+                  <div className="text-sm text-gray-600">Accuracy</div>
+                </div>
               </div>
 
-              <div className="bg-yellow-50 rounded-lg p-4">
-                <div className="text-2xl font-bold text-yellow-800">
-                  {stats.pending || 0}
+              {stats.completed > 0 && (
+                <div className="mt-6 pt-6 border-t border-gray-200">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm text-gray-600">Correct</span>
+                    <span className="text-sm font-medium text-green-600">
+                      {stats.correct || 0}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm text-gray-600">Incorrect</span>
+                    <span className="text-sm font-medium text-red-600">
+                      {stats.incorrect || 0}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600">Push</span>
+                    <span className="text-sm font-medium text-gray-600">
+                      {stats.pushes || 0}
+                    </span>
+                  </div>
                 </div>
-                <div className="text-sm text-gray-600">Pending</div>
-              </div>
-
-              <div className="bg-green-50 rounded-lg p-4">
-                <div className="text-2xl font-bold text-green-800">
-                  {stats.completed || 0}
-                </div>
-                <div className="text-sm text-gray-600">Completed</div>
-              </div>
-
-              <div className="bg-blue-50 rounded-lg p-4">
-                <div className="text-2xl font-bold text-blue-800">
-                  {stats.accuracy ? (stats.accuracy * 100).toFixed(1) : '0.0'}%
-                </div>
-                <div className="text-sm text-gray-600">Accuracy</div>
-              </div>
+              )}
             </div>
 
-            {stats.completed > 0 && (
-              <div className="mt-6 pt-6 border-t border-gray-200">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm text-gray-600">Correct</span>
-                  <span className="text-sm font-medium text-green-600">
-                    {stats.correct || 0}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm text-gray-600">Incorrect</span>
-                  <span className="text-sm font-medium text-red-600">
-                    {stats.incorrect || 0}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Push</span>
-                  <span className="text-sm font-medium text-gray-600">
-                    {stats.pushes || 0}
-                  </span>
+            {/* Sport Breakdown */}
+            {stats.sportBreakdown && Object.keys(stats.sportBreakdown).length > 0 && (
+              <div className="bg-white rounded-lg shadow p-6 mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                  🏆 Props by Sport
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {Object.entries(stats.sportBreakdown).map(([sport, data]) => (
+                    <div key={sport} className="border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-lg font-semibold uppercase">
+                          {sport === 'mlb' ? '⚾ MLB' : sport === 'nfl' ? '🏈 NFL' : sport === 'nhl' ? '🏒 NHL' : sport}
+                        </span>
+                        <span className="text-2xl font-bold text-gray-900">{data.total}</span>
+                      </div>
+                      <div className="space-y-1 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Pending:</span>
+                          <span className="font-medium text-yellow-600">{data.pending}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Completed:</span>
+                          <span className="font-medium text-green-600">{data.completed}</span>
+                        </div>
+                        {data.completed > 0 && (
+                          <div className="flex justify-between pt-2 border-t border-gray-200">
+                            <span className="text-gray-600">Accuracy:</span>
+                            <span className="font-bold text-blue-600">{data.accuracy}%</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
-          </div>
+
+            {/* Game Status Breakdown */}
+            {stats.gameStatusBreakdown && stats.gameStatusBreakdown.total > 0 && (
+              <div className="bg-white rounded-lg shadow p-6 mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                  🎮 Game Status (for Pending Props)
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <div className="text-2xl font-bold text-gray-900">
+                      {stats.gameStatusBreakdown.total}
+                    </div>
+                    <div className="text-sm text-gray-600">Total Games</div>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-4">
+                    <div className="text-2xl font-bold text-blue-800">
+                      {stats.gameStatusBreakdown.upcoming}
+                    </div>
+                    <div className="text-sm text-gray-600">⏰ Upcoming</div>
+                  </div>
+                  <div className="bg-orange-50 rounded-lg p-4">
+                    <div className="text-2xl font-bold text-orange-800">
+                      {stats.gameStatusBreakdown.inProgress}
+                    </div>
+                    <div className="text-sm text-gray-600">🔴 In Progress</div>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-4">
+                    <div className="text-2xl font-bold text-green-800">
+                      {stats.gameStatusBreakdown.finished}
+                    </div>
+                    <div className="text-sm text-gray-600">✅ Finished</div>
+                  </div>
+                </div>
+                {stats.gameStatusBreakdown.finished > 0 && (
+                  <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <p className="text-sm text-green-800">
+                      💡 <strong>{stats.gameStatusBreakdown.finished} games</strong> are finished and ready to validate!
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
 
         {/* Quick Links */}
