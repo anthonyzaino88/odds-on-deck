@@ -31,8 +31,8 @@ export async function GET(request) {
         ]
       },
       include: {
-        homeTeam: true,
-        awayTeam: true
+        home: true,
+        away: true
       },
       orderBy: {
         date: 'desc'
@@ -59,8 +59,8 @@ export async function GET(request) {
         }
       },
       include: {
-        homeTeam: true,
-        awayTeam: true
+        home: true,
+        away: true
       }
     })
     
@@ -79,8 +79,8 @@ export async function GET(request) {
         sport: g.sport,
         date: g.date,
         status: g.status,
-        home: g.homeTeam?.abbr || g.homeId,
-        away: g.awayTeam?.abbr || g.awayId,
+        home: g.home?.abbr || g.homeId,
+        away: g.away?.abbr || g.awayId,
         homeScore: g.homeScore,
         awayScore: g.awayScore,
         espnGameId: g.espnGameId
@@ -88,8 +88,8 @@ export async function GET(request) {
       todaysGamesDetail: todaysGames.map(g => ({
         id: g.id,
         date: g.date,
-        home: g.homeTeam?.name,
-        away: g.awayTeam?.name,
+        home: g.home?.name,
+        away: g.away?.name,
         status: g.status
       })),
       dates: {
