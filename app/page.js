@@ -1,9 +1,10 @@
 import Link from 'next/link'
 import { format } from 'date-fns'
-import { getAllData } from '../lib/data-manager.js'
+import { getFastData } from '../lib/data-manager.js'
 import SimpleRefreshButton from '../components/SimpleRefreshButton'
 import AutoRefreshWrapper from '../components/AutoRefreshWrapper.js'
 import LiveScoreCard from '../components/LiveScoreCard.js'
+import BackgroundDataLoader from '../components/BackgroundDataLoader.js'
 
 // Force dynamic rendering to always fetch fresh data
 export const dynamic = 'force-dynamic'
@@ -15,37 +16,19 @@ export default async function HomePage() {
   let hasError = false
   
   try {
-    // Initialize fresh data on startup
-    console.log('🚀 Home page loading - fetching data...')
+    // FAST LOAD: Get games quickly (no heavy API calls)
+    console.log('⚡ Home page loading - fetching FAST data (games only)...')
     
-    // Get all data from centralized data manager (with timeout protection)
-    // Wrap in Promise.race to timeout after 8 seconds
-    const dataPromise = getAllData()
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Data fetch timeout')), 8000)
-    )
+    // Get fast data - just games from database
+    const fastData = await getFastData()
+    mlbGames = fastData.mlbGames || []
+    nflGames = fastData.nflGames || []
+    nhlGames = fastData.nhlGames || []
+    picks = [] // Will be loaded in background
+    playerProps = [] // Will be loaded in background
+    lastUpdated = fastData.lastUpdated || new Date()
     
-    try {
-      const data = await Promise.race([dataPromise, timeoutPromise])
-      mlbGames = data.mlbGames || []
-      nflGames = data.nflGames || []
-      nhlGames = data.nhlGames || []
-      picks = data.picks || []
-      playerProps = data.playerProps || []
-      lastUpdated = data.lastUpdated || new Date()
-    } catch (timeoutError) {
-      console.warn('⚠️ Data fetch timeout - showing cached/empty state:', timeoutError.message)
-      // Try to get at least games from database directly (faster)
-      try {
-        const { getTodaysMLBGames, getThisWeeksNFLGames, getTodaysNHLGames } = await import('../lib/data-manager.js')
-        mlbGames = await getTodaysMLBGames().catch(() => [])
-        nflGames = await getThisWeeksNFLGames().catch(() => [])
-        nhlGames = await getTodaysNHLGames().catch(() => [])
-      } catch (dbError) {
-        console.error('Error fetching games from DB:', dbError)
-        hasError = true
-      }
-    }
+    console.log('✅ Fast data loaded - page will render now, background refresh starting...')
   
   const topPicks = picks.slice(0, 3)
   const topProps = playerProps.slice(0, 3) // Top 3 props for home page
@@ -120,6 +103,7 @@ export default async function HomePage() {
         
         {/* Header */}
         <div className="text-center mb-8">
+          <BackgroundDataLoader />
           <h1 className="text-4xl font-bold text-gray-900 mb-2">
             🏆 Odds on Deck
           </h1>
