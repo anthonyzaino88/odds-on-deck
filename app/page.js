@@ -40,10 +40,7 @@ export default function HomePage() {
     }
 
     fetchGames()
-    
-    // Refresh every 30 seconds
-    const interval = setInterval(fetchGames, 30000)
-    return () => clearInterval(interval)
+    // REMOVED: No interval needed - data is persistent in Supabase
   }, [])
 
   return (
