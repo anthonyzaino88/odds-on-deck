@@ -1,5 +1,4 @@
 // API endpoint to get today's games and upcoming games
-// Homepage calls this instead of querying DB directly
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -12,34 +11,25 @@ export async function GET() {
   try {
     console.log('📅 API: Fetching games...')
     
-    // Get date range
+    // Get date range - show games from 30 days ago to 30 days future
+    // This allows testing with historical data
     const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+    const thirtyDaysLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
     
-    // For MLB/NHL: today only
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    
-    // For NFL: next 7 days
-    const weekEnd = new Date(today)
-    weekEnd.setDate(weekEnd.getDate() + 7)
-    
-    console.log(`Date range: ${today.toISOString()} to ${weekEnd.toISOString()}`)
+    console.log(`Date range: ${thirtyDaysAgo.toISOString()} to ${thirtyDaysLater.toISOString()}`)
     
     // Query games with individual error handling
     let mlbGames = []
     let nflGames = []
     let nhlGames = []
     
-    // MLB games - show games from today onwards (more flexible)
+    // MLB games
     try {
-      const twoWeeksOut = new Date(today)
-      twoWeeksOut.setDate(twoWeeksOut.getDate() + 14)
-      
       mlbGames = await prisma.game.findMany({
         where: {
           sport: 'mlb',
-          date: { gte: today }  // Today or later
+          date: { gte: thirtyDaysAgo, lte: thirtyDaysLater }
         },
         select: {
           id: true, date: true, status: true, homeScore: true, awayScore: true,
@@ -54,12 +44,12 @@ export async function GET() {
       console.error('❌ MLB query failed:', err.message)
     }
     
-    // NFL games - full week
+    // NFL games
     try {
       nflGames = await prisma.game.findMany({
         where: {
           sport: 'nfl',
-          date: { gte: today, lt: weekEnd }
+          date: { gte: thirtyDaysAgo, lte: thirtyDaysLater }
         },
         select: {
           id: true, date: true, status: true, homeScore: true, awayScore: true,
@@ -74,12 +64,12 @@ export async function GET() {
       console.error('❌ NFL query failed:', err.message)
     }
     
-    // NHL games - show games from today onwards
+    // NHL games
     try {
       nhlGames = await prisma.game.findMany({
         where: {
           sport: 'nhl',
-          date: { gte: today }  // Today or later
+          date: { gte: thirtyDaysAgo, lte: thirtyDaysLater }
         },
         select: {
           id: true, date: true, status: true, homeScore: true, awayScore: true,
