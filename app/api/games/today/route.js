@@ -1,10 +1,9 @@
 // API endpoint to get today's games
 // Homepage calls this instead of querying DB directly
-// This gives us better control over timeouts and caching
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
-export const maxDuration = 30 // 30 second timeout
+export const maxDuration = 30
 
 import { NextResponse } from 'next/server'
 import { prisma } from '../../../../lib/db.js'
@@ -23,93 +22,99 @@ export async function GET() {
     const weekEnd = new Date(today)
     weekEnd.setDate(weekEnd.getDate() + 7)
     
+    console.log(`Querying games from ${today.toISOString()} to ${tomorrow.toISOString()}`)
+    
+    // Query games with individual error handling
+    let mlbGames = []
+    let nflGames = []
+    let nhlGames = []
+    
+    // MLB games
     try {
-      // Query all games in parallel with timeout protection
-      const gamesPromise = Promise.all([
-        // MLB: today only
-        prisma.game.findMany({
-          where: {
-            sport: 'mlb',
-            date: { gte: today, lt: tomorrow }
-          },
-          select: {
-            id: true,
-            date: true,
-            status: true,
-            homeScore: true,
-            awayScore: true,
-            home: { select: { abbr: true, name: true } },
-            away: { select: { abbr: true, name: true } }
-          },
-          orderBy: { date: 'asc' },
-          take: 100 // Limit to prevent huge queries
-        }),
-        
-        // NFL: this week
-        prisma.game.findMany({
-          where: {
-            sport: 'nfl',
-            date: { gte: today, lt: weekEnd }
-          },
-          select: {
-            id: true,
-            date: true,
-            status: true,
-            homeScore: true,
-            awayScore: true,
-            home: { select: { abbr: true, name: true } },
-            away: { select: { abbr: true, name: true } }
-          },
-          orderBy: { date: 'asc' },
-          take: 100
-        }),
-        
-        // NHL: today only
-        prisma.game.findMany({
-          where: {
-            sport: 'nhl',
-            date: { gte: today, lt: tomorrow }
-          },
-          select: {
-            id: true,
-            date: true,
-            status: true,
-            homeScore: true,
-            awayScore: true,
-            home: { select: { abbr: true, name: true } },
-            away: { select: { abbr: true, name: true } }
-          },
-          orderBy: { date: 'asc' },
-          take: 100
-        })
-      ])
-      
-      const [mlbGames, nflGames, nhlGames] = await gamesPromise
-      
-      console.log(`✅ Games loaded: ${mlbGames.length} MLB, ${nflGames.length} NFL, ${nhlGames.length} NHL`)
-      
-      return NextResponse.json({
-        success: true,
-        data: {
-          mlb: mlbGames,
-          nfl: nflGames,
-          nhl: nhlGames
+      mlbGames = await prisma.game.findMany({
+        where: {
+          sport: 'mlb',
+          date: { gte: today, lt: tomorrow }
         },
-        timestamp: new Date().toISOString()
+        select: {
+          id: true,
+          date: true,
+          status: true,
+          homeScore: true,
+          awayScore: true,
+          home: { select: { abbr: true, name: true } },
+          away: { select: { abbr: true, name: true } }
+        },
+        orderBy: { date: 'asc' },
+        take: 100
       })
-      
-    } catch (queryError) {
-      console.error('❌ Query error:', queryError.message)
-      return NextResponse.json({
-        success: false,
-        error: 'Failed to fetch games',
-        data: { mlb: [], nfl: [], nhl: [] },
-        timestamp: new Date().toISOString()
-      }, { status: 500 })
+      console.log(`✅ MLB: ${mlbGames.length} games`)
+    } catch (err) {
+      console.error('❌ MLB query failed:', err.message)
     }
     
+    // NFL games
+    try {
+      nflGames = await prisma.game.findMany({
+        where: {
+          sport: 'nfl',
+          date: { gte: today, lt: weekEnd }
+        },
+        select: {
+          id: true,
+          date: true,
+          status: true,
+          homeScore: true,
+          awayScore: true,
+          home: { select: { abbr: true, name: true } },
+          away: { select: { abbr: true, name: true } }
+        },
+        orderBy: { date: 'asc' },
+        take: 100
+      })
+      console.log(`✅ NFL: ${nflGames.length} games`)
+    } catch (err) {
+      console.error('❌ NFL query failed:', err.message)
+    }
+    
+    // NHL games
+    try {
+      nhlGames = await prisma.game.findMany({
+        where: {
+          sport: 'nhl',
+          date: { gte: today, lt: tomorrow }
+        },
+        select: {
+          id: true,
+          date: true,
+          status: true,
+          homeScore: true,
+          awayScore: true,
+          home: { select: { abbr: true, name: true } },
+          away: { select: { abbr: true, name: true } }
+        },
+        orderBy: { date: 'asc' },
+        take: 100
+      })
+      console.log(`✅ NHL: ${nhlGames.length} games`)
+    } catch (err) {
+      console.error('❌ NHL query failed:', err.message)
+    }
+    
+    console.log(`✅ API response: ${mlbGames.length} MLB, ${nflGames.length} NFL, ${nhlGames.length} NHL`)
+    
+    return NextResponse.json({
+      success: true,
+      data: {
+        mlb: mlbGames,
+        nfl: nflGames,
+        nhl: nhlGames
+      },
+      timestamp: new Date().toISOString()
+    })
+    
   } catch (error) {
-    console.error('❌ API error:', error.message)
+    console.error('❌ API error:', error)
     return NextResponse.json({
       success: false,
       error: error.message,
