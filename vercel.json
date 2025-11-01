@@ -1,8 +1,5 @@
 {
   "crons": [],
-  "env": {
-    "DATABASE_URL": "file:./prisma/dev.db"
-  },
   "functions": {
     "app/api/**/*.js": {
       "maxDuration": 10
