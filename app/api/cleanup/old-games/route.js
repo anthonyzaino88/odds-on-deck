@@ -2,6 +2,7 @@
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
+import { NextResponse } from 'next/server'
 import { prisma } from '../../../../lib/db.js'
 
 export async function POST(request) {
@@ -42,7 +43,7 @@ export async function POST(request) {
     
     console.log(`✅ Deleted ${finalResult.count} completed games older than 7 days`)
     
-    return Response.json({
+    return NextResponse.json({
       success: true,
       deleted: {
         oldGames: result.count,
@@ -54,7 +55,7 @@ export async function POST(request) {
     })
   } catch (error) {
     console.error('Cleanup error:', error)
-    return Response.json({
+    return NextResponse.json({
       success: false,
       error: error.message,
       stack: error.stack
