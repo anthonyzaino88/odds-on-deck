@@ -1,4 +1,6 @@
 // High-frequency live data refresh for active games
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { fetchAndStoreLiveGameData } from '../../../../lib/live-data.js'
