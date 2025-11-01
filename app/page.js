@@ -10,12 +10,42 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 export default async function HomePage() {
+  let mlbGames = [], nflGames = [], nhlGames = [], picks = [], playerProps = []
+  let lastUpdated = new Date()
+  let hasError = false
+  
   try {
     // Initialize fresh data on startup
-    console.log('🚀 Home page loading - ensuring fresh data...')
+    console.log('🚀 Home page loading - fetching data...')
     
-    // Get all data from centralized data manager (will auto-refresh if stale)
-    const { mlbGames, nflGames, nhlGames, picks, playerProps, lastUpdated } = await getAllData()
+    // Get all data from centralized data manager (with timeout protection)
+    // Wrap in Promise.race to timeout after 8 seconds
+    const dataPromise = getAllData()
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Data fetch timeout')), 8000)
+    )
+    
+    try {
+      const data = await Promise.race([dataPromise, timeoutPromise])
+      mlbGames = data.mlbGames || []
+      nflGames = data.nflGames || []
+      nhlGames = data.nhlGames || []
+      picks = data.picks || []
+      playerProps = data.playerProps || []
+      lastUpdated = data.lastUpdated || new Date()
+    } catch (timeoutError) {
+      console.warn('⚠️ Data fetch timeout - showing cached/empty state:', timeoutError.message)
+      // Try to get at least games from database directly (faster)
+      try {
+        const { getTodaysMLBGames, getThisWeeksNFLGames, getTodaysNHLGames } = await import('../lib/data-manager.js')
+        mlbGames = await getTodaysMLBGames().catch(() => [])
+        nflGames = await getThisWeeksNFLGames().catch(() => [])
+        nhlGames = await getTodaysNHLGames().catch(() => [])
+      } catch (dbError) {
+        console.error('Error fetching games from DB:', dbError)
+        hasError = true
+      }
+    }
   
   const topPicks = picks.slice(0, 3)
   const topProps = playerProps.slice(0, 3) // Top 3 props for home page
@@ -318,11 +348,22 @@ export default async function HomePage() {
   )
   } catch (error) {
     console.error('Error in HomePage:', error)
+    hasError = true
+    // Fall through to show page with empty state
+  }
+  
+  // If we have an error and no data, show a warning but still render the page
+  if (hasError && mlbGames.length === 0 && nflGames.length === 0 && nhlGames.length === 0) {
+    // Still show the page structure, just with a warning
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Error Loading Page</h1>
-          <p className="text-gray-600">There was an error loading the application. Please try again later.</p>
+      <div className="min-h-screen bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 py-8">
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+            <p className="text-yellow-800">⚠️ Data is loading slowly. Please refresh in a moment.</p>
+          </div>
+          {/* Show page structure with empty state */}
+          <h1 className="text-3xl font-bold mb-6">Odds on Deck</h1>
+          <p className="text-gray-600">Games will appear here once data loads...</p>
         </div>
       </div>
     )
