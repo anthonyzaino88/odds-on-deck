@@ -1,6 +1,7 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 // Last updated: 2025-11-01 - Configured for Supabase PostgreSQL
+// CACHE BUST: Force fresh Prisma Client generation
 
 generator client {
   provider = "prisma-client-js"
