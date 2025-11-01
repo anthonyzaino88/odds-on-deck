@@ -6,12 +6,9 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
-import { prisma } from '../../../lib/db.js'
-import { fetchSchedule, fetchTeams } from '../../../lib/vendors/stats.js'
-import { fetchOdds } from '../../../lib/vendors/odds.js'
-import { fetchEventPlayerProps } from '../../../lib/vendors/player-props-odds.js'
-
-const MAX_DURATION = 60 // 60 seconds max duration
+import { prisma } from '../../../../lib/db.js'
+import { fetchSchedule, fetchTeams } from '../../../../lib/vendors/stats.js'
+import { fetchOdds } from '../../../../lib/vendors/odds.js'
 
 export async function POST() {
   const startTime = Date.now()
@@ -27,12 +24,11 @@ export async function POST() {
         teamsUpserted: 0,
         gamesUpserted: 0,
         oddsCreated: 0,
-        propsProcessed: 0,
         errors: []
       }
     }
     
-    // Step 1: Populate Teams (quick)
+    // Step 1: Populate Teams
     console.log('📋 Step 1: Populating teams...')
     try {
       const teams = await fetchTeams()
@@ -51,14 +47,13 @@ export async function POST() {
       results.stats.errors.push(msg)
     }
     
-    // Step 2: Populate Games (quick)
+    // Step 2: Populate Games
     console.log('📅 Step 2: Populating games...')
     try {
       const games = await fetchSchedule({ useLocalDate: true, noCache: true })
       
       for (const game of games) {
         try {
-          // Find teams by abbreviation (more reliable than ID)
           const [homeTeam, awayTeam] = await Promise.all([
             prisma.team.findFirst({ where: { abbr: game.home.abbr } }),
             prisma.team.findFirst({ where: { abbr: game.away.abbr } })
@@ -95,14 +90,13 @@ export async function POST() {
       results.stats.errors.push(msg)
     }
     
-    // Step 3: Populate Odds (medium - Odds API)
+    // Step 3: Populate Odds
     console.log('💰 Step 3: Populating odds...')
     try {
       const oddsData = await fetchOdds()
       
       for (const odds of oddsData) {
         try {
-          // Check if game exists
           const game = await prisma.game.findUnique({ where: { id: odds.gameId } })
           if (game) {
             await prisma.odds.create({
@@ -113,43 +107,16 @@ export async function POST() {
                 priceHome: odds.priceHome,
                 priceAway: odds.priceAway
               }
-            }).catch(() => {
-              // Duplicate odds are OK - just skip
-            })
+            }).catch(() => {})
             results.stats.oddsCreated++
           }
         } catch (oddsError) {
           // Skip individual odds errors
         }
       }
-      console.log(`✅ Created odds for games`)
+      console.log(`✅ Created odds`)
     } catch (error) {
       const msg = `Error populating odds: ${error.message}`
-      console.error(msg)
-      results.stats.errors.push(msg)
-    }
-    
-    // Step 4: Populate Player Props (slow - The Odds API)
-    console.log('🏟️ Step 4: Populating player props...')
-    try {
-      const allGames = await prisma.game.findMany({
-        where: { sport: 'mlb', date: { gte: new Date() } },
-        select: { id: true, mlbGameId: true }
-      })
-      
-      for (const game of allGames) {
-        if (!game.mlbGameId) continue
-        
-        try {
-          const props = await fetchEventPlayerProps(game.mlbGameId, 'mlb')
-          results.stats.propsProcessed += (props?.length || 0)
-        } catch (propError) {
-          // Props can fail for individual games - continue
-        }
-      }
-      console.log(`✅ Processed player props`)
-    } catch (error) {
-      const msg = `Error populating player props: ${error.message}`
       console.error(msg)
       results.stats.errors.push(msg)
     }
@@ -157,8 +124,6 @@ export async function POST() {
     results.duration = Math.round((Date.now() - startTime) / 1000)
     
     console.log(`✅ [AUTO-POPULATE] Completed in ${results.duration}s`)
-    console.log(JSON.stringify(results, null, 2))
-    
     return NextResponse.json(results)
     
   } catch (error) {
@@ -172,7 +137,6 @@ export async function POST() {
   }
 }
 
-// Allow GET for testing - will act like POST
 export async function GET() {
   return POST()
 }
