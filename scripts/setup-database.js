@@ -57,8 +57,8 @@ async function main() {
     console.log('📋 Step 1: Populating MLB teams...')
     for (const team of MLB_TEAMS) {
       await prisma.team.upsert({
-        where: { id: team.id },
-        update: { name: team.name, abbr: team.abbr },
+        where: { abbr_sport: { abbr: team.abbr, sport: team.sport } },
+        update: { name: team.name },
         create: team
       })
     }
@@ -70,14 +70,14 @@ async function main() {
       const nflTeams = await fetchNFLTeams()
       for (const team of nflTeams) {
         await prisma.team.upsert({
-          where: { id: team.id },
-          update: { name: team.name, abbr: team.abbr },
+          where: { abbr_sport: { abbr: team.abbr, sport: team.sport } },
+          update: { name: team.name },
           create: team
         })
       }
       console.log(`✅ Populated ${nflTeams.length} NFL teams\n`)
     } catch (error) {
-      console.error('⚠️ Error fetching NFL teams:', error.message)
+      console.error('⚠️ Error populating NFL teams:', error.message)
     }
     
     // Step 3: Populate NHL teams
@@ -86,14 +86,14 @@ async function main() {
       const nhlTeams = await fetchNHLTeams()
       for (const team of nhlTeams) {
         await prisma.team.upsert({
-          where: { id: team.id },
-          update: { name: team.name, abbr: team.abbr },
+          where: { abbr_sport: { abbr: team.abbr, sport: team.sport } },
+          update: { name: team.name },
           create: team
         })
       }
       console.log(`✅ Populated ${nhlTeams.length} NHL teams\n`)
     } catch (error) {
-      console.error('⚠️ Error fetching NHL teams:', error.message)
+      console.error('⚠️ Error populating NHL teams:', error.message)
     }
     
     // Step 4: Populate MLB games
