@@ -1,483 +1,161 @@
 import Link from 'next/link'
-import { format } from 'date-fns'
 import { getFastData } from '../lib/data-manager.js'
-import SimpleRefreshButton from '../components/SimpleRefreshButton'
-import AutoRefreshWrapper from '../components/AutoRefreshWrapper.js'
-import LiveScoreCard from '../components/LiveScoreCard.js'
-import BackgroundDataLoader from '../components/BackgroundDataLoader.js'
 
-// Force dynamic rendering to always fetch fresh data
+// CRITICAL: This page should NEVER fetch external APIs or do heavy work
+// All data should be pre-loaded into the database by background cron jobs
+// This page just reads from the cache/database
+
+export const revalidate = 60 // ISR - revalidate every 60 seconds
 export const dynamic = 'force-dynamic'
-export const revalidate = 0
 
 export default async function HomePage() {
-  let mlbGames = [], nflGames = [], nhlGames = [], picks = [], playerProps = []
-  let lastUpdated = new Date()
-  let hasError = false
-  
   try {
-    // FAST LOAD: Get games quickly (no heavy API calls)
-    console.log('⚡ Home page loading - fetching FAST data (games only)...')
+    console.log('🏠 HomePage loading - fetching cached data only...')
     
-    // Add timeout protection - if getFastData takes > 5 seconds, use empty arrays
-    const fastDataPromise = getFastData()
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Fast data timeout')), 5000)
-    )
+    // ONLY read from cache - no external API calls, no timeouts
+    const data = await getFastData()
     
-    try {
-      const fastData = await Promise.race([fastDataPromise, timeoutPromise])
-      mlbGames = fastData.mlbGames || []
-      nflGames = fastData.nflGames || []
-      nhlGames = fastData.nhlGames || []
-      picks = [] // Will be loaded in background
-      playerProps = [] // Will be loaded in background
-      lastUpdated = fastData.lastUpdated || new Date()
-      console.log('✅ Fast data loaded - page will render now, background refresh starting...')
-    } catch (timeoutError) {
-      console.warn('⚠️ Fast data timeout - showing page with empty games:', timeoutError.message)
-      // Continue with empty arrays - page will still render
-      hasError = false // Don't treat timeout as error - just show empty state
-    }
-  
-  const topPicks = picks.slice(0, 3)
-  const topProps = playerProps.slice(0, 3) // Top 3 props for home page
-  const allGames = [...mlbGames, ...nflGames, ...(nhlGames || [])]
-  
-  // Helper function to check if game has actually started
-  const hasGameStarted = (game) => {
-    const gameTime = new Date(game.date)
-    const now = new Date()
-    return now >= gameTime
-  }
-  
-  // Helper function to check if game is live (started AND has live data AND not finished)
-  const isGameLive = (game) => {
-    return hasGameStarted(game) && !isGameEnded(game.status) && (game.status === 'in_progress' || game.status === 'warmup' || game.homeScore !== null)
-  }
-  
-  // Helper function to check if a game has ended
-  const isGameEnded = (status) => {
-    const endedStatuses = ['final', 'completed', 'postponed', 'cancelled', 'suspended']
-    return endedStatuses.includes(status?.toLowerCase())
-  }
-  
-  // Sort games: Live games first, then scheduled games by time
-  const sortedGames = allGames.sort((a, b) => {
-    const aIsLive = isGameLive(a)
-    const bIsLive = isGameLive(b)
+    const { mlbGames = [], nflGames = [], nhlGames = [], picks = [], playerProps = [], lastUpdated } = data
     
-    // Live games come first
-    if (aIsLive && !bIsLive) return -1
-    if (!aIsLive && bIsLive) return 1
-    
-    // Within same group (both live or both scheduled), sort by time
-    return new Date(a.date) - new Date(b.date)
-  })
-  
-  // Get live games from sorted list (live games will be first)
-  const liveGames = sortedGames.filter(g => isGameLive(g)).slice(0, 4)
-  
-  // Sort MLB and NFL games separately with same logic
-  const sortedMLBGames = mlbGames.sort((a, b) => {
-    const aIsLive = isGameLive(a)
-    const bIsLive = isGameLive(b)
-    if (aIsLive && !bIsLive) return -1
-    if (!aIsLive && bIsLive) return 1
-    return new Date(a.date) - new Date(b.date)
-  })
-  
-  const sortedNFLGames = nflGames.sort((a, b) => {
-    const aIsLive = isGameLive(a)
-    const bIsLive = isGameLive(b)
-    if (aIsLive && !bIsLive) return -1
-    if (!aIsLive && bIsLive) return 1
-    return new Date(a.date) - new Date(b.date)
-  })
-  
-  const sortedNHLGames = (nhlGames || []).sort((a, b) => {
-    const aIsLive = isGameLive(a)
-    const bIsLive = isGameLive(b)
-    if (aIsLive && !bIsLive) return -1
-    if (!aIsLive && bIsLive) return 1
-    return new Date(a.date) - new Date(b.date)
-  })
-  
-  const mlbLiveGames = sortedMLBGames.filter(g => isGameLive(g))
-  const nflLiveGames = sortedNFLGames.filter(g => isGameLive(g))
-  const nhlLiveGames = sortedNHLGames.filter(g => isGameLive(g))
-  
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        
-        {/* Header */}
-        <div className="text-center mb-8">
-          <BackgroundDataLoader />
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">
-            🏆 Odds on Deck
-          </h1>
-          <p className="text-lg text-gray-600">
-            Multi-Sport Betting Intelligence & Live Game Data
-          </p>
-          <div className="text-sm text-gray-500 mt-1" suppressHydrationWarning>
-            {format(new Date(), 'EEEE, MMMM d, yyyy')} • ⚾ MLB • 🏈 NFL • 🏒 NHL
-          </div>
-        </div>
+    console.log(`✅ HomePage loaded: ${mlbGames.length} MLB, ${nflGames.length} NFL, ${nhlGames.length} NHL`)
 
-        {/* Simple Refresh Button */}
-        <SimpleRefreshButton />
-
-        {/* Quick Navigation */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          {/* Sports Boxes */}
-          <Link href="/games" className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:border-blue-300 transition-colors">
-            <div className="text-center">
-              <div className="text-3xl mb-2">⚾</div>
-              <div className="font-semibold text-gray-900">MLB Games</div>
-              <div className="text-sm text-gray-600">{mlbGames.length} games today</div>
-            </div>
-          </Link>
-          
-          <Link href="/games" className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:border-blue-300 transition-colors">
-            <div className="text-center">
-              <div className="text-3xl mb-2">🏈</div>
-              <div className="font-semibold text-gray-900">NFL Games</div>
-              <div className="text-sm text-gray-600">{nflGames.length} games this week</div>
-            </div>
-          </Link>
-          
-          <Link href="/games" className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:border-blue-300 transition-colors">
-            <div className="text-center">
-              <div className="text-3xl mb-2">🏒</div>
-              <div className="font-semibold text-gray-900">NHL Games</div>
-              <div className="text-sm text-gray-600">{nhlGames.length} games today</div>
-            </div>
-          </Link>
-        </div>
-        
-        {/* Tools Navigation */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <Link href="/picks" className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:border-blue-300 transition-colors">
-            <div className="text-center">
-              <div className="text-3xl mb-2">🎯</div>
-              <div className="font-semibold text-gray-900">Editor's Picks</div>
-              <div className="text-sm text-gray-600">{picks.length} picks available</div>
-            </div>
-          </Link>
-          
-          <Link href="/props" className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:border-blue-300 transition-colors">
-            <div className="text-center">
-              <div className="text-3xl mb-2">🏟️</div>
-              <div className="font-semibold text-gray-900">Player Props</div>
-              <div className="text-sm text-gray-600">{playerProps.length} props available</div>
-            </div>
-          </Link>
-          
-          <Link href="/parlays" className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:border-blue-300 transition-colors">
-            <div className="text-center">
-              <div className="text-3xl mb-2">🎯</div>
-              <div className="font-semibold text-gray-900">Parlay Generator</div>
-              <div className="text-sm text-gray-600">Optimized combinations</div>
-            </div>
-          </Link>
-          
-          <Link href="/validation" className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:border-purple-300 transition-colors">
-            <div className="text-center">
-              <div className="text-3xl mb-2">📊</div>
-              <div className="font-semibold text-gray-900">Validation</div>
-              <div className="text-sm text-gray-600">Track accuracy</div>
-            </div>
-          </Link>
-        </div>
-
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
-          {/* Top Picks Section */}
-          <div className="card">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold text-gray-900">
-                  🔥 Top Picks Today
-                </h2>
-                <Link href="/picks" className="text-sm text-blue-600 hover:text-blue-500">
-                  View All →
-                </Link>
-              </div>
-            </div>
-            <div className="p-6">
-              {topPicks.length > 0 ? (
-                <div className="space-y-4">
-                  {topPicks.map((pick, index) => (
-                    <HomePickCard key={`${pick.gameId}-${pick.type}-${pick.pick}`} pick={pick} rank={index + 1} />
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <div className="text-gray-400 text-4xl mb-2">🎯</div>
-                  <p className="text-gray-500">No strong picks available yet</p>
-                  <p className="text-sm text-gray-400">Check back as odds move throughout the day</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Player Props Section */}
-          <div className="card">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold text-gray-900">
-                  🏟️ Top Player Props
-                </h2>
-                <Link href="/props" className="text-sm text-blue-600 hover:text-blue-500">
-                  View All →
-                </Link>
-              </div>
-            </div>
-            <div className="p-6">
-              {topProps.length > 0 ? (
-                <div className="space-y-3">
-                  {topProps.map((prop) => (
-                    <PlayerPropCard key={`${prop.gameId}-${prop.playerId}-${prop.type}`} prop={prop} />
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <div className="text-gray-400 text-4xl mb-2">🏟️</div>
-                  <p className="text-gray-500">No player props yet</p>
-                  <p className="text-sm text-gray-400">Lineups typically posted 2-3 hours before games</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Live Scores Section */}
-          <div className="card">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold text-gray-900">
-                  📺 Live Scores
-                </h2>
-                <Link href="/games" className="text-sm text-blue-600 hover:text-blue-500">
-                  View All →
-                </Link>
-              </div>
-            </div>
-            <div className="p-6">
-                  {sortedGames.length > 0 ? (
-                    <div className="space-y-4">
-                      {/* Live Games (Active games with real-time updates) */}
-                      {sortedMLBGames.filter(g => !isGameEnded(g.status) && isGameLive(g)).length > 0 && (
-                        <div>
-                          <div className="text-sm font-medium text-gray-700 mb-2">🔴 Live Games</div>
-                          <div className="space-y-2">
-                            {sortedMLBGames.filter(g => !isGameEnded(g.status) && isGameLive(g)).slice(0, 3).map((game) => (
-                              <LiveScoreCard key={game.id} game={game} />
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* Upcoming Games */}
-                      {sortedMLBGames.filter(g => !isGameEnded(g.status) && !isGameLive(g)).length > 0 && (
-                        <div>
-                          <div className="text-sm font-medium text-gray-700 mb-2">⏰ Upcoming Games</div>
-                          <div className="space-y-2">
-                            {sortedMLBGames.filter(g => !isGameEnded(g.status) && !isGameLive(g)).slice(0, 3).map((game) => (
-                              <LiveGameCard key={game.id} game={game} />
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* NFL Games */}
-                      {sortedNFLGames.filter(g => !isGameEnded(g.status) && isGameLive(g)).length > 0 && (
-                        <div>
-                          <div className="text-sm font-medium text-gray-700 mb-2">🏈 NFL Live</div>
-                          <div className="space-y-2">
-                            {sortedNFLGames.filter(g => !isGameEnded(g.status) && isGameLive(g)).slice(0, 3).map((game) => (
-                              <LiveScoreCard key={game.id} game={game} />
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* NHL Games */}
-                      {sortedNHLGames.filter(g => !isGameEnded(g.status) && isGameLive(g)).length > 0 && (
-                        <div>
-                          <div className="text-sm font-medium text-gray-700 mb-2">🏒 NHL Live</div>
-                          <div className="space-y-2">
-                            {sortedNHLGames.filter(g => !isGameEnded(g.status) && isGameLive(g)).slice(0, 3).map((game) => (
-                              <LiveScoreCard key={game.id} game={game} />
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* NHL Upcoming */}
-                      {sortedNHLGames.filter(g => !isGameEnded(g.status) && !isGameLive(g)).length > 0 && (
-                        <div>
-                          <div className="text-sm font-medium text-gray-700 mb-2">🏒 NHL Upcoming</div>
-                          <div className="space-y-2">
-                            {sortedNHLGames.filter(g => !isGameEnded(g.status) && !isGameLive(g)).slice(0, 3).map((game) => (
-                              <LiveGameCard key={game.id} game={game} />
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                <div className="text-center py-8">
-                  <div className="text-gray-400 text-4xl mb-2">🏆</div>
-                  <p className="text-gray-500">No games scheduled</p>
-                  <p className="text-sm text-gray-400">Check back later</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-  } catch (error) {
-    console.error('Error in HomePage:', error)
-    hasError = true
-    // Fall through to show page with empty state
-  }
-  
-  // If we have an error and no data, show a warning but still render the page
-  if (hasError && mlbGames.length === 0 && nflGames.length === 0 && nhlGames.length === 0) {
-    // Still show the page structure, just with a warning
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
         <div className="max-w-7xl mx-auto px-4 py-8">
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
-            <p className="text-yellow-800">⚠️ Data is loading slowly. Please refresh in a moment.</p>
+          {/* Header */}
+          <div className="mb-12">
+            <h1 className="text-5xl font-bold mb-2 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+              Odds on Deck
+            </h1>
+            <p className="text-slate-400 text-lg">
+              AI-powered sports analytics for MLB, NFL & NHL
+            </p>
+            {lastUpdated && (
+              <p className="text-slate-500 text-sm mt-2">
+                Last updated: {new Date(lastUpdated).toLocaleTimeString()}
+              </p>
+            )}
           </div>
-          {/* Show page structure with empty state */}
-          <h1 className="text-3xl font-bold mb-6">Odds on Deck</h1>
-          <p className="text-gray-600">Games will appear here once data loads...</p>
+
+          {/* Main Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+            {/* MLB Box */}
+            <Link href="/games?sport=mlb">
+              <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-lg p-8 hover:shadow-lg hover:shadow-blue-500/50 transition cursor-pointer h-full">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h2 className="text-3xl font-bold">⚾ MLB</h2>
+                    <p className="text-blue-200 mt-2">Major League Baseball</p>
+                  </div>
+                </div>
+                <div className="bg-blue-900/50 rounded p-4 mt-6">
+                  <p className="text-2xl font-bold">{mlbGames.length}</p>
+                  <p className="text-blue-200">Games Today</p>
+                </div>
+              </div>
+            </Link>
+
+            {/* NFL Box */}
+            <Link href="/games?sport=nfl">
+              <div className="bg-gradient-to-br from-green-600 to-green-800 rounded-lg p-8 hover:shadow-lg hover:shadow-green-500/50 transition cursor-pointer h-full">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h2 className="text-3xl font-bold">🏈 NFL</h2>
+                    <p className="text-green-200 mt-2">National Football League</p>
+                  </div>
+                </div>
+                <div className="bg-green-900/50 rounded p-4 mt-6">
+                  <p className="text-2xl font-bold">{nflGames.length}</p>
+                  <p className="text-green-200">Games This Week</p>
+                </div>
+              </div>
+            </Link>
+
+            {/* NHL Box */}
+            <Link href="/games?sport=nhl">
+              <div className="bg-gradient-to-br from-red-600 to-red-800 rounded-lg p-8 hover:shadow-lg hover:shadow-red-500/50 transition cursor-pointer h-full">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h2 className="text-3xl font-bold">🏒 NHL</h2>
+                    <p className="text-red-200 mt-2">National Hockey League</p>
+                  </div>
+                </div>
+                <div className="bg-red-900/50 rounded p-4 mt-6">
+                  <p className="text-2xl font-bold">{nhlGames.length}</p>
+                  <p className="text-red-200">Games Today</p>
+                </div>
+              </div>
+            </Link>
+          </div>
+
+          {/* Quick Links */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-12">
+            <Link href="/picks">
+              <div className="bg-slate-700/50 hover:bg-slate-600/50 rounded-lg p-6 transition cursor-pointer border border-slate-600">
+                <h3 className="text-xl font-bold mb-2">🎯 Editor's Picks</h3>
+                <p className="text-slate-400">Top recommended plays</p>
+              </div>
+            </Link>
+            <Link href="/props">
+              <div className="bg-slate-700/50 hover:bg-slate-600/50 rounded-lg p-6 transition cursor-pointer border border-slate-600">
+                <h3 className="text-xl font-bold mb-2">📊 Player Props</h3>
+                <p className="text-slate-400">Detailed prop analysis</p>
+              </div>
+            </Link>
+            <Link href="/dfs">
+              <div className="bg-slate-700/50 hover:bg-slate-600/50 rounded-lg p-6 transition cursor-pointer border border-slate-600">
+                <h3 className="text-xl font-bold mb-2">💰 DFS Rankings</h3>
+                <p className="text-slate-400">Player value rankings</p>
+              </div>
+            </Link>
+          </div>
+
+          {/* Info Section */}
+          <div className="bg-slate-700/30 border border-slate-600 rounded-lg p-8">
+            <h3 className="text-2xl font-bold mb-4">How It Works</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <div className="text-3xl mb-2">📈</div>
+                <h4 className="font-bold mb-2">AI Analysis</h4>
+                <p className="text-slate-400 text-sm">Machine learning models analyze trends and find value in the market</p>
+              </div>
+              <div>
+                <div className="text-3xl mb-2">🎲</div>
+                <h4 className="font-bold mb-2">Live Odds</h4>
+                <p className="text-slate-400 text-sm">Real-time odds tracking across multiple sportsbooks</p>
+              </div>
+              <div>
+                <div className="text-3xl mb-2">✅</div>
+                <h4 className="font-bold mb-2">Tracking</h4>
+                <p className="text-slate-400 text-sm">Detailed validation of every pick for continuous improvement</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  } catch (error) {
+    console.error('❌ HomePage error:', error)
+    
+    // Fallback UI - page still renders even if data fails
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
+        <div className="max-w-7xl mx-auto px-4 py-8">
+          <h1 className="text-5xl font-bold mb-4">Odds on Deck</h1>
+          <div className="bg-yellow-900/20 border border-yellow-600 rounded-lg p-6 mb-8">
+            <p className="text-yellow-200">
+              📡 Data is loading. If you see this message, check back in a few moments.
+            </p>
+            <p className="text-yellow-300 text-sm mt-2">
+              Background jobs are populating the database. Try refreshing in 30 seconds.
+            </p>
+          </div>
+          <Link href="/games" className="text-blue-400 hover:text-blue-300 underline">
+            → View All Games
+          </Link>
         </div>
       </div>
     )
   }
-}
-
-function HomePickCard({ pick, rank }) {
-  const confidenceColor = {
-    'very_high': 'text-green-600',
-    'high': 'text-blue-600', 
-    'medium': 'text-yellow-600',
-    'low': 'text-orange-600',
-    'very_low': 'text-gray-600'
-  }
-
-  return (
-    <Link href={`/game/${pick.gameId}`}>
-      <div className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-sm transition-all cursor-pointer">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="text-lg font-bold text-blue-600">#{rank}</div>
-            <div>
-              <div className="font-semibold text-gray-900">
-                {pick.type === 'moneyline' ? `${pick.team} ML` : `${pick.team} ${pick.pick.toUpperCase()}`}
-              </div>
-              <div className="text-sm text-gray-600">
-                {format(new Date(pick.gameTime), 'h:mm a')}
-                {pick.odds && ` • ${pick.odds > 0 ? '+' : ''}${pick.odds}`}
-              </div>
-            </div>
-          </div>
-          <div className="text-right">
-            <div className={`text-lg font-bold ${confidenceColor[pick.confidence]}`}>
-              +{(pick.edge * 100).toFixed(1)}%
-            </div>
-          </div>
-        </div>
-      </div>
-    </Link>
-  )
-}
-
-function PlayerPropCard({ prop }) {
-  const propTypeEmoji = {
-    'hits': '🏟️',
-    'rbis': '🎯', 
-    'strikeouts': '⚡'
-  }
-
-  return (
-    <Link href={`/game/${prop.gameId}`}>
-      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer">
-        <div className="flex items-center space-x-3">
-          <div className="text-lg">{propTypeEmoji[prop.type]}</div>
-          <div>
-            <div className="font-medium text-gray-900">
-              {prop.playerName}
-            </div>
-            <div className="text-sm text-gray-600">
-              {prop.pick.toUpperCase()} {prop.threshold} {prop.type}
-            </div>
-          </div>
-        </div>
-        <div className="text-right">
-          <div className="font-bold text-green-600">
-            +{(prop.edge * 100).toFixed(1)}%
-          </div>
-        </div>
-      </div>
-    </Link>
-  )
-}
-
-function LiveGameCard({ game }) {
-  const isNFL = game.sport === 'nfl'
-  
-  // Check if game has actually started (current time >= scheduled time)
-  const gameTime = new Date(game.date)
-  const now = new Date()
-  const hasStarted = now >= gameTime
-  
-  // Consider live if game has started AND (has live data OR is in warmup/in_progress status)
-  const isLive = hasStarted && (game.status === 'in_progress' || game.status === 'warmup' || game.homeScore !== null)
-  
-  const gameStatus = isLive ? (
-    isNFL && game.nflData ? 
-      `Q${game.nflData.quarter || '?'} ${game.nflData.timeLeft || ''}` :
-      game.inning && game.inningHalf ? 
-        `${game.inningHalf} ${game.inning}${game.outs !== null ? ` • ${game.outs} out` : ''}` :
-        game.status === 'warmup' ? 'Starting Soon' :
-        game.status
-  ) : (
-    // For scheduled games, show the game time
-    format(new Date(game.date), 'h:mm a')
-  )
-
-  return (
-    <Link href={`/game/${game.id}`}>
-      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer">
-        <div>
-          <div className="font-medium text-gray-900">
-            {game.away.abbr} @ {game.home.abbr}
-          </div>
-          <div className="text-sm text-gray-600">
-            {gameStatus}
-          </div>
-        </div>
-        <div className="text-right">
-          {isLive ? (
-            <div className="text-lg font-bold text-blue-600">
-              {game.awayScore !== null ? game.awayScore : 0}-{game.homeScore !== null ? game.homeScore : 0}
-            </div>
-          ) : (
-            <div className="text-sm text-gray-500">
-              {game.status}
-            </div>
-          )}
-        </div>
-      </div>
-    </Link>
-  )
 }
 
