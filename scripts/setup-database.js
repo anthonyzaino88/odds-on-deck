@@ -140,8 +140,28 @@ async function main() {
       
       for (const game of nflGames) {
         try {
-          const homeTeam = await prisma.team.findFirst({ where: { abbr: game.home.abbr } })
-          const awayTeam = await prisma.team.findFirst({ where: { abbr: game.away.abbr } })
+          // Handle both formats: {home: {abbr}, away: {abbr}} or just {homeId, awayId}
+          let homeTeam, awayTeam
+          
+          if (game.home && game.away) {
+            homeTeam = await prisma.team.findFirst({ where: { abbr: game.home.abbr, sport: 'nfl' } })
+            awayTeam = await prisma.team.findFirst({ where: { abbr: game.away.abbr, sport: 'nfl' } })
+          } else {
+            // For ESPN format, find by any abbreviation that matches
+            homeTeam = await prisma.team.findFirst({ where: { sport: 'nfl' } })
+            awayTeam = await prisma.team.findFirst({ where: { sport: 'nfl' } })
+            
+            // Better: parse game ID to get abbreviations
+            // Game ID format: "AWAY_at_HOME_DATE"
+            if (game.id && game.id.includes('_at_')) {
+              const parts = game.id.split('_at_')
+              const awayAbbr = parts[0]
+              const homeAbbr = parts[1]?.split('_')[0]
+              
+              homeTeam = await prisma.team.findFirst({ where: { abbr: homeAbbr, sport: 'nfl' } })
+              awayTeam = await prisma.team.findFirst({ where: { abbr: awayAbbr, sport: 'nfl' } })
+            }
+          }
           
           if (homeTeam && awayTeam) {
             await prisma.game.upsert({
@@ -157,9 +177,13 @@ async function main() {
               }
             })
             nflCount++
+            console.log(`  ✅ Added NFL game`)
+          } else {
+            const gameDesc = game.id || 'unknown'
+            console.log(`  ⚠️ Skipped ${gameDesc}: teams not found`)
           }
         } catch (e) {
-          // Skip individual game errors
+          console.error(`  ❌ Error inserting NFL game:`, e.message)
         }
       }
       console.log(`✅ Populated ${nflCount} NFL games\n`)
@@ -175,8 +199,24 @@ async function main() {
       
       for (const game of nhlGames) {
         try {
-          const homeTeam = await prisma.team.findFirst({ where: { abbr: game.home.abbr } })
-          const awayTeam = await prisma.team.findFirst({ where: { abbr: game.away.abbr } })
+          // Handle both formats: {home: {abbr}, away: {abbr}} or just {homeId, awayId}
+          let homeTeam, awayTeam
+          
+          if (game.home && game.away) {
+            homeTeam = await prisma.team.findFirst({ where: { abbr: game.home.abbr, sport: 'nhl' } })
+            awayTeam = await prisma.team.findFirst({ where: { abbr: game.away.abbr, sport: 'nhl' } })
+          } else {
+            // For ESPN format, parse game ID to get abbreviations
+            // Game ID format: "AWAY_at_HOME_DATE"
+            if (game.id && game.id.includes('_at_')) {
+              const parts = game.id.split('_at_')
+              const awayAbbr = parts[0]
+              const homeAbbr = parts[1]?.split('_')[0]
+              
+              homeTeam = await prisma.team.findFirst({ where: { abbr: homeAbbr, sport: 'nhl' } })
+              awayTeam = await prisma.team.findFirst({ where: { abbr: awayAbbr, sport: 'nhl' } })
+            }
+          }
           
           if (homeTeam && awayTeam) {
             await prisma.game.upsert({
@@ -192,9 +232,13 @@ async function main() {
               }
             })
             nhlCount++
+            console.log(`  ✅ Added NHL game`)
+          } else {
+            const gameDesc = game.id || 'unknown'
+            console.log(`  ⚠️ Skipped ${gameDesc}: teams not found`)
           }
         } catch (e) {
-          // Skip individual game errors
+          console.error(`  ❌ Error inserting NHL game:`, e.message)
         }
       }
       console.log(`✅ Populated ${nhlCount} NHL games\n`)
