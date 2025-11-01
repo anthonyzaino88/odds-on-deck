@@ -1,4 +1,6 @@
 // Refresh lineups for all games that need them
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { fetchAndStoreLiveLineups } from '../../../../lib/live-data.js'

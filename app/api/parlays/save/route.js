@@ -1,14 +1,11 @@
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 import { NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import { recordPropPrediction } from '../../../../lib/validation.js'
 
-const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: process.env.DATABASE_URL || "file:./prisma/dev.db"
-    }
-  }
-})
+const prisma = new PrismaClient()
 
 export async function POST(request) {
   try {
