@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 import { canRefresh, API_CONFIG } from '../../../lib/api-usage-manager'
 import { NextResponse } from 'next/server'
 

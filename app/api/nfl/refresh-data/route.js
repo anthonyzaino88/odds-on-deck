@@ -1,4 +1,6 @@
 // NFL Data Refresh API - Store NFL games and teams in database
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { fetchAndStoreNFLSchedule, fetchAndStoreNFLLiveData } from '../../../../lib/nfl-data.js'

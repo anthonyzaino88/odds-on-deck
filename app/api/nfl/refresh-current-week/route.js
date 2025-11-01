@@ -1,4 +1,6 @@
 // API endpoint to refresh current and upcoming NFL weeks
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { fetchAndStoreNFLSchedule, fetchAndStoreNFLLiveData } from '../../../../lib/nfl-data.js'

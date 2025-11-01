@@ -1,4 +1,6 @@
 // API endpoint to save individual player props for validation tracking
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { recordPropPrediction } from '../../../../lib/validation.js'

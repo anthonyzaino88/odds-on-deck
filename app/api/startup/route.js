@@ -1,5 +1,7 @@
 // Startup API - Ensures fresh data on application startup
 // Called when the application starts to guarantee current data
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { initializeDataManager } from '../../../lib/data-manager.js'

@@ -1,4 +1,6 @@
 // API endpoint to manually update prop results after games complete
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { updatePropResult } from '../../../../lib/validation.js'
