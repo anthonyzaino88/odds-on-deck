@@ -1,4 +1,6 @@
 // NFL Games API - Get this week's NFL games
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { getThisWeeksNFLGames } from '../../../../lib/nfl-db.js'

@@ -1,4 +1,6 @@
 // API endpoint to fetch and store live NFL rosters from ESPN
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 import { fetchAndStoreLiveNFLRosters } from '../../../../lib/nfl-live-roster.js'
 

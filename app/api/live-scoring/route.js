@@ -1,5 +1,7 @@
 // Live Scoring API - Dedicated endpoint for real-time game updates
 // Optimized for live games only, maintains streamlined data flow
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { getLiveScoringData, forceUpdateLiveScoring, getLiveScoringStatus } from '../../../lib/live-scoring-manager.js'

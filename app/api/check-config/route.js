@@ -1,4 +1,6 @@
 // Quick endpoint to check which API key is being used
+export const dynamic = 'force-dynamic'
+
 import { NextResponse } from 'next/server'
 
 export async function GET() {
