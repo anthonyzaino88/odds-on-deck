@@ -13,24 +13,24 @@ export async function GET() {
     ? `${apiKey.substring(0, 4)}...${apiKey.substring(apiKey.length - 4)}`
     : 'NOT SET'
   
-  // Identify which key this is
+  // Identify which tier this is (without exposing full key)
+  // Use last 4 chars only for identification
+  const keyLastFour = apiKey ? apiKey.substring(apiKey.length - 4) : null
   let keyType = 'UNKNOWN'
-  if (apiKey === '0437577781a9c1944c96cf470cf4e35d') {
+  
+  // Safe identification using only last 4 characters
+  if (keyLastFour === 'e35d') {
     keyType = 'FREE TIER (500 req/month) ✅'
-  } else if (apiKey === '065843404dbb936f13929a104de407f3') {
+  } else if (keyLastFour === '07f3') {
     keyType = 'PAID TIER (20,000 req/month)'
   }
   
   return NextResponse.json({
     apiKey: keyPreview,
     keyType: keyType,
-    fullKeyLastFour: apiKey ? apiKey.substring(apiKey.length - 4) : 'N/A',
+    fullKeyLastFour: keyLastFour || 'N/A',
     demoMode: demoMode === 'true' ? '✅ ENABLED' : '❌ DISABLED',
-    publicDemoMode: publicDemoMode === 'true' ? '✅ ENABLED' : '❌ DISABLED',
-    expected: {
-      free: '0437...e35d',
-      paid: '0658...07f3'
-    }
+    publicDemoMode: publicDemoMode === 'true' ? '✅ ENABLED' : '❌ DISABLED'
   })
 }
 
