@@ -1,56 +1,119 @@
-// API endpoint to fetch today's games data
+// API endpoint to get today's games
+// Homepage calls this instead of querying DB directly
+// This gives us better control over timeouts and caching
 
-// Force dynamic rendering (required for Vercel deployment)
 export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+export const maxDuration = 30 // 30 second timeout
 
 import { NextResponse } from 'next/server'
-import { getTodaysGames, prisma } from '../../../../lib/db.js'
-import { getThisWeeksNFLGames } from '../../../../lib/nfl-db.js'
+import { prisma } from '../../../../lib/db.js'
 
 export async function GET() {
   try {
-    console.log('🎯 Fetching today\'s games data...')
+    console.log('📅 API: Fetching today\'s games...')
     
-    const [mlbGames, nflGames] = await Promise.all([
-      getTodaysGames(),
-      getThisWeeksNFLGames()
-    ])
+    // Get today's date range
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
     
-    // Fetch pitcher names for MLB games
+    // Get this week (for NFL)
+    const weekEnd = new Date(today)
+    weekEnd.setDate(weekEnd.getDate() + 7)
     
-    const mlbGamesWithPitchers = await Promise.all(
-      mlbGames.map(async (game) => {
-        const [homePitcher, awayPitcher] = await Promise.all([
-          game.probableHomePitcherId ? 
-            prisma.player.findUnique({ where: { id: game.probableHomePitcherId } }) : 
-            null,
-          game.probableAwayPitcherId ? 
-            prisma.player.findUnique({ where: { id: game.probableAwayPitcherId } }) : 
-            null
-        ])
+    try {
+      // Query all games in parallel with timeout protection
+      const gamesPromise = Promise.all([
+        // MLB: today only
+        prisma.game.findMany({
+          where: {
+            sport: 'mlb',
+            date: { gte: today, lt: tomorrow }
+          },
+          select: {
+            id: true,
+            date: true,
+            status: true,
+            homeScore: true,
+            awayScore: true,
+            home: { select: { abbr: true, name: true } },
+            away: { select: { abbr: true, name: true } }
+          },
+          orderBy: { date: 'asc' },
+          take: 100 // Limit to prevent huge queries
+        }),
         
-        return {
-          ...game,
-          probableHomePitcher: homePitcher,
-          probableAwayPitcher: awayPitcher
-        }
+        // NFL: this week
+        prisma.game.findMany({
+          where: {
+            sport: 'nfl',
+            date: { gte: today, lt: weekEnd }
+          },
+          select: {
+            id: true,
+            date: true,
+            status: true,
+            homeScore: true,
+            awayScore: true,
+            home: { select: { abbr: true, name: true } },
+            away: { select: { abbr: true, name: true } }
+          },
+          orderBy: { date: 'asc' },
+          take: 100
+        }),
+        
+        // NHL: today only
+        prisma.game.findMany({
+          where: {
+            sport: 'nhl',
+            date: { gte: today, lt: tomorrow }
+          },
+          select: {
+            id: true,
+            date: true,
+            status: true,
+            homeScore: true,
+            awayScore: true,
+            home: { select: { abbr: true, name: true } },
+            away: { select: { abbr: true, name: true } }
+          },
+          orderBy: { date: 'asc' },
+          take: 100
+        })
+      ])
+      
+      const [mlbGames, nflGames, nhlGames] = await gamesPromise
+      
+      console.log(`✅ Games loaded: ${mlbGames.length} MLB, ${nflGames.length} NFL, ${nhlGames.length} NHL`)
+      
+      return NextResponse.json({
+        success: true,
+        data: {
+          mlb: mlbGames,
+          nfl: nflGames,
+          nhl: nhlGames
+        },
+        timestamp: new Date().toISOString()
       })
-    )
-    
-    return NextResponse.json({
-      success: true,
-      games: {
-        mlb: mlbGamesWithPitchers,
-        nfl: nflGames
-      },
-      timestamp: new Date().toISOString()
-    })
+      
+    } catch (queryError) {
+      console.error('❌ Query error:', queryError.message)
+      return NextResponse.json({
+        success: false,
+        error: 'Failed to fetch games',
+        data: { mlb: [], nfl: [], nhl: [] },
+        timestamp: new Date().toISOString()
+      }, { status: 500 })
+    }
     
   } catch (error) {
-    console.error('Error fetching today\'s games:', error)
+    console.error('❌ API error:', error.message)
     return NextResponse.json({
       success: false,
       error: error.message,
+      data: { mlb: [], nfl: [], nhl: [] },
       timestamp: new Date().toISOString()
     }, { status: 500 })
   }
