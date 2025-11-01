@@ -1,5 +1,7 @@
 // Manual data refresh endpoint
 // Allows forcing a full data refresh from the frontend
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { forceRefreshAllData } from '../../../../lib/data-manager.js'
