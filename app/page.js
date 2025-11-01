@@ -19,16 +19,26 @@ export default async function HomePage() {
     // FAST LOAD: Get games quickly (no heavy API calls)
     console.log('⚡ Home page loading - fetching FAST data (games only)...')
     
-    // Get fast data - just games from database
-    const fastData = await getFastData()
-    mlbGames = fastData.mlbGames || []
-    nflGames = fastData.nflGames || []
-    nhlGames = fastData.nhlGames || []
-    picks = [] // Will be loaded in background
-    playerProps = [] // Will be loaded in background
-    lastUpdated = fastData.lastUpdated || new Date()
+    // Add timeout protection - if getFastData takes > 5 seconds, use empty arrays
+    const fastDataPromise = getFastData()
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Fast data timeout')), 5000)
+    )
     
-    console.log('✅ Fast data loaded - page will render now, background refresh starting...')
+    try {
+      const fastData = await Promise.race([fastDataPromise, timeoutPromise])
+      mlbGames = fastData.mlbGames || []
+      nflGames = fastData.nflGames || []
+      nhlGames = fastData.nhlGames || []
+      picks = [] // Will be loaded in background
+      playerProps = [] // Will be loaded in background
+      lastUpdated = fastData.lastUpdated || new Date()
+      console.log('✅ Fast data loaded - page will render now, background refresh starting...')
+    } catch (timeoutError) {
+      console.warn('⚠️ Fast data timeout - showing page with empty games:', timeoutError.message)
+      // Continue with empty arrays - page will still render
+      hasError = false // Don't treat timeout as error - just show empty state
+    }
   
   const topPicks = picks.slice(0, 3)
   const topProps = playerProps.slice(0, 3) // Top 3 props for home page
