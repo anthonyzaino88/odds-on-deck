@@ -87,10 +87,9 @@ async function populateTeams() {
     
     // Fetch and upsert NFL teams
     console.log('🏈 Fetching NFL teams from ESPN...')
-    try {
-      const nflTeams = await fetchNFLTeams()
-      console.log(`Found ${nflTeams.length} NFL teams from API`)
-      console.log('NFL teams sample:', nflTeams.slice(0, 2))
+    const nflTeams = await fetchNFLTeams()
+    console.log(`Found ${nflTeams.length} NFL teams from API`)
+    console.log('NFL teams sample:', nflTeams.slice(0, 2))
     
     for (const team of nflTeams) {
       try {
