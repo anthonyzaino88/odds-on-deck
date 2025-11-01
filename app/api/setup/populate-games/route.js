@@ -90,6 +90,7 @@ async function populateGames() {
         await prisma.game.upsert({
           where: { id: game.id },
           update: {
+            sport: 'nfl', // Ensure sport is always set correctly on update
             date: game.date,
             status: game.status,
             homeScore: game.homeScore,
@@ -170,6 +171,7 @@ async function populateGames() {
         await prisma.game.upsert({
           where: { id: game.id },
           update: {
+            sport: 'nhl', // Ensure sport is always set correctly on update
             date: game.date,
             status: game.status,
             homeScore: game.homeScore,
