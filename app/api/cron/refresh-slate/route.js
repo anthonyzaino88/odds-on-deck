@@ -1,4 +1,6 @@
 // Cron job to refresh today's slate with games, odds, and edge calculations
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { fetchSchedule, fetchTeams, fetchGameWeather } from '../../../../lib/vendors/stats.js'
