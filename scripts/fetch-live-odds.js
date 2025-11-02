@@ -184,7 +184,7 @@ async function fetchGameOdds(sport, date) {
     const params = `?regions=us&markets=h2h,spreads,totals&dateFormat=iso`
     
     const oddsData = await callOddsAPI(endpoint + params)
-    const games = oddsData.data || []
+    const games = Array.isArray(oddsData) ? oddsData : []
     
     console.log(`  ✅ Fetched ${games.length} games with odds`)
     
