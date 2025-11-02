@@ -2,6 +2,7 @@
   "name": "odds-on-deck",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",

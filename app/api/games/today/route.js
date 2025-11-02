@@ -12,29 +12,22 @@ export async function GET() {
     console.log('📅 API: Fetching games...')
     
     // Get date range - show games from 30 days ago to 30 days future
-    // This allows testing with historical data
     const now = new Date()
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
     const thirtyDaysLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
     
     console.log(`Date range: ${thirtyDaysAgo.toISOString()} to ${thirtyDaysLater.toISOString()}`)
     
-    // Query games with individual error handling
+    // Fetch games without relationships
     let mlbGames = []
     let nflGames = []
     let nhlGames = []
     
-    // MLB games
     try {
       mlbGames = await prisma.game.findMany({
         where: {
           sport: 'mlb',
           date: { gte: thirtyDaysAgo, lte: thirtyDaysLater }
-        },
-        select: {
-          id: true, date: true, status: true, homeScore: true, awayScore: true,
-          home: { select: { abbr: true, name: true } },
-          away: { select: { abbr: true, name: true } }
         },
         orderBy: { date: 'asc' },
         take: 100
@@ -44,17 +37,11 @@ export async function GET() {
       console.error('❌ MLB query failed:', err.message)
     }
     
-    // NFL games
     try {
       nflGames = await prisma.game.findMany({
         where: {
           sport: 'nfl',
           date: { gte: thirtyDaysAgo, lte: thirtyDaysLater }
-        },
-        select: {
-          id: true, date: true, status: true, homeScore: true, awayScore: true,
-          home: { select: { abbr: true, name: true } },
-          away: { select: { abbr: true, name: true } }
         },
         orderBy: { date: 'asc' },
         take: 100
@@ -64,17 +51,11 @@ export async function GET() {
       console.error('❌ NFL query failed:', err.message)
     }
     
-    // NHL games
     try {
       nhlGames = await prisma.game.findMany({
         where: {
           sport: 'nhl',
           date: { gte: thirtyDaysAgo, lte: thirtyDaysLater }
-        },
-        select: {
-          id: true, date: true, status: true, homeScore: true, awayScore: true,
-          home: { select: { abbr: true, name: true } },
-          away: { select: { abbr: true, name: true } }
         },
         orderBy: { date: 'asc' },
         take: 100
@@ -84,14 +65,41 @@ export async function GET() {
       console.error('❌ NHL query failed:', err.message)
     }
     
-    console.log(`✅ API response: ${mlbGames.length} MLB, ${nflGames.length} NFL, ${nhlGames.length} NHL`)
+    // Fetch teams for all games
+    const allGames = [...mlbGames, ...nflGames, ...nhlGames]
+    const teamIds = [...new Set(allGames.flatMap(g => [g.homeId, g.awayId]))]
+    
+    let teamsMap = {}
+    if (teamIds.length > 0) {
+      try {
+        const teams = await prisma.team.findMany({
+          where: { id: { in: teamIds } }
+        })
+        teamsMap = Object.fromEntries(teams.map(t => [t.id, t]))
+      } catch (err) {
+        console.error('❌ Teams query failed:', err.message)
+      }
+    }
+    
+    // Enrich games with team data
+    const enrichGames = (games) => games.map(g => ({
+      ...g,
+      home: teamsMap[g.homeId] || { id: g.homeId, abbr: '?', name: 'Unknown' },
+      away: teamsMap[g.awayId] || { id: g.awayId, abbr: '?', name: 'Unknown' }
+    }))
+    
+    const enrichedMlb = enrichGames(mlbGames)
+    const enrichedNfl = enrichGames(nflGames)
+    const enrichedNhl = enrichGames(nhlGames)
+    
+    console.log(`✅ API response: ${enrichedMlb.length} MLB, ${enrichedNfl.length} NFL, ${enrichedNhl.length} NHL`)
     
     return NextResponse.json({
       success: true,
       data: {
-        mlb: mlbGames,
-        nfl: nflGames,
-        nhl: nhlGames
+        mlb: enrichedMlb,
+        nfl: enrichedNfl,
+        nhl: enrichedNhl
       },
       timestamp: new Date().toISOString()
     })
