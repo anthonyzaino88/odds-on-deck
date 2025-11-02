@@ -148,6 +148,14 @@ export default function GamesPage() {
 function GameCard({ game }) {
   const gameTime = new Date(game.date)
   
+  // Format time in user's local timezone
+  const timeString = gameTime.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+  })
+  
   return (
     <Link href={`/game/${game.id}`}>
       <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 rounded-lg p-6 hover:border-blue-500 hover:shadow-lg hover:shadow-blue-500/20 transition cursor-pointer">
@@ -166,7 +174,7 @@ function GameCard({ game }) {
               }`}>
                 {game.status === 'in_progress' ? '🔴 LIVE' : 
                  game.status === 'final' ? 'FINAL' :
-                 format(gameTime, 'h:mm a')}
+                 timeString}
               </span>
             </div>
             <p className="text-slate-400 text-sm">
