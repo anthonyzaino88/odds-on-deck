@@ -58,6 +58,11 @@ const MLB_PROP_MARKETS = [
   'pitcher_walks', 'batter_rbi', 'batter_singles', 'batter_doubles'
 ]
 
+const NHL_PROP_MARKETS = [
+  'player_points', 'player_assists', 'player_shots_on_goal',
+  'player_power_play_points', 'player_blocked_shots', 'player_anytime_goalscorer'
+]
+
 // ============================================================================
 // ARGUMENT PARSING
 // ============================================================================
@@ -228,10 +233,10 @@ async function saveGameOdds(games, sport) {
           
           if (!priceAway || !priceHome) continue
           
-          // Save to Odds table
+          // Save to Odds table (insert only, ignore duplicates)
           const { error } = await supabase
             .from('Odds')
-            .upsert({
+            .insert({
               gameId: game.id,
               book: bookmaker.title,
               market: market.key,
@@ -240,13 +245,12 @@ async function saveGameOdds(games, sport) {
               spread,
               total,
               ts: new Date().toISOString()
-            }, {
-              onConflict: 'gameId,book,market'
             })
           
-          if (error) {
+          // Ignore duplicate key errors (code 23505)
+          if (error && !error.code?.includes('23505')) {
             console.error(`    ❌ Save error: ${error.message}`)
-          } else {
+          } else if (!error) {
             saved++
           }
         }
@@ -296,7 +300,13 @@ async function fetchPlayerProps(sport, date, oddsGames) {
       }
       
       try {
-        const markets = sport === 'nfl' ? NFL_PROP_MARKETS : MLB_PROP_MARKETS
+        // Select correct markets for sport
+        let markets
+        if (sport === 'nfl') markets = NFL_PROP_MARKETS
+        else if (sport === 'mlb') markets = MLB_PROP_MARKETS
+        else if (sport === 'nhl') markets = NHL_PROP_MARKETS
+        else markets = []
+        
         const marketsParam = markets.join(',')
         
         // Use The Odds API event ID in the endpoint
@@ -352,10 +362,10 @@ async function savePlayerProps(gameProps, sport) {
             
             const propId = `${gameId}-${playerName}-${market.key}-${line}`
             
-            // Save to PlayerPropCache
+            // Save to PlayerPropCache (insert only, ignore duplicates)
             const { error } = await supabase
               .from('PlayerPropCache')
-              .upsert({
+              .insert({
                 propId,
                 gameId,
                 playerName,
@@ -373,13 +383,12 @@ async function savePlayerProps(gameProps, sport) {
                 fetchedAt: new Date().toISOString(),
                 expiresAt: new Date(Date.now() + CACHE_DURATION.PROPS).toISOString(),
                 isStale: false
-              }, {
-                onConflict: 'propId'
               })
             
-            if (error) {
+            // Ignore duplicate key errors (code 23505)
+            if (error && !error.code?.includes('23505')) {
               console.error(`    ❌ Save error: ${error.message}`)
-            } else {
+            } else if (!error) {
               saved++
             }
           }
