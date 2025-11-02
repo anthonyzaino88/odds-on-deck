@@ -7,9 +7,10 @@ export const maxDuration = 30
 import { NextResponse } from 'next/server'
 import { prisma } from '../../../../lib/db.js'
 
-export async function GET() {
+export async function GET(req) {
   try {
     console.log('📅 API: Fetching games...')
+    console.log('📍 DATABASE_URL exists:', !!process.env.DATABASE_URL)
     
     // TEST: Fetch ALL games with NO filters
     console.log('🔍 Testing: Fetch all games...')
@@ -19,7 +20,7 @@ export async function GET() {
     console.log(`✅ Total games found: ${allGames.length}`)
     
     if (allGames.length === 0) {
-      console.log('❌ No games found at all!')
+      console.log('⚠️ No games found in database')
       return NextResponse.json({
         success: true,
         data: { mlb: [], nfl: [], nhl: [] },
@@ -46,10 +47,19 @@ export async function GET() {
     })
     
   } catch (error) {
-    console.error('❌ API error:', error)
+    console.error('❌ API error:', {
+      message: error.message,
+      code: error.code,
+      stack: error.stack
+    })
+    
     return NextResponse.json({
       success: false,
-      error: error.message,
+      error: error.message || 'Unknown error',
+      details: {
+        code: error.code,
+        dbUrl: process.env.DATABASE_URL ? 'SET' : 'NOT SET'
+      },
       data: { mlb: [], nfl: [], nhl: [] },
       timestamp: new Date().toISOString()
     }, { status: 500 })
