@@ -181,7 +181,7 @@ async function fetchGameOdds(sport, date) {
     
     // Fetch from API
     const endpoint = `/v4/sports/${sportConfig.id}/odds`
-    const params = `&regions=us&markets=h2h,spreads,totals&dateFormat=iso`
+    const params = `?regions=us&markets=h2h,spreads,totals&dateFormat=iso`
     
     const oddsData = await callOddsAPI(endpoint + params)
     const games = oddsData.data || []
@@ -302,7 +302,7 @@ async function fetchPlayerProps(sport, date) {
         const marketsParam = markets.join(',')
         
         const endpoint = `/v4/sports/${sportConfig.id}/events/${game.id}/odds`
-        const params = `&regions=us&markets=${marketsParam}&dateFormat=iso`
+        const params = `?regions=us&markets=${marketsParam}&dateFormat=iso`
         
         const propsData = await callOddsAPI(endpoint + params)
         const gameProps = propsData.data || []
