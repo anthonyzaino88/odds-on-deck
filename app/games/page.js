@@ -1,438 +1,195 @@
-// Today's Slate - Main games listing page
+'use client'
 
 import Link from 'next/link'
-import { getAllData } from '../../lib/data-manager.js'
-import { formatEdge, formatOdds } from '../../lib/implied.js'
+import { useState, useEffect } from 'react'
 import { format } from 'date-fns'
-import { PrismaClient } from '@prisma/client'
-import SimpleRefreshButton from '../../components/SimpleRefreshButton'
-import LiveScoreDisplay from '../../components/LiveScoreDisplay'
-import ClientDate from '../../components/ClientDate'
-import AutoRefreshWrapper from '../../components/AutoRefreshWrapper.js'
 
-const prisma = new PrismaClient()
+export default function GamesPage() {
+  const [games, setGames] = useState({ mlb: [], nfl: [], nhl: [] })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
-export const metadata = {
-  title: "Today's Slate - Odds on Deck",
-  description: 'MLB, NFL, and NHL games with matchup edges and betting insights',
-}
-
-// Force dynamic rendering to always fetch fresh data
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
-
-export default async function GamesPage() {
-  // Get all data from centralized data manager
-  const { mlbGames, nflGames, nhlGames, lastUpdated } = await getAllData()
-  
-  // Fetch pitcher names for MLB games
-  const mlbGamesWithPitchers = await Promise.all(
-    mlbGames.map(async (game) => {
-      const [homePitcher, awayPitcher] = await Promise.all([
-        game.probableHomePitcherId ? 
-          prisma.player.findUnique({ where: { id: game.probableHomePitcherId } }) : 
-          null,
-        game.probableAwayPitcherId ? 
-          prisma.player.findUnique({ where: { id: game.probableAwayPitcherId } }) : 
-          null
-      ])
-      
-      return {
-        ...game,
-        probableHomePitcher: homePitcher,
-        probableAwayPitcher: awayPitcher
+  useEffect(() => {
+    const fetchGames = async () => {
+      try {
+        console.log('📋 GamesPage: Fetching games...')
+        setLoading(true)
+        
+        const response = await fetch('/api/games/today', {
+          cache: 'no-store'
+        })
+        
+        if (!response.ok) {
+          throw new Error(`API returned ${response.status}`)
+        }
+        
+        const result = await response.json()
+        
+        if (result.success) {
+          setGames(result.data)
+          console.log(`✅ Loaded: ${result.data.mlb.length} MLB, ${result.data.nfl.length} NFL, ${result.data.nhl.length} NHL`)
+        } else {
+          setError(result.error || 'Failed to load games')
+        }
+      } catch (err) {
+        console.error('❌ Error fetching games:', err)
+        setError(err.message)
+      } finally {
+        setLoading(false)
       }
-    })
-  )
-  
-  // Helper function to check if a game has ended
-  const isGameEnded = (status) => {
-    const endedStatuses = ['final', 'completed', 'postponed', 'cancelled', 'suspended']
-    return endedStatuses.includes(status?.toLowerCase())
-  }
-  
-  // Helper function to check if game has actually started
-  const hasGameStarted = (game) => {
-    const gameTime = new Date(game.date)
-    const now = new Date()
-    return now >= gameTime
-  }
-  
-  // Helper function to check if game is live (started AND has live data)
-  const isGameLive = (game) => {
-    return hasGameStarted(game) && (game.status === 'in_progress' || game.homeScore !== null)
-  }
-  
-  // Filter out finished games for display
-  const activeMLBGames = mlbGamesWithPitchers.filter(g => !isGameEnded(g.status))
-  const activeNFLGames = nflGames.filter(g => !isGameEnded(g.status))
-  const activeNHLGames = nhlGames.filter(g => !isGameEnded(g.status))
-  
-  if (activeMLBGames.length === 0 && activeNFLGames.length === 0 && activeNHLGames.length === 0) {
+    }
+
+    fetchGames()
+  }, [])
+
+  if (loading) {
     return (
-      <div className="text-center py-12">
-        <h1 className="text-2xl font-bold text-gray-900 mb-4">Today's Slate</h1>
-        <p className="text-gray-600 mb-4">
-          No games scheduled for today. Check back tomorrow!
-        </p>
-        <div className="text-sm text-gray-500 space-y-2">
-          <p>Try fetching games manually:</p>
-          <div className="flex gap-2 justify-center">
-            <a
-              href="/api/nhl/fetch-games"
-              target="_blank"
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              🏒 Fetch NHL Games
-            </a>
+      <div className="min-h-screen bg-slate-950 text-white">
+        <div className="max-w-7xl mx-auto px-4 py-12">
+          <div className="text-center py-16">
+            <div className="inline-block">
+              <div className="animate-spin h-8 w-8 border-4 border-slate-600 border-t-blue-400 rounded-full"></div>
+            </div>
+            <p className="text-slate-400 mt-4">Loading games...</p>
           </div>
         </div>
       </div>
     )
   }
-  
-  return (
-    <AutoRefreshWrapper refreshInterval={30000} refreshEndpoint="/api/refresh-all">
-      <div>
-        <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">All Games - Today's Slate</h1>
-        <div className="flex items-center space-x-4">
-          <span className="text-sm text-gray-600">
-            {activeMLBGames.length + activeNFLGames.length + activeNHLGames.length} games • ⚾ {activeMLBGames.length} MLB • 🏈 {activeNFLGames.length} NFL • 🏒 {activeNHLGames.length} NHL
-          </span>
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white">
+        <div className="max-w-7xl mx-auto px-4 py-12">
+          <div className="bg-red-950 border border-red-800 rounded-lg p-6">
+            <p className="text-red-200 font-medium">⚠️ {error}</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="text-red-400 text-sm mt-3 underline hover:text-red-300 transition"
+            >
+              Try refreshing
+            </button>
+          </div>
         </div>
       </div>
+    )
+  }
 
-      {/* Simple Refresh Button */}
-      <SimpleRefreshButton />
-      
-      {/* MLB Games Section */}
-      {activeMLBGames.length > 0 && (
-        <div className="card overflow-hidden mb-6">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">
-              ⚾ MLB Games • <ClientDate formatString="EEEE, MMMM d" />
-            </h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="table-header px-6 py-3">Game</th>
-                  <th className="table-header px-6 py-3">Probables</th>
-                  <th className="table-header px-6 py-3">Market Total</th>
-                  <th className="table-header px-6 py-3">Our Total</th>
-                  <th className="table-header px-6 py-3">ML Edge%</th>
-                  <th className="table-header px-6 py-3">O/U Edge%</th>
-                  <th className="table-header px-6 py-3">ML Odds</th>
-                  <th className="table-header px-6 py-3">Last Updated</th>
-                  <th className="table-header px-6 py-3"></th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {activeMLBGames.map((game) => (
-                  <GameRow key={game.id} game={game} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-      
-      {/* NFL Games Section */}
-      {activeNFLGames.length > 0 && (
-        <div className="card overflow-hidden mb-6">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">
-              🏈 NFL Games • Week {nflGames[0]?.week || '?'}
-            </h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="table-header px-6 py-3">Game</th>
-                  <th className="table-header px-6 py-3">Status</th>
-                  <th className="table-header px-6 py-3">Score</th>
-                  <th className="table-header px-6 py-3">Spread</th>
-                  <th className="table-header px-6 py-3">Total</th>
-                  <th className="table-header px-6 py-3">ML Odds</th>
-                  <th className="table-header px-6 py-3"></th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {activeNFLGames.map((game) => (
-                  <NFLGameRow key={game.id} game={game} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+  const totalGames = games.mlb.length + games.nfl.length + games.nhl.length
 
-      {/* NHL Games Section */}
-      {activeNHLGames.length > 0 && (
-        <div className="card overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">
-              🏒 NHL Games • <ClientDate formatString="EEEE, MMMM d" />
-            </h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="table-header px-6 py-3">Game</th>
-                  <th className="table-header px-6 py-3">Status</th>
-                  <th className="table-header px-6 py-3">Score</th>
-                  <th className="table-header px-6 py-3">Puck Line</th>
-                  <th className="table-header px-6 py-3">Total</th>
-                  <th className="table-header px-6 py-3">ML Odds</th>
-                  <th className="table-header px-6 py-3"></th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {activeNHLGames.map((game) => (
-                  <NHLGameRow key={game.id} game={game} />
-                ))}
-              </tbody>
-            </table>
+  if (totalGames === 0) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white">
+        <div className="max-w-7xl mx-auto px-4 py-12">
+          <h1 className="text-4xl font-bold mb-4 text-slate-100">Today's Slate</h1>
+          <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-12 text-center">
+            <p className="text-slate-400 text-lg mb-4">No games scheduled for today</p>
+            <p className="text-slate-500 text-sm">Check back tomorrow!</p>
           </div>
         </div>
-      )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-white">
+      <div className="max-w-7xl mx-auto px-4 py-12">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold mb-3">Today's Slate</h1>
+          <p className="text-slate-400">
+            {totalGames} games • ⚾ {games.mlb.length} MLB • 🏈 {games.nfl.length} NFL • 🏒 {games.nhl.length} NHL
+          </p>
+          <p className="text-slate-500 text-sm mt-2">
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+          </p>
+        </div>
+
+        {/* MLB Games */}
+        {games.mlb.length > 0 && (
+          <div className="mb-12">
+            <h2 className="text-2xl font-bold mb-6 text-slate-100">⚾ MLB Games</h2>
+            <div className="grid grid-cols-1 gap-4">
+              {games.mlb.map((game) => (
+                <GameCard key={game.id} game={game} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* NFL Games */}
+        {games.nfl.length > 0 && (
+          <div className="mb-12">
+            <h2 className="text-2xl font-bold mb-6 text-slate-100">🏈 NFL Games</h2>
+            <div className="grid grid-cols-1 gap-4">
+              {games.nfl.map((game) => (
+                <GameCard key={game.id} game={game} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* NHL Games */}
+        {games.nhl.length > 0 && (
+          <div className="mb-12">
+            <h2 className="text-2xl font-bold mb-6 text-slate-100">🏒 NHL Games</h2>
+            <div className="grid grid-cols-1 gap-4">
+              {games.nhl.map((game) => (
+                <GameCard key={game.id} game={game} />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
-    </AutoRefreshWrapper>
   )
 }
 
-function GameRow({ game }) {
-  const hasLiveScore = game.homeScore !== null && game.awayScore !== null
-  const edge = game.edges?.[0]
-  const totalOdds = game.odds?.find(o => o.market === 'totals')
-  
-  // Check if game has actually started (current time >= scheduled time)
+function GameCard({ game }) {
   const gameTime = new Date(game.date)
-  const now = new Date()
-  const hasStarted = now >= gameTime
-  
-  // Only show live data if game has started AND has live score
-  const shouldShowLiveData = hasStarted && hasLiveScore
   
   return (
-    <tr className="hover:bg-gray-50">
-      <td className="px-6 py-4 whitespace-nowrap">
-        <Link href={`/game/${game.id}`} className="block hover:text-blue-600">
-          <div className="flex items-center">
-            <div>
-              <div className="text-sm font-medium text-gray-900">
-                {game.away.abbr} @ {game.home.abbr}
-              </div>
-              <div className="text-sm text-gray-500">
-                {format(new Date(game.date), 'h:mm a')}
-              </div>
-              {shouldShowLiveData && (
-                <LiveScoreDisplay game={game} />
-              )}
+    <Link href={`/game/${game.id}`}>
+      <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 rounded-lg p-6 hover:border-blue-500 hover:shadow-lg hover:shadow-blue-500/20 transition cursor-pointer">
+        
+        {/* Game Header */}
+        <div className="flex justify-between items-start mb-4">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <h3 className="text-xl font-bold text-slate-100">
+                {game.away?.abbr || '?'} @ {game.home?.abbr || '?'}
+              </h3>
+              <span className={`px-3 py-1 rounded text-xs font-semibold ${
+                game.status === 'in_progress' ? 'bg-green-900/50 text-green-300' :
+                game.status === 'final' ? 'bg-slate-700 text-slate-300' :
+                'bg-blue-900/50 text-blue-300'
+              }`}>
+                {game.status === 'in_progress' ? '🔴 LIVE' : 
+                 game.status === 'final' ? 'FINAL' :
+                 format(gameTime, 'h:mm a')}
+              </span>
             </div>
+            <p className="text-slate-400 text-sm">
+              {game.away?.name} vs {game.home?.name}
+            </p>
           </div>
-        </Link>
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-        <div>
-          <div>{game.probableHomePitcher?.fullName || 'TBD'}</div>
-          <div>{game.probableAwayPitcher?.fullName || 'TBD'}</div>
-        </div>
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-        {totalOdds?.total || 'N/A'}
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-        {edge?.ourTotal ? edge.ourTotal.toFixed(1) : 'N/A'}
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm">
-        <div className="space-y-1">
-          <div className={edge?.edgeMlHome > 0 ? 'text-green-600 font-medium' : 'text-gray-500'}>
-            H: {edge?.edgeMlHome ? `${(edge.edgeMlHome * 100).toFixed(1)}%` : '0%'}
-          </div>
-          <div className={edge?.edgeMlAway > 0 ? 'text-green-600 font-medium' : 'text-gray-500'}>
-            A: {edge?.edgeMlAway ? `${(edge.edgeMlAway * 100).toFixed(1)}%` : '0%'}
-          </div>
-        </div>
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm">
-        <div className="space-y-1">
-          <div className={edge?.edgeTotalO > 0 ? 'text-green-600 font-medium' : 'text-gray-500'}>
-            O: {edge?.edgeTotalO ? `${(edge.edgeTotalO * 100).toFixed(1)}%` : '0%'}
-          </div>
-          <div className={edge?.edgeTotalU > 0 ? 'text-green-600 font-medium' : 'text-gray-500'}>
-            U: {edge?.edgeTotalU ? `${(edge.edgeTotalU * 100).toFixed(1)}%` : '0%'}
-          </div>
-        </div>
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-        {(() => {
-          const mlOdds = game.odds?.find(o => o.market === 'h2h')
-          if (!mlOdds) return 'N/A'
-          return (
-            <div className="flex flex-col">
-              <div className="text-xs text-gray-600">Away: {mlOdds.priceAway > 0 ? '+' : ''}{mlOdds.priceAway || 'N/A'}</div>
-              <div className="text-xs text-gray-600">Home: {mlOdds.priceHome > 0 ? '+' : ''}{mlOdds.priceHome || 'N/A'}</div>
+          
+          {game.homeScore !== null && game.awayScore !== null && (
+            <div className="text-right">
+              <div className="text-2xl font-bold text-blue-400">
+                {game.awayScore} - {game.homeScore}
+              </div>
             </div>
-          )
-        })()}
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500" suppressHydrationWarning>
-        {edge?.ts ? format(new Date(edge.ts), 'h:mm a') : 'N/A'}
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-        <Link href={`/game/${game.id}`} className="text-blue-600 hover:text-blue-900">
-          View Details
-        </Link>
-      </td>
-    </tr>
-  )
-}
+          )}
+        </div>
 
-function NFLGameRow({ game }) {
-  const hasLiveScore = game.homeScore !== null && game.awayScore !== null
-  const gameStatus = game.nflData?.quarter ? 
-    `Q${game.nflData.quarter} ${game.nflData.timeLeft || ''}` : 
-    game.status
-  
-  return (
-    <tr className="hover:bg-gray-50">
-      <td className="px-6 py-4 whitespace-nowrap">
-        <Link href={`/game/${game.id}`} className="block hover:text-blue-600">
-          <div className="flex items-center">
-            <div>
-              <div className="text-sm font-medium text-gray-900">
-                {game.away.abbr} @ {game.home.abbr}
-              </div>
-              <div className="text-sm text-gray-500">
-                {format(new Date(game.date), 'EEE h:mm a')}
-              </div>
-            </div>
-          </div>
-        </Link>
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-          game.status === 'in_progress' ? 'bg-green-100 text-green-800' :
-          game.status === 'final' ? 'bg-gray-100 text-gray-800' :
-          'bg-blue-100 text-blue-800'
-        }`}>
-          {gameStatus}
-        </span>
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm">
-        {hasLiveScore ? (
-          <div className="font-bold text-blue-600">
-            {game.awayScore}-{game.homeScore}
-          </div>
-        ) : (
-          <span className="text-gray-500">-</span>
-        )}
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-        {(() => {
-          const spreadOdds = game.odds?.find(o => o.market === 'spreads')
-          return spreadOdds?.spread ? `${spreadOdds.spread > 0 ? '+' : ''}${spreadOdds.spread}` : 'N/A'
-        })()}
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-        {(() => {
-          const totalOdds = game.odds?.find(o => o.market === 'totals')
-          return totalOdds?.total || 'N/A'
-        })()}
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-        {(() => {
-          const mlOdds = game.odds?.find(o => o.market === 'h2h')
-          if (!mlOdds) return 'N/A'
-          return (
-            <div className="flex flex-col">
-              <div className="text-xs text-gray-600">Away: {mlOdds.priceAway > 0 ? '+' : ''}{mlOdds.priceAway || 'N/A'}</div>
-              <div className="text-xs text-gray-600">Home: {mlOdds.priceHome > 0 ? '+' : ''}{mlOdds.priceHome || 'N/A'}</div>
-            </div>
-          )
-        })()}
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-        <Link href={`/game/${game.id}`} className="text-blue-600 hover:text-blue-900">
-          View Details
-        </Link>
-      </td>
-    </tr>
-  )
-}
-
-function NHLGameRow({ game }) {
-  const hasLiveScore = game.homeScore !== null && game.awayScore !== null
-  const gameStatus = game.status
-  
-  return (
-    <tr className="hover:bg-gray-50">
-      <td className="px-6 py-4 whitespace-nowrap">
-        <Link href={`/game/${game.id}`} className="block hover:text-blue-600">
-          <div className="flex items-center">
-            <div>
-              <div className="text-sm font-medium text-gray-900">
-                {game.away.abbr} @ {game.home.abbr}
-              </div>
-              <div className="text-sm text-gray-500">
-                {format(new Date(game.date), 'h:mm a')}
-              </div>
-            </div>
-          </div>
-        </Link>
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-          game.status === 'in_progress' ? 'bg-green-100 text-green-800' :
-          game.status === 'final' ? 'bg-gray-100 text-gray-800' :
-          'bg-blue-100 text-blue-800'
-        }`}>
-          {gameStatus}
-        </span>
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm">
-        {hasLiveScore ? (
-          <div className="font-bold text-blue-600">
-            {game.awayScore}-{game.homeScore}
-          </div>
-        ) : (
-          <span className="text-gray-500">-</span>
-        )}
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-        {(() => {
-          const spreadOdds = game.odds?.find(o => o.market === 'spreads')
-          return spreadOdds?.spread ? `${spreadOdds.spread > 0 ? '+' : ''}${spreadOdds.spread}` : 'N/A'
-        })()}
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-        {(() => {
-          const totalOdds = game.odds?.find(o => o.market === 'totals')
-          return totalOdds?.total || 'N/A'
-        })()}
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-        {(() => {
-          const mlOdds = game.odds?.find(o => o.market === 'h2h')
-          if (!mlOdds) return 'N/A'
-          return (
-            <div className="flex flex-col">
-              <div className="text-xs text-gray-600">Away: {mlOdds.priceAway > 0 ? '+' : ''}{mlOdds.priceAway || 'N/A'}</div>
-              <div className="text-xs text-gray-600">Home: {mlOdds.priceHome > 0 ? '+' : ''}{mlOdds.priceHome || 'N/A'}</div>
-            </div>
-          )
-        })()}
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-        <Link href={`/game/${game.id}`} className="text-blue-600 hover:text-blue-900">
-          View Details
-        </Link>
-      </td>
-    </tr>
+        {/* View Details */}
+        <div className="pt-4 border-t border-slate-700">
+          <p className="text-blue-400 text-sm font-medium hover:text-blue-300">
+            View Details →
+          </p>
+        </div>
+      </div>
+    </Link>
   )
 }
