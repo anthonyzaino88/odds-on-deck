@@ -1,22 +1,21 @@
-// NFL Matchup Analysis and History - SUPABASE VERSION
-// This replaces lib/nfl-matchups.js with Supabase client instead of Prisma
+// NFL Matchup Analysis and History
 
-import { supabase } from './supabase.js'
-import { getGameDetail } from './db-supabase.js'
-import crypto from 'crypto'
-
-// Helper to generate unique IDs
-function generateId() {
-  return crypto.randomBytes(12).toString('base64url')
-}
+// ✅ FIXED: Import single Prisma instance instead of creating new one
+import { prisma } from './db.js'
 
 /**
  * Analyze offensive vs defensive matchup for a game
  */
 export async function analyzeGameMatchup(gameId) {
   try {
-    // Get game using Supabase helper
-    const game = await getGameDetail(gameId)
+    const game = await prisma.game.findUnique({
+      where: { id: gameId },
+      include: {
+        home: true,
+        away: true,
+        nflData: true
+      }
+    })
     
     if (!game || game.sport !== 'nfl') {
       throw new Error('Game not found or not an NFL game')
@@ -65,26 +64,26 @@ export async function getMatchupHistory(offenseTeamId, defenseTeamId, seasons) {
   try {
     const seasonStrings = seasons.map(year => year.toString())
     
-    const { data: history, error } = await supabase
-      .from('NFLMatchupHistory')
-      .select(`
-        *,
-        offenseTeam:Team!NFLMatchupHistory_offenseTeamId_fkey(*),
-        defenseTeam:Team!NFLMatchupHistory_defenseTeamId_fkey(*),
-        game:Game(*)
-      `)
-      .eq('offenseTeamId', offenseTeamId)
-      .eq('defenseTeamId', defenseTeamId)
-      .in('season', seasonStrings)
-      .order('season', { ascending: false })
-      .order('week', { ascending: false })
+    const history = await prisma.nFLMatchupHistory.findMany({
+      where: {
+        offenseTeamId: offenseTeamId,
+        defenseTeamId: defenseTeamId,
+        season: {
+          in: seasonStrings
+        }
+      },
+      include: {
+        offenseTeam: true,
+        defenseTeam: true,
+        game: true
+      },
+      orderBy: [
+        { season: 'desc' },
+        { week: 'desc' }
+      ]
+    })
     
-    if (error) {
-      console.error('Error querying matchup history:', error)
-      return []
-    }
-    
-    return history || []
+    return history
     
   } catch (error) {
     console.error('Error getting matchup history:', error)
@@ -96,7 +95,7 @@ export async function getMatchupHistory(offenseTeamId, defenseTeamId, seasons) {
  * Calculate matchup advantages based on historical data
  */
 function calculateMatchupAdvantages(matchupHistory, side) {
-  if (!matchupHistory || matchupHistory.length === 0) {
+  if (matchupHistory.length === 0) {
     return {
       totalYardsAvg: null,
       pointsAvg: null,
@@ -245,12 +244,12 @@ function generateMatchupInsights(game, homeAdvantages, awayAdvantages) {
   }
   
   // Sample size warnings
-  if (homeAdvantages.gamesAnalyzed < 2 || awayAdvantages.gamesAnalyzed < 2) {
+  if (homeAdvantages.gamesAnalyzed < 2) {
     insights.push({
       type: 'warning',
-      team: 'both',
+      team: 'home',
       category: 'sample_size',
-      message: `Limited historical data for ${game.home?.abbr || 'Home'} vs ${game.away?.abbr || 'Away'} matchup. Sample Size Low Confidence.`,
+      message: `Limited historical data for ${game.home.abbr} vs ${game.away.abbr} matchup`,
       confidence: 'low'
     })
   }
@@ -263,115 +262,98 @@ function generateMatchupInsights(game, homeAdvantages, awayAdvantages) {
  */
 export async function storeMatchupResult(gameId, gameData) {
   try {
-    const game = await getGameDetail(gameId)
+    const game = await prisma.game.findUnique({
+      where: { id: gameId },
+      include: { nflData: true }
+    })
     
     if (!game || game.sport !== 'nfl' || game.status !== 'final') {
       return null
     }
     
     // Store home offense vs away defense
-    const homeMatchupData = {
-      id: generateId(),
-      offenseTeamId: game.homeId,
-      defenseTeamId: game.awayId,
-      gameId: gameId,
-      week: game.week || null,
-      season: game.season || new Date().getFullYear().toString(),
-      pointsScored: game.homeScore,
-      totalYards: gameData.homeStats?.totalYards || null,
-      passingYards: gameData.homeStats?.passingYards || null,
-      rushingYards: gameData.homeStats?.rushingYards || null,
-      turnovers: gameData.homeStats?.turnovers || null,
-      thirdDownPct: gameData.homeStats?.thirdDownPct || null,
-      redZonePct: gameData.homeStats?.redZonePct || null,
-      timeOfPossession: game.nflData?.timeOfPossessionHome || null,
-      weather: gameData.weather || null,
-      temperature: game.temperature || null,
-      isHomeGame: true
-    }
-    
-    // Try to find existing record first
-    const { data: existingHome } = await supabase
-      .from('NFLMatchupHistory')
-      .select('id')
-      .eq('offenseTeamId', game.homeId)
-      .eq('defenseTeamId', game.awayId)
-      .eq('gameId', gameId)
-      .single()
-    
-    let homeOffenseMatchup
-    if (existingHome) {
-      const { data, error } = await supabase
-        .from('NFLMatchupHistory')
-        .update(homeMatchupData)
-        .eq('id', existingHome.id)
-        .select()
-        .single()
-      
-      if (error) throw error
-      homeOffenseMatchup = data
-    } else {
-      const { data, error } = await supabase
-        .from('NFLMatchupHistory')
-        .insert(homeMatchupData)
-        .select()
-        .single()
-      
-      if (error) throw error
-      homeOffenseMatchup = data
-    }
+    const homeOffenseMatchup = await prisma.nFLMatchupHistory.upsert({
+      where: {
+        offenseTeamId_defenseTeamId_gameId: {
+          offenseTeamId: game.homeId,
+          defenseTeamId: game.awayId,
+          gameId: gameId
+        }
+      },
+      update: {
+        pointsScored: game.homeScore,
+        totalYards: gameData.homeStats?.totalYards,
+        passingYards: gameData.homeStats?.passingYards,
+        rushingYards: gameData.homeStats?.rushingYards,
+        turnovers: gameData.homeStats?.turnovers,
+        thirdDownPct: gameData.homeStats?.thirdDownPct,
+        redZonePct: gameData.homeStats?.redZonePct,
+        timeOfPossession: game.nflData?.timeOfPossessionHome,
+        weather: gameData.weather,
+        temperature: game.temperature,
+        isHomeGame: true
+      },
+      create: {
+        offenseTeamId: game.homeId,
+        defenseTeamId: game.awayId,
+        gameId: gameId,
+        week: game.week,
+        season: game.season,
+        pointsScored: game.homeScore,
+        totalYards: gameData.homeStats?.totalYards,
+        passingYards: gameData.homeStats?.passingYards,
+        rushingYards: gameData.homeStats?.rushingYards,
+        turnovers: gameData.homeStats?.turnovers,
+        thirdDownPct: gameData.homeStats?.thirdDownPct,
+        redZonePct: gameData.homeStats?.redZonePct,
+        timeOfPossession: game.nflData?.timeOfPossessionHome,
+        weather: gameData.weather,
+        temperature: game.temperature,
+        isHomeGame: true
+      }
+    })
     
     // Store away offense vs home defense
-    const awayMatchupData = {
-      id: generateId(),
-      offenseTeamId: game.awayId,
-      defenseTeamId: game.homeId,
-      gameId: gameId,
-      week: game.week || null,
-      season: game.season || new Date().getFullYear().toString(),
-      pointsScored: game.awayScore,
-      totalYards: gameData.awayStats?.totalYards || null,
-      passingYards: gameData.awayStats?.passingYards || null,
-      rushingYards: gameData.awayStats?.rushingYards || null,
-      turnovers: gameData.awayStats?.turnovers || null,
-      thirdDownPct: gameData.awayStats?.thirdDownPct || null,
-      redZonePct: gameData.awayStats?.redZonePct || null,
-      timeOfPossession: game.nflData?.timeOfPossessionAway || null,
-      weather: gameData.weather || null,
-      temperature: game.temperature || null,
-      isHomeGame: false
-    }
-    
-    // Try to find existing record first
-    const { data: existingAway } = await supabase
-      .from('NFLMatchupHistory')
-      .select('id')
-      .eq('offenseTeamId', game.awayId)
-      .eq('defenseTeamId', game.homeId)
-      .eq('gameId', gameId)
-      .single()
-    
-    let awayOffenseMatchup
-    if (existingAway) {
-      const { data, error } = await supabase
-        .from('NFLMatchupHistory')
-        .update(awayMatchupData)
-        .eq('id', existingAway.id)
-        .select()
-        .single()
-      
-      if (error) throw error
-      awayOffenseMatchup = data
-    } else {
-      const { data, error } = await supabase
-        .from('NFLMatchupHistory')
-        .insert(awayMatchupData)
-        .select()
-        .single()
-      
-      if (error) throw error
-      awayOffenseMatchup = data
-    }
+    const awayOffenseMatchup = await prisma.nFLMatchupHistory.upsert({
+      where: {
+        offenseTeamId_defenseTeamId_gameId: {
+          offenseTeamId: game.awayId,
+          defenseTeamId: game.homeId,
+          gameId: gameId
+        }
+      },
+      update: {
+        pointsScored: game.awayScore,
+        totalYards: gameData.awayStats?.totalYards,
+        passingYards: gameData.awayStats?.passingYards,
+        rushingYards: gameData.awayStats?.rushingYards,
+        turnovers: gameData.awayStats?.turnovers,
+        thirdDownPct: gameData.awayStats?.thirdDownPct,
+        redZonePct: gameData.awayStats?.redZonePct,
+        timeOfPossession: game.nflData?.timeOfPossessionAway,
+        weather: gameData.weather,
+        temperature: game.temperature,
+        isHomeGame: false
+      },
+      create: {
+        offenseTeamId: game.awayId,
+        defenseTeamId: game.homeId,
+        gameId: gameId,
+        week: game.week,
+        season: game.season,
+        pointsScored: game.awayScore,
+        totalYards: gameData.awayStats?.totalYards,
+        passingYards: gameData.awayStats?.passingYards,
+        rushingYards: gameData.awayStats?.rushingYards,
+        turnovers: gameData.awayStats?.turnovers,
+        thirdDownPct: gameData.awayStats?.thirdDownPct,
+        redZonePct: gameData.awayStats?.redZonePct,
+        timeOfPossession: game.nflData?.timeOfPossessionAway,
+        weather: gameData.weather,
+        temperature: game.temperature,
+        isHomeGame: false
+      }
+    })
     
     console.log(`✅ Stored matchup data for game ${gameId}`)
     return { homeOffenseMatchup, awayOffenseMatchup }
@@ -411,4 +393,3 @@ export default {
   storeMatchupResult,
   getDefensiveRankings
 }
-

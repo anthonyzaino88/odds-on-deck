@@ -1,15 +1,9 @@
-// NFL Roster and Depth Chart Management - SUPABASE VERSION
-// This replaces lib/nfl-roster.js with Supabase client instead of Prisma
+// NFL Roster and Depth Chart Management with LIVE ESPN API
 
 import { fetchAllESPNRosters, fetchESPNTeamRoster } from './vendors/espn-nfl-roster.js'
-import { supabase } from './supabase.js'
-import { upsertTeam, upsertPlayer } from './db-supabase.js'
-import crypto from 'crypto'
 
-// Helper to generate unique IDs
-function generateId() {
-  return crypto.randomBytes(12).toString('base64url')
-}
+// ✅ FIXED: Import single Prisma instance instead of creating new one
+import { prisma } from './db.js'
 
 // Team name mapping
 function getTeamName(abbr) {
@@ -45,6 +39,57 @@ export const NFL_POSITION_GROUPS = {
   }
 }
 
+// Sample starter data - this would typically come from ESPN API
+const NFL_STARTERS_SAMPLE = {
+  'kc': {
+    QB: [{ name: 'Patrick Mahomes', jersey: 15, experience: 8 }],
+    RB: [{ name: 'Kareem Hunt', jersey: 29, experience: 7 }],
+    WR1: [{ name: 'Travis Kelce', jersey: 87, experience: 12 }],
+    WR2: [{ name: 'DeAndre Hopkins', jersey: 8, experience: 12 }]
+  },
+  'bal': {
+    QB: [{ name: 'Lamar Jackson', jersey: 8, experience: 6 }],
+    RB: [{ name: 'Derrick Henry', jersey: 22, experience: 8 }],
+    WR1: [{ name: 'Mark Andrews', jersey: 89, experience: 6 }]
+  },
+  'gb': {
+    QB: [{ name: 'Jordan Love', jersey: 10, experience: 3 }],
+    RB: [{ name: 'Josh Jacobs', jersey: 8, experience: 6 }],
+    WR1: [{ name: 'Jayden Reed', jersey: 11, experience: 2 }],
+    WR2: [{ name: 'Romeo Doubs', jersey: 87, experience: 3 }]
+  },
+  'dal': {
+    QB: [{ name: 'Dak Prescott', jersey: 4, experience: 9 }],
+    RB: [{ name: 'Ezekiel Elliott', jersey: 15, experience: 8 }],
+    WR1: [{ name: 'CeeDee Lamb', jersey: 88, experience: 5 }],
+    WR2: [{ name: 'Amari Cooper', jersey: 5, experience: 10 }]
+  },
+  'cin': {
+    QB: [{ name: 'Joe Burrow', jersey: 9, experience: 4 }],
+    RB: [{ name: 'Chase Brown', jersey: 30, experience: 2 }],
+    WR1: [{ name: 'Ja\'Marr Chase', jersey: 1, experience: 3 }],
+    WR2: [{ name: 'Tee Higgins', jersey: 5, experience: 4 }]
+  },
+  'den': {
+    QB: [{ name: 'Bo Nix', jersey: 10, experience: 1 }],
+    RB: [{ name: 'Javonte Williams', jersey: 33, experience: 4 }],
+    WR1: [{ name: 'Courtland Sutton', jersey: 14, experience: 7 }],
+    WR2: [{ name: 'Josh Reynolds', jersey: 11, experience: 8 }]
+  },
+  'nyj': {
+    QB: [{ name: 'Aaron Rodgers', jersey: 8, experience: 19 }],
+    RB: [{ name: 'Breece Hall', jersey: 20, experience: 2 }],
+    WR1: [{ name: 'Garrett Wilson', jersey: 17, experience: 2 }],
+    WR2: [{ name: 'Mike Williams', jersey: 18, experience: 7 }]
+  },
+  'mia': {
+    QB: [{ name: 'Tua Tagovailoa', jersey: 1, experience: 4 }],
+    RB: [{ name: 'De\'Von Achane', jersey: 28, experience: 1 }],
+    WR1: [{ name: 'Tyreek Hill', jersey: 10, experience: 8 }],
+    WR2: [{ name: 'Jaylen Waddle', jersey: 17, experience: 3 }]
+  }
+}
+
 /**
  * Fetch and store NFL team rosters from ESPN API
  */
@@ -68,47 +113,61 @@ export async function fetchAndStoreNFLRosters(season = '2025') {
       try {
         console.log(`  📡 Processing roster for ${teamAbbr.toUpperCase()}...`)
         
-        // Find or create team using Supabase helper
-        const team = await upsertTeam({
-          abbr: teamAbbr.toUpperCase(),
-          name: getTeamName(teamAbbr),
-          sport: 'nfl'
+        // Find or create team
+        const team = await prisma.team.upsert({
+          where: { abbr: teamAbbr.toUpperCase() },
+          update: {
+            name: getTeamName(teamAbbr),
+            sport: 'nfl'
+          },
+          create: {
+            abbr: teamAbbr.toUpperCase(),
+            name: getTeamName(teamAbbr),
+            sport: 'nfl'
+          }
+        })
+        
+        // Clear existing roster for this team
+        await prisma.player.updateMany({
+          where: { teamId: team.id },
+          data: { teamId: null }
         })
         
         // Clear existing NFL roster entries for this team
-        const { error: deleteError } = await supabase
-          .from('NFLRosterEntry')
-          .delete()
-          .eq('teamId', team.id)
-          .eq('season', season)
-        
-        if (deleteError) {
-          console.warn(`    ⚠️  Error clearing old roster entries: ${deleteError.message}`)
-        }
+        await prisma.nFLRosterEntry.deleteMany({
+          where: { teamId: team.id, season: season }
+        })
         
         // Add players from ESPN roster
         for (const [position, players] of Object.entries(roster)) {
           for (const playerData of players) {
             if (playerData.status === 'Active') {
-              // Create or find player using Supabase helper
-              const playerId = `${team.id}_${playerData.name.replace(/\s+/g, '_')}`
-              
-              const player = await upsertPlayer({
-                id: playerId,
-                fullName: playerData.name,
-                position: playerData.position,
-                jerseyNumber: playerData.jersey ? parseInt(playerData.jersey) : null,
-                teamId: team.id,
-                isPitcher: false,
-                bats: null,
-                throws: null
+              // Create or find player
+              const player = await prisma.player.upsert({
+                where: { 
+                  name_team: {
+                    name: playerData.name,
+                    teamId: team.id
+                  }
+                },
+                update: {
+                  position: playerData.position,
+                  jersey: playerData.jersey,
+                  teamId: team.id,
+                  sport: 'nfl'
+                },
+                create: {
+                  name: playerData.name,
+                  position: playerData.position,
+                  jersey: playerData.jersey,
+                  teamId: team.id,
+                  sport: 'nfl'
+                }
               })
               
               // Create NFL roster entry
-              const { error: rosterError } = await supabase
-                .from('NFLRosterEntry')
-                .insert({
-                  id: generateId(),
+              await prisma.nFLRosterEntry.create({
+                data: {
                   playerId: player.id,
                   teamId: team.id,
                   season: season,
@@ -116,15 +175,11 @@ export async function fetchAndStoreNFLRosters(season = '2025') {
                   specificPosition: playerData.position,
                   depthOrder: 1, // Assume all ESPN players are starters for now
                   isActive: true,
-                  injuryStatus: playerData.injuryStatus || 'healthy'
-                })
+                  injuryStatus: playerData.injuryStatus || 'Healthy'
+                }
+              })
               
-              if (rosterError && rosterError.code !== '23505') {
-                // Ignore duplicate errors
-                console.warn(`    ⚠️  Error creating roster entry for ${playerData.name}: ${rosterError.message}`)
-              } else {
-                totalPlayersAdded++
-              }
+              totalPlayersAdded++
             }
           }
         }
@@ -159,26 +214,27 @@ export async function fetchAndStoreNFLRosters(season = '2025') {
  */
 export async function getTeamRoster(teamId, season = '2025') {
   try {
-    const { data: rosterEntries, error } = await supabase
-      .from('NFLRosterEntry')
-      .select(`
-        *,
-        player:Player(*),
-        team:Team(*)
-      `)
-      .eq('teamId', teamId)
-      .eq('season', season)
-      .eq('isActive', true)
-      .order('positionGroup', { ascending: true })
-      .order('specificPosition', { ascending: true })
-      .order('depthOrder', { ascending: true })
-    
-    if (error) throw error
+    const roster = await prisma.nFLRosterEntry.findMany({
+      where: {
+        teamId: teamId,
+        season: season,
+        isActive: true
+      },
+      include: {
+        player: true,
+        team: true
+      },
+      orderBy: [
+        { positionGroup: 'asc' },
+        { specificPosition: 'asc' },
+        { depthOrder: 'asc' }
+      ]
+    })
     
     // Group by position
     const depthChart = {}
     
-    rosterEntries?.forEach(entry => {
+    roster.forEach(entry => {
       if (!depthChart[entry.positionGroup]) {
         depthChart[entry.positionGroup] = {}
       }
@@ -207,21 +263,15 @@ export async function getTeamRoster(teamId, season = '2025') {
  */
 export async function getGameStarters(gameId) {
   try {
-    // Get game with teams
-    const { data: game, error: gameError } = await supabase
-      .from('Game')
-      .select(`
-        *,
-        home:Team!Game_homeId_fkey(*),
-        away:Team!Game_awayId_fkey(*)
-      `)
-      .eq('id', gameId)
-      .single()
+    const game = await prisma.game.findUnique({
+      where: { id: gameId },
+      include: {
+        home: true,
+        away: true
+      }
+    })
     
-    if (gameError || !game) {
-      console.error('Game not found:', gameError)
-      return null
-    }
+    if (!game) return null
     
     const homeStarters = await getTeamStarters(game.homeId)
     const awayStarters = await getTeamStarters(game.awayId)
@@ -248,28 +298,26 @@ export async function getGameStarters(gameId) {
  */
 export async function getTeamStarters(teamId, season = '2025') {
   try {
-    const { data: starters, error } = await supabase
-      .from('NFLRosterEntry')
-      .select(`
-        *,
-        player:Player(*)
-      `)
-      .eq('teamId', teamId)
-      .eq('season', season)
-      .eq('depthOrder', 1)
-      .eq('isActive', true)
-      .order('positionGroup', { ascending: true })
-      .order('specificPosition', { ascending: true })
+    const starters = await prisma.nFLRosterEntry.findMany({
+      where: {
+        teamId: teamId,
+        season: season,
+        depthOrder: 1,
+        isActive: true
+      },
+      include: {
+        player: true
+      },
+      orderBy: [
+        { positionGroup: 'asc' },
+        { specificPosition: 'asc' }
+      ]
+    })
     
-    if (error) throw error
-    
-    return (starters || []).map(entry => ({
+    return starters.map(entry => ({
       ...entry.player,
       position: entry.specificPosition,
-      injuryStatus: entry.injuryStatus,
-      jersey: entry.player?.jerseyNumber || entry.player?.jersey,
-      fullName: entry.player?.fullName || entry.player?.name,
-      experience: entry.player?.experience
+      injuryStatus: entry.injuryStatus
     }))
     
   } catch (error) {
@@ -281,16 +329,18 @@ export async function getTeamStarters(teamId, season = '2025') {
 /**
  * Update player injury status
  */
-export async function updatePlayerInjuryStatus(playerId, teamId, injuryStatus, season = '2025') {
+export async function updatePlayerInjuryStatus(playerId, teamId, injuryStatus, season = '2024') {
   try {
-    const { error } = await supabase
-      .from('NFLRosterEntry')
-      .update({ injuryStatus })
-      .eq('playerId', playerId)
-      .eq('teamId', teamId)
-      .eq('season', season)
-    
-    if (error) throw error
+    await prisma.nFLRosterEntry.updateMany({
+      where: {
+        playerId: playerId,
+        teamId: teamId,
+        season: season
+      },
+      data: {
+        injuryStatus: injuryStatus
+      }
+    })
     
     console.log(`Updated ${playerId} injury status to: ${injuryStatus}`)
     return { success: true }
@@ -304,29 +354,30 @@ export async function updatePlayerInjuryStatus(playerId, teamId, injuryStatus, s
 /**
  * Get injury report for a team
  */
-export async function getTeamInjuryReport(teamId, season = '2025') {
+export async function getTeamInjuryReport(teamId, season = '2024') {
   try {
-    const { data: injuredPlayers, error } = await supabase
-      .from('NFLRosterEntry')
-      .select(`
-        *,
-        player:Player(*)
-      `)
-      .eq('teamId', teamId)
-      .eq('season', season)
-      .neq('injuryStatus', 'healthy')
-      .order('positionGroup', { ascending: true })
-      .order('depthOrder', { ascending: true })
+    const injuredPlayers = await prisma.nFLRosterEntry.findMany({
+      where: {
+        teamId: teamId,
+        season: season,
+        injuryStatus: {
+          not: 'healthy'
+        }
+      },
+      include: {
+        player: true
+      },
+      orderBy: [
+        { positionGroup: 'asc' },
+        { depthOrder: 'asc' }
+      ]
+    })
     
-    if (error) throw error
-    
-    return (injuredPlayers || []).map(entry => ({
+    return injuredPlayers.map(entry => ({
       ...entry.player,
       position: entry.specificPosition,
       injuryStatus: entry.injuryStatus,
-      depthOrder: entry.depthOrder,
-      jersey: entry.player?.jerseyNumber || entry.player?.jersey,
-      fullName: entry.player?.fullName || entry.player?.name
+      depthOrder: entry.depthOrder
     }))
     
   } catch (error) {
@@ -343,4 +394,3 @@ export default {
   updatePlayerInjuryStatus,
   getTeamInjuryReport
 }
-
