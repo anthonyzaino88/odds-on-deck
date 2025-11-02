@@ -1,7 +1,8 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
-// Last updated: 2025-11-01 - Configured for Supabase PostgreSQL
-// CACHE BUST: Force fresh Prisma Client generation
+// Last updated: 2025-11-02 23:45 UTC - Configured for Supabase PostgreSQL
+// CACHE BUST: v4 - Force fresh Prisma Client generation (Nov 2 23:45)
+// If games still don't load, increment version number
 
 generator client {
   provider = "prisma-client-js"
