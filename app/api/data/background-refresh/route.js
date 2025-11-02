@@ -8,19 +8,19 @@ import { getAllData } from '../../../../lib/data-manager.js'
 
 export async function POST(request) {
   try {
-    console.log('🔄 Background refresh started...')
+    console.log('⏸️  Background refresh DISABLED - Waiting for Supabase migration')
     
-    // Fire and forget - don't wait for completion
-    // This allows the page to load while heavy operations happen
-    getAllData().catch(error => {
-      console.error('❌ Background refresh error (non-blocking):', error)
-    })
+    // TEMPORARILY DISABLED: This uses Prisma which we're migrating away from
+    // TODO: Re-enable after migrating lib/data-manager.js to Supabase
+    // getAllData().catch(error => {
+    //   console.error('❌ Background refresh error (non-blocking):', error)
+    // })
     
-    // Return immediately to not block the request
+    // Return immediately
     return NextResponse.json({
       success: true,
-      message: 'Background refresh started',
-      status: 'processing'
+      message: 'Background refresh disabled during migration',
+      status: 'disabled'
     })
   } catch (error) {
     console.error('❌ Error starting background refresh:', error)
