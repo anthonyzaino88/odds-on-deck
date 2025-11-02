@@ -6,7 +6,7 @@ export const runtime = 'nodejs'
 export const maxDuration = 30
 
 import { NextResponse } from 'next/server'
-import { supabase } from '../../../lib/supabase.js'
+import { supabase } from '../../../../lib/supabase.js'
 
 export async function GET(req) {
   try {
