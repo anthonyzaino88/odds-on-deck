@@ -111,7 +111,7 @@ async function callOddsAPI(endpoint) {
     await sleep(RATE_LIMIT_DELAY)
   }
   
-  const url = `https://api.the-odds-api.com${endpoint}?apiKey=${ODDS_API_KEY}`
+  const url = `https://api.the-odds-api.com${endpoint}&apiKey=${ODDS_API_KEY}`
   
   try {
     const response = await fetch(url)
