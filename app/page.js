@@ -86,7 +86,7 @@ export default function HomePage() {
         {!loading && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
             {/* MLB Box */}
-            <Link href="/games?sport=mlb">
+            <Link href="/games#mlb">
               <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 rounded-lg p-8 hover:border-blue-500 hover:shadow-lg hover:shadow-blue-500/20 transition cursor-pointer h-full group">
                 <h2 className="text-4xl font-bold mb-2 group-hover:text-blue-400 transition">⚾ MLB</h2>
                 <p className="text-slate-400 mb-8">Major League Baseball</p>
@@ -98,7 +98,7 @@ export default function HomePage() {
             </Link>
 
             {/* NFL Box */}
-            <Link href="/games?sport=nfl">
+            <Link href="/games#nfl">
               <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 rounded-lg p-8 hover:border-green-500 hover:shadow-lg hover:shadow-green-500/20 transition cursor-pointer h-full group">
                 <h2 className="text-4xl font-bold mb-2 group-hover:text-green-400 transition">🏈 NFL</h2>
                 <p className="text-slate-400 mb-8">National Football League</p>
@@ -110,7 +110,7 @@ export default function HomePage() {
             </Link>
 
             {/* NHL Box */}
-            <Link href="/games?sport=nhl">
+            <Link href="/games#nhl">
               <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 rounded-lg p-8 hover:border-cyan-500 hover:shadow-lg hover:shadow-cyan-500/20 transition cursor-pointer h-full group">
                 <h2 className="text-4xl font-bold mb-2 group-hover:text-cyan-400 transition">🏒 NHL</h2>
                 <p className="text-slate-400 mb-8">National Hockey League</p>

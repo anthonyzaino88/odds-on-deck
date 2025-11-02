@@ -42,6 +42,42 @@ export default function GamesPage() {
     fetchGames()
   }, [])
 
+  // Handle scroll to sport section on mount or URL change
+  useEffect(() => {
+    if (loading) return
+
+    const scrollToSport = () => {
+      // Check URL hash first (e.g., /games#nfl)
+      const hash = window.location.hash.slice(1) // Remove #
+      
+      // Check query parameter (e.g., /games?sport=nfl)
+      const urlParams = new URLSearchParams(window.location.search)
+      const sportParam = urlParams.get('sport')
+      
+      const sport = hash || sportParam
+      
+      if (sport && (sport === 'mlb' || sport === 'nfl' || sport === 'nhl')) {
+        // Wait a bit for DOM to render
+        setTimeout(() => {
+          const element = document.getElementById(sport)
+          if (element) {
+            // Get header height for offset
+            const headerOffset = 80
+            const elementPosition = element.getBoundingClientRect().top
+            const offsetPosition = elementPosition + window.pageYOffset - headerOffset
+
+            window.scrollTo({
+              top: offsetPosition,
+              behavior: 'smooth'
+            })
+          }
+        }, 100)
+      }
+    }
+
+    scrollToSport()
+  }, [loading])
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
@@ -103,11 +139,41 @@ export default function GamesPage() {
           <p className="text-slate-500 text-sm mt-2">
             {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
           </p>
+          
+          {/* Quick Navigation */}
+          {(games.mlb.length > 0 || games.nfl.length > 0 || games.nhl.length > 0) && (
+            <div className="flex flex-wrap gap-3 mt-6">
+              {games.mlb.length > 0 && (
+                <a 
+                  href="#mlb" 
+                  className="px-4 py-2 bg-blue-600/20 border border-blue-500/50 rounded-lg text-blue-400 hover:bg-blue-600/30 hover:border-blue-500 transition text-sm font-medium"
+                >
+                  ⚾ Jump to MLB ({games.mlb.length})
+                </a>
+              )}
+              {games.nfl.length > 0 && (
+                <a 
+                  href="#nfl" 
+                  className="px-4 py-2 bg-green-600/20 border border-green-500/50 rounded-lg text-green-400 hover:bg-green-600/30 hover:border-green-500 transition text-sm font-medium"
+                >
+                  🏈 Jump to NFL ({games.nfl.length})
+                </a>
+              )}
+              {games.nhl.length > 0 && (
+                <a 
+                  href="#nhl" 
+                  className="px-4 py-2 bg-cyan-600/20 border border-cyan-500/50 rounded-lg text-cyan-400 hover:bg-cyan-600/30 hover:border-cyan-500 transition text-sm font-medium"
+                >
+                  🏒 Jump to NHL ({games.nhl.length})
+                </a>
+              )}
+            </div>
+          )}
         </div>
 
         {/* MLB Games */}
         {games.mlb.length > 0 && (
-          <div className="mb-12">
+          <div id="mlb" className="mb-12 scroll-mt-20">
             <h2 className="text-2xl font-bold mb-6 text-slate-100">⚾ MLB Games</h2>
             <div className="grid grid-cols-1 gap-4">
               {games.mlb.map((game) => (
@@ -119,7 +185,7 @@ export default function GamesPage() {
 
         {/* NFL Games */}
         {games.nfl.length > 0 && (
-          <div className="mb-12">
+          <div id="nfl" className="mb-12 scroll-mt-20">
             <h2 className="text-2xl font-bold mb-6 text-slate-100">🏈 NFL Games</h2>
             <div className="grid grid-cols-1 gap-4">
               {games.nfl.map((game) => (
@@ -131,7 +197,7 @@ export default function GamesPage() {
 
         {/* NHL Games */}
         {games.nhl.length > 0 && (
-          <div className="mb-12">
+          <div id="nhl" className="mb-12 scroll-mt-20">
             <h2 className="text-2xl font-bold mb-6 text-slate-100">🏒 NHL Games</h2>
             <div className="grid grid-cols-1 gap-4">
               {games.nhl.map((game) => (
