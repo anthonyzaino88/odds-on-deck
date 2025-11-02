@@ -1,88 +1,48 @@
-// Parlay Generator Page
+// Parlay Generator Page - TEMPORARILY DISABLED DURING MIGRATION
 
 'use client'
 
-import { useState } from 'react'
-import ParlayBuilder from '../../components/ParlayBuilder'
-import ParlayResults from '../../components/ParlayResults'
-import ParlayHistory from '../../components/ParlayHistory'
-
 export default function ParlaysPage() {
-  const [generatedParlays, setGeneratedParlays] = useState(null)
-  const [refreshHistory, setRefreshHistory] = useState(0)
-
-  const handleParlayGeneration = (parlays) => {
-    console.log('ParlaysPage: Received parlays from builder:', parlays.length)
-    setGeneratedParlays(parlays)
-  }
-  
-  const handleParlaySaved = () => {
-    // Trigger refresh of parlay history
-    setRefreshHistory(prev => prev + 1)
-  }
-
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">
-            🎯 Parlay Generator
-          </h1>
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            Generate optimized parlays with the best edges and highest probability to hit. 
-            Our algorithm analyzes thousands of betting opportunities to find the most profitable combinations.
-          </p>
-        </div>
-
-        {/* Main Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Builder Section */}
-          <div className="lg:col-span-1">
-            <div className="sticky top-8">
-              <ParlayBuilder onGenerate={handleParlayGeneration} />
-            </div>
-          </div>
-
-          {/* Results Section */}
-          <div className="lg:col-span-2">
-            <ParlayResults 
-              generatedParlays={generatedParlays} 
-              onParlaySaved={handleParlaySaved}
-            />
-          </div>
-        </div>
-
-        {/* History Section */}
-        <div className="mt-12">
-          <ParlayHistory key={refreshHistory} />
-        </div>
-
-        {/* Tips Section */}
-        <div className="mt-12 bg-blue-50 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-blue-900 mb-4">
-            💡 Parlay Tips
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-blue-800">
-            <div>
-              <h4 className="font-medium mb-2">🎯 Best Practices:</h4>
-              <ul className="space-y-1">
-                <li>• Focus on parlays with positive expected value</li>
-                <li>• Avoid correlated bets in the same game</li>
-                <li>• Consider weather and situational factors</li>
-                <li>• Don't chase high odds without good edges</li>
+    <div className="min-h-screen bg-slate-950 text-white">
+      <div className="container mx-auto px-4 py-16">
+        {/* Maintenance Notice */}
+        <div className="max-w-2xl mx-auto text-center">
+          <div className="bg-yellow-900/30 border border-yellow-600 rounded-lg p-8 mb-8">
+            <h1 className="text-4xl font-bold text-yellow-400 mb-4">
+              🔧 Parlay Generator Temporarily Unavailable
+            </h1>
+            <p className="text-xl text-yellow-200 mb-6">
+              We're migrating to a new database system (Supabase) to improve performance and reliability.
+            </p>
+            <div className="bg-slate-800 rounded-lg p-6 text-left">
+              <h2 className="text-lg font-semibold text-white mb-3">What's happening:</h2>
+              <ul className="space-y-2 text-slate-300">
+                <li>✅ Homepage with games - <span className="text-green-400">Working</span></li>
+                <li>✅ Today's slate - <span className="text-green-400">Working</span></li>
+                <li>✅ Game scores - <span className="text-green-400">Working</span></li>
+                <li>⏸️ Parlay generator - <span className="text-yellow-400">Migrating</span></li>
+                <li>⏸️ Player props - <span className="text-yellow-400">Migrating</span></li>
+                <li>⏸️ Validation system - <span className="text-yellow-400">Migrating</span></li>
               </ul>
             </div>
-            <div>
-              <h4 className="font-medium mb-2">📊 Understanding Metrics:</h4>
-              <ul className="space-y-1">
-                <li>• <strong>Edge:</strong> Our advantage over the market</li>
-                <li>• <strong>Probability:</strong> True chance of winning</li>
-                <li>• <strong>Expected Value:</strong> Average profit per bet</li>
-                <li>• <strong>Confidence:</strong> Reliability of our analysis</li>
-              </ul>
+            <div className="mt-6">
+              <p className="text-slate-400">
+                Expected completion: <span className="text-white font-semibold">Within 24 hours</span>
+              </p>
+              <p className="text-sm text-slate-500 mt-2">
+                This feature will be back online once the migration is complete.
+              </p>
             </div>
           </div>
+          
+          {/* Navigation Back */}
+          <a 
+            href="/" 
+            className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-lg transition"
+          >
+            ← Back to Homepage
+          </a>
         </div>
       </div>
     </div>

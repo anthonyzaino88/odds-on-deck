@@ -10,39 +10,17 @@ import { getAllData, forceRefreshAllData, getDataStatus } from '../../../lib/dat
 
 export async function GET(request) {
   try {
-    const url = new URL(request.url)
-    const forceRefresh = url.searchParams.get('force') === 'true'
+    console.log('⏸️  /api/data DISABLED - Use /api/games/today instead')
     
-    console.log(`📊 Data API called (force: ${forceRefresh})`)
-    
-    let data
-    let success = true
-    let error = null
-    
-    if (forceRefresh) {
-      const result = await forceRefreshAllData(false) // Don't bypass cooldown
-      
-      // Check if refresh was successful
-      if (result.success === false) {
-        success = false
-        error = result.error
-        data = result.data // Use cached data
-      } else {
-        data = result
-      }
-    } else {
-      data = await getAllData()
-    }
-    
-    const status = getDataStatus()
-    
+    // TEMPORARILY DISABLED: This uses Prisma which we're migrating to Supabase
+    // Redirect to the Supabase-based endpoint
     return NextResponse.json({
-      success,
-      error,
-      data,
-      status,
+      success: false,
+      error: 'This endpoint is disabled during Supabase migration. Use /api/games/today instead.',
+      message: 'Migration in progress - use /api/games/today for game data',
+      redirectTo: '/api/games/today',
       timestamp: new Date().toISOString()
-    })
+    }, { status: 503 }) // Service Unavailable
     
   } catch (error) {
     console.error('❌ Data API error:', error)

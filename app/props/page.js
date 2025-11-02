@@ -1,69 +1,41 @@
-// Player Props page - Show individual player betting recommendations
+// Player Props Page - TEMPORARILY DISABLED DURING MIGRATION
 
-import Link from 'next/link'
-import { format } from 'date-fns'
-import { getAllData } from '../../lib/data-manager.js'
-import PlayerPropsFilter from '../../components/PlayerPropsFilter.js'
+'use client'
 
-// Force dynamic rendering to avoid build-time database queries
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
-
-export default async function PlayerPropsPage() {
-  // Get all data from centralized data manager (includes player props)
-  const { playerProps, lastUpdated } = await getAllData()
-  
-  // Use all props
-  const props = playerProps
-  
+export default function PropsPage() {
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        
-        {/* Header */}
-        <div className="mb-8">
-          <Link 
-            href="/"
-            className="inline-flex items-center text-sm font-medium text-blue-600 hover:text-blue-500 mb-4"
-          >
-            ← Back to Home
-          </Link>
-          <div className="text-center">
-            <h1 className="text-3xl font-bold text-gray-900">
-              🎯 Player Props
+    <div className="min-h-screen bg-slate-950 text-white">
+      <div className="container mx-auto px-4 py-16">
+        <div className="max-w-2xl mx-auto text-center">
+          <div className="bg-yellow-900/30 border border-yellow-600 rounded-lg p-8 mb-8">
+            <h1 className="text-4xl font-bold text-yellow-400 mb-4">
+              🔧 Player Props Temporarily Unavailable
             </h1>
-            <p className="text-lg text-gray-600 mt-2">
-              Individual player betting recommendations sorted by <strong>win probability</strong>
+            <p className="text-xl text-yellow-200 mb-6">
+              We're migrating to Supabase for better performance and reliability.
             </p>
-            <div className="inline-flex items-center gap-2 mt-2 px-3 py-1.5 bg-green-50 border border-green-200 rounded-lg">
-              <span className="text-green-700 text-sm font-medium">
-                ✅ Highest Win Chance Props First
-              </span>
+            <div className="bg-slate-800 rounded-lg p-6 text-left">
+              <h2 className="text-lg font-semibold text-white mb-3">Migration Status:</h2>
+              <ul className="space-y-2 text-slate-300">
+                <li>✅ Homepage - <span className="text-green-400">Working</span></li>
+                <li>✅ Game scores - <span className="text-green-400">Working</span></li>
+                <li>⏸️ Player props - <span className="text-yellow-400">Migrating</span></li>
+                <li>⏸️ Parlay generator - <span className="text-yellow-400">Migrating</span></li>
+              </ul>
             </div>
-            <div className="text-sm text-gray-500 mt-1">
-              <span suppressHydrationWarning>Updated: {format(new Date(), 'h:mm a')}</span> • {props.length} props available
+            <div className="mt-6">
+              <p className="text-slate-400">
+                This feature will be back online once the migration is complete.
+              </p>
             </div>
           </div>
-        </div>
-
-        {props.length > 0 ? (
-          <PlayerPropsFilter props={props} />
-        ) : (
-          <div className="text-center py-12">
-            <div className="text-gray-400 text-6xl mb-4">🎯</div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No Player Props Available</h3>
-            <p className="text-gray-600">
-              Player props require lineup data. Check back once lineups are posted (typically 2-3 hours before game time).
-            </p>
-          </div>
-        )}
-
-        {/* Disclaimer */}
-        <div className="mt-8 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <p className="text-sm text-yellow-800">
-            <strong>Player Props Disclaimer:</strong> These recommendations are based on statistical analysis and matchup data. 
-            Player performance can vary significantly game-to-game. Always consider injury reports, weather, and recent form.
-          </p>
+          
+          <a 
+            href="/" 
+            className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-lg transition"
+          >
+            ← Back to Homepage
+          </a>
         </div>
       </div>
     </div>
