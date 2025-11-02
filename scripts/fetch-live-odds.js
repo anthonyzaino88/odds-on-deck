@@ -22,6 +22,12 @@ import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
 import fs from 'fs'
 import path from 'path'
+import crypto from 'crypto'
+
+// Helper to generate unique IDs
+function generateId() {
+  return crypto.randomBytes(12).toString('base64url')
+}
 
 config({ path: '.env.local' })
 
@@ -60,8 +66,65 @@ const MLB_PROP_MARKETS = [
 
 const NHL_PROP_MARKETS = [
   'player_points', 'player_assists', 'player_shots_on_goal',
-  'player_power_play_points', 'player_blocked_shots', 'player_anytime_goalscorer'
+  'player_power_play_points', 'player_blocked_shots'
 ]
+
+// ============================================================================
+// TEAM NAME MATCHING (ESPN ↔ The Odds API)
+// ============================================================================
+
+const TEAM_NAME_VARIATIONS = {
+  nfl: {
+    'Los Angeles Rams': ['LA Rams', 'Rams', 'Los Angeles Rams'],
+    'Los Angeles Chargers': ['LA Chargers', 'Chargers', 'Los Angeles Chargers'],
+    'New York Giants': ['NY Giants', 'Giants', 'New York Giants'],
+    'New York Jets': ['NY Jets', 'Jets', 'New York Jets'],
+  },
+  nhl: {
+    'Montreal Canadiens': ['Montréal Canadiens', 'Montreal Canadiens'],
+    'Vegas Golden Knights': ['Las Vegas Golden Knights', 'Vegas Golden Knights'],
+    'Utah Hockey Club': ['Utah Mammoth', 'Utah HC'],  // New team
+  },
+  mlb: {
+    'Chicago White Sox': ['Chi White Sox', 'White Sox', 'Chicago White Sox'],
+    'Chicago Cubs': ['Chi Cubs', 'Cubs', 'Chicago Cubs'],
+    'Los Angeles Dodgers': ['LA Dodgers', 'Dodgers', 'Los Angeles Dodgers'],
+    'Los Angeles Angels': ['LA Angels', 'Angels', 'Los Angeles Angels'],
+  }
+}
+
+function normalizeTeamName(name, sport) {
+  if (!name) return ''
+  
+  // Check if name matches any canonical or variation
+  const variations = TEAM_NAME_VARIATIONS[sport] || {}
+  for (const [canonical, alts] of Object.entries(variations)) {
+    if (alts.some(alt => alt.toLowerCase() === name.toLowerCase())) {
+      return canonical.toLowerCase()
+    }
+  }
+  
+  // Default: just lowercase for comparison
+  return name.toLowerCase().trim()
+}
+
+function matchTeams(espnHome, espnAway, oddsHome, oddsAway, sport) {
+  const homeNorm = normalizeTeamName(espnHome, sport)
+  const awayNorm = normalizeTeamName(espnAway, sport)
+  const oddsHomeNorm = normalizeTeamName(oddsHome, sport)
+  const oddsAwayNorm = normalizeTeamName(oddsAway, sport)
+  
+  // Exact match
+  if (homeNorm === oddsHomeNorm && awayNorm === oddsAwayNorm) {
+    return true
+  }
+  
+  // Fuzzy match (contains)
+  const homeMatch = homeNorm.includes(oddsHomeNorm) || oddsHomeNorm.includes(homeNorm)
+  const awayMatch = awayNorm.includes(oddsAwayNorm) || oddsAwayNorm.includes(awayNorm)
+  
+  return homeMatch && awayMatch
+}
 
 // ============================================================================
 // ARGUMENT PARSING
@@ -201,13 +264,95 @@ async function fetchGameOdds(sport, date) {
   }
 }
 
+async function mapAndSaveEventIds(oddsGames, sport) {
+  console.log(`  🔗 Mapping ESPN games to Odds API events...`)
+  
+  // Get ESPN games from database
+  const { data: dbGames } = await supabase
+    .from('Game')
+    .select('id, sport, date, homeId, awayId, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
+    .eq('sport', sport)
+    .is('oddsApiEventId', null)  // Only games without mapping yet
+  
+  if (!dbGames || dbGames.length === 0) {
+    console.log(`  ℹ️  No unmapped ${sport.toUpperCase()} games in database`)
+    return []
+  }
+  
+  let mapped = 0
+  let unmapped = []
+  
+  for (const oddsGame of oddsGames) {
+    // Try to find matching ESPN game
+    const dbGame = dbGames.find(g => {
+      const homeName = g.home?.name || g.home?.abbr || ''
+      const awayName = g.away?.name || g.away?.abbr || ''
+      
+      return matchTeams(homeName, awayName, oddsGame.home_team, oddsGame.away_team, sport)
+    })
+    
+    if (dbGame) {
+      // Save mapping
+      const { error } = await supabase
+        .from('Game')
+        .update({ oddsApiEventId: oddsGame.id })
+        .eq('id', dbGame.id)
+      
+      if (error) {
+        console.error(`    ❌ Mapping error for ${dbGame.id}: ${error.message}`)
+      } else {
+        console.log(`    ✅ Mapped: ${dbGame.away.abbr} @ ${dbGame.home.abbr} → ${oddsGame.id.substring(0, 8)}...`)
+        mapped++
+      }
+    } else {
+      unmapped.push(`${oddsGame.away_team} @ ${oddsGame.home_team}`)
+    }
+  }
+  
+  console.log(`  ✅ Mapped ${mapped} games`)
+  if (unmapped.length > 0) {
+    console.log(`  ⚠️  Unmapped games (not in ESPN data):`)
+    unmapped.forEach(game => console.log(`     - ${game}`))
+  }
+  
+  return oddsGames
+}
+
 async function saveGameOdds(games, sport) {
   if (games.length === 0) return
   
-  console.log(`  💾 Saving odds to database...`)
+  // First, map event IDs
+  await mapAndSaveEventIds(games, sport)
+  
+  // Get mapping of Odds API event ID → our database game ID
+  const { data: dbGames } = await supabase
+    .from('Game')
+    .select('id, oddsApiEventId')
+    .eq('sport', sport)
+    .not('oddsApiEventId', 'is', null)
+  
+  // Create lookup map
+  const eventIdToGameId = {}
+  if (dbGames) {
+    dbGames.forEach(g => {
+      if (g.oddsApiEventId) {
+        eventIdToGameId[g.oddsApiEventId] = g.id
+      }
+    })
+  }
+  
+  console.log(`  💾 Saving odds to database (${Object.keys(eventIdToGameId).length} games mapped)...`)
   
   let saved = 0
   for (const game of games) {
+    // Look up our database game ID
+    const ourGameId = eventIdToGameId[game.id]
+    
+    if (!ourGameId) {
+      console.warn(`    ⚠️  No database game found for Odds API event ${game.id}`)
+      continue
+    }
+    
     try {
       for (const bookmaker of game.bookmakers || []) {
         for (const market of bookmaker.markets || []) {
@@ -237,7 +382,8 @@ async function saveGameOdds(games, sport) {
           const { error } = await supabase
             .from('Odds')
             .insert({
-              gameId: game.id,
+              id: generateId(),
+              gameId: ourGameId,  // Use our database game ID
               book: bookmaker.title,
               market: market.key,
               priceAway,
@@ -248,9 +394,11 @@ async function saveGameOdds(games, sport) {
             })
           
           // Ignore duplicate key errors (code 23505)
-          if (error && !error.code?.includes('23505')) {
-            console.error(`    ❌ Save error: ${error.message}`)
-          } else if (!error) {
+          if (error) {
+            if (!error.code?.includes('23505')) {
+              console.error(`    ❌ Save error: ${error.message} (code: ${error.code})`)
+            }
+          } else {
             saved++
           }
         }
@@ -339,11 +487,36 @@ async function fetchPlayerProps(sport, date, oddsGames) {
 async function savePlayerProps(gameProps, sport) {
   if (gameProps.length === 0) return
   
-  console.log(`  💾 Saving player props to database...`)
+  // Get mapping of Odds API event ID → our database game ID
+  const { data: dbGames } = await supabase
+    .from('Game')
+    .select('id, oddsApiEventId')
+    .eq('sport', sport)
+    .not('oddsApiEventId', 'is', null)
+  
+  // Create lookup map
+  const eventIdToGameId = {}
+  if (dbGames) {
+    dbGames.forEach(g => {
+      if (g.oddsApiEventId) {
+        eventIdToGameId[g.oddsApiEventId] = g.id
+      }
+    })
+  }
+  
+  console.log(`  💾 Saving player props to database (${Object.keys(eventIdToGameId).length} games mapped)...`)
   
   let saved = 0
   
   for (const { gameId, props } of gameProps) {
+    // Look up our database game ID
+    const ourGameId = eventIdToGameId[gameId]
+    
+    if (!ourGameId) {
+      console.warn(`    ⚠️  No database game found for Odds API event ${gameId}`)
+      continue
+    }
+    
     try {
       for (const bookmaker of props.bookmakers || []) {
         for (const market of bookmaker.markets || []) {
@@ -360,14 +533,15 @@ async function savePlayerProps(gameProps, sport) {
               pick = 'under'
             }
             
-            const propId = `${gameId}-${playerName}-${market.key}-${line}`
+            const propId = `${ourGameId}-${playerName}-${market.key}-${line}`
             
             // Save to PlayerPropCache (insert only, ignore duplicates)
             const { error } = await supabase
               .from('PlayerPropCache')
               .insert({
+                id: generateId(),
                 propId,
-                gameId,
+                gameId: ourGameId,  // Use our database game ID
                 playerName,
                 type: market.key,
                 pick,
@@ -386,9 +560,11 @@ async function savePlayerProps(gameProps, sport) {
               })
             
             // Ignore duplicate key errors (code 23505)
-            if (error && !error.code?.includes('23505')) {
-              console.error(`    ❌ Save error: ${error.message}`)
-            } else if (!error) {
+            if (error) {
+              if (!error.code?.includes('23505')) {
+                console.error(`    ❌ Save error: ${error.message} (code: ${error.code})`)
+              }
+            } else {
               saved++
             }
           }
