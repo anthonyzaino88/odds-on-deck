@@ -12,14 +12,10 @@ export async function GET(req) {
   try {
     console.log('📅 API: Fetching games from Supabase...')
     
-    // Query all games with team data using foreign key relationships
+    // Step 1: Query all games
     const { data: allGames, error: gameError } = await supabase
       .from('Game')
-      .select(`
-        *,
-        home:homeId (id, name, abbr, sport),
-        away:awayId (id, name, abbr, sport)
-      `)
+      .select('*')
       .limit(100)
     
     if (gameError) {
@@ -39,18 +35,56 @@ export async function GET(req) {
       })
     }
     
-    // Group by sport and enrich with team data
-    const mlbGames = allGames
-      .filter(g => g.sport === 'mlb')
-      .map(enrichGame)
+    // Step 2: Get all unique team IDs
+    const teamIds = new Set()
+    allGames.forEach(game => {
+      if (game.homeId) teamIds.add(game.homeId)
+      if (game.awayId) teamIds.add(game.awayId)
+    })
     
-    const nflGames = allGames
-      .filter(g => g.sport === 'nfl')
-      .map(enrichGame)
+    console.log(`🔍 Found ${teamIds.size} unique team IDs`)
     
-    const nhlGames = allGames
-      .filter(g => g.sport === 'nhl')
-      .map(enrichGame)
+    // Step 3: Query all teams we need
+    const { data: allTeams, error: teamError } = await supabase
+      .from('Team')
+      .select('id, name, abbr')
+      .in('id', Array.from(teamIds))
+    
+    if (teamError) {
+      console.error('❌ Team query error:', teamError)
+      // Don't throw - continue without team data
+    }
+    
+    // Step 4: Create a map for easy lookup
+    const teamMap = {}
+    if (allTeams) {
+      allTeams.forEach(team => {
+        teamMap[team.id] = team
+      })
+    }
+    
+    console.log(`🎯 Loaded ${Object.keys(teamMap).length} teams`)
+    
+    // Step 5: Enrich games with team data
+    const enrichedGames = allGames.map(game => ({
+      id: game.id,
+      sport: game.sport,
+      date: game.date,
+      status: game.status,
+      homeScore: game.homeScore,
+      awayScore: game.awayScore,
+      home: teamMap[game.homeId] || { id: game.homeId, name: 'Unknown', abbr: '?' },
+      away: teamMap[game.awayId] || { id: game.awayId, name: 'Unknown', abbr: '?' },
+      week: game.week,
+      season: game.season,
+      inning: game.inning,
+      inningHalf: game.inningHalf
+    }))
+    
+    // Step 6: Group by sport
+    const mlbGames = enrichedGames.filter(g => g.sport === 'mlb')
+    const nflGames = enrichedGames.filter(g => g.sport === 'nfl')
+    const nhlGames = enrichedGames.filter(g => g.sport === 'nhl')
     
     console.log(`✅ MLB: ${mlbGames.length}, NFL: ${nflGames.length}, NHL: ${nhlGames.length}`)
     
@@ -79,32 +113,5 @@ export async function GET(req) {
       data: { mlb: [], nfl: [], nhl: [] },
       timestamp: new Date().toISOString()
     }, { status: 500 })
-  }
-}
-
-// Helper to normalize game data for display
-function enrichGame(game) {
-  return {
-    id: game.id,
-    sport: game.sport,
-    date: game.date,
-    status: game.status,
-    homeScore: game.homeScore,
-    awayScore: game.awayScore,
-    home: {
-      id: game.home?.id,
-      name: game.home?.name,
-      abbr: game.home?.abbr
-    },
-    away: {
-      id: game.away?.id,
-      name: game.away?.name,
-      abbr: game.away?.abbr
-    },
-    // Include optional sport-specific fields
-    week: game.week,
-    season: game.season,
-    inning: game.inning,
-    inningHalf: game.inningHalf
   }
 }
