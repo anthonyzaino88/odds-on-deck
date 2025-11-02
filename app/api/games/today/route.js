@@ -1,25 +1,31 @@
 // API endpoint to get today's games and upcoming games
+// Using Supabase client instead of Prisma (no build-time dependency!)
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 export const maxDuration = 30
 
 import { NextResponse } from 'next/server'
-import { prisma } from '../../../../lib/db.js'
+import { supabase } from '../../../lib/supabase.js'
 
 export async function GET(req) {
   try {
-    console.log('📅 API: Fetching games...')
-    console.log('📍 DATABASE_URL exists:', !!process.env.DATABASE_URL)
+    console.log('📅 API: Fetching games from Supabase...')
     
-    // TEST: Fetch ALL games with NO filters
-    console.log('🔍 Testing: Fetch all games...')
-    const allGames = await prisma.game.findMany({
-      take: 100
-    })
-    console.log(`✅ Total games found: ${allGames.length}`)
+    // Query all games from database
+    const { data: allGames, error } = await supabase
+      .from('game')
+      .select('*')
+      .limit(100)
     
-    if (allGames.length === 0) {
+    if (error) {
+      console.error('❌ Supabase error:', error)
+      throw error
+    }
+    
+    console.log(`✅ Retrieved ${allGames?.length || 0} total games`)
+    
+    if (!allGames || allGames.length === 0) {
       console.log('⚠️ No games found in database')
       return NextResponse.json({
         success: true,
@@ -49,16 +55,14 @@ export async function GET(req) {
   } catch (error) {
     console.error('❌ API error:', {
       message: error.message,
-      code: error.code,
-      stack: error.stack
+      code: error.code
     })
     
     return NextResponse.json({
       success: false,
-      error: error.message || 'Unknown error',
+      error: error.message || 'Failed to fetch games',
       details: {
-        code: error.code,
-        dbUrl: process.env.DATABASE_URL ? 'SET' : 'NOT SET'
+        code: error.code
       },
       data: { mlb: [], nfl: [], nhl: [] },
       timestamp: new Date().toISOString()
