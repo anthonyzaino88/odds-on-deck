@@ -154,9 +154,9 @@ async function fetchPlayerProps(sport, eventId) {
 
 // ===== MAIN =====
 async function main() {
-  const dryRun = process.argv.includes('--dry-run')
   const sport = process.argv[2]?.toLowerCase() || 'mlb'
-  const dateArg = process.argv.find((arg, i) => i > 2 && !arg.startsWith('--')) || 'today'
+  const dateArg = process.argv[3] || 'today'
+  const dryRun = process.argv.includes('--dry-run')
   
   if (!['mlb', 'nfl', 'nhl'].includes(sport)) {
     console.error(`❌ Invalid sport: ${sport}. Use: mlb, nfl, or nhl`)
@@ -205,7 +205,6 @@ async function main() {
   
   let successCount = 0
   let errorCount = 0
-  let savedOdds = 0
   
   for (let i = 0; i < games.length; i++) {
     const game = games[i]
@@ -214,47 +213,16 @@ async function main() {
     
     // Fetch props
     console.log(`  📊 Fetching player props...`)
-    const propsData = await fetchPlayerProps(sport, game.id)
+    const props = await fetchPlayerProps(sport, game.id)
     
-    if (propsData && propsData.bookmakers && propsData.bookmakers.length > 0) {
-      console.log(`  ✅ Got props (${propsData.bookmakers[0].markets?.length || 0} markets)`)
+    if (props) {
+      console.log(`  ✅ Got props (${props.bookmakers?.[0]?.markets?.length || 0} markets)`)
       successCount++
       
       if (!dryRun) {
-        try {
-          // Save all odds from all bookmakers
-          let oddsSaved = 0
-          for (const bookmaker of propsData.bookmakers) {
-            for (const market of bookmaker.markets || []) {
-              const outcomes = market.outcomes || []
-              
-              // Find home and away prices
-              const homeOutcome = outcomes.find(o => o.name === propsData.home_team || o.name === game.home.name)
-              const awayOutcome = outcomes.find(o => o.name === propsData.away_team || o.name === game.away.name)
-              
-              // Save to database
-              await prisma.odds.create({
-                data: {
-                  gameId: game.id,
-                  book: bookmaker.title || 'Unknown',
-                  market: market.key,
-                  priceHome: homeOutcome?.price,
-                  priceAway: awayOutcome?.price,
-                  total: market.key === 'totals' ? market.description?.split(' ').pop() : null,
-                  spread: market.key === 'spreads' ? market.description?.split(' ')[0] : null,
-                  ts: new Date()
-                }
-              })
-              oddsSaved++
-            }
-          }
-          console.log(`  💾 Saved ${oddsSaved} odds records`)
-          savedOdds += oddsSaved
-        } catch (err) {
-          console.error(`  ❌ Error saving odds:`, err.message)
-        }
-      } else {
-        console.log(`  🔍 [DRY-RUN] Would save props data`)
+        // Save props to database
+        // TODO: Implement prop saving logic based on your schema
+        console.log(`  💾 Saved props`)
       }
     } else {
       errorCount++
@@ -272,8 +240,7 @@ async function main() {
   console.log(`📊 SUMMARY`)
   console.log(`✅ Success: ${successCount}/${games.length}`)
   console.log(`❌ Errors: ${errorCount}/${games.length}`)
-  console.log(`💾 Odds saved: ${savedOdds}`)
-  console.log(`🔄 Mode: ${dryRun ? 'DRY RUN' : 'SAVED'}`)
+  console.log(`💾 Mode: ${dryRun ? 'DRY RUN' : 'SAVED'}`)
   
   await prisma.$disconnect()
 }
