@@ -125,96 +125,118 @@ export default async function GameDetailPage({ params }) {
         )}
       </div>
       
-      {/* Key Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {isNFL ? (
-          <>
-            <StatCard
-              title="Spread"
-              value={(() => {
-                const spreadOdds = game.odds?.find(o => o.market === 'spreads')
-                return spreadOdds?.spread ? `${spreadOdds.spread > 0 ? '+' : ''}${spreadOdds.spread}` : 'N/A'
-              })()}
-              subtitle="Point spread"
-            />
-            <StatCard
-              title="Total"
-              value={(() => {
-                const totalOdds = game.odds?.find(o => o.market === 'totals')
-                return totalOdds?.total || 'N/A'
-              })()}
-              subtitle="Over/Under points"
-            />
-            <StatCard
-              title="Quarter"
-              value={game.nflData?.quarter ? `Q${game.nflData.quarter}` : 'Pre-Game'}
-              subtitle={game.nflData?.timeLeft || game.status}
-            />
-            <StatCard
-              title="Record"
-              value="N/A"
-              subtitle="Season record"
-            />
-          </>
-        ) : isNHL ? (
-          <>
-            <StatCard
-              title="Puck Line"
-              value={(() => {
-                const spreadOdds = game.odds?.find(o => o.market === 'spreads')
-                return spreadOdds?.spread ? `${spreadOdds.spread > 0 ? '+' : ''}${spreadOdds.spread}` : 'N/A'
-              })()}
-              subtitle="Goal spread"
-            />
-            <StatCard
-              title="Total"
-              value={(() => {
-                const totalOdds = game.odds?.find(o => o.market === 'totals')
-                return totalOdds?.total || 'N/A'
-              })()}
-              subtitle="Over/Under goals"
-            />
-            <StatCard
-              title="ML Odds"
-              value={(() => {
-                const h2hOdds = game.odds?.find(o => o.market === 'h2h')
-                return h2hOdds ? `${h2hOdds.priceHome > 0 ? '+' : ''}${h2hOdds.priceHome} / ${h2hOdds.priceAway > 0 ? '+' : ''}${h2hOdds.priceAway}` : 'N/A'
-              })()}
-              subtitle="Home / Away"
-            />
-            <StatCard
-              title="Status"
-              value={game.status === 'in_progress' ? 'Live' : game.status}
-              subtitle={game.period || 'Pre-Game'}
-            />
-          </>
-        ) : (
-          <>
-            <StatCard
-              title="Our Total"
-              value={edge?.ourTotal ? edge.ourTotal.toFixed(1) : 'N/A'}
-              subtitle="Projected runs"
-            />
-            <StatCard
-              title="ML Edge"
-              value={getBestMlEdge(edge)}
-              subtitle="Moneyline value"
-              className={getBestMlEdgeClass(edge)}
-            />
-            <StatCard
-              title="Total Edge"
-              value={getBestTotalEdge(edge)}
-              subtitle="Over/Under value"
-              className={getBestTotalEdgeClass(edge)}
-            />
-            <StatCard
-              title="Park Factor"
-              value={game.home.parkFactor ? game.home.parkFactor.toFixed(2) : '1.00'}
-              subtitle="Run environment"
-            />
-          </>
-        )}
-      </div>
+      {/* Key Stats Cards - Only show if we have data */}
+      {(() => {
+        // Get odds data
+        const spreadOdds = game.odds?.find(o => o.market === 'spreads')
+        const totalOdds = game.odds?.find(o => o.market === 'totals')
+        const h2hOdds = game.odds?.find(o => o.market === 'h2h')
+        const hasNflData = game.nflData && (game.nflData.quarter || game.nflData.timeLeft)
+        
+        // Only show cards section if we have at least one piece of data
+        const hasData = spreadOdds || totalOdds || h2hOdds || hasNflData
+        
+        if (!hasData) return null
+        
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {isNFL ? (
+              <>
+                {spreadOdds?.spread && (
+                  <StatCard
+                    title="Spread"
+                    value={`${spreadOdds.spread > 0 ? '+' : ''}${spreadOdds.spread}`}
+                    subtitle={`${spreadOdds.book || 'Latest'}`}
+                  />
+                )}
+                {totalOdds?.total && (
+                  <StatCard
+                    title="Total"
+                    value={totalOdds.total.toFixed(1)}
+                    subtitle={`O/U ${totalOdds.book || 'Latest'}`}
+                  />
+                )}
+                {hasNflData && (
+                  <StatCard
+                    title="Quarter"
+                    value={game.nflData.quarter ? `Q${game.nflData.quarter}` : game.status}
+                    subtitle={game.nflData.timeLeft || game.status}
+                  />
+                )}
+                {h2hOdds && (
+                  <StatCard
+                    title="Moneyline"
+                    value={`${h2hOdds.priceHome > 0 ? '+' : ''}${h2hOdds.priceHome} / ${h2hOdds.priceAway > 0 ? '+' : ''}${h2hOdds.priceAway}`}
+                    subtitle={`Home / Away`}
+                  />
+                )}
+              </>
+            ) : isNHL ? (
+              <>
+                {spreadOdds?.spread && (
+                  <StatCard
+                    title="Puck Line"
+                    value={`${spreadOdds.spread > 0 ? '+' : ''}${spreadOdds.spread}`}
+                    subtitle={`Goal spread`}
+                  />
+                )}
+                {totalOdds?.total && (
+                  <StatCard
+                    title="Total"
+                    value={totalOdds.total.toFixed(1)}
+                    subtitle="Over/Under goals"
+                  />
+                )}
+                {h2hOdds && (
+                  <StatCard
+                    title="ML Odds"
+                    value={`${h2hOdds.priceHome > 0 ? '+' : ''}${h2hOdds.priceHome} / ${h2hOdds.priceAway > 0 ? '+' : ''}${h2hOdds.priceAway}`}
+                    subtitle="Home / Away"
+                  />
+                )}
+                <StatCard
+                  title="Status"
+                  value={game.status === 'in_progress' ? '🔴 Live' : game.status}
+                  subtitle={game.status === 'in_progress' ? 'Game in progress' : 'Scheduled'}
+                />
+              </>
+            ) : (
+              <>
+                {edge?.ourTotal && (
+                  <StatCard
+                    title="Our Total"
+                    value={edge.ourTotal.toFixed(1)}
+                    subtitle="Projected runs"
+                  />
+                )}
+                {edge && (
+                  <>
+                    <StatCard
+                      title="ML Edge"
+                      value={getBestMlEdge(edge)}
+                      subtitle="Moneyline value"
+                      className={getBestMlEdgeClass(edge)}
+                    />
+                    <StatCard
+                      title="Total Edge"
+                      value={getBestTotalEdge(edge)}
+                      subtitle="Over/Under value"
+                      className={getBestTotalEdgeClass(edge)}
+                    />
+                  </>
+                )}
+                {game.home?.parkFactor && (
+                  <StatCard
+                    title="Park Factor"
+                    value={game.home.parkFactor.toFixed(2)}
+                    subtitle="Run environment"
+                  />
+                )}
+              </>
+            )}
+          </div>
+        )
+      })()}
       
       {/* Probable Pitchers - Only for MLB */}
       {!isNFL && !isNHL && game.sport === 'mlb' && (
@@ -242,7 +264,7 @@ export default async function GameDetailPage({ params }) {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <span className="text-sm font-medium text-gray-600">Status:</span>
-                <span className="ml-2 text-sm text-gray-900">{game.status}</span>
+                <span className="ml-2 text-sm text-gray-900 capitalize">{game.status.replace('_', ' ')}</span>
               </div>
               {game.nflData.quarter && (
                 <div>
@@ -260,6 +282,11 @@ export default async function GameDetailPage({ params }) {
                 <div className="md:col-span-3">
                   <span className="text-sm font-medium text-gray-600">Last Play:</span>
                   <span className="ml-2 text-sm text-gray-900">{game.nflData.lastPlay}</span>
+                </div>
+              )}
+              {!game.nflData.quarter && !game.nflData.timeLeft && game.status === 'in_progress' && (
+                <div className="md:col-span-3">
+                  <p className="text-sm text-gray-500 italic">Live game data updating...</p>
                 </div>
               )}
             </div>
