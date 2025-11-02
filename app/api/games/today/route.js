@@ -12,9 +12,9 @@ export async function GET(req) {
   try {
     console.log('📅 API: Fetching games from Supabase...')
     
-    // Query all games from database
+    // Query all games from database (note: table name is "Game" with capital G)
     const { data: allGames, error } = await supabase
-      .from('game')
+      .from('Game')
       .select('*')
       .limit(100)
     

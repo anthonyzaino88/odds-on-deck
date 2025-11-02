@@ -18,7 +18,7 @@ export async function GET() {
     
     // Try to query
     const { data, error, status } = await supabase
-      .from('game')
+      .from('Game')
       .select('*')
       .limit(5)
     
