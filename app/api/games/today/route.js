@@ -35,11 +35,17 @@ export async function GET(req) {
       })
     }
     
-    // Step 2: Get all unique team IDs
+    // Step 2: Get all unique team IDs (strip sport prefix like "NFL_4" → "4")
     const teamIds = new Set()
     allGames.forEach(game => {
-      if (game.homeId) teamIds.add(game.homeId)
-      if (game.awayId) teamIds.add(game.awayId)
+      if (game.homeId) {
+        const id = stripSportPrefix(game.homeId)
+        teamIds.add(id)
+      }
+      if (game.awayId) {
+        const id = stripSportPrefix(game.awayId)
+        teamIds.add(id)
+      }
     })
     
     console.log(`🔍 Found ${teamIds.size} unique team IDs`)
@@ -66,20 +72,25 @@ export async function GET(req) {
     console.log(`🎯 Loaded ${Object.keys(teamMap).length} teams`)
     
     // Step 5: Enrich games with team data
-    const enrichedGames = allGames.map(game => ({
-      id: game.id,
-      sport: game.sport,
-      date: game.date,
-      status: game.status,
-      homeScore: game.homeScore,
-      awayScore: game.awayScore,
-      home: teamMap[game.homeId] || { id: game.homeId, name: 'Unknown', abbr: '?' },
-      away: teamMap[game.awayId] || { id: game.awayId, name: 'Unknown', abbr: '?' },
-      week: game.week,
-      season: game.season,
-      inning: game.inning,
-      inningHalf: game.inningHalf
-    }))
+    const enrichedGames = allGames.map(game => {
+      const homeId = stripSportPrefix(game.homeId)
+      const awayId = stripSportPrefix(game.awayId)
+      
+      return {
+        id: game.id,
+        sport: game.sport,
+        date: game.date,
+        status: game.status,
+        homeScore: game.homeScore,
+        awayScore: game.awayScore,
+        home: teamMap[homeId] || { id: homeId, name: 'Unknown', abbr: '?' },
+        away: teamMap[awayId] || { id: awayId, name: 'Unknown', abbr: '?' },
+        week: game.week,
+        season: game.season,
+        inning: game.inning,
+        inningHalf: game.inningHalf
+      }
+    })
     
     // Step 6: Group by sport
     const mlbGames = enrichedGames.filter(g => g.sport === 'mlb')
@@ -114,4 +125,12 @@ export async function GET(req) {
       timestamp: new Date().toISOString()
     }, { status: 500 })
   }
+}
+
+// Helper: Strip sport prefix from IDs like "NFL_4" → "4"
+function stripSportPrefix(id) {
+  if (!id) return id
+  // Match format: SPORT_NUMBER (e.g., "NFL_4", "MLB_108")
+  const match = id.match(/^[A-Z]+_(.+)$/)
+  return match ? match[1] : id
 }
