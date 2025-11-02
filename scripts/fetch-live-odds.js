@@ -154,9 +154,15 @@ async function fetchPlayerProps(sport, eventId) {
 
 // ===== MAIN =====
 async function main() {
-  const sport = process.argv[2]?.toLowerCase() || 'mlb'
-  const dateArg = process.argv[3] || 'today'
-  const dryRun = process.argv.includes('--dry-run')
+  // Parse arguments correctly: sport [date] [--dry-run]
+  const allArgs = process.argv.slice(2)
+  const dryRun = allArgs.includes('--dry-run')
+  
+  // Remove flags from args
+  const cleanArgs = allArgs.filter(arg => !arg.startsWith('--'))
+  
+  const sport = cleanArgs[0]?.toLowerCase() || 'mlb'
+  const dateArg = cleanArgs[1] || 'today'
   
   if (!['mlb', 'nfl', 'nhl'].includes(sport)) {
     console.error(`❌ Invalid sport: ${sport}. Use: mlb, nfl, or nhl`)
@@ -166,7 +172,7 @@ async function main() {
   console.log(`\n🎯 Odds Fetcher - ${sport.toUpperCase()}`)
   console.log(`📅 Date: ${dateArg}`)
   if (dryRun) console.log('🔍 DRY RUN MODE (no data saved)')
-  console.log('=' .repeat(50))
+  console.log('='.repeat(50))
   
   // Get date range
   const { start, end } = parseDate(dateArg)
