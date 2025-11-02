@@ -12,15 +12,19 @@ export async function GET(req) {
   try {
     console.log('📅 API: Fetching games from Supabase...')
     
-    // Query all games from database (note: table name is "Game" with capital G)
-    const { data: allGames, error } = await supabase
+    // Query all games with team data using foreign key relationships
+    const { data: allGames, error: gameError } = await supabase
       .from('Game')
-      .select('*')
+      .select(`
+        *,
+        home:homeId (id, name, abbr, sport),
+        away:awayId (id, name, abbr, sport)
+      `)
       .limit(100)
     
-    if (error) {
-      console.error('❌ Supabase error:', error)
-      throw error
+    if (gameError) {
+      console.error('❌ Game query error:', gameError)
+      throw gameError
     }
     
     console.log(`✅ Retrieved ${allGames?.length || 0} total games`)
@@ -35,10 +39,18 @@ export async function GET(req) {
       })
     }
     
-    // Group by sport
-    const mlbGames = allGames.filter(g => g.sport === 'mlb')
-    const nflGames = allGames.filter(g => g.sport === 'nfl')
-    const nhlGames = allGames.filter(g => g.sport === 'nhl')
+    // Group by sport and enrich with team data
+    const mlbGames = allGames
+      .filter(g => g.sport === 'mlb')
+      .map(enrichGame)
+    
+    const nflGames = allGames
+      .filter(g => g.sport === 'nfl')
+      .map(enrichGame)
+    
+    const nhlGames = allGames
+      .filter(g => g.sport === 'nhl')
+      .map(enrichGame)
     
     console.log(`✅ MLB: ${mlbGames.length}, NFL: ${nflGames.length}, NHL: ${nhlGames.length}`)
     
@@ -67,5 +79,32 @@ export async function GET(req) {
       data: { mlb: [], nfl: [], nhl: [] },
       timestamp: new Date().toISOString()
     }, { status: 500 })
+  }
+}
+
+// Helper to normalize game data for display
+function enrichGame(game) {
+  return {
+    id: game.id,
+    sport: game.sport,
+    date: game.date,
+    status: game.status,
+    homeScore: game.homeScore,
+    awayScore: game.awayScore,
+    home: {
+      id: game.home?.id,
+      name: game.home?.name,
+      abbr: game.home?.abbr
+    },
+    away: {
+      id: game.away?.id,
+      name: game.away?.name,
+      abbr: game.away?.abbr
+    },
+    // Include optional sport-specific fields
+    week: game.week,
+    season: game.season,
+    inning: game.inning,
+    inningHalf: game.inningHalf
   }
 }
