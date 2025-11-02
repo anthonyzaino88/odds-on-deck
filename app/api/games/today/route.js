@@ -35,46 +35,38 @@ export async function GET(req) {
       })
     }
     
-    // Step 2: Get all unique team IDs (strip sport prefix like "NFL_4" → "4")
-    const teamIds = new Set()
-    allGames.forEach(game => {
-      if (game.homeId) {
-        const id = stripSportPrefix(game.homeId)
-        teamIds.add(id)
-      }
-      if (game.awayId) {
-        const id = stripSportPrefix(game.awayId)
-        teamIds.add(id)
-      }
-    })
-    
-    console.log(`🔍 Found ${teamIds.size} unique team IDs`)
-    
-    // Step 3: Query all teams we need
+    // Step 2: Query all teams
     const { data: allTeams, error: teamError } = await supabase
       .from('Team')
-      .select('id, name, abbr')
-      .in('id', Array.from(teamIds))
+      .select('id, name, abbr, sport')
     
     if (teamError) {
       console.error('❌ Team query error:', teamError)
-      // Don't throw - continue without team data
     }
     
-    // Step 4: Create a map for easy lookup
-    const teamMap = {}
+    // Step 3: Create a map of team IDs to teams
+    const teamById = {}
     if (allTeams) {
       allTeams.forEach(team => {
-        teamMap[team.id] = team
+        if (team.id) {
+          teamById[team.id] = team
+        }
       })
     }
     
-    console.log(`🎯 Loaded ${Object.keys(teamMap).length} teams`)
+    console.log(`🎯 Loaded ${Object.keys(teamById).length} teams`)
     
-    // Step 5: Enrich games with team data
+    // Step 4: Enrich games with team data using homeId/awayId
     const enrichedGames = allGames.map(game => {
-      const homeId = stripSportPrefix(game.homeId)
-      const awayId = stripSportPrefix(game.awayId)
+      const homeTeam = teamById[game.homeId]
+      const awayTeam = teamById[game.awayId]
+      
+      if (!homeTeam) {
+        console.warn(`⚠️ Home team not found for ID: ${game.homeId}`)
+      }
+      if (!awayTeam) {
+        console.warn(`⚠️ Away team not found for ID: ${game.awayId}`)
+      }
       
       return {
         id: game.id,
@@ -83,8 +75,8 @@ export async function GET(req) {
         status: game.status,
         homeScore: game.homeScore,
         awayScore: game.awayScore,
-        home: teamMap[homeId] || { id: homeId, name: 'Unknown', abbr: '?' },
-        away: teamMap[awayId] || { id: awayId, name: 'Unknown', abbr: '?' },
+        home: homeTeam || { id: game.homeId, name: 'Unknown', abbr: '?' },
+        away: awayTeam || { id: game.awayId, name: 'Unknown', abbr: '?' },
         week: game.week,
         season: game.season,
         inning: game.inning,
@@ -92,7 +84,7 @@ export async function GET(req) {
       }
     })
     
-    // Step 6: Group by sport
+    // Step 5: Group by sport
     const mlbGames = enrichedGames.filter(g => g.sport === 'mlb')
     const nflGames = enrichedGames.filter(g => g.sport === 'nfl')
     const nhlGames = enrichedGames.filter(g => g.sport === 'nhl')
@@ -125,12 +117,4 @@ export async function GET(req) {
       timestamp: new Date().toISOString()
     }, { status: 500 })
   }
-}
-
-// Helper: Strip sport prefix from IDs like "NFL_4" → "4"
-function stripSportPrefix(id) {
-  if (!id) return id
-  // Match format: SPORT_NUMBER (e.g., "NFL_4", "MLB_108")
-  const match = id.match(/^[A-Z]+_(.+)$/)
-  return match ? match[1] : id
 }

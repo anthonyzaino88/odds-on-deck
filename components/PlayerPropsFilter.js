@@ -129,36 +129,44 @@ export default function PlayerPropsFilter({ props }) {
         </div>
       </div>
 
-      {/* Stats Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-center space-x-2">
-            <span className="text-2xl">⚾</span>
-            <div>
-              <div className="font-semibold text-blue-900">MLB Props</div>
-              <div className="text-sm text-blue-700">{mlbProps.length} opportunities</div>
+      {/* Stats Summary - Only show sports with props */}
+      {(mlbProps.length > 0 || nflProps.length > 0 || nhlProps.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {mlbProps.length > 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-center space-x-2">
+                <span className="text-2xl">⚾</span>
+                <div>
+                  <div className="font-semibold text-blue-900">MLB Props</div>
+                  <div className="text-sm text-blue-700">{mlbProps.length} opportunities</div>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-          <div className="flex items-center space-x-2">
-            <span className="text-2xl">🏈</span>
-            <div>
-              <div className="font-semibold text-green-900">NFL Props</div>
-              <div className="text-sm text-green-700">{nflProps.length} opportunities</div>
+          )}
+          {nflProps.length > 0 && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="flex items-center space-x-2">
+                <span className="text-2xl">🏈</span>
+                <div>
+                  <div className="font-semibold text-green-900">NFL Props</div>
+                  <div className="text-sm text-green-700">{nflProps.length} opportunities</div>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-          <div className="flex items-center space-x-2">
-            <span className="text-2xl">🏒</span>
-            <div>
-              <div className="font-semibold text-purple-900">NHL Props</div>
-              <div className="text-sm text-purple-700">{nhlProps.length} opportunities</div>
+          )}
+          {nhlProps.length > 0 && (
+            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+              <div className="flex items-center space-x-2">
+                <span className="text-2xl">🏒</span>
+                <div>
+                  <div className="font-semibold text-purple-900">NHL Props</div>
+                  <div className="text-sm text-purple-700">{nhlProps.length} opportunities</div>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
         </div>
-      </div>
+      )}
 
       {/* Top Props */}
       {filteredProps.length > 0 && (

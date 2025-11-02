@@ -146,14 +146,16 @@ export default function GamesPage() {
 }
 
 function GameCard({ game }) {
-  const gameTime = new Date(game.date)
+  // Database stores times as UTC without the Z marker
+  // Add Z to tell JavaScript to treat as UTC, then convert to local timezone
+  const gameTime = new Date(game.date + 'Z')
   
-  // Format time - database stores times in Eastern Time
+  // Format time - convert UTC to Eastern Time
   const timeString = gameTime.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
-    timeZone: 'America/New_York'  // Use EST since that's what database stores
+    timeZone: 'America/New_York'  // Eastern Time (EST/EDT)
   })
   
   return (

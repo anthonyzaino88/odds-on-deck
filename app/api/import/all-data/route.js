@@ -88,9 +88,12 @@ export async function POST(request) {
       results.odds = { total: data.odds.length, imported: 0, skipped: 0 }
       for (const odd of data.odds) {
         try {
+          // Remove fields that don't exist in Odds schema
+          const { sport, selection, odds: oddsField, ...validOddData } = odd
+          
           // Odds don't have a unique constraint, so we'll create them all
           await prisma.odds.create({
-            data: odd
+            data: validOddData
           })
           results.odds.imported++
         } catch (error) {
