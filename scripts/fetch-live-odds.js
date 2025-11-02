@@ -49,7 +49,7 @@ const SPORTS = {
 }
 
 const NFL_PROP_MARKETS = [
-  'player_pass_yds', 'player_pass_tds', 'player_interceptions',
+  'player_pass_yds', 'player_pass_tds',
   'player_rush_yds', 'player_receptions', 'player_reception_yds'
 ]
 
@@ -263,37 +263,35 @@ async function saveGameOdds(games, sport) {
 // PLAYER PROPS FETCHING
 // ============================================================================
 
-async function fetchPlayerProps(sport, date) {
+async function fetchPlayerProps(sport, date, oddsGames) {
   const sportConfig = SPORTS[sport]
   if (!sportConfig) return []
   
   console.log(`\n👤 Fetching ${sport.toUpperCase()} player props for ${date}...`)
   
   try {
-    // Get games first
-    const { data: games } = await supabase
-      .from('Game')
-      .select('id, sport, homeId, awayId')
-      .eq('sport', sport)
-    
-    if (!games || games.length === 0) {
-      console.log(`  ℹ️  No games found for ${sport}`)
+    // Use event IDs from the odds API response (not our database IDs)
+    if (!oddsGames || oddsGames.length === 0) {
+      console.log(`  ℹ️  No games available for props`)
       return []
     }
     
-    console.log(`  📅 Found ${games.length} games`)
+    console.log(`  📅 Found ${oddsGames.length} games from Odds API`)
     
     let allProps = []
     
-    for (const game of games) {
-      // Check cache
+    for (const game of oddsGames) {
+      // Use The Odds API's event ID (hash format)
+      const eventId = game.id
+      
+      // Check cache using the Odds API event ID
       const isCached = await checkCache('PlayerPropCache',
-        { gameId: game.id },
+        { gameId: eventId },
         CACHE_DURATION.PROPS
       )
       
       if (isCached) {
-        console.log(`    ✅ Cache hit for game ${game.id}`)
+        console.log(`    ✅ Cache hit for ${game.home_team} vs ${game.away_team}`)
         continue
       }
       
@@ -301,17 +299,22 @@ async function fetchPlayerProps(sport, date) {
         const markets = sport === 'nfl' ? NFL_PROP_MARKETS : MLB_PROP_MARKETS
         const marketsParam = markets.join(',')
         
-        const endpoint = `/v4/sports/${sportConfig.id}/events/${game.id}/odds`
+        // Use The Odds API event ID in the endpoint
+        const endpoint = `/v4/sports/${sportConfig.id}/events/${eventId}/odds`
         const params = `?regions=us&markets=${marketsParam}&dateFormat=iso`
         
         const propsData = await callOddsAPI(endpoint + params)
-        const gameProps = propsData.data || []
         
-        allProps.push({ gameId: game.id, props: gameProps })
-        console.log(`    ✅ Fetched ${gameProps.bookmakers?.length || 0} bookmakers for ${game.id}`)
+        allProps.push({ 
+          gameId: eventId, 
+          homeTeam: game.home_team,
+          awayTeam: game.away_team,
+          props: propsData
+        })
+        console.log(`    ✅ Fetched props for ${game.home_team} vs ${game.away_team}`)
         
       } catch (error) {
-        console.error(`    ⚠️  Error fetching props for game ${game.id}: ${error.message}`)
+        console.error(`    ⚠️  Error fetching props for ${game.home_team} vs ${game.away_team}: ${error.message}`)
       }
     }
     
@@ -422,8 +425,8 @@ async function main() {
         await saveGameOdds(games, s)
       }
       
-      // 2. Fetch and save player props
-      const gameProps = await fetchPlayerProps(s, date)
+      // 2. Fetch and save player props (using The Odds API event IDs from games)
+      const gameProps = await fetchPlayerProps(s, date, games)
       if (!dryRun && gameProps.length > 0) {
         await savePlayerProps(gameProps, s)
       }
