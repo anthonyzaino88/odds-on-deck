@@ -148,12 +148,12 @@ export default function GamesPage() {
 function GameCard({ game }) {
   const gameTime = new Date(game.date)
   
-  // Format time in user's local timezone
+  // Format time - database stores times in Eastern Time
   const timeString = gameTime.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
-    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+    timeZone: 'America/New_York'  // Use EST since that's what database stores
   })
   
   return (
