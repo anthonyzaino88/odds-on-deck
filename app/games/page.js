@@ -172,12 +172,21 @@ function GameCard({ game }) {
             <p className="text-slate-400 text-sm">
               {game.away?.name} vs {game.home?.name}
             </p>
+            {/* Show inning for MLB games */}
+            {game.sport === 'mlb' && game.status === 'in_progress' && game.inning && (
+              <p className="text-slate-500 text-xs mt-1">
+                {game.inningHalf === 'top' ? '▲' : '▼'} {game.inning}
+              </p>
+            )}
           </div>
           
+          {/* Score Display */}
           {game.homeScore !== null && game.awayScore !== null && (
             <div className="text-right">
               <div className="text-2xl font-bold text-blue-400">
-                {game.awayScore} - {game.homeScore}
+                <div>{game.awayScore}</div>
+                <div className="text-xs text-slate-500 my-1">-</div>
+                <div>{game.homeScore}</div>
               </div>
             </div>
           )}
