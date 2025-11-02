@@ -4,5 +4,9 @@
     "app/api/**/*.js": {
       "maxDuration": 10
     }
+  },
+  "buildCommand": "prisma generate && next build",
+  "env": {
+    "PRISMA_SKIP_ENGINE_CHECK": "true"
   }
 }
