@@ -1,257 +1,443 @@
 #!/usr/bin/env node
 
 /**
- * LOCAL ODDS FETCHER
+ * ODDS FETCHER - Efficient local script to fetch odds data from The Odds API
  * 
- * Usage:
- *   node scripts/fetch-live-odds.js [sport] [date]
+ * PURPOSE: Fetch odds/props once daily and cache in database
+ * FREQUENCY: Run 1-2x per day (morning before games)
+ * API BUDGET: ~500 requests/month (free tier) = 16/day available
  * 
- * Examples:
- *   node scripts/fetch-live-odds.js mlb            # Tonight's MLB games
- *   node scripts/fetch-live-odds.js nfl today      # Today's NFL games
- *   node scripts/fetch-live-odds.js nhl 2025-11-02 # Specific date NHL games
+ * USAGE:
+ *   node scripts/fetch-live-odds.js nfl --date 2025-11-02 --dry-run
+ *   node scripts/fetch-live-odds.js mlb
+ *   node scripts/fetch-live-odds.js all
  * 
- * Features:
- * - Rate-limited API calls (respects The Odds API limits)
- * - Batch database writes for efficiency
- * - Shows API usage and stats
- * - Dry-run mode (preview without saving)
+ * FLAGS:
+ *   --dry-run      Don't save to DB, just show what would happen
+ *   --date         Specific date to fetch (YYYY-MM-DD)
+ *   --cache-fresh  Ignore cache, force fresh fetch from API
  */
 
-import { PrismaClient } from '@prisma/client'
+import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
+import fs from 'fs'
+import path from 'path'
 
 config({ path: '.env.local' })
 
-const prisma = new PrismaClient()
-const ODDS_API_KEY = process.env.ODDS_API_KEY
-const RATE_LIMIT_DELAY_MS = 300 // 300ms = ~3 requests/sec (safe buffer)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+)
 
-// Sport mappings
-const SPORT_MAP = {
-  'mlb': 'baseball_mlb',
-  'nfl': 'americanfootball_nfl',
-  'nhl': 'icehockey_nhl'
+// ============================================================================
+// CONFIGURATION
+// ============================================================================
+
+const ODDS_API_KEY = process.env.ODDS_API_KEY
+const RATE_LIMIT_DELAY = 1000  // 1 second between API calls
+const CACHE_DURATION = {
+  MONEYLINE: 60 * 60 * 1000,      // 1 hour
+  SPREADS: 60 * 60 * 1000,        // 1 hour
+  PROPS: 24 * 60 * 60 * 1000      // 24 hours
 }
 
-// MLB Props to fetch
-const MLB_MARKETS = [
-  'batter_hits',
-  'batter_home_runs',
-  'batter_total_bases',
-  'batter_rbis',
-  'batter_runs_scored',
-  'batter_strikeouts',
-  'pitcher_strikeouts',
-  'pitcher_outs',
-  'pitcher_hits_allowed',
-  'pitcher_earned_runs'
-].join(',')
+const SPORTS = {
+  nfl: { id: 'americanfootball_nfl', type: 'football' },
+  mlb: { id: 'baseball_mlb', type: 'baseball' },
+  nhl: { id: 'icehockey_nhl', type: 'hockey' }
+}
 
-const NFL_MARKETS = [
-  'player_pass_yds',
-  'player_pass_tds',
-  'player_rush_yds',
-  'player_receptions',
-  'player_reception_yds',
-  'player_kicking_points'
-].join(',')
+const NFL_PROP_MARKETS = [
+  'player_pass_yds', 'player_pass_tds', 'player_interceptions',
+  'player_rush_yds', 'player_receptions', 'player_reception_yds'
+]
 
-const NHL_MARKETS = [
-  'player_points',
-  'player_goals',
-  'player_assists',
-  'player_shots_on_goal'
-].join(',')
+const MLB_PROP_MARKETS = [
+  'batter_hits', 'batter_home_runs', 'pitcher_strikeouts',
+  'pitcher_walks', 'batter_rbi', 'batter_singles', 'batter_doubles'
+]
 
-// ===== UTILITIES =====
-function sleep(ms) {
+// ============================================================================
+// ARGUMENT PARSING
+// ============================================================================
+
+function parseArguments() {
+  const args = process.argv.slice(2)
+  
+  let sport = 'all'
+  let date = new Date().toISOString().split('T')[0]
+  let dryRun = false
+  let cacheFresh = false
+  
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    
+    if (arg === '--dry-run') {
+      dryRun = true
+    } else if (arg === '--cache-fresh') {
+      cacheFresh = true
+    } else if (arg === '--date' && args[i + 1]) {
+      date = args[++i]
+    } else if (!arg.startsWith('--') && !sport) {
+      sport = arg.toLowerCase()
+    }
+  }
+  
+  return { sport, date, dryRun, cacheFresh }
+}
+
+// ============================================================================
+// API UTILITIES
+// ============================================================================
+
+let apiCallsToday = 0
+
+async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-function getMarkets(sport) {
-  if (sport === 'mlb') return MLB_MARKETS
-  if (sport === 'nfl') return NFL_MARKETS
-  if (sport === 'nhl') return NHL_MARKETS
-  return MLB_MARKETS
-}
-
-function parseDate(dateStr) {
-  if (!dateStr || dateStr === 'today') {
-    const now = new Date()
-    return {
-      start: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
-      end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
-    }
+async function callOddsAPI(endpoint) {
+  apiCallsToday++
+  console.log(`  📡 API Call #${apiCallsToday}: ${endpoint}`)
+  
+  // Check rate limit
+  if (apiCallsToday > 500) {
+    throw new Error('⚠️  API QUOTA EXCEEDED! (500 calls/month)')
   }
   
-  // Parse YYYY-MM-DD
-  const [year, month, day] = dateStr.split('-').map(Number)
-  const start = new Date(year, month - 1, day)
-  const end = new Date(year, month - 1, day + 1)
+  // Rate limiting
+  if (apiCallsToday > 1) {
+    await sleep(RATE_LIMIT_DELAY)
+  }
   
-  return { start, end }
-}
-
-// ===== API CALLS =====
-async function fetchMoneylineOdds(sport, gameId) {
-  if (!ODDS_API_KEY) {
-    console.error('❌ ODDS_API_KEY not set')
-    return null
-  }
-
+  const url = `https://api.the-odds-api.com${endpoint}?apiKey=${ODDS_API_KEY}`
+  
   try {
-    const oddsApiSport = SPORT_MAP[sport] || sport
-    const url = `https://api.the-odds-api.com/v4/sports/${oddsApiSport}/odds?markets=h2h&oddsFormat=american&apiKey=${ODDS_API_KEY}`
-    
-    const res = await fetch(url)
-    if (!res.ok) {
-      console.error(`❌ Moneyline API error: ${res.status}`)
-      return null
+    const response = await fetch(url)
+    if (!response.ok) {
+      const text = await response.text()
+      throw new Error(`API Error ${response.status}: ${text}`)
     }
     
-    const data = await res.json()
-    
-    // Find matching game
-    const game = data.find(g => g.id === gameId || g.away_team && g.home_team)
-    return game?.bookmakers?.[0]?.markets?.find(m => m.key === 'h2h') || null
-    
-  } catch (error) {
-    console.error(`❌ Moneyline fetch error:`, error.message)
-    return null
-  }
-}
-
-async function fetchPlayerProps(sport, eventId) {
-  if (!ODDS_API_KEY) {
-    console.error('❌ ODDS_API_KEY not set')
-    return null
-  }
-
-  try {
-    const oddsApiSport = SPORT_MAP[sport] || sport
-    const markets = getMarkets(sport)
-    const url = `https://api.the-odds-api.com/v4/sports/${oddsApiSport}/events/${eventId}/odds?regions=us&markets=${markets}&oddsFormat=american&apiKey=${ODDS_API_KEY}`
-    
-    const res = await fetch(url)
-    if (!res.ok) {
-      if (res.status === 422) {
-        console.log(`⚠️  No props for event ${eventId}`)
-        return null
-      }
-      console.error(`❌ Props API error: ${res.status}`)
-      return null
-    }
-    
-    const data = await res.json()
+    const data = await response.json()
     return data
-    
   } catch (error) {
-    console.error(`❌ Props fetch error:`, error.message)
-    return null
+    console.error(`  ❌ API Error: ${error.message}`)
+    throw error
   }
 }
 
-// ===== MAIN =====
+// ============================================================================
+// CACHE CHECKING
+// ============================================================================
+
+async function checkCache(table, where, maxAgeMs) {
+  try {
+    const { data } = await supabase
+      .from(table)
+      .select('ts')
+      .match(where)
+      .order('ts', { ascending: false })
+      .limit(1)
+    
+    if (data?.[0]) {
+      const age = Date.now() - new Date(data[0].ts).getTime()
+      if (age < maxAgeMs) {
+        return true  // Cache is fresh
+      }
+    }
+  } catch (error) {
+    console.error(`  ⚠️  Cache check error: ${error.message}`)
+  }
+  
+  return false  // Cache is stale or doesn't exist
+}
+
+// ============================================================================
+// ODDS DATA FETCHING
+// ============================================================================
+
+async function fetchGameOdds(sport, date) {
+  const sportConfig = SPORTS[sport]
+  if (!sportConfig) {
+    console.error(`❌ Unknown sport: ${sport}`)
+    return []
+  }
+  
+  console.log(`\n🎮 Fetching ${sport.toUpperCase()} odds for ${date}...`)
+  
+  try {
+    // Check cache first
+    const isCached = await checkCache('Odds', 
+      { market: 'h2h' }, 
+      CACHE_DURATION.MONEYLINE
+    )
+    
+    if (isCached) {
+      console.log(`  ✅ Cache hit for moneyline odds`)
+      return []
+    }
+    
+    // Fetch from API
+    const endpoint = `/v4/sports/${sportConfig.id}/odds`
+    const params = `&regions=us&markets=h2h,spreads,totals&dateFormat=iso`
+    
+    const oddsData = await callOddsAPI(endpoint + params)
+    const games = oddsData.data || []
+    
+    console.log(`  ✅ Fetched ${games.length} games with odds`)
+    
+    return games
+    
+  } catch (error) {
+    console.error(`  ❌ Error fetching game odds: ${error.message}`)
+    return []
+  }
+}
+
+async function saveGameOdds(games, sport) {
+  if (games.length === 0) return
+  
+  console.log(`  💾 Saving odds to database...`)
+  
+  let saved = 0
+  for (const game of games) {
+    try {
+      for (const bookmaker of game.bookmakers || []) {
+        for (const market of bookmaker.markets || []) {
+          const outcomes = market.outcomes || []
+          
+          // Determine away and home prices
+          let priceAway = null, priceHome = null, spread = null, total = null
+          
+          if (market.key === 'h2h' && outcomes.length >= 2) {
+            priceAway = outcomes[0].price
+            priceHome = outcomes[1].price
+          } else if (market.key === 'spreads' && outcomes.length >= 2) {
+            const away = outcomes.find(o => o.name === 'Away' || o.name.includes('Away'))
+            const home = outcomes.find(o => o.name === 'Home' || o.name.includes('Home'))
+            spread = market.description ? parseFloat(market.description) : null
+            priceAway = away?.price
+            priceHome = home?.price
+          } else if (market.key === 'totals' && outcomes.length >= 2) {
+            total = market.description ? parseFloat(market.description) : null
+            priceAway = outcomes[0].price
+            priceHome = outcomes[1].price
+          }
+          
+          if (!priceAway || !priceHome) continue
+          
+          // Save to Odds table
+          const { error } = await supabase
+            .from('Odds')
+            .upsert({
+              gameId: game.id,
+              book: bookmaker.title,
+              market: market.key,
+              priceAway,
+              priceHome,
+              spread,
+              total,
+              ts: new Date().toISOString()
+            }, {
+              onConflict: 'gameId,book,market'
+            })
+          
+          if (error) {
+            console.error(`    ❌ Save error: ${error.message}`)
+          } else {
+            saved++
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`    ❌ Processing error: ${error.message}`)
+    }
+  }
+  
+  console.log(`  ✅ Saved ${saved} odds records`)
+}
+
+// ============================================================================
+// PLAYER PROPS FETCHING
+// ============================================================================
+
+async function fetchPlayerProps(sport, date) {
+  const sportConfig = SPORTS[sport]
+  if (!sportConfig) return []
+  
+  console.log(`\n👤 Fetching ${sport.toUpperCase()} player props for ${date}...`)
+  
+  try {
+    // Get games first
+    const { data: games } = await supabase
+      .from('Game')
+      .select('id, sport, homeId, awayId')
+      .eq('sport', sport)
+    
+    if (!games || games.length === 0) {
+      console.log(`  ℹ️  No games found for ${sport}`)
+      return []
+    }
+    
+    console.log(`  📅 Found ${games.length} games`)
+    
+    let allProps = []
+    
+    for (const game of games) {
+      // Check cache
+      const isCached = await checkCache('PlayerPropCache',
+        { gameId: game.id },
+        CACHE_DURATION.PROPS
+      )
+      
+      if (isCached) {
+        console.log(`    ✅ Cache hit for game ${game.id}`)
+        continue
+      }
+      
+      try {
+        const markets = sport === 'nfl' ? NFL_PROP_MARKETS : MLB_PROP_MARKETS
+        const marketsParam = markets.join(',')
+        
+        const endpoint = `/v4/sports/${sportConfig.id}/events/${game.id}/odds`
+        const params = `&regions=us&markets=${marketsParam}&dateFormat=iso`
+        
+        const propsData = await callOddsAPI(endpoint + params)
+        const gameProps = propsData.data || []
+        
+        allProps.push({ gameId: game.id, props: gameProps })
+        console.log(`    ✅ Fetched ${gameProps.bookmakers?.length || 0} bookmakers for ${game.id}`)
+        
+      } catch (error) {
+        console.error(`    ⚠️  Error fetching props for game ${game.id}: ${error.message}`)
+      }
+    }
+    
+    return allProps
+    
+  } catch (error) {
+    console.error(`  ❌ Error fetching player props: ${error.message}`)
+    return []
+  }
+}
+
+async function savePlayerProps(gameProps, sport) {
+  if (gameProps.length === 0) return
+  
+  console.log(`  💾 Saving player props to database...`)
+  
+  let saved = 0
+  
+  for (const { gameId, props } of gameProps) {
+    try {
+      for (const bookmaker of props.bookmakers || []) {
+        for (const market of bookmaker.markets || []) {
+          for (const outcome of market.outcomes || []) {
+            const playerName = outcome.name
+            const line = market.description ? parseFloat(market.description) : null
+            const price = outcome.price
+            
+            if (!playerName || !line || !price) continue
+            
+            // Determine over/under
+            let pick = 'over'
+            if (outcome.point !== undefined && outcome.point < 0) {
+              pick = 'under'
+            }
+            
+            const propId = `${gameId}-${playerName}-${market.key}-${line}`
+            
+            // Save to PlayerPropCache
+            const { error } = await supabase
+              .from('PlayerPropCache')
+              .upsert({
+                propId,
+                gameId,
+                playerName,
+                type: market.key,
+                pick,
+                threshold: line,
+                odds: price,
+                probability: 0.5,  // Default, will be calculated later
+                edge: 0,           // Default, will be calculated later
+                confidence: 'low',  // Default, will be calculated later
+                qualityScore: 0,
+                sport,
+                bookmaker: bookmaker.title,
+                gameTime: new Date().toISOString(),
+                fetchedAt: new Date().toISOString(),
+                expiresAt: new Date(Date.now() + CACHE_DURATION.PROPS).toISOString(),
+                isStale: false
+              }, {
+                onConflict: 'propId'
+              })
+            
+            if (error) {
+              console.error(`    ❌ Save error: ${error.message}`)
+            } else {
+              saved++
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`    ❌ Processing error: ${error.message}`)
+    }
+  }
+  
+  console.log(`  ✅ Saved ${saved} prop records`)
+}
+
+// ============================================================================
+// MAIN
+// ============================================================================
+
 async function main() {
-  // Parse arguments correctly: sport [date] [--dry-run]
-  const allArgs = process.argv.slice(2)
-  const dryRun = allArgs.includes('--dry-run')
+  const { sport, date, dryRun, cacheFresh } = parseArguments()
   
-  // Remove flags from args
-  const cleanArgs = allArgs.filter(arg => !arg.startsWith('--'))
+  console.log('\n' + '='.repeat(60))
+  console.log('⚡ ODDS FETCHER - LOCAL SCRIPT')
+  console.log('='.repeat(60))
+  console.log(`📅 Date: ${date}`)
+  console.log(`🎮 Sport: ${sport}`)
+  console.log(`🏗️  Mode: ${dryRun ? 'DRY RUN (no DB saves)' : 'PRODUCTION'}`)
+  console.log(`🔄 Cache: ${cacheFresh ? 'IGNORE (force fresh)' : 'CHECK (use if fresh)'}`)
+  console.log('='.repeat(60))
   
-  const sport = cleanArgs[0]?.toLowerCase() || 'mlb'
-  const dateArg = cleanArgs[1] || 'today'
-  
-  if (!['mlb', 'nfl', 'nhl'].includes(sport)) {
-    console.error(`❌ Invalid sport: ${sport}. Use: mlb, nfl, or nhl`)
+  if (!ODDS_API_KEY) {
+    console.error('❌ ODDS_API_KEY not found in .env.local')
+    console.error('   Get one at https://the-odds-api.com/clients/dashboard')
     process.exit(1)
   }
   
-  console.log(`\n🎯 Odds Fetcher - ${sport.toUpperCase()}`)
-  console.log(`📅 Date: ${dateArg}`)
-  if (dryRun) console.log('🔍 DRY RUN MODE (no data saved)')
-  console.log('='.repeat(50))
-  
-  // Get date range
-  const { start, end } = parseDate(dateArg)
-  console.log(`📅 Fetching games from ${start.toISOString()} to ${end.toISOString()}`)
-  
-  // Get games from database
-  console.log(`\n🎲 Loading ${sport.toUpperCase()} games from database...`)
-  const games = await prisma.game.findMany({
-    where: {
-      sport,
-      date: { gte: start, lte: end }
-    },
-    include: {
-      home: { select: { abbr: true, name: true } },
-      away: { select: { abbr: true, name: true } }
-    }
-  })
-  
-  console.log(`✅ Found ${games.length} games`)
-  
-  if (games.length === 0) {
-    console.log(`ℹ️  No ${sport.toUpperCase()} games found for ${dateArg}`)
-    await prisma.$disconnect()
-    process.exit(0)
-  }
-  
-  // Show games
-  console.log(`\n📋 Games:`)
-  games.forEach((g, i) => {
-    console.log(`  ${i + 1}. ${g.away.abbr} @ ${g.home.abbr} at ${new Date(g.date).toLocaleTimeString()}`)
-  })
-  
-  // Fetch odds
-  console.log(`\n🔄 Fetching odds for ${games.length} games...`)
-  console.log(`⏱️  Rate limit: ${RATE_LIMIT_DELAY_MS}ms between requests`)
-  
-  let successCount = 0
-  let errorCount = 0
-  
-  for (let i = 0; i < games.length; i++) {
-    const game = games[i]
+  try {
+    const sports = sport === 'all' ? Object.keys(SPORTS) : [sport]
     
-    console.log(`\n[${i + 1}/${games.length}] ${game.away.abbr} @ ${game.home.abbr}`)
-    
-    // Fetch props
-    console.log(`  📊 Fetching player props...`)
-    const props = await fetchPlayerProps(sport, game.id)
-    
-    if (props) {
-      console.log(`  ✅ Got props (${props.bookmakers?.[0]?.markets?.length || 0} markets)`)
-      successCount++
-      
-      if (!dryRun) {
-        // Save props to database
-        // TODO: Implement prop saving logic based on your schema
-        console.log(`  💾 Saved props`)
+    for (const s of sports) {
+      // 1. Fetch and save game odds
+      const games = await fetchGameOdds(s, date)
+      if (!dryRun && games.length > 0) {
+        await saveGameOdds(games, s)
       }
-    } else {
-      errorCount++
-      console.log(`  ⚠️  No props available`)
+      
+      // 2. Fetch and save player props
+      const gameProps = await fetchPlayerProps(s, date)
+      if (!dryRun && gameProps.length > 0) {
+        await savePlayerProps(gameProps, s)
+      }
     }
     
-    // Rate limit
-    if (i < games.length - 1) {
-      await sleep(RATE_LIMIT_DELAY_MS)
-    }
+    console.log('\n' + '='.repeat(60))
+    console.log(`✅ Complete! API calls used: ${apiCallsToday}`)
+    console.log(`📊 Remaining quota: ~${500 - apiCallsToday} calls this month`)
+    console.log('='.repeat(60))
+    
+  } catch (error) {
+    console.error('\n❌ Fatal error:', error.message)
+    process.exit(1)
   }
-  
-  // Summary
-  console.log(`\n${'='.repeat(50)}`)
-  console.log(`📊 SUMMARY`)
-  console.log(`✅ Success: ${successCount}/${games.length}`)
-  console.log(`❌ Errors: ${errorCount}/${games.length}`)
-  console.log(`💾 Mode: ${dryRun ? 'DRY RUN' : 'SAVED'}`)
-  
-  await prisma.$disconnect()
 }
 
-main().catch(error => {
-  console.error('❌ Fatal error:', error)
-  process.exit(1)
-})
+main()
