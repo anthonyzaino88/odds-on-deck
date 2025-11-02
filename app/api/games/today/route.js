@@ -26,6 +26,7 @@ export async function GET() {
     
     // MLB games
     try {
+      console.log('🔍 MLB: Starting query...')
       mlbGames = await prisma.game.findMany({
         where: {
           sport: 'mlb',
@@ -42,6 +43,7 @@ export async function GET() {
       console.log(`✅ MLB: ${mlbGames.length} games`)
     } catch (err) {
       console.error('❌ MLB query failed:', err.message)
+      console.error('❌ Full error:', err)
     }
     
     // NFL games
