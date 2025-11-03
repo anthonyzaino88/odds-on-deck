@@ -336,13 +336,14 @@ async function fetchGameOdds(sport, date, ignoreCache = false) {
 async function mapAndSaveEventIds(oddsGames, sport, date) {
   console.log(`  🔗 Mapping ESPN games to Odds API events...`)
   
-  // Get ESPN games from database for the specific date
+  // Get ESPN games from database - try exact date first, then ±1 day
   const dateStart = new Date(date)
   dateStart.setHours(0, 0, 0, 0)
   const dateEnd = new Date(date)
   dateEnd.setHours(23, 59, 59, 999)
   
-  const { data: dbGames } = await supabase
+  // First try exact date
+  let { data: dbGames } = await supabase
     .from('Game')
     .select('id, sport, date, homeId, awayId, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
     .eq('sport', sport)
@@ -350,8 +351,31 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
     .lte('date', dateEnd.toISOString())
     .is('oddsApiEventId', null)  // Only games without mapping yet
   
+  // If no unmapped games for exact date, try ±1 day range
+  if ((!dbGames || dbGames.length === 0) && oddsGames.length > 0) {
+    console.log(`  🔍 No unmapped games for exact date, checking ±1 day...`)
+    const expandedStart = new Date(dateStart)
+    expandedStart.setDate(expandedStart.getDate() - 1)
+    const expandedEnd = new Date(dateEnd)
+    expandedEnd.setDate(expandedEnd.getDate() + 1)
+    
+    const { data: expandedGames } = await supabase
+      .from('Game')
+      .select('id, sport, date, homeId, awayId, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
+      .eq('sport', sport)
+      .gte('date', expandedStart.toISOString())
+      .lte('date', expandedEnd.toISOString())
+      .is('oddsApiEventId', null)
+    
+    if (expandedGames && expandedGames.length > 0) {
+      dbGames = expandedGames
+      console.log(`  📅 Found ${expandedGames.length} unmapped games in ±1 day range`)
+    }
+  }
+  
   if (!dbGames || dbGames.length === 0) {
-    console.log(`  ℹ️  No unmapped ${sport.toUpperCase()} games in database for ${date}`)
+    console.log(`  ℹ️  No unmapped ${sport.toUpperCase()} games in database for ${date} (±1 day)`)
+    console.log(`  💡 Tip: Games may need to be fetched from ESPN API first, or may already be mapped`)
     return []
   }
   
