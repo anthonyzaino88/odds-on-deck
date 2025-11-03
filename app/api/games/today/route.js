@@ -18,15 +18,22 @@ export async function GET(req) {
     const tomorrow = new Date(today)
     tomorrow.setDate(tomorrow.getDate() + 1)
     
-    // NFL: Current week (Monday to Sunday)
+    // NFL: Current week (Sunday to Sunday)
     const dayOfWeek = now.getDay()
-    const monday = new Date(today)
-    monday.setDate(today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1))
-    const sunday = new Date(monday)
-    sunday.setDate(monday.getDate() + 6)
-    sunday.setHours(23, 59, 59, 999)
+    let weekStart, weekEnd
+    if (dayOfWeek === 0) {
+      // Today is Sunday, use today as start
+      weekStart = new Date(today)
+    } else {
+      // Go back to last Sunday
+      weekStart = new Date(today)
+      weekStart.setDate(today.getDate() - dayOfWeek)
+    }
+    weekEnd = new Date(weekStart)
+    weekEnd.setDate(weekStart.getDate() + 7)
+    weekEnd.setHours(23, 59, 59, 999)
     
-    console.log(`📅 Date ranges: MLB/NHL today (${today.toISOString()}), NFL week (${monday.toISOString()} - ${sunday.toISOString()})`)
+    console.log(`📅 Date ranges: MLB/NHL today (${today.toISOString()}), NFL week (${weekStart.toISOString()} - ${weekEnd.toISOString()})`)
     
     // Step 1: Query games with date filtering
     // MLB: Today only
@@ -37,13 +44,13 @@ export async function GET(req) {
       .gte('date', today.toISOString())
       .lt('date', tomorrow.toISOString())
     
-    // NFL: Current week (Mon-Sun)
+    // NFL: Current week (Sunday to Sunday)
     const { data: nflGames, error: nflError } = await supabase
       .from('Game')
       .select('*')
       .eq('sport', 'nfl')
-      .gte('date', monday.toISOString())
-      .lte('date', sunday.toISOString())
+      .gte('date', weekStart.toISOString())
+      .lt('date', weekEnd.toISOString())
     
     // NHL: Today only
     const { data: nhlGames, error: nhlError } = await supabase

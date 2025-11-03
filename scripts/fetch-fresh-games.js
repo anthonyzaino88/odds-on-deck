@@ -73,19 +73,26 @@ async function fetchGamesFromESPN(sport, date) {
       })
       console.log(`📅 Filtered to TODAY's games: ${events.length}`)
     } else if (sport === 'nfl') {
-      // NFL: Current WEEK's games (Mon-Sun)
+      // NFL: Current WEEK's games (Sunday to Sunday)
+      // NFL week runs Sunday to Sunday, so we need to find the most recent Sunday
       const dayOfWeek = now.getDay()
-      const monday = new Date(today)
-      monday.setDate(today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1))
-      const sunday = new Date(monday)
-      sunday.setDate(monday.getDate() + 6)
-      sunday.setHours(23, 59, 59)
+      const mostRecentSunday = new Date(today)
+      if (dayOfWeek === 0) {
+        // Today is Sunday, use today
+        mostRecentSunday.setDate(today.getDate())
+      } else {
+        // Go back to last Sunday
+        mostRecentSunday.setDate(today.getDate() - dayOfWeek)
+      }
+      const nextSunday = new Date(mostRecentSunday)
+      nextSunday.setDate(mostRecentSunday.getDate() + 7)
+      nextSunday.setHours(23, 59, 59)
       
       events = events.filter(event => {
         const gameDate = new Date(event.date)
-        return gameDate >= monday && gameDate <= sunday
+        return gameDate >= mostRecentSunday && gameDate < nextSunday
       })
-      console.log(`📅 Filtered to THIS WEEK's games (${monday.toLocaleDateString()} - ${sunday.toLocaleDateString()}): ${events.length}`)
+      console.log(`📅 Filtered to THIS WEEK's games (${mostRecentSunday.toLocaleDateString()} - ${nextSunday.toLocaleDateString()}): ${events.length}`)
     }
     
     console.log(`✅ Found ${events.length} ${sport.toUpperCase()} games`)
