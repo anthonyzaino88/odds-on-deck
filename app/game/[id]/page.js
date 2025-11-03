@@ -134,7 +134,10 @@ export default async function GameDetailPage({ params }) {
         const hasNflData = game.nflData && (game.nflData.quarter || game.nflData.timeLeft)
         
         // Only show cards section if we have at least one piece of data
-        const hasData = spreadOdds || totalOdds || h2hOdds || hasNflData
+        const hasSpread = spreadOdds?.spread != null
+        const hasTotal = totalOdds?.total != null
+        const hasH2H = h2hOdds && h2hOdds.priceHome != null && h2hOdds.priceAway != null
+        const hasData = hasSpread || hasTotal || hasH2H || hasNflData || game.status === 'in_progress'
         
         if (!hasData) return null
         
@@ -156,14 +159,14 @@ export default async function GameDetailPage({ params }) {
                     subtitle={`O/U ${totalOdds.book || 'Latest'}`}
                   />
                 )}
-                {hasNflData && (
+                {(hasNflData || game.status === 'in_progress') && (
                   <StatCard
                     title="Quarter"
-                    value={game.nflData.quarter ? `Q${game.nflData.quarter}` : game.status}
-                    subtitle={game.nflData.timeLeft || game.status}
+                    value={game.nflData?.quarter ? `Q${game.nflData.quarter}` : (game.status === 'in_progress' ? 'Live' : 'Pre-Game')}
+                    subtitle={game.nflData?.timeLeft || game.status}
                   />
                 )}
-                {h2hOdds && (
+                {h2hOdds && h2hOdds.priceHome != null && h2hOdds.priceAway != null && (
                   <StatCard
                     title="Moneyline"
                     value={`${h2hOdds.priceHome > 0 ? '+' : ''}${h2hOdds.priceHome} / ${h2hOdds.priceAway > 0 ? '+' : ''}${h2hOdds.priceAway}`}
