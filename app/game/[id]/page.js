@@ -47,7 +47,20 @@ export default async function GameDetailPage({ params }) {
           ← Back to Today's Slate
         </Link>
         <div className="text-sm text-gray-600">
-          {format(new Date(game.date), 'EEEE, MMMM d, yyyy h:mm a')}
+          {(() => {
+            // Parse date and convert to Eastern time
+            const gameDate = new Date(game.date + (game.date.includes('Z') ? '' : 'Z'))
+            return gameDate.toLocaleString('en-US', {
+              weekday: 'long',
+              month: 'long',
+              day: 'numeric',
+              year: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+              timeZone: 'America/New_York',
+              timeZoneName: 'short'
+            })
+          })()}
         </div>
       </div>
       
@@ -363,7 +376,17 @@ export default async function GameDetailPage({ params }) {
               <div>
                 <span className="text-sm font-medium text-gray-600">Date & Time:</span>
                 <span className="ml-2 text-sm text-gray-900">
-                  {format(new Date(game.date), 'MMM d, yyyy h:mm a')}
+                  {(() => {
+                    const gameDate = new Date(game.date + (game.date.includes('Z') ? '' : 'Z'))
+                    return gameDate.toLocaleString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      timeZone: 'America/New_York'
+                    })
+                  })()}
                 </span>
               </div>
               {game.homeScore !== null && game.awayScore !== null && (
@@ -378,7 +401,21 @@ export default async function GameDetailPage({ params }) {
             {game.status === 'scheduled' && (
               <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-sm text-blue-800">
-                  <strong>Game Scheduled:</strong> This game is scheduled for {format(new Date(game.date), 'MMMM d, yyyy')} at {format(new Date(game.date), 'h:mm a')}.
+                  <strong>Game Scheduled:</strong> This game is scheduled for {(() => {
+                    const gameDate = new Date(game.date + (game.date.includes('Z') ? '' : 'Z'))
+                    const dateStr = gameDate.toLocaleDateString('en-US', {
+                      month: 'long',
+                      day: 'numeric',
+                      year: 'numeric',
+                      timeZone: 'America/New_York'
+                    })
+                    const timeStr = gameDate.toLocaleTimeString('en-US', {
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      timeZone: 'America/New_York'
+                    })
+                    return `${dateStr} at ${timeStr}`
+                  })()}.
                 </p>
                 <p className="text-xs text-blue-700 mt-2">
                   Odds and live data will be available closer to game time.
