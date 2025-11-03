@@ -134,10 +134,14 @@ function parseArguments() {
   const args = process.argv.slice(2)
   
   let sport = 'all'
-  let date = new Date().toISOString().split('T')[0]
+  // Use local date, not UTC (fixes timezone issue)
+  const today = new Date()
+  const localDate = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  let date = localDate.toISOString().split('T')[0]
   let dryRun = false
   let cacheFresh = false
   
+  // Check if first argument is a date (YYYY-MM-DD) or sport
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
     
@@ -147,7 +151,11 @@ function parseArguments() {
       cacheFresh = true
     } else if (arg === '--date' && args[i + 1]) {
       date = args[++i]
-    } else if (!arg.startsWith('--') && !sport) {
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(arg)) {
+      // Argument is a date format
+      date = arg
+    } else if (!arg.startsWith('--') && sport === 'all') {
+      // First non-flag argument is sport
       sport = arg.toLowerCase()
     }
   }
@@ -296,18 +304,25 @@ async function fetchGameOdds(sport, date) {
   }
 }
 
-async function mapAndSaveEventIds(oddsGames, sport) {
+async function mapAndSaveEventIds(oddsGames, sport, date) {
   console.log(`  🔗 Mapping ESPN games to Odds API events...`)
   
-  // Get ESPN games from database
+  // Get ESPN games from database for the specific date
+  const dateStart = new Date(date)
+  dateStart.setHours(0, 0, 0, 0)
+  const dateEnd = new Date(date)
+  dateEnd.setHours(23, 59, 59, 999)
+  
   const { data: dbGames } = await supabase
     .from('Game')
     .select('id, sport, date, homeId, awayId, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
     .eq('sport', sport)
+    .gte('date', dateStart.toISOString())
+    .lte('date', dateEnd.toISOString())
     .is('oddsApiEventId', null)  // Only games without mapping yet
   
   if (!dbGames || dbGames.length === 0) {
-    console.log(`  ℹ️  No unmapped ${sport.toUpperCase()} games in database`)
+    console.log(`  ℹ️  No unmapped ${sport.toUpperCase()} games in database for ${date}`)
     return []
   }
   
@@ -350,11 +365,11 @@ async function mapAndSaveEventIds(oddsGames, sport) {
   return oddsGames
 }
 
-async function saveGameOdds(games, sport) {
+async function saveGameOdds(games, sport, date) {
   if (games.length === 0) return
   
-  // First, map event IDs
-  await mapAndSaveEventIds(games, sport)
+  // First, map event IDs (pass date for filtering)
+  await mapAndSaveEventIds(games, sport, date || new Date().toISOString().split('T')[0])
   
   // Get mapping of Odds API event ID → our database game ID
   const { data: dbGames } = await supabase
@@ -642,7 +657,7 @@ async function main() {
       // 1. Fetch and save game odds
       const games = await fetchGameOdds(s, date)
       if (!dryRun && games.length > 0) {
-        await saveGameOdds(games, s)
+        await saveGameOdds(games, s, date)
       }
       
       // 2. Fetch and save player props (using The Odds API event IDs from games)
