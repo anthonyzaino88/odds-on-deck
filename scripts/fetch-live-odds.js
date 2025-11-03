@@ -42,6 +42,7 @@ const supabase = createClient(
 
 const ODDS_API_KEY = process.env.ODDS_API_KEY
 const RATE_LIMIT_DELAY = 1000  // 1 second between API calls
+const MONTHLY_QUOTA = parseInt(process.env.ODDS_API_QUOTA) || 20000  // Default to 20k for paid plans
 const CACHE_DURATION = {
   MONEYLINE: 60 * 60 * 1000,      // 1 hour
   SPREADS: 60 * 60 * 1000,        // 1 hour
@@ -178,8 +179,8 @@ async function callOddsAPI(endpoint) {
   console.log(`  📡 API Call #${apiCallsToday}: ${endpoint}`)
   
   // Check rate limit
-  if (apiCallsToday > 500) {
-    throw new Error('⚠️  API QUOTA EXCEEDED! (500 calls/month)')
+  if (apiCallsToday > MONTHLY_QUOTA) {
+    throw new Error(`⚠️  API QUOTA EXCEEDED! (${MONTHLY_QUOTA} calls/month)`)
   }
   
   // Rate limiting
@@ -669,7 +670,7 @@ async function main() {
     
     console.log('\n' + '='.repeat(60))
     console.log(`✅ Complete! API calls used: ${apiCallsToday}`)
-    console.log(`📊 Remaining quota: ~${500 - apiCallsToday} calls this month`)
+    console.log(`📊 Remaining quota: ~${MONTHLY_QUOTA - apiCallsToday} calls this month (${MONTHLY_QUOTA} total)`)
     console.log('='.repeat(60))
     
   } catch (error) {
