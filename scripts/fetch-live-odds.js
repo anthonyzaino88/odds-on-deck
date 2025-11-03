@@ -209,7 +209,12 @@ async function callOddsAPI(endpoint) {
 // CACHE CHECKING
 // ============================================================================
 
-async function checkCache(table, where, maxAgeMs) {
+async function checkCache(table, where, maxAgeMs, ignoreCache = false) {
+  // If cache should be ignored, always return false (no cache)
+  if (ignoreCache) {
+    return false
+  }
+  
   try {
     const { data } = await supabase
       .from(table)
@@ -235,7 +240,7 @@ async function checkCache(table, where, maxAgeMs) {
 // ODDS DATA FETCHING
 // ============================================================================
 
-async function fetchGameOdds(sport, date) {
+async function fetchGameOdds(sport, date, ignoreCache = false) {
   const sportConfig = SPORTS[sport]
   if (!sportConfig) {
     console.error(`❌ Unknown sport: ${sport}`)
@@ -245,10 +250,11 @@ async function fetchGameOdds(sport, date) {
   console.log(`\n🎮 Fetching ${sport.toUpperCase()} odds for ${date}...`)
   
   try {
-    // Check cache first
+    // Check cache first (unless cache is being ignored)
     const isCached = await checkCache('Odds', 
       { market: 'h2h' }, 
-      CACHE_DURATION.MONEYLINE
+      CACHE_DURATION.MONEYLINE,
+      ignoreCache
     )
     
     if (isCached) {
@@ -512,7 +518,8 @@ async function fetchPlayerProps(sport, date, oddsGames) {
       // Check cache using the Odds API event ID
       const isCached = await checkCache('PlayerPropCache',
         { gameId: eventId },
-        CACHE_DURATION.PROPS
+        CACHE_DURATION.PROPS,
+        false  // Props cache is always respected
       )
       
       if (isCached) {
@@ -678,7 +685,7 @@ async function main() {
     
     for (const s of sports) {
       // 1. Fetch and save game odds
-      const games = await fetchGameOdds(s, date)
+      const games = await fetchGameOdds(s, date, cacheFresh)
       if (!dryRun && games.length > 0) {
         await saveGameOdds(games, s, date)
       }
