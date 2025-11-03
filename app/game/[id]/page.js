@@ -82,7 +82,14 @@ export default async function GameDetailPage({ params }) {
                 <div className="text-3xl font-bold text-green-600">{game.homeScore}</div>
               </div>
             </div>
-            {game.inning && (
+            {isNHL && game.status === 'in_progress' && (
+              <div className="text-center mt-2">
+                <span className="text-sm font-medium text-gray-700">
+                  Game in progress
+                </span>
+              </div>
+            )}
+            {!isNHL && game.inning && (
               <div className="text-center mt-2">
                 <span className="text-sm font-medium text-gray-700">
                   {game.inningHalf === 'Top' ? 'Top' : 'Bottom'} {game.inning}
@@ -339,6 +346,56 @@ export default async function GameDetailPage({ params }) {
         </div>
       )}
       
+      {/* NHL Game Details Section */}
+      {isNHL && (
+        <div className="card">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-900">Game Information</h2>
+          </div>
+          <div className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <span className="text-sm font-medium text-gray-600">Status:</span>
+                <span className="ml-2 text-sm text-gray-900 capitalize">
+                  {game.status === 'in_progress' ? '🔴 Live' : game.status.replace('_', ' ')}
+                </span>
+              </div>
+              <div>
+                <span className="text-sm font-medium text-gray-600">Date & Time:</span>
+                <span className="ml-2 text-sm text-gray-900">
+                  {format(new Date(game.date), 'MMM d, yyyy h:mm a')}
+                </span>
+              </div>
+              {game.homeScore !== null && game.awayScore !== null && (
+                <div>
+                  <span className="text-sm font-medium text-gray-600">Score:</span>
+                  <span className="ml-2 text-sm text-gray-900">
+                    {game.away.abbr} {game.awayScore} - {game.homeScore} {game.home.abbr}
+                  </span>
+                </div>
+              )}
+            </div>
+            {game.status === 'scheduled' && (
+              <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  <strong>Game Scheduled:</strong> This game is scheduled for {format(new Date(game.date), 'MMMM d, yyyy')} at {format(new Date(game.date), 'h:mm a')}.
+                </p>
+                <p className="text-xs text-blue-700 mt-2">
+                  Odds and live data will be available closer to game time.
+                </p>
+              </div>
+            )}
+            {game.status === 'in_progress' && (
+              <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-sm text-green-800">
+                  <strong>🔴 Game in Progress:</strong> Live updates are being fetched.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Odds History */}
       <div className="card">
         <div className="px-6 py-4 border-b border-gray-200">
@@ -348,7 +405,27 @@ export default async function GameDetailPage({ params }) {
           </p>
         </div>
         <div className="p-6">
-          <OddsTable odds={game.odds} isNFL={isNFL} />
+          {isNHL && (!game.odds || game.odds.length === 0) ? (
+            <div className="text-center py-8">
+              <div className="text-gray-400 mb-4">
+                <svg className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+              <p className="text-sm text-gray-600 mb-2">No odds data available yet</p>
+              <p className="text-xs text-gray-500 mb-4">
+                Odds are typically available 24-48 hours before game time
+              </p>
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mt-4 text-left">
+                <p className="text-xs font-medium text-gray-700 mb-2">To fetch odds for this game:</p>
+                <code className="block text-xs bg-gray-800 text-gray-100 p-2 rounded mt-2">
+                  node scripts/fetch-live-odds.js nhl {game.date ? new Date(game.date).toISOString().split('T')[0] : 'YYYY-MM-DD'}
+                </code>
+              </div>
+            </div>
+          ) : (
+            <OddsTable odds={game.odds} isNFL={isNFL} isNHL={isNHL} />
+          )}
         </div>
       </div>
     </div>
@@ -672,7 +749,7 @@ function BattingLineupTable({ game }) {
   )
 }
 
-function OddsTable({ odds, isNFL }) {
+function OddsTable({ odds, isNFL, isNHL }) {
   if (!odds || odds.length === 0) {
     return <div className="text-sm text-gray-600">No odds data available</div>
   }
@@ -726,8 +803,8 @@ function OddsTable({ odds, isNFL }) {
         </div>
       )}
       
-      {/* Spread odds for NFL */}
-      {isNFL && spreadOdds.length > 0 && (
+      {/* Spread odds for NFL or NHL */}
+      {(isNFL || isNHL) && spreadOdds.length > 0 && (
         <div>
           <h4 className="font-medium text-gray-900 mb-3">Spread</h4>
           <div className="overflow-x-auto">
@@ -738,7 +815,7 @@ function OddsTable({ odds, isNFL }) {
                     Book
                   </th>
                   <th className="text-left text-xs font-medium text-gray-500 uppercase py-2">
-                    Spread
+                    {isNHL ? 'Puck Line' : 'Spread'}
                   </th>
                   <th className="text-left text-xs font-medium text-gray-500 uppercase py-2">
                     Away
