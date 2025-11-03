@@ -259,6 +259,25 @@ async function fetchGameOdds(sport, date) {
       const dateEnd = new Date(date)
       dateEnd.setHours(23, 59, 59, 999)
       
+      // First check if there are ANY games for this date
+      const { data: allGames, error: allGamesError } = await supabase
+        .from('Game')
+        .select('id')
+        .eq('sport', sport)
+        .gte('date', dateStart.toISOString())
+        .lte('date', dateEnd.toISOString())
+      
+      if (allGamesError) {
+        console.log(`  ⚠️  Error querying games: ${allGamesError.message}`)
+        return []
+      }
+      
+      if (!allGames || allGames.length === 0) {
+        console.log(`  ℹ️  No ${sport.toUpperCase()} games found in database for ${date}`)
+        return []
+      }
+      
+      // Now get games with event IDs
       const { data: games, error } = await supabase
         .from('Game')
         .select('oddsApiEventId, homeId, awayId, id')
@@ -268,7 +287,7 @@ async function fetchGameOdds(sport, date) {
         .not('oddsApiEventId', 'is', null)
       
       if (error) {
-        console.log(`  ⚠️  Error querying games: ${error.message}`)
+        console.log(`  ⚠️  Error querying mapped games: ${error.message}`)
         return []
       }
       
@@ -281,10 +300,13 @@ async function fetchGameOdds(sport, date) {
       }))
       
       if (mappedGames.length > 0) {
-        console.log(`  📅 Found ${mappedGames.length} games in database for props`)
+        console.log(`  📅 Found ${mappedGames.length} games with event IDs for props`)
         return mappedGames
       }
       
+      // If games exist but aren't mapped, we can't fetch props without event IDs
+      console.log(`  ⚠️  Found ${allGames.length} games but none are mapped to Odds API events`)
+      console.log(`  💡 Tip: Run the script with --cache-fresh to fetch and map games`)
       return []
     }
     
