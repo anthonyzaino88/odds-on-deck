@@ -12,25 +12,67 @@ export async function GET(req) {
   try {
     console.log('📅 API: Fetching games from Supabase...')
     
-    // Step 1: Query all games
-    const { data: allGames, error: gameError } = await supabase
+    // Calculate date ranges
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    
+    // NFL: Current week (Monday to Sunday)
+    const dayOfWeek = now.getDay()
+    const monday = new Date(today)
+    monday.setDate(today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1))
+    const sunday = new Date(monday)
+    sunday.setDate(monday.getDate() + 6)
+    sunday.setHours(23, 59, 59, 999)
+    
+    console.log(`📅 Date ranges: MLB/NHL today (${today.toISOString()}), NFL week (${monday.toISOString()} - ${sunday.toISOString()})`)
+    
+    // Step 1: Query games with date filtering
+    // MLB: Today only
+    const { data: mlbGames, error: mlbError } = await supabase
       .from('Game')
       .select('*')
-      .limit(100)
+      .eq('sport', 'mlb')
+      .gte('date', today.toISOString())
+      .lt('date', tomorrow.toISOString())
     
-    if (gameError) {
-      console.error('❌ Game query error:', gameError)
-      throw gameError
+    // NFL: Current week (Mon-Sun)
+    const { data: nflGames, error: nflError } = await supabase
+      .from('Game')
+      .select('*')
+      .eq('sport', 'nfl')
+      .gte('date', monday.toISOString())
+      .lte('date', sunday.toISOString())
+    
+    // NHL: Today only
+    const { data: nhlGames, error: nhlError } = await supabase
+      .from('Game')
+      .select('*')
+      .eq('sport', 'nhl')
+      .gte('date', today.toISOString())
+      .lt('date', tomorrow.toISOString())
+    
+    if (mlbError || nflError || nhlError) {
+      console.error('❌ Game query error:', { mlbError, nflError, nhlError })
+      throw mlbError || nflError || nhlError
     }
     
-    console.log(`✅ Retrieved ${allGames?.length || 0} total games`)
+    // Combine all games
+    const allGames = [
+      ...(mlbGames || []),
+      ...(nflGames || []),
+      ...(nhlGames || [])
+    ]
+    
+    console.log(`✅ Retrieved ${allGames.length} games (MLB: ${mlbGames?.length || 0}, NFL: ${nflGames?.length || 0}, NHL: ${nhlGames?.length || 0})`)
     
     if (!allGames || allGames.length === 0) {
-      console.log('⚠️ No games found in database')
+      console.log('⚠️ No games found in database for today/this week')
       return NextResponse.json({
         success: true,
         data: { mlb: [], nfl: [], nhl: [] },
-        debug: 'No games in database',
+        debug: 'No games in database for current date range',
         timestamp: new Date().toISOString()
       })
     }
@@ -84,19 +126,19 @@ export async function GET(req) {
       }
     })
     
-    // Step 5: Group by sport
-    const mlbGames = enrichedGames.filter(g => g.sport === 'mlb')
-    const nflGames = enrichedGames.filter(g => g.sport === 'nfl')
-    const nhlGames = enrichedGames.filter(g => g.sport === 'nhl')
+    // Step 5: Group by sport (already filtered, but ensure correct grouping)
+    const mlbFinal = enrichedGames.filter(g => g.sport === 'mlb')
+    const nflFinal = enrichedGames.filter(g => g.sport === 'nfl')
+    const nhlFinal = enrichedGames.filter(g => g.sport === 'nhl')
     
-    console.log(`✅ MLB: ${mlbGames.length}, NFL: ${nflGames.length}, NHL: ${nhlGames.length}`)
+    console.log(`✅ Final counts - MLB: ${mlbFinal.length}, NFL: ${nflFinal.length}, NHL: ${nhlFinal.length}`)
     
     return NextResponse.json({
       success: true,
       data: {
-        mlb: mlbGames,
-        nfl: nflGames,
-        nhl: nhlGames
+        mlb: mlbFinal,
+        nfl: nflFinal,
+        nhl: nhlFinal
       },
       timestamp: new Date().toISOString()
     })
