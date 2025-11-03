@@ -12,7 +12,6 @@
  *   node scripts/fetch-fresh-games.js nfl 2025-11-02   # NFL for specific date
  */
 
-import { PrismaClient } from '@prisma/client'
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
 
@@ -128,35 +127,35 @@ async function saveToSupabase(sport, games) {
   try {
     console.log(`💾 Saving ${games.length} ${sport.toUpperCase()} games to Supabase...`)
     
-    // Clear existing games for this sport
-    const { error: deleteError } = await supabase
+    // Use UPSERT to update existing games or create new ones
+    // This prevents duplicates and preserves foreign key relationships
+    const gamesToUpsert = games.map(g => ({
+      id: g.id,
+      sport: g.sport,
+      date: g.date.toISOString(),
+      status: g.status,
+      homeId: g.homeId,
+      awayId: g.awayId,
+      homeScore: g.homeScore,
+      awayScore: g.awayScore,
+      espnGameId: g.espnGameId
+    }))
+    
+    // Batch upsert all games at once
+    const { data, error: upsertError } = await supabase
       .from('Game')
-      .delete()
-      .eq('sport', sport.toLowerCase())
+      .upsert(gamesToUpsert, {
+        onConflict: 'id'
+      })
+      .select()
     
-    if (deleteError) console.warn(`⚠️  Could not clear old ${sport} games:`, deleteError)
+    if (upsertError) {
+      throw upsertError
+    }
     
-    // Insert new games
-    const { error: insertError, data } = await supabase
-      .from('Game')
-      .insert(
-        games.map(g => ({
-          id: g.id,
-          sport: g.sport,
-          date: g.date.toISOString(),
-          status: g.status,
-          homeId: g.homeId,
-          awayId: g.awayId,
-          homeScore: g.homeScore,
-          awayScore: g.awayScore,
-          espnGameId: g.espnGameId
-        }))
-      )
-    
-    if (insertError) throw insertError
-    
-    console.log(`✅ Saved ${games.length} games`)
-    return games.length
+    const saved = data?.length || games.length
+    console.log(`✅ Saved ${saved} games (upserted - updates existing, creates new)`)
+    return saved
   } catch (error) {
     console.error(`❌ Error saving ${sport}:`, error.message)
     return 0
