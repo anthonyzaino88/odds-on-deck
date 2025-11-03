@@ -14,6 +14,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
+import { createGameId } from '../lib/team-mapping.js'
 
 config({ path: '.env.local' })
 
@@ -107,16 +108,27 @@ async function fetchGamesFromESPN(sport, date) {
       const homeId = home?.team?.id ? `${prefix}${home.team.id}` : null
       const awayId = away?.team?.id ? `${prefix}${away.team.id}` : null
       
+      // Get team abbreviations for consistent game ID
+      const homeAbbr = home?.team?.abbreviation || home?.team?.abbr || null
+      const awayAbbr = away?.team?.abbreviation || away?.team?.abbr || null
+      
+      // Create consistent game ID using descriptive format
+      const gameDate = new Date(event.date)
+      const dateStr = gameDate.toISOString().split('T')[0]
+      const gameId = homeAbbr && awayAbbr 
+        ? createGameId(awayAbbr, homeAbbr, dateStr)
+        : event.id // Fallback to ESPN ID if we don't have abbreviations
+      
       return {
-        id: event.id,
+        id: gameId,
         sport: sport.toLowerCase(),
-        date: new Date(event.date),
+        date: gameDate,
         status: event.status?.type?.name?.toLowerCase() || 'scheduled',
         homeId: homeId,
         awayId: awayId,
         homeScore: home?.score ? parseInt(home.score) : null,
         awayScore: away?.score ? parseInt(away.score) : null,
-        espnGameId: event.id
+        espnGameId: event.id // Store original ESPN ID separately
       }
     })
   } catch (error) {
