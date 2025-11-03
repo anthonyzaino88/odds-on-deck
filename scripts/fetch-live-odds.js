@@ -108,6 +108,20 @@ const FULL_NAME_TO_ABBR = {
     'new york jets': 'NYJ', 'philadelphia eagles': 'PHI', 'pittsburgh steelers': 'PIT',
     'san francisco 49ers': 'SF', 'seattle seahawks': 'SEA', 'tampa bay buccaneers': 'TB',
     'tennessee titans': 'TEN', 'washington commanders': 'WSH', 'washington football team': 'WSH'
+  },
+  nhl: {
+    'anaheim ducks': 'ANA', 'arizona coyotes': 'ARI', 'boston bruins': 'BOS',
+    'buffalo sabres': 'BUF', 'calgary flames': 'CGY', 'carolina hurricanes': 'CAR',
+    'chicago blackhawks': 'CHI', 'colorado avalanche': 'COL', 'columbus blue jackets': 'CBJ',
+    'dallas stars': 'DAL', 'detroit red wings': 'DET', 'edmonton oilers': 'EDM',
+    'florida panthers': 'FLA', 'los angeles kings': 'LAK', 'minnesota wild': 'MIN',
+    'montreal canadiens': 'MTL', 'montréal canadiens': 'MTL', 'nashville predators': 'NSH',
+    'new jersey devils': 'NJD', 'new york islanders': 'NYI', 'new york rangers': 'NYR',
+    'ottawa senators': 'OTT', 'philadelphia flyers': 'PHI', 'pittsburgh penguins': 'PIT',
+    'san jose sharks': 'SJS', 'seattle kraken': 'SEA', 'st louis blues': 'STL',
+    'st. louis blues': 'STL', 'tampa bay lightning': 'TB', 'toronto maple leafs': 'TOR',
+    'utah mammoth': 'UTA', 'utah': 'UTA', 'vancouver canucks': 'VAN',
+    'vegas golden knights': 'VGK', 'washington capitals': 'WSH', 'winnipeg jets': 'WPG'
   }
 }
 
@@ -124,6 +138,17 @@ const TEAM_ABBREVIATIONS = {
     'ny jets': 'NYJ', 'new york jets': 'NYJ', 'philadelphia': 'PHI',
     'pittsburgh': 'PIT', 'san francisco': 'SF', 'seattle': 'SEA',
     'tampa bay': 'TB', 'tennessee': 'TEN', 'washington': 'WSH'
+  },
+  nhl: {
+    'anaheim': 'ANA', 'arizona': 'ARI', 'boston': 'BOS', 'buffalo': 'BUF',
+    'calgary': 'CGY', 'carolina': 'CAR', 'chicago': 'CHI', 'colorado': 'COL',
+    'columbus': 'CBJ', 'dallas': 'DAL', 'detroit': 'DET', 'edmonton': 'EDM',
+    'florida': 'FLA', 'los angeles': 'LAK', 'minnesota': 'MIN', 'montreal': 'MTL',
+    'montréal': 'MTL', 'nashville': 'NSH', 'new jersey': 'NJD', 'new york islanders': 'NYI',
+    'new york rangers': 'NYR', 'ottawa': 'OTT', 'philadelphia': 'PHI', 'pittsburgh': 'PIT',
+    'san jose': 'SJS', 'seattle': 'SEA', 'st louis': 'STL', 'st. louis': 'STL',
+    'tampa bay': 'TB', 'toronto': 'TOR', 'utah': 'UTA', 'vancouver': 'VAN',
+    'vegas': 'VGK', 'washington': 'WSH', 'winnipeg': 'WPG'
   }
 }
 
@@ -169,23 +194,35 @@ function normalizeTeamName(name, sport) {
   return normalized
 }
 
-function extractTeamIdentifier(name) {
+function extractTeamIdentifier(name, sport = 'nfl') {
   if (!name) return ''
   const lower = name.toLowerCase().trim()
   
-  // Try to find abbreviation mapping
-  for (const [key, abbr] of Object.entries(TEAM_ABBREVIATIONS.nfl || {})) {
+  // Try to find abbreviation mapping (sport-specific)
+  const sportMap = TEAM_ABBREVIATIONS[sport] || {}
+  for (const [key, abbr] of Object.entries(sportMap)) {
     if (lower.includes(key)) return abbr.toLowerCase()
   }
   
   // Extract first significant word(s)
   const words = lower.split(/\s+/)
-  if (words[0] === 'new' && words[1] === 'york') return 'ny' + (words[2] || '')
+  if (words[0] === 'new' && words[1] === 'york') {
+    // For NHL, distinguish between Islanders and Rangers
+    if (sport === 'nhl') {
+      if (lower.includes('islanders')) return 'nyi'
+      if (lower.includes('rangers')) return 'nyr'
+      return 'ny' + (words[2] || '')
+    }
+    return 'ny' + (words[2] || '')
+  }
   if (words[0] === 'new' && words[1] === 'orleans') return 'no'
   if (words[0] === 'new' && words[1] === 'england') return 'ne'
-  if (words[0] === 'las' && words[1] === 'vegas') return 'lv'
-  if (words[0] === 'los' && words[1] === 'angeles') return 'la' + (words[2] || '')
+  if (words[0] === 'new' && words[1] === 'jersey') return 'njd'
+  if (words[0] === 'las' && words[1] === 'vegas') return sport === 'nhl' ? 'vgk' : 'lv'
+  if (words[0] === 'los' && words[1] === 'angeles') return sport === 'nhl' ? 'lak' : ('la' + (words[2] || ''))
   if (words[0] === 'san' && words[1] === 'francisco') return 'sf'
+  if (words[0] === 'san' && words[1] === 'jose') return 'sjs'
+  if (words[0] === 'st' && words[1] === 'louis') return 'stl'
   if (words[0] === 'tampa' && words[1] === 'bay') return 'tb'
   if (words[0] === 'green' && words[1] === 'bay') return 'gb'
   if (words[0] === 'kansas' && words[1] === 'city') return 'kc'
@@ -201,17 +238,17 @@ function matchTeams(espnHome, espnAway, oddsHome, oddsAway, sport) {
   // If ESPN already has abbreviation (3-4 chars), use it
   // Otherwise, try to get abbreviation from full name
   if (espnHomeAbbr.length > 4) {
-    const abbr = fullNameToAbbr(espnHome, sport) || extractTeamIdentifier(espnHome)
+    const abbr = fullNameToAbbr(espnHome, sport) || extractTeamIdentifier(espnHome, sport)
     if (abbr) espnHomeAbbr = abbr
   }
   if (espnAwayAbbr.length > 4) {
-    const abbr = fullNameToAbbr(espnAway, sport) || extractTeamIdentifier(espnAway)
+    const abbr = fullNameToAbbr(espnAway, sport) || extractTeamIdentifier(espnAway, sport)
     if (abbr) espnAwayAbbr = abbr
   }
   
   // Convert Odds API full names to abbreviations
-  const oddsHomeAbbr = fullNameToAbbr(oddsHome, sport) || extractTeamIdentifier(oddsHome)
-  const oddsAwayAbbr = fullNameToAbbr(oddsAway, sport) || extractTeamIdentifier(oddsAway)
+  const oddsHomeAbbr = fullNameToAbbr(oddsHome, sport) || extractTeamIdentifier(oddsHome, sport)
+  const oddsAwayAbbr = fullNameToAbbr(oddsAway, sport) || extractTeamIdentifier(oddsAway, sport)
   
   // Match using abbreviations
   const homeMatch = espnHomeAbbr === oddsHomeAbbr || 
