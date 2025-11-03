@@ -391,7 +391,7 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
     unmapped.forEach(game => console.log(`     - ${game}`))
   }
   
-  return oddsGames
+  return mapped  // Return count of successfully mapped games
 }
 
 async function saveGameOdds(games, sport, date) {
@@ -400,12 +400,40 @@ async function saveGameOdds(games, sport, date) {
   // First, map event IDs (pass date for filtering)
   await mapAndSaveEventIds(games, sport, date || new Date().toISOString().split('T')[0])
   
-  // Get mapping of Odds API event ID → our database game ID
-  const { data: dbGames } = await supabase
+  // Get mapping of Odds API event ID → our database game ID (filter by date)
+  const dateStart = new Date(date)
+  dateStart.setHours(0, 0, 0, 0)
+  const dateEnd = new Date(date)
+  dateEnd.setHours(23, 59, 59, 999)
+  
+  // Try exact date first, then ±1 day if needed
+  let { data: dbGames } = await supabase
     .from('Game')
     .select('id, oddsApiEventId')
     .eq('sport', sport)
+    .gte('date', dateStart.toISOString())
+    .lte('date', dateEnd.toISOString())
     .not('oddsApiEventId', 'is', null)
+  
+  // If no games found, try ±1 day range
+  if ((!dbGames || dbGames.length === 0) && games.length > 0) {
+    const expandedStart = new Date(dateStart)
+    expandedStart.setDate(expandedStart.getDate() - 1)
+    const expandedEnd = new Date(dateEnd)
+    expandedEnd.setDate(expandedEnd.getDate() + 1)
+    
+    const { data: expandedGames } = await supabase
+      .from('Game')
+      .select('id, oddsApiEventId')
+      .eq('sport', sport)
+      .gte('date', expandedStart.toISOString())
+      .lte('date', expandedEnd.toISOString())
+      .not('oddsApiEventId', 'is', null)
+    
+    if (expandedGames) {
+      dbGames = expandedGames
+    }
+  }
   
   // Create lookup map
   const eventIdToGameId = {}
