@@ -244,6 +244,38 @@ async function fetchGameOdds(sport, date) {
     
     if (isCached) {
       console.log(`  ✅ Cache hit for moneyline odds`)
+      // Even if cached, we need games for props - query database for games with oddsApiEventId
+      const dateStart = new Date(date)
+      dateStart.setHours(0, 0, 0, 0)
+      const dateEnd = new Date(date)
+      dateEnd.setHours(23, 59, 59, 999)
+      
+      const { data: games, error } = await supabase
+        .from('Game')
+        .select('oddsApiEventId, homeId, awayId, id')
+        .eq('sport', sport)
+        .gte('date', dateStart.toISOString())
+        .lte('date', dateEnd.toISOString())
+        .not('oddsApiEventId', 'is', null)
+      
+      if (error) {
+        console.log(`  ⚠️  Error querying games: ${error.message}`)
+        return []
+      }
+      
+      // Convert database games to Odds API format for props fetching
+      const mappedGames = (games || []).map(game => ({
+        id: game.oddsApiEventId,
+        gameId: game.id,
+        home_team: '', // Will be filled if needed
+        away_team: ''
+      }))
+      
+      if (mappedGames.length > 0) {
+        console.log(`  📅 Found ${mappedGames.length} games in database for props`)
+        return mappedGames
+      }
+      
       return []
     }
     
@@ -435,6 +467,9 @@ async function fetchPlayerProps(sport, date, oddsGames) {
     for (const game of oddsGames) {
       // Use The Odds API's event ID (hash format)
       const eventId = game.id
+      const gameDisplayName = game.home_team && game.away_team 
+        ? `${game.away_team} vs ${game.home_team}` 
+        : `Game ${eventId.slice(0, 8)}...`
       
       // Check cache using the Odds API event ID
       const isCached = await checkCache('PlayerPropCache',
@@ -443,7 +478,7 @@ async function fetchPlayerProps(sport, date, oddsGames) {
       )
       
       if (isCached) {
-        console.log(`    ✅ Cache hit for ${game.home_team} vs ${game.away_team}`)
+        console.log(`    ✅ Cache hit for ${gameDisplayName}`)
         continue
       }
       
@@ -465,14 +500,14 @@ async function fetchPlayerProps(sport, date, oddsGames) {
         
         allProps.push({ 
           gameId: eventId, 
-          homeTeam: game.home_team,
-          awayTeam: game.away_team,
+          homeTeam: game.home_team || '',
+          awayTeam: game.away_team || '',
           props: propsData
         })
-        console.log(`    ✅ Fetched props for ${game.home_team} vs ${game.away_team}`)
+        console.log(`    ✅ Fetched props for ${gameDisplayName}`)
         
       } catch (error) {
-        console.error(`    ⚠️  Error fetching props for ${game.home_team} vs ${game.away_team}: ${error.message}`)
+        console.error(`    ⚠️  Error fetching props for ${gameDisplayName}: ${error.message}`)
       }
     }
     
