@@ -9,6 +9,7 @@ import { format } from 'date-fns'
 // Import NFL components
 import NFLRosterSection from '../../../components/NFLRosterSection'
 import NFLMatchupSection from '../../../components/NFLMatchupSection'
+import NHLMatchupSection from '../../../components/NHLMatchupSection'
 
 export async function generateMetadata({ params }) {
   const game = await getGameDetail(params.id)
@@ -46,7 +47,7 @@ export default async function GameDetailPage({ params }) {
         >
           ← Back to Today's Slate
         </Link>
-        <div className="text-sm text-gray-600">
+        <div className="text-sm text-gray-400">
           {(() => {
             // Parse date and convert to Eastern time
             const gameDate = new Date(game.date + (game.date.includes('Z') ? '' : 'Z'))
@@ -66,10 +67,10 @@ export default async function GameDetailPage({ params }) {
       
       {/* Game Header */}
       <div className="text-center">
-        <h1 className="text-3xl font-bold text-gray-900">
+        <h1 className="text-3xl font-bold text-white">
           {game.away.name} @ {game.home.name}
         </h1>
-        <p className="text-lg text-gray-600 mt-2">
+        <p className="text-lg text-gray-400 mt-2">
           {game.away.abbr} @ {game.home.abbr}
         </p>
         
@@ -83,28 +84,28 @@ export default async function GameDetailPage({ params }) {
           // Only show live data if game has started AND has live score
           return hasStarted && (game.status === 'in_progress' || game.homeScore !== null) && game.homeScore !== undefined
         })() ? (
-          <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+          <div className="mt-4 p-4 bg-green-900/20 border border-green-500/50 rounded-lg">
             <div className="flex items-center justify-center space-x-6">
               <div className="text-center">
-                <div className="text-2xl font-bold text-gray-900">{game.away.abbr}</div>
-                <div className="text-3xl font-bold text-blue-600">{game.awayScore}</div>
+                <div className="text-2xl font-bold text-white">{game.away.abbr}</div>
+                <div className="text-3xl font-bold text-blue-400">{game.awayScore}</div>
               </div>
-              <div className="text-xl text-gray-500">-</div>
+              <div className="text-xl text-gray-400">-</div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-gray-900">{game.home.abbr}</div>
-                <div className="text-3xl font-bold text-green-600">{game.homeScore}</div>
+                <div className="text-2xl font-bold text-white">{game.home.abbr}</div>
+                <div className="text-3xl font-bold text-green-400">{game.homeScore}</div>
               </div>
             </div>
             {isNHL && game.status === 'in_progress' && (
               <div className="text-center mt-2">
-                <span className="text-sm font-medium text-gray-700">
+                <span className="text-sm font-medium text-gray-300">
                   Game in progress
                 </span>
               </div>
             )}
             {!isNHL && game.inning && (
               <div className="text-center mt-2">
-                <span className="text-sm font-medium text-gray-700">
+                <span className="text-sm font-medium text-gray-300">
                   {game.inningHalf === 'Top' ? 'Top' : 'Bottom'} {game.inning}
                   {game.outs !== null && ` • ${game.outs} out`}
                   {(game.balls !== null || game.strikes !== null) && 
@@ -115,30 +116,30 @@ export default async function GameDetailPage({ params }) {
             )}
             {game.lastPlay && (
               <div className="text-center mt-2">
-                <span className="text-xs text-gray-600 italic">{game.lastPlay}</span>
+                <span className="text-xs text-gray-400 italic">{game.lastPlay}</span>
               </div>
             )}
           </div>
         ) : game.status === 'final' && game.homeScore !== null ? (
-          <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+          <div className="mt-4 p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
             <div className="flex items-center justify-center space-x-6">
               <div className="text-center">
-                <div className="text-lg font-bold text-gray-900">{game.away.abbr}</div>
-                <div className="text-2xl font-bold text-gray-700">{game.awayScore}</div>
+                <div className="text-lg font-bold text-white">{game.away.abbr}</div>
+                <div className="text-2xl font-bold text-gray-300">{game.awayScore}</div>
               </div>
-              <div className="text-lg text-gray-500">-</div>
+              <div className="text-lg text-gray-400">-</div>
               <div className="text-center">
-                <div className="text-lg font-bold text-gray-900">{game.home.abbr}</div>
-                <div className="text-2xl font-bold text-gray-700">{game.homeScore}</div>
+                <div className="text-lg font-bold text-white">{game.home.abbr}</div>
+                <div className="text-2xl font-bold text-gray-300">{game.homeScore}</div>
               </div>
             </div>
             <div className="text-center mt-2">
-              <span className="text-sm font-medium text-gray-600">Final</span>
+              <span className="text-sm font-medium text-gray-400">Final</span>
             </div>
           </div>
         ) : (
           <div className="mt-2">
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/50">
               {game.status.replace('_', ' ').toUpperCase()}
             </span>
           </div>
@@ -280,36 +281,36 @@ export default async function GameDetailPage({ params }) {
       {/* NFL Specific Data */}
       {isNFL && game.nflData && (
         <div className="card">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Game Details</h2>
+          <div className="px-6 py-4 border-b border-slate-700">
+            <h2 className="text-lg font-semibold text-white">Game Details</h2>
           </div>
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <span className="text-sm font-medium text-gray-600">Status:</span>
-                <span className="ml-2 text-sm text-gray-900 capitalize">{game.status.replace('_', ' ')}</span>
+                <span className="text-sm font-medium text-gray-400">Status:</span>
+                <span className="ml-2 text-sm text-white capitalize">{game.status.replace('_', ' ')}</span>
               </div>
               {game.nflData.quarter && (
                 <div>
-                  <span className="text-sm font-medium text-gray-600">Quarter:</span>
-                  <span className="ml-2 text-sm text-gray-900">Q{game.nflData.quarter}</span>
+                  <span className="text-sm font-medium text-gray-400">Quarter:</span>
+                  <span className="ml-2 text-sm text-white">Q{game.nflData.quarter}</span>
                 </div>
               )}
               {game.nflData.timeLeft && (
                 <div>
-                  <span className="text-sm font-medium text-gray-600">Time Left:</span>
-                  <span className="ml-2 text-sm text-gray-900">{game.nflData.timeLeft}</span>
+                  <span className="text-sm font-medium text-gray-400">Time Left:</span>
+                  <span className="ml-2 text-sm text-white">{game.nflData.timeLeft}</span>
                 </div>
               )}
               {game.nflData.lastPlay && (
                 <div className="md:col-span-3">
-                  <span className="text-sm font-medium text-gray-600">Last Play:</span>
-                  <span className="ml-2 text-sm text-gray-900">{game.nflData.lastPlay}</span>
+                  <span className="text-sm font-medium text-gray-400">Last Play:</span>
+                  <span className="ml-2 text-sm text-white">{game.nflData.lastPlay}</span>
                 </div>
               )}
               {!game.nflData.quarter && !game.nflData.timeLeft && game.status === 'in_progress' && (
                 <div className="md:col-span-3">
-                  <p className="text-sm text-gray-500 italic">Live game data updating...</p>
+                  <p className="text-sm text-gray-400 italic">Live game data updating...</p>
                 </div>
               )}
             </div>
@@ -325,14 +326,19 @@ export default async function GameDetailPage({ params }) {
         </>
       )}
       
+      {/* NHL Matchup Analysis */}
+      {isNHL && (
+        <NHLMatchupSection gameId={game.id} />
+      )}
+      
       {/* Batting Lineups - Only for MLB */}
       {!isNFL && !isNHL && game.sport === 'mlb' && game.lineups && game.lineups.length > 0 && (
         <div className="card">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">
+          <div className="px-6 py-4 border-b border-slate-700">
+            <h2 className="text-lg font-semibold text-white">
               Starting Lineups
             </h2>
-            <p className="text-sm text-gray-600 mt-1">
+            <p className="text-sm text-gray-400 mt-1">
               Today's batting order (1-9)
             </p>
           </div>
@@ -345,11 +351,11 @@ export default async function GameDetailPage({ params }) {
       {/* Batter vs Pitcher Analysis - Only for MLB */}
       {!isNFL && !isNHL && game.sport === 'mlb' && (game.probableHomePitcher || game.probableAwayPitcher) && (
         <div className="card">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">
+          <div className="px-6 py-4 border-b border-slate-700">
+            <h2 className="text-lg font-semibold text-white">
               Batter vs Pitcher Matchups
             </h2>
-            <p className="text-sm text-gray-600 mt-1">
+            <p className="text-sm text-gray-400 mt-1">
               Projected performance based on handedness and historical patterns
             </p>
           </div>
@@ -362,20 +368,20 @@ export default async function GameDetailPage({ params }) {
       {/* NHL Game Details Section */}
       {isNHL && (
         <div className="card">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Game Information</h2>
+          <div className="px-6 py-4 border-b border-slate-700">
+            <h2 className="text-lg font-semibold text-white">Game Information</h2>
           </div>
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <span className="text-sm font-medium text-gray-600">Status:</span>
-                <span className="ml-2 text-sm text-gray-900 capitalize">
+                <span className="ml-2 text-sm text-white capitalize">
                   {game.status === 'in_progress' ? '🔴 Live' : game.status.replace('_', ' ')}
                 </span>
               </div>
               <div>
                 <span className="text-sm font-medium text-gray-600">Date & Time:</span>
-                <span className="ml-2 text-sm text-gray-900">
+                <span className="ml-2 text-sm text-white">
                   {(() => {
                     const gameDate = new Date(game.date + (game.date.includes('Z') ? '' : 'Z'))
                     return gameDate.toLocaleString('en-US', {
@@ -391,8 +397,8 @@ export default async function GameDetailPage({ params }) {
               </div>
               {game.homeScore !== null && game.awayScore !== null && (
                 <div>
-                  <span className="text-sm font-medium text-gray-600">Score:</span>
-                  <span className="ml-2 text-sm text-gray-900">
+                  <span className="text-sm font-medium text-gray-400">Score:</span>
+                  <span className="ml-2 text-sm text-white">
                     {game.away.abbr} {game.awayScore} - {game.homeScore} {game.home.abbr}
                   </span>
                 </div>
@@ -435,9 +441,9 @@ export default async function GameDetailPage({ params }) {
 
       {/* Odds History */}
       <div className="card">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Recent Odds</h2>
-          <p className="text-sm text-gray-600 mt-1">
+        <div className="px-6 py-4 border-b border-slate-700">
+          <h2 className="text-lg font-semibold text-white">Recent Odds</h2>
+          <p className="text-sm text-gray-400 mt-1">
             Latest betting lines from various books
           </p>
         </div>
@@ -449,13 +455,13 @@ export default async function GameDetailPage({ params }) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
               </div>
-              <p className="text-sm text-gray-600 mb-2">No odds data available yet</p>
+              <p className="text-sm text-gray-400 mb-2">No odds data available yet</p>
               <p className="text-xs text-gray-500 mb-4">
                 Odds are typically available 24-48 hours before game time
               </p>
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mt-4 text-left">
-                <p className="text-xs font-medium text-gray-700 mb-2">To fetch odds for this game:</p>
-                <code className="block text-xs bg-gray-800 text-gray-100 p-2 rounded mt-2">
+              <div className="bg-slate-900 border border-slate-700 rounded-lg p-4 mt-4 text-left">
+                <p className="text-xs font-medium text-gray-300 mb-2">To fetch odds for this game:</p>
+                <code className="block text-xs bg-slate-950 text-gray-300 p-2 rounded mt-2">
                   node scripts/fetch-live-odds.js nhl {game.date ? new Date(game.date).toISOString().split('T')[0] : 'YYYY-MM-DD'}
                 </code>
               </div>
@@ -469,14 +475,14 @@ export default async function GameDetailPage({ params }) {
   )
 }
 
-function StatCard({ title, value, subtitle, className = 'text-gray-900' }) {
+function StatCard({ title, value, subtitle, className = 'text-white' }) {
   return (
     <div className="card p-6 text-center">
-      <h3 className="text-sm font-medium text-gray-600 uppercase tracking-wide">
+      <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide">
         {title}
       </h3>
       <p className={`text-2xl font-bold mt-2 ${className}`}>{value}</p>
-      <p className="text-sm text-gray-600 mt-1">{subtitle}</p>
+      <p className="text-sm text-gray-400 mt-1">{subtitle}</p>
     </div>
   )
 }
@@ -484,29 +490,29 @@ function StatCard({ title, value, subtitle, className = 'text-gray-900' }) {
 function PitcherCard({ team, pitcher, title }) {
   return (
     <div className="card p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">{title}</h3>
+      <h3 className="text-lg font-semibold text-white mb-4">{title}</h3>
       <div className="space-y-3">
         <div>
-          <span className="text-sm font-medium text-gray-600">Team:</span>
-          <span className="ml-2 text-sm text-gray-900">
+          <span className="text-sm font-medium text-gray-400">Team:</span>
+          <span className="ml-2 text-sm text-white">
             {team.name} ({team.abbr})
           </span>
         </div>
         {pitcher ? (
           <>
             <div>
-              <span className="text-sm font-medium text-gray-600">Pitcher:</span>
-              <span className="ml-2 text-sm text-gray-900">{pitcher.fullName}</span>
+              <span className="text-sm font-medium text-gray-400">Pitcher:</span>
+              <span className="ml-2 text-sm text-white">{pitcher.fullName}</span>
             </div>
             <div>
-              <span className="text-sm font-medium text-gray-600">Throws:</span>
-              <span className="ml-2 text-sm text-gray-900">
+              <span className="text-sm font-medium text-gray-400">Throws:</span>
+              <span className="ml-2 text-sm text-white">
                 {pitcher.throws || 'Unknown'}
               </span>
             </div>
           </>
         ) : (
-          <div className="text-sm text-gray-600">Probable pitcher TBD</div>
+          <div className="text-sm text-gray-400">Probable pitcher TBD</div>
         )}
       </div>
     </div>
@@ -519,7 +525,7 @@ function BatterVsPitcherTable({ game }) {
       {/* Home Batters vs Away Pitcher */}
       {game.probableAwayPitcher && game.home.players && (
         <div>
-          <h4 className="font-medium text-gray-900 mb-4">
+          <h4 className="font-medium text-white mb-4">
             {game.home.abbr} Batters vs {game.probableAwayPitcher.fullName} ({game.probableAwayPitcher.throws}HP)
           </h4>
           <MatchupTable 
@@ -533,7 +539,7 @@ function BatterVsPitcherTable({ game }) {
       {/* Away Batters vs Home Pitcher */}
       {game.probableHomePitcher && game.away.players && (
         <div>
-          <h4 className="font-medium text-gray-900 mb-4">
+          <h4 className="font-medium text-white mb-4">
             {game.away.abbr} Batters vs {game.probableHomePitcher.fullName} ({game.probableHomePitcher.throws}HP)
           </h4>
           <MatchupTable 
@@ -576,7 +582,7 @@ function MatchupTable({ batters, pitcher, teamAbbr }) {
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50">
+        <thead className="bg-slate-900">
           <tr>
             <th className="table-header px-3 py-2 text-left">#</th>
             <th className="table-header px-3 py-2 text-left">Batter</th>
@@ -587,7 +593,7 @@ function MatchupTable({ batters, pitcher, teamAbbr }) {
             <th className="table-header px-3 py-2 text-left">Outlook</th>
           </tr>
         </thead>
-        <tbody className="bg-white divide-y divide-gray-100">
+        <tbody className="bg-slate-800 divide-y divide-slate-700">
           {batters.map((batter, index) => {
             const matchup = getBatterVsPitcherMatchup(batter, pitcher)
             return (
@@ -632,14 +638,14 @@ function BatterRow({ position, batter, matchup, pitcherHand }) {
   }
   
   return (
-    <tr className="hover:bg-gray-50">
-      <td className="px-3 py-2 text-sm text-gray-600">{position}</td>
+    <tr className="hover:bg-slate-700/50">
+      <td className="px-3 py-2 text-sm text-gray-400">{position}</td>
       <td className="px-3 py-2">
-        <div className="text-sm font-medium text-gray-900">
+        <div className="text-sm font-medium text-white">
           {batter.fullName}
         </div>
       </td>
-      <td className="px-3 py-2 text-sm text-gray-600">
+      <td className="px-3 py-2 text-sm text-gray-400">
         {batter.bats || 'Unknown'}
       </td>
       <td className="px-3 py-2 text-sm">
@@ -699,19 +705,19 @@ function BattingLineupTable({ game }) {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       {/* Away Team Lineup */}
       <div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+        <h3 className="text-lg font-semibold text-white mb-4">
           {game.away.name} Batting Order
         </h3>
         {awayLineup.length > 0 ? (
           <div className="space-y-2">
             {awayLineup.map((lineup) => (
-              <div key={lineup.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <div key={lineup.id} className="flex items-center justify-between p-3 bg-slate-900 rounded-lg">
                 <div className="flex items-center space-x-3">
                   <span className="text-lg font-bold text-blue-600 w-6">
                     {lineup.battingOrder}
                   </span>
                   <div>
-                    <div className="font-medium text-gray-900">
+                    <div className="font-medium text-white">
                       {lineup.player.fullName}
                     </div>
                     <div className="text-sm text-gray-500">
@@ -742,19 +748,19 @@ function BattingLineupTable({ game }) {
 
       {/* Home Team Lineup */}
       <div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+        <h3 className="text-lg font-semibold text-white mb-4">
           {game.home.name} Batting Order
         </h3>
         {homeLineup.length > 0 ? (
           <div className="space-y-2">
             {homeLineup.map((lineup) => (
-              <div key={lineup.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <div key={lineup.id} className="flex items-center justify-between p-3 bg-slate-900 rounded-lg">
                 <div className="flex items-center space-x-3">
                   <span className="text-lg font-bold text-green-600 w-6">
                     {lineup.battingOrder}
                   </span>
                   <div>
-                    <div className="font-medium text-gray-900">
+                    <div className="font-medium text-white">
                       {lineup.player.fullName}
                     </div>
                     <div className="text-sm text-gray-500">
@@ -800,36 +806,36 @@ function OddsTable({ odds, isNFL, isNHL }) {
     <div className="space-y-6">
       {h2hOdds.length > 0 && (
         <div>
-          <h4 className="font-medium text-gray-900 mb-3">Moneyline</h4>
+          <h4 className="font-medium text-white mb-3">Moneyline</h4>
           <div className="overflow-x-auto">
             <table className="min-w-full">
               <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase py-2">
+                <tr className="border-b border-slate-700">
+                  <th className="text-left text-xs font-medium text-gray-400 uppercase py-2">
                     Book
                   </th>
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase py-2">
+                  <th className="text-left text-xs font-medium text-gray-400 uppercase py-2">
                     Away
                   </th>
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase py-2">
+                  <th className="text-left text-xs font-medium text-gray-400 uppercase py-2">
                     Home
                   </th>
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase py-2">
+                  <th className="text-left text-xs font-medium text-gray-400 uppercase py-2">
                     Time
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-slate-700">
                 {h2hOdds.map((odds, idx) => (
                   <tr key={idx}>
-                    <td className="py-2 text-sm text-gray-900">{odds.book}</td>
-                    <td className="py-2 text-sm text-gray-900">
+                    <td className="py-2 text-sm text-white">{odds.book}</td>
+                    <td className="py-2 text-sm text-white">
                       {formatOdds(odds.priceAway)}
                     </td>
-                    <td className="py-2 text-sm text-gray-900">
+                    <td className="py-2 text-sm text-white">
                       {formatOdds(odds.priceHome)}
                     </td>
-                    <td className="py-2 text-sm text-gray-600">
+                    <td className="py-2 text-sm text-gray-400">
                       {format(new Date(odds.ts), 'h:mm a')}
                     </td>
                   </tr>
@@ -843,42 +849,42 @@ function OddsTable({ odds, isNFL, isNHL }) {
       {/* Spread odds for NFL or NHL */}
       {(isNFL || isNHL) && spreadOdds.length > 0 && (
         <div>
-          <h4 className="font-medium text-gray-900 mb-3">Spread</h4>
+          <h4 className="font-medium text-white mb-3">Spread</h4>
           <div className="overflow-x-auto">
             <table className="min-w-full">
               <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase py-2">
+                <tr className="border-b border-slate-700">
+                  <th className="text-left text-xs font-medium text-gray-400 uppercase py-2">
                     Book
                   </th>
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase py-2">
+                  <th className="text-left text-xs font-medium text-gray-400 uppercase py-2">
                     {isNHL ? 'Puck Line' : 'Spread'}
                   </th>
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase py-2">
+                  <th className="text-left text-xs font-medium text-gray-400 uppercase py-2">
                     Away
                   </th>
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase py-2">
+                  <th className="text-left text-xs font-medium text-gray-400 uppercase py-2">
                     Home
                   </th>
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase py-2">
+                  <th className="text-left text-xs font-medium text-gray-400 uppercase py-2">
                     Time
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-slate-700">
                 {spreadOdds.map((odds, index) => (
                   <tr key={index}>
-                    <td className="py-2 text-sm text-gray-900">{odds.book}</td>
-                    <td className="py-2 text-sm font-medium text-gray-900">
+                    <td className="py-2 text-sm text-white">{odds.book}</td>
+                    <td className="py-2 text-sm font-medium text-white">
                       {odds.spread > 0 ? `+${odds.spread}` : odds.spread}
                     </td>
-                    <td className="py-2 text-sm text-gray-900">
+                    <td className="py-2 text-sm text-white">
                       {odds.priceAway > 0 ? `+${odds.priceAway}` : odds.priceAway}
                     </td>
-                    <td className="py-2 text-sm text-gray-900">
+                    <td className="py-2 text-sm text-white">
                       {odds.priceHome > 0 ? `+${odds.priceHome}` : odds.priceHome}
                     </td>
-                    <td className="py-2 text-xs text-gray-500">
+                    <td className="py-2 text-xs text-gray-400">
                       {format(new Date(odds.ts), 'h:mm a')}
                     </td>
                   </tr>
@@ -891,42 +897,42 @@ function OddsTable({ odds, isNFL, isNHL }) {
       
       {totalOdds.length > 0 && (
         <div>
-          <h4 className="font-medium text-gray-900 mb-3">Totals</h4>
+          <h4 className="font-medium text-white mb-3">Totals</h4>
           <div className="overflow-x-auto">
             <table className="min-w-full">
               <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase py-2">
+                <tr className="border-b border-slate-700">
+                  <th className="text-left text-xs font-medium text-gray-400 uppercase py-2">
                     Book
                   </th>
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase py-2">
+                  <th className="text-left text-xs font-medium text-gray-400 uppercase py-2">
                     Total
                   </th>
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase py-2">
+                  <th className="text-left text-xs font-medium text-gray-400 uppercase py-2">
                     Over
                   </th>
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase py-2">
+                  <th className="text-left text-xs font-medium text-gray-400 uppercase py-2">
                     Under
                   </th>
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase py-2">
+                  <th className="text-left text-xs font-medium text-gray-400 uppercase py-2">
                     Time
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-slate-700">
                 {totalOdds.map((odds, idx) => (
                   <tr key={idx}>
-                    <td className="py-2 text-sm text-gray-900">{odds.book}</td>
-                    <td className="py-2 text-sm text-gray-900">
+                    <td className="py-2 text-sm text-white">{odds.book}</td>
+                    <td className="py-2 text-sm text-white">
                       {odds.total ? odds.total.toFixed(1) : 'N/A'}
                     </td>
-                    <td className="py-2 text-sm text-gray-900">
+                    <td className="py-2 text-sm text-white">
                       {formatOdds(odds.priceHome)}
                     </td>
-                    <td className="py-2 text-sm text-gray-900">
+                    <td className="py-2 text-sm text-white">
                       {formatOdds(odds.priceAway)}
                     </td>
-                    <td className="py-2 text-sm text-gray-600">
+                    <td className="py-2 text-sm text-gray-400">
                       {format(new Date(odds.ts), 'h:mm a')}
                     </td>
                   </tr>
