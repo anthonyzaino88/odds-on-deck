@@ -19,6 +19,10 @@ export async function GET(req) {
     const tomorrow = new Date(today)
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
     
+    // Convert to date strings for queries (YYYY-MM-DD format)
+    const todayStr = today.toISOString().split('T')[0] // YYYY-MM-DD
+    const tomorrowStr = tomorrow.toISOString().split('T')[0] // YYYY-MM-DD
+    
     // NFL: Current week (Thursday to Monday)
     // NFL week runs Thursday Night Football → Sunday slate → Monday Night Football
     // If we're on Tuesday/Wednesday, show the upcoming week (next Thu-Mon)
@@ -29,11 +33,11 @@ export async function GET(req) {
       // Tuesday or Wednesday - show upcoming week (next Thursday to next Monday)
       const daysUntilThursday = dayOfWeek === 2 ? 2 : 1 // Tuesday: 2 days, Wednesday: 1 day
       weekStart = new Date(today)
-      weekStart.setDate(today.getDate() + daysUntilThursday)
+      weekStart.setUTCDate(today.getUTCDate() + daysUntilThursday)
       weekEnd = new Date(weekStart)
-      weekEnd.setDate(weekStart.getDate() + 5) // Thursday + 5 days = Tuesday at 00:00
-      weekEnd.setDate(weekEnd.getDate() - 1) // Go back to Monday
-      weekEnd.setHours(23, 59, 59, 999)
+      weekEnd.setUTCDate(weekStart.getUTCDate() + 5) // Thursday + 5 days = Tuesday at 00:00
+      weekEnd.setUTCDate(weekEnd.getUTCDate() - 1) // Go back to Monday
+      weekEnd.setUTCHours(23, 59, 59, 999)
     } else {
       // Thursday through Monday - show current week
       // Find the most recent Thursday
@@ -43,26 +47,26 @@ export async function GET(req) {
       } else if (dayOfWeek === 0) {
         // Today is Sunday
         weekStart = new Date(today)
-        weekStart.setDate(today.getDate() - 3) // Go back 3 days to Thursday
+        weekStart.setUTCDate(today.getUTCDate() - 3) // Go back 3 days to Thursday
       } else if (dayOfWeek === 1) {
         // Today is Monday
         weekStart = new Date(today)
-        weekStart.setDate(today.getDate() - 4) // Go back 4 days to Thursday
+        weekStart.setUTCDate(today.getUTCDate() - 4) // Go back 4 days to Thursday
       } else if (dayOfWeek === 5) {
         // Today is Friday
         weekStart = new Date(today)
-        weekStart.setDate(today.getDate() - 1) // Go back 1 day to Thursday
+        weekStart.setUTCDate(today.getUTCDate() - 1) // Go back 1 day to Thursday
       } else if (dayOfWeek === 6) {
         // Today is Saturday
         weekStart = new Date(today)
-        weekStart.setDate(today.getDate() - 2) // Go back 2 days to Thursday
+        weekStart.setUTCDate(today.getUTCDate() - 2) // Go back 2 days to Thursday
       }
       
       // Week ends on Monday (inclusive, so Monday 23:59:59)
       weekEnd = new Date(weekStart)
-      weekEnd.setDate(weekStart.getDate() + 5) // Thursday + 5 days = Tuesday at 00:00
-      weekEnd.setDate(weekEnd.getDate() - 1) // Go back to Monday
-      weekEnd.setHours(23, 59, 59, 999)
+      weekEnd.setUTCDate(weekStart.getUTCDate() + 5) // Thursday + 5 days = Tuesday at 00:00
+      weekEnd.setUTCDate(weekEnd.getUTCDate() - 1) // Go back to Monday
+      weekEnd.setUTCHours(23, 59, 59, 999)
     }
     
     console.log(`📅 Date ranges: MLB/NHL today (${todayStr}), NFL week (${weekStart.toISOString()} - ${weekEnd.toISOString()})`)
@@ -76,7 +80,7 @@ export async function GET(req) {
       .gte('date', todayStr)
       .lt('date', tomorrowStr)
     
-    // NFL: Current week (Sunday to Sunday) - exclude games that are final and older than current week
+    // NFL: Current week (Thursday to Monday)
     const { data: nflGames, error: nflError } = await supabase
       .from('Game')
       .select('*')
@@ -87,8 +91,6 @@ export async function GET(req) {
     
     // NHL: Today only (use date string comparison to avoid timezone issues)
     // Exclude games that are final and from previous days
-    const todayStr = today.toISOString().split('T')[0] // YYYY-MM-DD
-    const tomorrowStr = tomorrow.toISOString().split('T')[0] // YYYY-MM-DD
     
     const { data: nhlGames, error: nhlError } = await supabase
       .from('Game')

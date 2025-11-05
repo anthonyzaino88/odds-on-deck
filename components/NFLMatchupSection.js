@@ -35,11 +35,14 @@ export default function NFLMatchupSection({ gameId }) {
   if (loading) {
     return (
       <div className="card">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Matchup Analysis</h2>
+        <div className="px-6 py-4 border-b border-slate-700">
+          <h2 className="text-lg font-semibold text-white">Matchup Analysis</h2>
+          <p className="text-sm text-gray-400 mt-1">
+            Historical performance and offensive vs defensive trends
+          </p>
         </div>
         <div className="p-6">
-          <div className="text-center text-gray-500">Loading matchup analysis...</div>
+          <div className="text-center text-gray-400">Loading matchup analysis...</div>
         </div>
       </div>
     )
@@ -48,87 +51,45 @@ export default function NFLMatchupSection({ gameId }) {
   if (error || !matchupData) {
     return (
       <div className="card">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Matchup Analysis</h2>
-          <p className="text-sm text-gray-600 mt-1">
+        <div className="px-6 py-4 border-b border-slate-700">
+          <h2 className="text-lg font-semibold text-white">Matchup Analysis</h2>
+          <p className="text-sm text-gray-400 mt-1">
             Historical performance and offensive vs defensive trends
           </p>
         </div>
         <div className="p-6">
           <div className="grid md:grid-cols-2 gap-6">
-            {/* Mock data for demonstration */}
-            <div>
-              <h3 className="text-md font-semibold text-gray-800 mb-3">
-                {matchupData?.game?.away?.abbr || 'Away'} Offense vs {matchupData?.game?.home?.abbr || 'Home'} Defense
+            <div className="p-6 border border-slate-700 rounded-lg bg-slate-900">
+              <h3 className="text-md font-semibold text-gray-300 mb-3">
+                Away Offense vs Home Defense
               </h3>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Avg Points:</span>
-                  <span className="font-medium">24.2</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Avg Total Yards:</span>
-                  <span className="font-medium">385</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Avg Passing:</span>
-                  <span className="font-medium">245 yds</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Avg Rushing:</span>
-                  <span className="font-medium">140 yds</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">3rd Down %:</span>
-                  <span className="font-medium">42%</span>
-                </div>
+              <div className="text-sm text-gray-400 italic">
+                No historical data available
               </div>
             </div>
-            
-            <div>
-              <h3 className="text-md font-semibold text-gray-800 mb-3">
-                {matchupData?.game?.home?.abbr || 'Home'} Offense vs {matchupData?.game?.away?.abbr || 'Away'} Defense
+            <div className="p-6 border border-slate-700 rounded-lg bg-slate-900">
+              <h3 className="text-md font-semibold text-gray-300 mb-3">
+                Home Offense vs Away Defense
               </h3>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Avg Points:</span>
-                  <span className="font-medium">28.5</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Avg Total Yards:</span>
-                  <span className="font-medium">415</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Avg Passing:</span>
-                  <span className="font-medium">275 yds</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Avg Rushing:</span>
-                  <span className="font-medium">140 yds</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">3rd Down %:</span>
-                  <span className="font-medium">48%</span>
-                </div>
+              <div className="text-sm text-gray-400 italic">
+                No historical data available
               </div>
             </div>
           </div>
           
-          {/* Key Insights */}
-          <div className="mt-6 pt-6 border-t border-gray-200">
-            <h3 className="text-md font-semibold text-gray-800 mb-3">Key Insights</h3>
-            <div className="space-y-2">
-              <div className="flex items-center text-sm">
-                <div className="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
-                <span className="text-gray-700">MIA has strong passing attack averaging 275+ yards vs NYJ defense</span>
-              </div>
-              <div className="flex items-center text-sm">
-                <div className="w-2 h-2 bg-blue-500 rounded-full mr-3"></div>
-                <span className="text-gray-700">NYJ rushing game has been effective in recent matchups (140+ yds/game)</span>
-              </div>
-              <div className="flex items-center text-sm">
-                <div className="w-2 h-2 bg-yellow-500 rounded-full mr-3"></div>
-                <span className="text-gray-700">Both teams show strong 3rd down conversion rates (42%+ NYJ, 48%+ MIA)</span>
+          {/* Warning Message */}
+          <div className="mt-6 p-4 bg-yellow-900/20 border border-yellow-500/50 rounded-lg">
+            <div className="flex items-start">
+              <svg className="w-5 h-5 text-yellow-400 mr-3 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              <div>
+                <p className="text-sm text-yellow-300">
+                  <strong>Limited historical data.</strong> Sample Size Low Confidence.
+                </p>
+                <p className="text-xs text-yellow-400/80 mt-1">
+                  Historical matchup data will be available once teams have played each other recently.
+                </p>
               </div>
             </div>
           </div>
@@ -141,9 +102,9 @@ export default function NFLMatchupSection({ gameId }) {
 
   return (
     <div className="card">
-      <div className="px-6 py-4 border-b border-gray-200">
-        <h2 className="text-lg font-semibold text-gray-900">Matchup Analysis</h2>
-        <p className="text-sm text-gray-600 mt-1">
+      <div className="px-6 py-4 border-b border-slate-700">
+        <h2 className="text-lg font-semibold text-white">Matchup Analysis</h2>
+        <p className="text-sm text-gray-400 mt-1">
           Historical performance and offensive vs defensive trends
         </p>
       </div>
@@ -182,9 +143,9 @@ export default function NFLMatchupSection({ gameId }) {
 function MatchupCard({ title, advantages, teamSide }) {
   if (!advantages || advantages.gamesAnalyzed === 0) {
     return (
-      <div className="p-4 border border-gray-200 rounded-lg">
-        <h4 className="font-medium text-gray-900 mb-2">{title}</h4>
-        <div className="text-sm text-gray-500 italic">
+      <div className="p-4 border border-slate-700 rounded-lg bg-slate-900">
+        <h4 className="font-medium text-gray-300 mb-2">{title}</h4>
+        <div className="text-sm text-gray-400 italic">
           No historical data available
         </div>
       </div>
@@ -193,56 +154,56 @@ function MatchupCard({ title, advantages, teamSide }) {
 
   const getTrendColor = (trend) => {
     switch (trend) {
-      case 'improving': return 'text-green-600'
-      case 'declining': return 'text-red-600'
-      default: return 'text-gray-600'
+      case 'improving': return 'text-green-400'
+      case 'declining': return 'text-red-400'
+      default: return 'text-gray-400'
     }
   }
 
   const getEfficiencyColor = (efficiency) => {
-    if (!efficiency) return 'text-gray-600'
-    if (efficiency >= 70) return 'text-green-600'
-    if (efficiency >= 50) return 'text-yellow-600'
-    return 'text-red-600'
+    if (!efficiency) return 'text-gray-400'
+    if (efficiency >= 70) return 'text-green-400'
+    if (efficiency >= 50) return 'text-yellow-400'
+    return 'text-red-400'
   }
 
   return (
-    <div className="p-4 border border-gray-200 rounded-lg">
-      <h4 className="font-medium text-gray-900 mb-3">{title}</h4>
+    <div className="p-4 border border-slate-700 rounded-lg bg-slate-900">
+      <h4 className="font-medium text-white mb-3">{title}</h4>
       
       <div className="space-y-2 text-sm">
         <div className="flex justify-between">
-          <span className="text-gray-600">Avg Points:</span>
-          <span className="font-medium">{advantages.pointsAvg}</span>
+          <span className="text-gray-400">Avg Points:</span>
+          <span className="font-medium text-white">{advantages.pointsAvg}</span>
         </div>
         
         <div className="flex justify-between">
-          <span className="text-gray-600">Avg Yards:</span>
-          <span className="font-medium">{advantages.totalYardsAvg}</span>
+          <span className="text-gray-400">Avg Yards:</span>
+          <span className="font-medium text-white">{advantages.totalYardsAvg}</span>
         </div>
         
         <div className="flex justify-between">
-          <span className="text-gray-600">Turnovers:</span>
-          <span className="font-medium">{advantages.turnoversAvg}</span>
+          <span className="text-gray-400">Turnovers:</span>
+          <span className="font-medium text-white">{advantages.turnoversAvg}</span>
         </div>
         
         {advantages.thirdDownPct && (
           <div className="flex justify-between">
-            <span className="text-gray-600">3rd Down %:</span>
-            <span className="font-medium">{advantages.thirdDownPct}%</span>
+            <span className="text-gray-400">3rd Down %:</span>
+            <span className="font-medium text-white">{advantages.thirdDownPct}%</span>
           </div>
         )}
         
         {advantages.redZonePct && (
           <div className="flex justify-between">
-            <span className="text-gray-600">Red Zone %:</span>
-            <span className="font-medium">{advantages.redZonePct}%</span>
+            <span className="text-gray-400">Red Zone %:</span>
+            <span className="font-medium text-white">{advantages.redZonePct}%</span>
           </div>
         )}
         
         {advantages.efficiency && (
           <div className="flex justify-between">
-            <span className="text-gray-600">Efficiency:</span>
+            <span className="text-gray-400">Efficiency:</span>
             <span className={`font-medium ${getEfficiencyColor(advantages.efficiency)}`}>
               {advantages.efficiency}/100
             </span>
@@ -250,13 +211,13 @@ function MatchupCard({ title, advantages, teamSide }) {
         )}
         
         <div className="flex justify-between">
-          <span className="text-gray-600">Trend:</span>
+          <span className="text-gray-400">Trend:</span>
           <span className={`font-medium capitalize ${getTrendColor(advantages.trend)}`}>
             {advantages.trend.replace('_', ' ')}
           </span>
         </div>
         
-        <div className="mt-3 pt-2 border-t border-gray-100">
+        <div className="mt-3 pt-2 border-t border-slate-700">
           <span className="text-xs text-gray-500">
             Based on {advantages.gamesAnalyzed} game{advantages.gamesAnalyzed !== 1 ? 's' : ''}
           </span>
@@ -279,22 +240,22 @@ function InsightCard({ insight }) {
 
   const getConfidenceColor = (confidence) => {
     switch (confidence) {
-      case 'very_high': return 'text-green-600'
-      case 'high': return 'text-blue-600'
-      case 'medium': return 'text-yellow-600'
-      case 'low': return 'text-gray-600'
-      default: return 'text-gray-600'
+      case 'very_high': return 'text-green-400'
+      case 'high': return 'text-blue-400'
+      case 'medium': return 'text-yellow-400'
+      case 'low': return 'text-gray-400'
+      default: return 'text-gray-400'
     }
   }
 
   return (
-    <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+    <div className="flex items-start space-x-3 p-3 bg-slate-800 border border-slate-700 rounded-lg">
       <span className="text-lg">{getInsightIcon(insight.type)}</span>
       <div className="flex-1">
-        <div className="text-sm text-gray-900">{insight.message}</div>
+        <div className="text-sm text-white">{insight.message}</div>
         <div className="flex items-center mt-1 space-x-2">
-          <span className="text-xs text-gray-500 capitalize">{insight.category.replace('_', ' ')}</span>
-          <span className="text-xs">•</span>
+          <span className="text-xs text-gray-400 capitalize">{insight.category.replace('_', ' ')}</span>
+          <span className="text-xs text-gray-600">•</span>
           <span className={`text-xs font-medium capitalize ${getConfidenceColor(insight.confidence)}`}>
             {insight.confidence.replace('_', ' ')} confidence
           </span>

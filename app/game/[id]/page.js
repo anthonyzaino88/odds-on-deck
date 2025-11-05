@@ -374,13 +374,13 @@ export default async function GameDetailPage({ params }) {
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <span className="text-sm font-medium text-gray-600">Status:</span>
+                <span className="text-sm font-medium text-gray-400">Status:</span>
                 <span className="ml-2 text-sm text-white capitalize">
                   {game.status === 'in_progress' ? '🔴 Live' : game.status.replace('_', ' ')}
                 </span>
               </div>
               <div>
-                <span className="text-sm font-medium text-gray-600">Date & Time:</span>
+                <span className="text-sm font-medium text-gray-400">Date & Time:</span>
                 <span className="ml-2 text-sm text-white">
                   {(() => {
                     const gameDate = new Date(game.date + (game.date.includes('Z') ? '' : 'Z'))
@@ -405,8 +405,8 @@ export default async function GameDetailPage({ params }) {
               )}
             </div>
             {game.status === 'scheduled' && (
-              <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm text-blue-800">
+              <div className="mt-4 p-4 bg-blue-900/20 border border-blue-500/50 rounded-lg">
+                <p className="text-sm text-blue-300">
                   <strong>Game Scheduled:</strong> This game is scheduled for {(() => {
                     const gameDate = new Date(game.date + (game.date.includes('Z') ? '' : 'Z'))
                     const dateStr = gameDate.toLocaleDateString('en-US', {
@@ -423,14 +423,14 @@ export default async function GameDetailPage({ params }) {
                     return `${dateStr} at ${timeStr}`
                   })()}.
                 </p>
-                <p className="text-xs text-blue-700 mt-2">
+                <p className="text-xs text-blue-400/80 mt-2">
                   Odds and live data will be available closer to game time.
                 </p>
               </div>
             )}
             {game.status === 'in_progress' && (
-              <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-                <p className="text-sm text-green-800">
+              <div className="mt-4 p-4 bg-green-900/20 border border-green-500/50 rounded-lg">
+                <p className="text-sm text-green-300">
                   <strong>🔴 Game in Progress:</strong> Live updates are being fetched.
                 </p>
               </div>
@@ -794,7 +794,7 @@ function BattingLineupTable({ game }) {
 
 function OddsTable({ odds, isNFL, isNHL }) {
   if (!odds || odds.length === 0) {
-    return <div className="text-sm text-gray-600">No odds data available</div>
+    return <div className="text-sm text-gray-400">No odds data available</div>
   }
   
   // Group odds by market
