@@ -173,8 +173,15 @@ async function fetchGamesFromESPN(sport, date) {
       const awayAbbr = away?.team?.abbreviation || away?.team?.abbr || null
       
       // Create consistent game ID using descriptive format
+      // ESPN dates are in UTC, parse as UTC to avoid timezone issues
       const gameDate = new Date(event.date)
-      const dateStr = gameDate.toISOString().split('T')[0]
+      // Normalize to UTC date (strip time, keep just the date)
+      const utcDate = new Date(Date.UTC(
+        gameDate.getUTCFullYear(),
+        gameDate.getUTCMonth(),
+        gameDate.getUTCDate()
+      ))
+      const dateStr = utcDate.toISOString().split('T')[0]
       const gameId = homeAbbr && awayAbbr 
         ? createGameId(awayAbbr, homeAbbr, dateStr)
         : event.id // Fallback to ESPN ID if we don't have abbreviations
@@ -182,7 +189,7 @@ async function fetchGamesFromESPN(sport, date) {
       return {
         id: gameId,
         sport: sport.toLowerCase(),
-        date: gameDate,
+        date: utcDate, // Use normalized UTC date
         status: event.status?.type?.name?.toLowerCase() || 'scheduled',
         homeId: homeId,
         awayId: awayId,

@@ -256,16 +256,14 @@ function GameCard({ game }) {
             )}
           </div>
           
-          {/* Score Display */}
-          {game.homeScore !== null && game.awayScore !== null && (
-            <div className="text-right">
-              <div className="text-2xl font-bold text-blue-400">
-                <div>{game.awayScore}</div>
-                <div className="text-xs text-slate-500 my-1">-</div>
-                <div>{game.homeScore}</div>
-              </div>
+          {/* Score Display - Always show for scheduled games (0-0) and games with scores */}
+          <div className="text-right">
+            <div className="text-2xl font-bold text-blue-400">
+              <div>{game.awayScore ?? 0}</div>
+              <div className="text-xs text-slate-500 my-1">-</div>
+              <div>{game.homeScore ?? 0}</div>
             </div>
-          )}
+          </div>
         </div>
 
         {/* View Details */}

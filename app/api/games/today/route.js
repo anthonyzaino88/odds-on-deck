@@ -12,11 +12,12 @@ export async function GET(req) {
   try {
     console.log('📅 API: Fetching games from Supabase...')
     
-    // Calculate date ranges
+    // Calculate date ranges - Use UTC to avoid timezone issues on Vercel
     const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    // Get today in UTC (Vercel runs in UTC)
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
     const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
     
     // NFL: Current week (Thursday to Monday)
     // NFL week runs Thursday Night Football → Sunday slate → Monday Night Football
@@ -64,16 +65,16 @@ export async function GET(req) {
       weekEnd.setHours(23, 59, 59, 999)
     }
     
-    console.log(`📅 Date ranges: MLB/NHL today (${today.toISOString()}), NFL week (${weekStart.toISOString()} - ${weekEnd.toISOString()})`)
+    console.log(`📅 Date ranges: MLB/NHL today (${todayStr}), NFL week (${weekStart.toISOString()} - ${weekEnd.toISOString()})`)
     
     // Step 1: Query games with date filtering
-    // MLB: Today only
+    // MLB: Today only (use date string comparison)
     const { data: mlbGames, error: mlbError } = await supabase
       .from('Game')
       .select('*')
       .eq('sport', 'mlb')
-      .gte('date', today.toISOString())
-      .lt('date', tomorrow.toISOString())
+      .gte('date', todayStr)
+      .lt('date', tomorrowStr)
     
     // NFL: Current week (Sunday to Sunday) - exclude games that are final and older than current week
     const { data: nflGames, error: nflError } = await supabase
@@ -84,13 +85,18 @@ export async function GET(req) {
       .lt('date', weekEnd.toISOString())
       .order('date', { ascending: true })
     
-    // NHL: Today only
+    // NHL: Today only (use date string comparison to avoid timezone issues)
+    // Exclude games that are final and from previous days
+    const todayStr = today.toISOString().split('T')[0] // YYYY-MM-DD
+    const tomorrowStr = tomorrow.toISOString().split('T')[0] // YYYY-MM-DD
+    
     const { data: nhlGames, error: nhlError } = await supabase
       .from('Game')
       .select('*')
       .eq('sport', 'nhl')
-      .gte('date', today.toISOString())
-      .lt('date', tomorrow.toISOString())
+      .gte('date', todayStr)
+      .lt('date', tomorrowStr)
+      .order('date', { ascending: true })
     
     if (mlbError || nflError || nhlError) {
       console.error('❌ Game query error:', { mlbError, nflError, nhlError })
@@ -154,8 +160,8 @@ export async function GET(req) {
         sport: game.sport,
         date: game.date,
         status: game.status,
-        homeScore: game.homeScore,
-        awayScore: game.awayScore,
+        homeScore: game.homeScore ?? null,
+        awayScore: game.awayScore ?? null,
         home: homeTeam || { id: game.homeId, name: 'Unknown', abbr: '?' },
         away: awayTeam || { id: game.awayId, name: 'Unknown', abbr: '?' },
         week: game.week,
@@ -193,7 +199,23 @@ export async function GET(req) {
     })
     const nflFinal = nflFiltered
     
-    const nhlFinal = enrichedGames.filter(g => g.sport === 'nhl')
+    // NHL: Filter out final games from previous days (only show today's final games)
+    const nhlFiltered = enrichedGames.filter(g => {
+      if (g.sport !== 'nhl') return false
+      
+      const gameDate = new Date(g.date)
+      const gameDay = new Date(Date.UTC(gameDate.getUTCFullYear(), gameDate.getUTCMonth(), gameDate.getUTCDate()))
+      const todayDay = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
+      
+      // Exclude final games from previous days
+      if (g.status === 'final' && gameDay < todayDay) {
+        return false
+      }
+      
+      // Include all other games (scheduled, live, today's finals, future games)
+      return true
+    })
+    const nhlFinal = nhlFiltered
     
     console.log(`✅ Final counts - MLB: ${mlbFinal.length}, NFL: ${nflFinal.length}, NHL: ${nhlFinal.length}`)
     
