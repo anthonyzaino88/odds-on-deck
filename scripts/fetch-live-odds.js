@@ -565,12 +565,38 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
   dateEnd.setDate(dateEnd.getDate() + 4) // 4 days after (to catch timezone differences)
   
   // Get ALL games in the expanded date range (mapped and unmapped) for matching
+  // IMPORTANT: Also get games with same ESPN ID across different dates to handle duplicates
   let { data: dbGames, error: dbError } = await supabase
     .from('Game')
-    .select('id, sport, date, homeId, awayId, oddsApiEventId, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
+    .select('id, sport, date, homeId, awayId, oddsApiEventId, espnGameId, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
     .eq('sport', sport)
     .gte('date', dateStart.toISOString())
     .lte('date', dateEnd.toISOString())
+  
+  // Also check for games with the same ESPN IDs that might be on different dates (due to timezone)
+  // This helps catch duplicates that weren't cleaned up
+  if (dbGames && dbGames.length > 0) {
+    const espnIds = [...new Set(dbGames.map(g => g.espnGameId).filter(Boolean))]
+    if (espnIds.length > 0) {
+      // Get all games with these ESPN IDs, even if outside the date range
+      const { data: additionalGames } = await supabase
+        .from('Game')
+        .select('id, sport, date, homeId, awayId, oddsApiEventId, espnGameId, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
+        .eq('sport', sport)
+        .in('espnGameId', espnIds)
+      
+      if (additionalGames) {
+        // Merge, avoiding duplicates
+        const existingIds = new Set(dbGames.map(g => g.id))
+        additionalGames.forEach(g => {
+          if (!existingIds.has(g.id)) {
+            dbGames.push(g)
+            existingIds.add(g.id)
+          }
+        })
+      }
+    }
+  }
   
   if (dbError) {
     console.warn(`  ⚠️  Error querying games for mapping: ${dbError.message}`)

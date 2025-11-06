@@ -59,7 +59,8 @@ async function refreshNHLScores() {
         continue
       }
       
-      // Update game in database
+      // Update game in database - use ESPN ID to ensure we update the correct game
+      // This prevents updating duplicates if there are any
       const updateData = {
         homeScore: liveData.homeScore,
         awayScore: liveData.awayScore,
@@ -74,10 +75,31 @@ async function refreshNHLScores() {
         updateData.lastPlay = periodInfo
       }
       
+      // Use ESPN ID to find the game - this ensures we update the correct game even if duplicates exist
+      // Prioritize the game that has odds mapped if duplicates exist
+      let targetGameId = game.id
+      
+      if (game.espnGameId) {
+        const { data: duplicates } = await supabase
+          .from('Game')
+          .select('id, oddsApiEventId')
+          .eq('espnGameId', game.espnGameId)
+          .eq('sport', 'nhl')
+        
+        if (duplicates && duplicates.length > 1) {
+          // If duplicates exist, update the one with odds
+          const withOdds = duplicates.find(g => g.oddsApiEventId)
+          if (withOdds) {
+            targetGameId = withOdds.id
+            console.log(`  ℹ️  Multiple games with same ESPN ID, updating game with odds: ${targetGameId}`)
+          }
+        }
+      }
+      
       const { error: updateError } = await supabase
         .from('Game')
         .update(updateData)
-        .eq('id', game.id)
+        .eq('id', targetGameId)
       
       if (updateError) {
         console.error(`  ❌ Update error: ${updateError.message}`)

@@ -235,6 +235,48 @@ async function saveToSupabase(sport, games) {
     // Before upserting, check for existing games with same ESPN ID but different game ID
     // This prevents duplicates when dates shift due to timezone issues
     // IMPORTANT: Check ALL games first, then process in batch
+    
+    // Step 1: First, clean up any existing duplicates for this sport (ones without odds)
+    console.log('  🧹 Checking for existing duplicates to clean up...')
+    const existingGames = await supabase
+      .from('Game')
+      .select('id, espnGameId, oddsApiEventId')
+      .eq('sport', sport)
+      .not('espnGameId', 'is', null)
+    
+    if (existingGames.data) {
+      // Group by ESPN ID
+      const byEspnId = {}
+      existingGames.data.forEach(g => {
+        if (!byEspnId[g.espnGameId]) {
+          byEspnId[g.espnGameId] = []
+        }
+        byEspnId[g.espnGameId].push(g)
+      })
+      
+      // Find duplicates without odds - these can be safely deleted
+      const duplicatesToClean = []
+      Object.keys(byEspnId).forEach(espnId => {
+        const group = byEspnId[espnId]
+        if (group.length > 1) {
+          const withoutOdds = group.filter(g => !g.oddsApiEventId)
+          if (withoutOdds.length > 1) {
+            // Keep first, delete rest
+            duplicatesToClean.push(...withoutOdds.slice(1).map(g => g.id))
+          }
+        }
+      })
+      
+      if (duplicatesToClean.length > 0) {
+        await supabase
+          .from('Game')
+          .delete()
+          .in('id', duplicatesToClean)
+        console.log(`  🗑️  Cleaned up ${duplicatesToClean.length} old duplicates without odds`)
+      }
+    }
+    
+    // Step 2: Check for duplicates in the new batch
     const gamesToRemove = []
     const gamesToDelete = []
     
@@ -279,6 +321,19 @@ async function saveToSupabase(sport, games) {
             })
           } else if (hasOdds) {
             // Existing has odds and better or same time, skip this one
+            // BUT: Update the existing game's date/time if the new one is more recent
+            const existingDate = new Date(hasOdds.date)
+            const newDate = new Date(game.date)
+            
+            // If dates are the same but times differ, or if new date is more recent, update existing
+            if (newDate.getTime() !== existingDate.getTime()) {
+              console.log(`  🔄 Updating ${hasOdds.id} with new time from ${game.id}`)
+              await supabase
+                .from('Game')
+                .update({ date: game.date.toISOString() })
+                .eq('id', hasOdds.id)
+            }
+            
             console.log(`  ⚠️  Skipping ${game.id} - duplicate ESPN ID ${game.espnGameId} exists with odds (${hasOdds.id})`)
             gamesToRemove.push(game.id)
             continue
