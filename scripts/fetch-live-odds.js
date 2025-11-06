@@ -84,7 +84,8 @@ const TEAM_NAME_VARIATIONS = {
   nhl: {
     'Montreal Canadiens': ['Montréal Canadiens', 'Montreal Canadiens'],
     'Vegas Golden Knights': ['Las Vegas Golden Knights', 'Vegas Golden Knights'],
-    'Utah Hockey Club': ['Utah Mammoth', 'Utah HC'],  // New team
+    'Utah Hockey Club': ['Utah Mammoth', 'Utah HC', 'Utah', 'UTA'],  // New team - Utah Mammoth is the Odds API name
+    'Utah Mammoth': ['Utah Hockey Club', 'Utah HC', 'Utah', 'UTA'],  // Also map from Odds API name
   },
   mlb: {
     'Chicago White Sox': ['Chi White Sox', 'White Sox', 'Chicago White Sox'],
@@ -286,34 +287,47 @@ async function findGameByTeamNames(oddsHome, oddsAway, sport, date) {
 }
 
 function matchTeams(espnHome, espnAway, oddsHome, oddsAway, sport) {
-  // Convert both to abbreviations for reliable matching
-  let espnHomeAbbr = espnHome.toLowerCase().trim()
-  let espnAwayAbbr = espnAway.toLowerCase().trim()
-  
-  // If ESPN already has abbreviation (3-4 chars), use it
-  // Otherwise, try to get abbreviation from full name
-  if (espnHomeAbbr.length > 4) {
-    const abbr = fullNameToAbbr(espnHome, sport) || extractTeamIdentifier(espnHome, sport)
-    if (abbr) espnHomeAbbr = abbr
-  }
-  if (espnAwayAbbr.length > 4) {
-    const abbr = fullNameToAbbr(espnAway, sport) || extractTeamIdentifier(espnAway, sport)
-    if (abbr) espnAwayAbbr = abbr
+  // Normalize team names - handle variations
+  const normalizeName = (name) => {
+    if (!name) return ''
+    return name.toLowerCase()
+      .trim()
+      .replace(/^st\.\s+louis$/i, 'st louis')
+      .replace(/^st\s+louis$/i, 'st louis')
+      .replace(/\s+/g, ' ')
   }
   
-  // Convert Odds API full names to abbreviations
-  const oddsHomeAbbr = fullNameToAbbr(oddsHome, sport) || extractTeamIdentifier(oddsHome, sport)
-  const oddsAwayAbbr = fullNameToAbbr(oddsAway, sport) || extractTeamIdentifier(oddsAway, sport)
+  // Helper to check if two team names match
+  const teamsMatch = (team1, team2) => {
+    const norm1 = normalizeName(team1)
+    const norm2 = normalizeName(team2)
+    
+    // Direct match
+    if (norm1 === norm2) return true
+    
+    // Abbreviation match
+    const abbr1 = fullNameToAbbr(team1, sport) || extractTeamIdentifier(team1, sport) || norm1
+    const abbr2 = fullNameToAbbr(team2, sport) || extractTeamIdentifier(team2, sport) || norm2
+    
+    if (abbr1 === abbr2) return true
+    if (abbr1.includes(abbr2) || abbr2.includes(abbr1)) return true
+    
+    // First word match (city name)
+    const firstWord1 = norm1.split(' ')[0]
+    const firstWord2 = norm2.split(' ')[0]
+    if (firstWord1 === firstWord2 && firstWord1.length > 2) return true
+    
+    return false
+  }
   
-  // Match using abbreviations
-  const homeMatch = espnHomeAbbr === oddsHomeAbbr || 
-                    espnHomeAbbr.includes(oddsHomeAbbr) || 
-                    oddsHomeAbbr.includes(espnHomeAbbr)
-  const awayMatch = espnAwayAbbr === oddsAwayAbbr ||
-                    espnAwayAbbr.includes(oddsAwayAbbr) ||
-                    oddsAwayAbbr.includes(espnAwayAbbr)
+  // Try normal order (ESPN home vs Odds home, ESPN away vs Odds away)
+  const normalMatch = teamsMatch(espnHome, oddsHome) && teamsMatch(espnAway, oddsAway)
   
-  return homeMatch && awayMatch
+  // Try reversed order (ESPN home vs Odds away, ESPN away vs Odds home)
+  // ESPN and Odds API sometimes have home/away reversed
+  const reversedMatch = teamsMatch(espnHome, oddsAway) && teamsMatch(espnAway, oddsHome)
+  
+  return normalMatch || reversedMatch
 }
 
 // ============================================================================
@@ -527,12 +541,14 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
   
   // Get ESPN games from database - try ±3 day range to catch all games
   // Odds API often returns games for multiple days even when querying a specific date
-  const dateStart = new Date(date)
+  // Also, Odds API dates might be +1 day from ESPN dates due to timezone differences
+  const dateObj = new Date(date)
+  const dateStart = new Date(dateObj)
   dateStart.setHours(0, 0, 0, 0)
-  dateStart.setDate(dateStart.getDate() - 2) // 2 days before
-  const dateEnd = new Date(date)
+  dateStart.setDate(dateStart.getDate() - 3) // 3 days before (to catch timezone differences)
+  const dateEnd = new Date(dateObj)
   dateEnd.setHours(23, 59, 59, 999)
-  dateEnd.setDate(dateEnd.getDate() + 3) // 3 days after
+  dateEnd.setDate(dateEnd.getDate() + 4) // 4 days after (to catch timezone differences)
   
   // Get ALL games in the expanded date range (mapped and unmapped) for matching
   let { data: dbGames, error: dbError } = await supabase
@@ -587,12 +603,16 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
       const oddsHome = (oddsGame.home_team || '').trim()
       const oddsAway = (oddsGame.away_team || '').trim()
       
-      // Debug: Log first few attempts
-      if (mapped === 0 && unmapped.length === 0) {
-        console.log(`  🔍 Matching example: ESPN "${awayName} @ ${homeName}" vs Odds "${oddsAway} @ ${oddsHome}"`)
+      // Try matching - don't filter by date here, let the date range query handle that
+      const matches = matchTeams(homeName, awayName, oddsHome, oddsAway, sport)
+      
+      // Debug: Log matching attempts for unmapped games
+      if (matches && !g.oddsApiEventId) {
+        const gameDate = new Date(g.date).toISOString().split('T')[0]
+        console.log(`  ✅ Match found: ${g.away.abbr} @ ${g.home.abbr} (${gameDate}) ↔ Odds "${oddsAway} @ ${oddsHome}"`)
       }
       
-      return matchTeams(homeName, awayName, oddsHome, oddsAway, sport)
+      return matches
     })
     
     if (dbGame) {
