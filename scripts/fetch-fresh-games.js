@@ -180,22 +180,21 @@ async function fetchGamesFromESPN(sport, date) {
       const awayAbbr = away?.team?.abbreviation || away?.team?.abbr || null
       
       // Create consistent game ID using descriptive format
-      // For NHL: Use the queried date (the date we asked ESPN for) instead of event.date
-      // This avoids timezone issues where ESPN returns games for Nov 5 but event.date is Nov 6 UTC
+      // For NHL: Use the queried date for the game ID (to avoid timezone issues)
+      // But use ESPN's actual event.date for the game time (to preserve actual start time)
       let gameDate, dateStr
       
       if (sport === 'nhl' && event._queriedDate) {
-        // Use the date we queried for (the date parameter in the URL)
+        // Use the date we queried for the game ID (to ensure consistent IDs)
         dateStr = event._queriedDate
-        gameDate = new Date(dateStr + 'T00:00:00Z') // Create UTC date from queried date
+        
+        // But use ESPN's actual event.date for the game time (preserves actual start time)
+        // ESPN's event.date includes the actual game start time in UTC
+        const espnDate = new Date(event.date)
+        gameDate = espnDate // Use ESPN's actual date/time, not just the queried date
       } else {
-        // For other sports, use event.date and normalize to UTC
-        const parsedDate = new Date(event.date)
-        gameDate = new Date(Date.UTC(
-          parsedDate.getUTCFullYear(),
-          parsedDate.getUTCMonth(),
-          parsedDate.getUTCDate()
-        ))
+        // For other sports, use event.date (which includes time)
+        gameDate = new Date(event.date)
         dateStr = gameDate.toISOString().split('T')[0]
       }
       
