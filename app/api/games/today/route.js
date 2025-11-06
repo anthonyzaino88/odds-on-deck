@@ -72,13 +72,13 @@ export async function GET(req) {
     console.log(`📅 Date ranges: MLB/NHL today (${todayStr}), NFL week (${weekStart.toISOString()} - ${weekEnd.toISOString()})`)
     
     // Step 1: Query games with date filtering
-    // MLB: Today only (use date string comparison)
+    // MLB: Today only (use ISO string for proper timestamp comparison)
     const { data: mlbGames, error: mlbError } = await supabase
       .from('Game')
       .select('*')
       .eq('sport', 'mlb')
-      .gte('date', todayStr)
-      .lt('date', tomorrowStr)
+      .gte('date', today.toISOString())
+      .lt('date', tomorrow.toISOString())
     
     // NFL: Current week (Thursday to Monday)
     const { data: nflGames, error: nflError } = await supabase
@@ -89,15 +89,15 @@ export async function GET(req) {
       .lt('date', weekEnd.toISOString())
       .order('date', { ascending: true })
     
-    // NHL: Today only (use date string comparison to avoid timezone issues)
+    // NHL: Today only (use ISO string for proper timestamp comparison)
     // Exclude games that are final and from previous days
     
     const { data: nhlGames, error: nhlError } = await supabase
       .from('Game')
       .select('*')
       .eq('sport', 'nhl')
-      .gte('date', todayStr)
-      .lt('date', tomorrowStr)
+      .gte('date', today.toISOString())
+      .lt('date', tomorrow.toISOString())
       .order('date', { ascending: true })
     
     if (mlbError || nflError || nhlError) {

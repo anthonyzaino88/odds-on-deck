@@ -188,9 +188,10 @@ async function fetchGamesFromESPN(sport, date) {
         // Use the queried date for the game ID (ensures consistent IDs)
         dateStr = event._queriedDate
         
-        // Use ESPN's actual event.date for the game time (preserves actual start times)
-        // ESPN's event.date includes the time component, even if it's 00:00Z
-        gameDate = new Date(event.date)
+        // For NHL: Use queried date with midnight UTC to ensure consistent date matching
+        // ESPN's event.date can be in different timezones, causing date mismatches
+        // We'll use the queried date (what ESPN returned for that date) at midnight UTC
+        gameDate = new Date(dateStr + 'T00:00:00Z')
       } else {
         // For other sports (NFL), use event.date directly (which has actual times)
         gameDate = new Date(event.date)
