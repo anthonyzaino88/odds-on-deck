@@ -140,6 +140,26 @@ export default function GamesPage() {
             {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
           </p>
           
+          {/* Live Games Indicator */}
+          {(() => {
+            const allGames = [...games.mlb, ...games.nfl, ...games.nhl]
+            const liveGames = allGames.filter(g => g.status === 'in_progress' || g.status === 'in-progress')
+            if (liveGames.length > 0) {
+              return (
+                <div className="mt-4 flex items-center gap-2 px-4 py-2 bg-red-900/20 border border-red-500/50 rounded-lg">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                  </span>
+                  <span className="text-red-400 font-semibold text-sm">
+                    {liveGames.length} {liveGames.length === 1 ? 'Game' : 'Games'} Live
+                  </span>
+                </div>
+              )
+            }
+            return null
+          })()}
+          
           {/* Quick Navigation */}
           {(games.mlb.length > 0 || games.nfl.length > 0 || games.nhl.length > 0) && (
             <div className="flex flex-wrap gap-3 mt-6">
@@ -224,45 +244,75 @@ function GameCard({ game }) {
     timeZone: 'America/New_York'  // Eastern Time (EST/EDT)
   })
   
+  // Check if game is live
+  const isLive = game.status === 'in_progress' || game.status === 'in-progress'
+  
   return (
     <Link href={`/game/${game.id}`}>
-      <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 rounded-lg p-6 hover:border-blue-500 hover:shadow-lg hover:shadow-blue-500/20 transition cursor-pointer">
+      <div className={`bg-gradient-to-br from-slate-800 to-slate-900 border rounded-lg p-6 hover:border-blue-500 hover:shadow-lg hover:shadow-blue-500/20 transition cursor-pointer ${
+        isLive ? 'border-red-500/50 shadow-red-500/20' : 'border-slate-700'
+      }`}>
         
         {/* Game Header */}
         <div className="flex justify-between items-start mb-4">
-          <div>
+          <div className="flex-1">
             <div className="flex items-center gap-3 mb-2">
               <h3 className="text-xl font-bold text-slate-100">
                 {game.away?.abbr || '?'} @ {game.home?.abbr || '?'}
               </h3>
-              <span className={`px-3 py-1 rounded text-xs font-semibold ${
-                game.status === 'in_progress' ? 'bg-green-900/50 text-green-300' :
-                game.status === 'final' ? 'bg-slate-700 text-slate-300' :
-                'bg-blue-900/50 text-blue-300'
-              }`}>
-                {game.status === 'in_progress' ? '🔴 LIVE' : 
-                 game.status === 'final' ? 'FINAL' :
-                 timeString}
-              </span>
+              
+              {/* Live Indicator - Red Dot + LIVE Text */}
+              {isLive && (
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                  </span>
+                  <span className="px-2 py-0.5 bg-red-900/50 border border-red-500/50 rounded text-xs font-bold text-red-400 uppercase tracking-wide">
+                    LIVE
+                  </span>
+                </div>
+              )}
+              
+              {/* Status Badge */}
+              {!isLive && (
+                <span className={`px-3 py-1 rounded text-xs font-semibold ${
+                  game.status === 'final' ? 'bg-slate-700 text-slate-300' :
+                  'bg-blue-900/50 text-blue-300'
+                }`}>
+                  {game.status === 'final' ? 'FINAL' : timeString}
+                </span>
+              )}
             </div>
             <p className="text-slate-400 text-sm">
               {game.away?.name} vs {game.home?.name}
             </p>
-            {/* Show inning for MLB games */}
-            {game.sport === 'mlb' && game.status === 'in_progress' && game.inning && (
-              <p className="text-slate-500 text-xs mt-1">
-                {game.inningHalf === 'top' ? '▲' : '▼'} {game.inning}
+            {/* Show inning for MLB games or period for NHL */}
+            {isLive && (
+              <p className="text-red-400 text-xs mt-1 font-medium">
+                {game.sport === 'mlb' && game.inning ? (
+                  <>{game.inningHalf === 'top' ? '▲' : '▼'} {game.inning}</>
+                ) : game.sport === 'nhl' && game.lastPlay ? (
+                  <>{game.lastPlay}</>
+                ) : game.sport === 'nfl' && game.nflData?.quarter ? (
+                  <>Q{game.nflData.quarter} {game.nflData.timeLeft || ''}</>
+                ) : (
+                  <>Game in progress</>
+                )}
               </p>
             )}
           </div>
           
-          {/* Score Display - Always show for scheduled games (0-0) and games with scores */}
+          {/* Score Display - Highlight if live */}
           <div className="text-right">
-            <div className="text-2xl font-bold text-blue-400">
+            <div className={`text-2xl font-bold ${isLive ? 'text-red-400' : 'text-blue-400'}`}>
               <div>{game.awayScore ?? 0}</div>
               <div className="text-xs text-slate-500 my-1">-</div>
               <div>{game.homeScore ?? 0}</div>
             </div>
+            {isLive && (
+              <p className="text-xs text-red-400/80 mt-1 font-medium">Live</p>
+            )}
           </div>
         </div>
 
