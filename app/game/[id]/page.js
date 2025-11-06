@@ -140,7 +140,7 @@ export default async function GameDetailPage({ params }) {
         ) : (
           <div className="mt-2">
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/50">
-              {game.status.replace('_', ' ').toUpperCase()}
+              {formatGameStatus(game.status)}
             </span>
           </div>
         )}
@@ -184,7 +184,7 @@ export default async function GameDetailPage({ params }) {
                   <StatCard
                     title="Quarter"
                     value={game.nflData?.quarter ? `Q${game.nflData.quarter}` : (game.status === 'in_progress' ? 'Live' : 'Pre-Game')}
-                    subtitle={game.nflData?.timeLeft || game.status}
+                    subtitle={game.nflData?.timeLeft || formatGameStatus(game.status)}
                   />
                 )}
                 {h2hOdds && h2hOdds.priceHome != null && h2hOdds.priceAway != null && (
@@ -220,8 +220,8 @@ export default async function GameDetailPage({ params }) {
                 )}
                 <StatCard
                   title="Status"
-                  value={game.status === 'in_progress' ? '🔴 Live' : game.status}
-                  subtitle={game.status === 'in_progress' ? 'Game in progress' : 'Scheduled'}
+                  value={game.status === 'in_progress' ? '🔴 Live' : formatGameStatus(game.status)}
+                  subtitle={game.status === 'in_progress' ? 'Game in progress' : formatGameStatusSubtitle(game.status)}
                 />
               </>
             ) : (
@@ -288,7 +288,7 @@ export default async function GameDetailPage({ params }) {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <span className="text-sm font-medium text-gray-400">Status:</span>
-                <span className="ml-2 text-sm text-white capitalize">{game.status.replace('_', ' ')}</span>
+                <span className="ml-2 text-sm text-white capitalize">{formatGameStatus(game.status)}</span>
               </div>
               {game.nflData.quarter && (
                 <div>
@@ -376,7 +376,7 @@ export default async function GameDetailPage({ params }) {
               <div>
                 <span className="text-sm font-medium text-gray-400">Status:</span>
                 <span className="ml-2 text-sm text-white capitalize">
-                  {game.status === 'in_progress' ? '🔴 Live' : game.status.replace('_', ' ')}
+                  {game.status === 'in_progress' ? '🔴 Live' : formatGameStatus(game.status)}
                 </span>
               </div>
               <div>
@@ -947,6 +947,58 @@ function OddsTable({ odds, isNFL, isNHL }) {
 }
 
 // Helper functions
+function formatGameStatus(status) {
+  if (!status) return 'Unknown'
+  
+  // Remove "status_" prefix if present
+  let cleanStatus = status.replace(/^status_/i, '')
+  
+  // Handle common status values
+  const statusMap = {
+    'in_progress': 'In Progress',
+    'scheduled': 'Scheduled',
+    'final': 'Final',
+    'postponed': 'Postponed',
+    'cancelled': 'Cancelled',
+    'delayed': 'Delayed',
+    'pre_game': 'Pre-Game',
+    'halftime': 'Halftime',
+    'warmup': 'Warmup',
+    'post_game': 'Post-Game'
+  }
+  
+  // Check if we have a mapped value
+  if (statusMap[cleanStatus.toLowerCase()]) {
+    return statusMap[cleanStatus.toLowerCase()]
+  }
+  
+  // Otherwise, format: replace underscores with spaces and capitalize
+  return cleanStatus
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ')
+}
+
+function formatGameStatusSubtitle(status) {
+  if (!status) return 'Unknown'
+  
+  const cleanStatus = status.replace(/^status_/i, '').toLowerCase()
+  
+  const subtitleMap = {
+    'in_progress': 'Game in progress',
+    'scheduled': 'Scheduled',
+    'final': 'Game complete',
+    'postponed': 'Game postponed',
+    'cancelled': 'Game cancelled',
+    'delayed': 'Game delayed',
+    'pre_game': 'Pre-game',
+    'halftime': 'Halftime break',
+    'warmup': 'Warmup period'
+  }
+  
+  return subtitleMap[cleanStatus] || 'Scheduled'
+}
+
 function getBestMlEdge(edge) {
   if (!edge) return 'N/A'
   const homeEdge = edge.edgeMlHome || 0
