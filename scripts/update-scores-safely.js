@@ -21,7 +21,7 @@ import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
 import { fetchNHLGameDetail } from '../lib/vendors/nhl-stats.js'
 import { fetchNFLGameDetail } from '../lib/vendors/nfl-stats.js'
-import { fetchLiveGameData } from '../lib/live-data.js'
+import { fetchLiveGameData } from '../lib/vendors/stats.js'
 
 config({ path: '.env.local' })
 
