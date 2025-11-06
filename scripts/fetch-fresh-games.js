@@ -201,11 +201,50 @@ async function fetchGamesFromESPN(sport, date) {
         ? createGameId(awayAbbr, homeAbbr, dateStr)
         : event.id // Fallback to ESPN ID if we don't have abbreviations
       
+      // Normalize status - remove "status_" prefix and convert to standard format
+      // ESPN returns status like "STATUS_IN_PROGRESS" which becomes "status_in_progress" when lowercased
+      let gameStatus = event.status?.type?.name || 'STATUS_SCHEDULED'
+      
+      // Map ESPN status to our standard format
+      if (sport === 'nhl') {
+        // NHL status mapping
+        const statusMap = {
+          '1': 'scheduled',
+          '2': 'in_progress',
+          '3': 'final',
+          'STATUS_SCHEDULED': 'scheduled',
+          'STATUS_IN_PROGRESS': 'in_progress',
+          'STATUS_FINAL': 'final',
+          'STATUS_FINAL_OVERTIME': 'final',
+          'STATUS_END_PERIOD': 'in_progress'
+        }
+        const typeId = event.status?.type?.id?.toString()
+        const typeName = event.status?.type?.name
+        gameStatus = statusMap[typeId] || statusMap[typeName] || 'scheduled'
+      } else if (sport === 'nfl') {
+        // NFL status mapping
+        const statusMap = {
+          '1': 'scheduled',
+          '2': 'in_progress',
+          '3': 'final',
+          'STATUS_SCHEDULED': 'scheduled',
+          'STATUS_IN_PROGRESS': 'in_progress',
+          'STATUS_FINAL': 'final',
+          'STATUS_HALFTIME': 'halftime'
+        }
+        const typeId = event.status?.type?.id?.toString()
+        const typeName = event.status?.type?.name
+        gameStatus = statusMap[typeId] || statusMap[typeName] || 'scheduled'
+      } else {
+        // For other sports, just normalize
+        gameStatus = gameStatus.toLowerCase().replace(/^status_/i, '')
+      }
+      
       return {
         id: gameId,
         sport: sport.toLowerCase(),
         date: gameDate, // Use normalized date
-        status: event.status?.type?.name?.toLowerCase() || 'scheduled',
+        status: gameStatus,
         homeId: homeId,
         awayId: awayId,
         homeScore: home?.score ? parseInt(home.score) : null,
