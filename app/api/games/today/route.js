@@ -72,13 +72,15 @@ export async function GET(req) {
     console.log(`📅 Date ranges: MLB/NHL today (${todayStr}), NFL week (${weekStart.toISOString()} - ${weekEnd.toISOString()})`)
     
     // Step 1: Query games with date filtering
-    // MLB: Today only (use date string comparison)
+    // MLB: Today only (use date string format)
+    const mlbTodayStart = `${todayStr}T00:00:00`
+    const mlbTomorrowStart = `${tomorrowStr}T00:00:00`
     const { data: mlbGames, error: mlbError } = await supabase
       .from('Game')
       .select('*')
       .eq('sport', 'mlb')
-      .gte('date', todayStr)
-      .lt('date', tomorrowStr)
+      .gte('date', mlbTodayStart)
+      .lt('date', mlbTomorrowStart)
     
     // NFL: Current week (Thursday to Monday)
     const { data: nflGames, error: nflError } = await supabase
@@ -92,13 +94,35 @@ export async function GET(req) {
     // NHL: Today only (use date string comparison to avoid timezone issues)
     // Exclude games that are final and from previous days
     
+    // Query NHL games - use date string format that matches database storage
+    // Database stores dates as "2025-11-06T00:00:00" (no Z), so we need to match that format
+    // Use the date string for the start, and add time component for end
+    const todayStart = `${todayStr}T00:00:00`
+    const tomorrowStart = `${tomorrowStr}T00:00:00`
+    
+    console.log(`🔍 NHL Query: date >= ${todayStart} AND date < ${tomorrowStart}`)
     const { data: nhlGames, error: nhlError } = await supabase
       .from('Game')
       .select('*')
       .eq('sport', 'nhl')
-      .gte('date', todayStr)
-      .lt('date', tomorrowStr)
+      .gte('date', todayStart)
+      .lt('date', tomorrowStart)
       .order('date', { ascending: true })
+    
+    if (nhlGames) {
+      console.log(`📊 NHL Query returned ${nhlGames.length} games`)
+      if (nhlGames.length > 0) {
+        console.log(`   First game: ${nhlGames[0].id} - ${nhlGames[0].date}`)
+        console.log(`   Last game: ${nhlGames[nhlGames.length - 1].id} - ${nhlGames[nhlGames.length - 1].date}`)
+        console.log(`   All game IDs: ${nhlGames.map(g => g.id).join(', ')}`)
+      }
+    } else {
+      console.log(`⚠️  NHL Query returned null/undefined`)
+    }
+    
+    if (nhlError) {
+      console.error(`❌ NHL Query error:`, nhlError)
+    }
     
     if (mlbError || nflError || nhlError) {
       console.error('❌ Game query error:', { mlbError, nflError, nhlError })
@@ -113,6 +137,19 @@ export async function GET(req) {
     ]
     
     console.log(`✅ Retrieved ${allGames.length} games (MLB: ${mlbGames?.length || 0}, NFL: ${nflGames?.length || 0}, NHL: ${nhlGames?.length || 0})`)
+    
+    // Debug: Check NHL games specifically
+    const nhlInAllGames = allGames.filter(g => g.sport === 'nhl')
+    console.log(`🔍 Debug: NHL games check`)
+    console.log(`   Query returned: ${nhlGames?.length || 0} games`)
+    console.log(`   In allGames array: ${nhlInAllGames.length} games`)
+    if (nhlInAllGames.length !== (nhlGames?.length || 0)) {
+      console.log(`⚠️  NHL games mismatch!`)
+      console.log(`   Query game IDs: ${nhlGames?.map(g => g.id).join(', ') || 'none'}`)
+      console.log(`   allGames NHL IDs: ${nhlInAllGames.map(g => g.id).join(', ') || 'none'}`)
+    } else {
+      console.log(`   ✅ NHL games match: ${nhlInAllGames.length} games`)
+    }
     
     if (!allGames || allGames.length === 0) {
       console.log('⚠️ No games found in database for today/this week')
@@ -205,7 +242,16 @@ export async function GET(req) {
     const nhlFiltered = enrichedGames.filter(g => {
       if (g.sport !== 'nhl') return false
       
-      const gameDate = new Date(g.date)
+      // Parse date - handle both UTC and local time formats
+      // Dates from Supabase might be "2025-11-06T00:00:00" (no Z) or "2025-11-06T00:00:00.000Z"
+      let gameDate
+      if (typeof g.date === 'string' && !g.date.includes('Z') && !g.date.includes('+')) {
+        // If no timezone info, assume UTC
+        gameDate = new Date(g.date + 'Z')
+      } else {
+        gameDate = new Date(g.date)
+      }
+      
       const gameDay = new Date(Date.UTC(gameDate.getUTCFullYear(), gameDate.getUTCMonth(), gameDate.getUTCDate()))
       const todayDay = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
       
@@ -219,7 +265,28 @@ export async function GET(req) {
     })
     const nhlFinal = nhlFiltered
     
+    // Debug: Log if games were filtered out
+    const nhlBeforeFilter = enrichedGames.filter(g => g.sport === 'nhl')
+    if (nhlBeforeFilter.length !== nhlFinal.length) {
+      console.log(`⚠️  NHL filtering: ${nhlBeforeFilter.length} games before filter, ${nhlFinal.length} after filter`)
+      const filteredOut = nhlBeforeFilter.filter(g => !nhlFinal.includes(g))
+      if (filteredOut.length > 0) {
+        console.log(`   Filtered out ${filteredOut.length} games:`)
+        filteredOut.forEach(g => {
+          console.log(`     - ${g.id} (${g.date}) - status: ${g.status}`)
+        })
+      }
+    }
+    
     console.log(`✅ Final counts - MLB: ${mlbFinal.length}, NFL: ${nflFinal.length}, NHL: ${nhlFinal.length}`)
+    
+    // Debug: Log NHL games being returned
+    if (nhlFinal.length > 0) {
+      console.log(`📊 NHL games being returned:`)
+      nhlFinal.forEach(g => {
+        console.log(`  - ${g.away?.abbr || '?'} @ ${g.home?.abbr || '?'} (${g.id})`)
+      })
+    }
     
     return NextResponse.json({
       success: true,
@@ -228,7 +295,17 @@ export async function GET(req) {
         nfl: nflFinal,
         nhl: nhlFinal
       },
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      debug: {
+        nhlCount: nhlFinal.length,
+        nhlGameIds: nhlFinal.map(g => g.id)
+      }
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
     })
     
   } catch (error) {
