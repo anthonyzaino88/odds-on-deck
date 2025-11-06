@@ -143,7 +143,26 @@ export default function GamesPage() {
           {/* Live Games Indicator */}
           {(() => {
             const allGames = [...games.mlb, ...games.nfl, ...games.nhl]
-            const liveGames = allGames.filter(g => g.status === 'in_progress' || g.status === 'in-progress')
+            // Use the same logic as GameCard to determine live games
+            const liveGames = allGames.filter(g => {
+              // Normalize status: remove "status_" prefix if present, handle hyphens
+              let statusNormalized = (g.status || '').toLowerCase()
+              statusNormalized = statusNormalized.replace(/^status_/i, '') // Remove "status_" prefix
+              statusNormalized = statusNormalized.replace(/-/g, '_') // Convert hyphens to underscores
+              
+              const gameTime = new Date(g.date + 'Z')
+              const now = new Date()
+              const hasStarted = now >= gameTime
+              const hasScores = (g.homeScore !== null && g.homeScore !== undefined) || 
+                                (g.awayScore !== null && g.awayScore !== undefined)
+              const notFinal = statusNormalized !== 'final'
+              const notScheduled = statusNormalized !== 'scheduled'
+              
+              return statusNormalized === 'in_progress' || 
+                     (hasStarted && hasScores && notFinal) ||
+                     (hasScores && notFinal && notScheduled)
+            })
+            
             if (liveGames.length > 0) {
               return (
                 <div className="mt-4 flex items-center gap-2 px-4 py-2 bg-red-900/20 border border-red-500/50 rounded-lg">
@@ -235,6 +254,7 @@ function GameCard({ game }) {
   // Database stores times as UTC without the Z marker
   // Add Z to tell JavaScript to treat as UTC, then convert to local timezone
   const gameTime = new Date(game.date + 'Z')
+  const now = new Date()
   
   // Format time - convert UTC to Eastern Time
   const timeString = gameTime.toLocaleTimeString('en-US', {
@@ -244,8 +264,25 @@ function GameCard({ game }) {
     timeZone: 'America/New_York'  // Eastern Time (EST/EDT)
   })
   
-  // Check if game is live
-  const isLive = game.status === 'in_progress' || game.status === 'in-progress'
+  // Check if game is live - multiple ways to determine
+  // 1. Status is explicitly 'in_progress' or 'in-progress' (handle "status_" prefix)
+  // 2. Game has started (current time >= game time) AND has scores AND status is not 'final'
+  // 3. Game has scores and status is not 'final' or 'scheduled'
+  
+  // Normalize status: remove "status_" prefix if present, handle hyphens
+  let statusNormalized = (game.status || '').toLowerCase()
+  statusNormalized = statusNormalized.replace(/^status_/i, '') // Remove "status_" prefix
+  statusNormalized = statusNormalized.replace(/-/g, '_') // Convert hyphens to underscores
+  
+  const hasStarted = now >= gameTime
+  const hasScores = (game.homeScore !== null && game.homeScore !== undefined) || 
+                    (game.awayScore !== null && game.awayScore !== undefined)
+  const notFinal = statusNormalized !== 'final'
+  const notScheduled = statusNormalized !== 'scheduled'
+  
+  const isLive = statusNormalized === 'in_progress' || 
+                 (hasStarted && hasScores && notFinal) ||
+                 (hasScores && notFinal && notScheduled)
   
   return (
     <Link href={`/game/${game.id}`}>
