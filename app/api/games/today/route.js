@@ -201,7 +201,8 @@ export async function GET(req) {
     })
     const nflFinal = nflFiltered
     
-    // NHL: Filter out final games from previous days (only show today's final games)
+    // NHL: Filter out final games from previous days AND deduplicate by matchup
+    // Only show games that match today's date AND remove duplicates by matchup
     const nhlFiltered = enrichedGames.filter(g => {
       if (g.sport !== 'nhl') return false
       
@@ -209,15 +210,60 @@ export async function GET(req) {
       const gameDay = new Date(Date.UTC(gameDate.getUTCFullYear(), gameDate.getUTCMonth(), gameDate.getUTCDate()))
       const todayDay = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
       
-      // Exclude final games from previous days
+      // Only include games from today (not future games, not past games)
+      // This ensures we only show today's games
+      if (gameDay.getTime() !== todayDay.getTime()) {
+        return false
+      }
+      
+      // Exclude final games from previous days (safety check)
       if (g.status === 'final' && gameDay < todayDay) {
         return false
       }
       
-      // Include all other games (scheduled, live, today's finals, future games)
       return true
     })
-    const nhlFinal = nhlFiltered
+    
+    // Deduplicate NHL games by matchup (homeId + awayId) - keep the one with better status/data
+    const nhlDeduped = []
+    const seenMatchups = new Map()
+    
+    nhlFiltered.forEach(game => {
+      const matchupKey = `${game.homeId}_${game.awayId}`
+      
+      if (!seenMatchups.has(matchupKey)) {
+        // First time seeing this matchup
+        seenMatchups.set(matchupKey, game)
+        nhlDeduped.push(game)
+      } else {
+        // Duplicate matchup - keep the better one
+        const existing = seenMatchups.get(matchupKey)
+        
+        // Prioritize: final status > in_progress > scheduled
+        // If same status, keep the one with more data (has scores)
+        const existingHasScores = (existing.homeScore !== null && existing.homeScore !== undefined) || 
+                                   (existing.awayScore !== null && existing.awayScore !== undefined)
+        const gameHasScores = (game.homeScore !== null && game.homeScore !== undefined) || 
+                              (game.awayScore !== null && game.awayScore !== undefined)
+        
+        const shouldReplace = 
+          (game.status === 'final' && existing.status !== 'final') ||
+          (game.status === 'in_progress' && existing.status === 'scheduled') ||
+          (gameHasScores && !existingHasScores && existing.status === game.status)
+        
+        if (shouldReplace) {
+          // Replace the existing one
+          const index = nhlDeduped.findIndex(g => g.id === existing.id)
+          if (index > -1) {
+            nhlDeduped[index] = game
+            seenMatchups.set(matchupKey, game)
+          }
+        }
+        // Otherwise, keep the existing one (ignore this duplicate)
+      }
+    })
+    
+    const nhlFinal = nhlDeduped
     
     console.log(`✅ Final counts - MLB: ${mlbFinal.length}, NFL: ${nflFinal.length}, NHL: ${nhlFinal.length}`)
     
