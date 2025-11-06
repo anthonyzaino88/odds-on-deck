@@ -244,6 +244,40 @@ async function saveToSupabase(sport, games) {
       espnGameId: g.espnGameId
     }))
     
+    // Before upserting, check for existing games with same ESPN ID but different game ID
+    // This prevents duplicates when dates shift due to timezone issues
+    for (const game of gamesToUpsert) {
+      if (game.espnGameId) {
+        // Find any existing games with this ESPN ID
+        const { data: existing } = await supabase
+          .from('Game')
+          .select('id, oddsApiEventId')
+          .eq('espnGameId', game.espnGameId)
+          .neq('id', game.id)
+        
+        if (existing && existing.length > 0) {
+          // If existing game has odds mapped, keep it and skip this one
+          const hasOdds = existing.find(g => g.oddsApiEventId)
+          if (hasOdds) {
+            console.log(`  ⚠️  Skipping ${game.id} - duplicate ESPN ID ${game.espnGameId} exists with odds`)
+            // Remove from gamesToUpsert
+            const index = gamesToUpsert.findIndex(g => g.id === game.id)
+            if (index > -1) {
+              gamesToUpsert.splice(index, 1)
+            }
+            continue
+          }
+          
+          // Otherwise, delete the old duplicate(s)
+          const oldIds = existing.map(g => g.id)
+          await supabase
+            .from('Game')
+            .delete()
+            .in('id', oldIds)
+        }
+      }
+    }
+    
     // Batch upsert all games at once
     const { data, error: upsertError } = await supabase
       .from('Game')
