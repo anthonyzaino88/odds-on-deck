@@ -157,15 +157,29 @@ function fullNameToAbbr(name, sport) {
   if (!name) return ''
   const lower = name.toLowerCase().trim()
   
-  // Try direct full name match first
+  // If it's already a short abbreviation (3-4 chars), don't try to match it to full names
+  // Abbreviations should match abbreviations, not partial strings in full names
+  if (lower.length <= 4) {
+    // Only return if it's an exact match in the map
+    const fullNameMap = FULL_NAME_TO_ABBR[sport] || {}
+    if (fullNameMap[lower]) {
+      return fullNameMap[lower].toLowerCase()
+    }
+    // Don't try partial matching for short abbreviations
+    return null
+  }
+  
+  // For longer names, try direct full name match first
   const fullNameMap = FULL_NAME_TO_ABBR[sport] || {}
   if (fullNameMap[lower]) {
     return fullNameMap[lower].toLowerCase()
   }
   
-  // Try partial match
+  // Try partial match (only for longer names)
   for (const [fullName, abbr] of Object.entries(fullNameMap)) {
-    if (lower.includes(fullName) || fullName.includes(lower)) {
+    // Only match if the input is longer than the abbreviation
+    // This prevents "tor" from matching "toronto maple leafs"
+    if (lower.length > abbr.length && (lower.includes(fullName) || fullName.includes(lower))) {
       return abbr.toLowerCase()
     }
   }
@@ -588,6 +602,21 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
       continue  // Skip games that are already correctly mapped
     }
     
+    // Debug specific game
+    if (oddsGame.away_team.includes('Utah') && oddsGame.home_team.includes('Toronto')) {
+      console.log(`  🔍 Debugging UTA @ TOR mapping:`)
+      console.log(`     Odds API: ${oddsGame.away_team} @ ${oddsGame.home_team}`)
+      console.log(`     Checking ${dbGames.length} database games...`)
+      const utaGames = dbGames.filter(g => 
+        (g.away?.abbr === 'UTA' || g.away?.name?.includes('Utah')) &&
+        (g.home?.abbr === 'TOR' || g.home?.name?.includes('Toronto'))
+      )
+      console.log(`     Found ${utaGames.length} UTA @ TOR games in database`)
+      utaGames.forEach(g => {
+        console.log(`       - ${g.id} (${new Date(g.date).toISOString().split('T')[0]}) - Mapped: ${g.oddsApiEventId ? 'Yes' : 'No'}`)
+      })
+    }
+    
     // Try to find matching ESPN game (check ALL games, not just unmapped)
     // This allows remapping if a game was mapped to wrong event ID
     // But skip games that already have this exact event ID mapped
@@ -605,6 +634,25 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
       
       // Try matching - don't filter by date here, let the date range query handle that
       const matches = matchTeams(homeName, awayName, oddsHome, oddsAway, sport)
+      
+      // Debug: Log matching attempts for UTA/TOR specifically
+      if (oddsGame.away_team.includes('Utah') && oddsGame.home_team.includes('Toronto')) {
+        const isUtaTor = (g.away?.abbr === 'UTA' || g.away?.name?.includes('Utah')) &&
+                         (g.home?.abbr === 'TOR' || g.home?.name?.includes('Toronto'))
+        if (isUtaTor) {
+          console.log(`     Testing match for ${g.id}:`)
+          console.log(`       ESPN home: "${homeName}" (abbr: ${g.home?.abbr}, name: ${g.home?.name})`)
+          console.log(`       ESPN away: "${awayName}" (abbr: ${g.away?.abbr}, name: ${g.away?.name})`)
+          console.log(`       Odds home: "${oddsHome}"`)
+          console.log(`       Odds away: "${oddsAway}"`)
+          console.log(`       Match result: ${matches}`)
+          if (!matches) {
+            // Test the match manually
+            const testMatch = matchTeams(homeName, awayName, oddsHome, oddsAway, sport)
+            console.log(`       ⚠️  Manual test match: ${testMatch}`)
+          }
+        }
+      }
       
       // Debug: Log matching attempts for unmapped games
       if (matches && !g.oddsApiEventId) {
