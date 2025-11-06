@@ -230,53 +230,90 @@ async function saveToSupabase(sport, games) {
     
     // Use UPSERT to update existing games or create new ones
     // This prevents duplicates and preserves foreign key relationships
-    const gamesToUpsert = games.map(g => ({
-      id: g.id,
-      sport: g.sport,
-      date: g.date.toISOString(),
-      status: g.status,
-      homeId: g.homeId,
-      awayId: g.awayId,
-      homeScore: g.homeScore,
-      awayScore: g.awayScore,
-      espnGameId: g.espnGameId
-    }))
-    
+    // Store odds migration info separately (not in upsert object)
+    const oddsToMove = []
     // Before upserting, check for existing games with same ESPN ID but different game ID
     // This prevents duplicates when dates shift due to timezone issues
-    for (const game of gamesToUpsert) {
+    // IMPORTANT: Check ALL games first, then process in batch
+    const gamesToRemove = []
+    const gamesToDelete = []
+    
+    // Check for duplicates BEFORE creating upsert array
+    for (const game of games) {
       if (game.espnGameId) {
-        // Find any existing games with this ESPN ID
+        // Find any existing games with this ESPN ID (including ones not in current batch)
         const { data: existing } = await supabase
           .from('Game')
-          .select('id, oddsApiEventId')
+          .select('id, oddsApiEventId, date')
           .eq('espnGameId', game.espnGameId)
           .neq('id', game.id)
         
         if (existing && existing.length > 0) {
-          // If existing game has odds mapped, keep it and skip this one
+          // Check if existing game has odds
           const hasOdds = existing.find(g => g.oddsApiEventId)
-          if (hasOdds) {
-            console.log(`  ⚠️  Skipping ${game.id} - duplicate ESPN ID ${game.espnGameId} exists with odds`)
-            // Remove from gamesToUpsert
-            const index = gamesToUpsert.findIndex(g => g.id === game.id)
-            if (index > -1) {
-              gamesToUpsert.splice(index, 1)
-            }
-            continue
-          }
           
-          // Otherwise, delete the old duplicate(s)
-          const oldIds = existing.map(g => g.id)
-          await supabase
-            .from('Game')
-            .delete()
-            .in('id', oldIds)
+          // Check times - determine which is better
+          const existingTime = hasOdds ? new Date(hasOdds.date).toLocaleString('en-US', {
+            timeZone: 'America/New_York',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+          }) : null
+          const newTime = new Date(game.date).toLocaleString('en-US', {
+            timeZone: 'America/New_York',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+          })
+          
+          // If existing has odds but shows 7pm (12:00 AM), and new one has a different time, prefer new one
+          if (hasOdds && existingTime === '12:00 AM' && newTime !== '12:00 AM') {
+            // Keep the new game (better time), delete the old one and move odds
+            console.log(`  🔄 Replacing ${hasOdds.id} (${existingTime}) with ${game.id} (${newTime}) - better time`)
+            gamesToDelete.push(hasOdds.id)
+            // Store mapping info to move odds later (store separately, not on game object)
+            oddsToMove.push({
+              fromGameId: hasOdds.id,
+              toGameId: game.id,
+              oddsEventId: hasOdds.oddsApiEventId
+            })
+          } else if (hasOdds) {
+            // Existing has odds and better or same time, skip this one
+            console.log(`  ⚠️  Skipping ${game.id} - duplicate ESPN ID ${game.espnGameId} exists with odds (${hasOdds.id})`)
+            gamesToRemove.push(game.id)
+            continue
+          } else {
+            // No odds on existing, delete old duplicate(s) - we'll use the new one
+            existing.forEach(g => {
+              if (!gamesToDelete.includes(g.id)) {
+                gamesToDelete.push(g.id)
+              }
+            })
+          }
         }
       }
     }
     
-    // Batch upsert all games at once
+    // Create upsert array AFTER duplicate check (filter out removed games)
+    const gamesToUpsert = games
+      .filter(g => !gamesToRemove.includes(g.id))
+      .map(g => ({
+        id: g.id,
+        sport: g.sport,
+        date: g.date.toISOString(),
+        status: g.status,
+        homeId: g.homeId,
+        awayId: g.awayId,
+        homeScore: g.homeScore,
+        awayScore: g.awayScore,
+        espnGameId: g.espnGameId
+      }))
+    
+    if (gamesToRemove.length > 0) {
+      console.log(`  🗑️  Removed ${gamesToRemove.length} duplicate games from batch`)
+    }
+    
+    // Batch upsert all games at once (before deleting or moving odds)
     const { data, error: upsertError } = await supabase
       .from('Game')
       .upsert(gamesToUpsert, {
@@ -286,6 +323,50 @@ async function saveToSupabase(sport, games) {
     
     if (upsertError) {
       throw upsertError
+    }
+    
+    // Move odds to games with better times (before deleting old games)
+    if (oddsToMove.length > 0) {
+      console.log(`  🔄 Moving odds for ${oddsToMove.length} games with better times...`)
+      for (const move of oddsToMove) {
+        // First, update all Odds records to point to the new game
+        const { error: oddsUpdateError } = await supabase
+          .from('Odds')
+          .update({ gameId: move.toGameId })
+          .eq('gameId', move.fromGameId)
+        
+        if (oddsUpdateError) {
+          console.warn(`    ⚠️  Error moving odds records: ${oddsUpdateError.message}`)
+        }
+        
+        // Update new game with oddsApiEventId
+        await supabase
+          .from('Game')
+          .update({ oddsApiEventId: move.oddsEventId })
+          .eq('id', move.toGameId)
+        
+        // Clear odds from old game
+        await supabase
+          .from('Game')
+          .update({ oddsApiEventId: null })
+          .eq('id', move.fromGameId)
+        
+        console.log(`    ✅ Moved odds from ${move.fromGameId} to ${move.toGameId}`)
+      }
+    }
+    
+    // Delete old duplicates AFTER moving odds (to avoid foreign key constraint)
+    if (gamesToDelete.length > 0) {
+      const { error: deleteError } = await supabase
+        .from('Game')
+        .delete()
+        .in('id', gamesToDelete)
+      
+      if (deleteError) {
+        console.warn(`  ⚠️  Error deleting old duplicates: ${deleteError.message}`)
+      } else {
+        console.log(`  🗑️  Deleted ${gamesToDelete.length} old duplicate games`)
+      }
     }
     
     const saved = data?.length || games.length
