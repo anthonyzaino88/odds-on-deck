@@ -59,12 +59,15 @@ async function refreshNHLScores() {
         continue
       }
       
+      // Normalize status - ensure clean format (remove status_ prefix if present)
+      const normalizedStatus = (liveData.status || '').toLowerCase().replace(/^status_/i, '')
+      
       // Update game in database - use ESPN ID to ensure we update the correct game
       // This prevents updating duplicates if there are any
       const updateData = {
-        homeScore: liveData.homeScore,
-        awayScore: liveData.awayScore,
-        status: liveData.status,
+        homeScore: liveData.homeScore ?? null,
+        awayScore: liveData.awayScore ?? null,
+        status: normalizedStatus,
         lastUpdate: new Date().toISOString()
       }
       
