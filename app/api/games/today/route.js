@@ -91,7 +91,7 @@ export async function GET(req) {
       .lt('date', weekEnd.toISOString())
       .order('date', { ascending: true })
     
-    // NHL: Today only (use date string comparison to avoid timezone issues)
+    // NHL: Today only (use ISO string for proper timestamp comparison)
     // Exclude games that are final and from previous days
     
     // Query NHL games - use date string format that matches database storage

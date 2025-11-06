@@ -150,17 +150,8 @@ export default function GamesPage() {
               statusNormalized = statusNormalized.replace(/^status_/i, '') // Remove "status_" prefix
               statusNormalized = statusNormalized.replace(/-/g, '_') // Convert hyphens to underscores
               
-              const gameTime = new Date(g.date + 'Z')
-              const now = new Date()
-              const hasStarted = now >= gameTime
-              const hasScores = (g.homeScore !== null && g.homeScore !== undefined) || 
-                                (g.awayScore !== null && g.awayScore !== undefined)
-              const notFinal = statusNormalized !== 'final'
-              const notScheduled = statusNormalized !== 'scheduled'
-              
-              return statusNormalized === 'in_progress' || 
-                     (hasStarted && hasScores && notFinal) ||
-                     (hasScores && notFinal && notScheduled)
+              // Only count as live if status is explicitly 'in_progress'
+              return statusNormalized === 'in_progress'
             })
             
             if (liveGames.length > 0) {
@@ -264,25 +255,16 @@ function GameCard({ game }) {
     timeZone: 'America/New_York'  // Eastern Time (EST/EDT)
   })
   
-  // Check if game is live - multiple ways to determine
-  // 1. Status is explicitly 'in_progress' or 'in-progress' (handle "status_" prefix)
-  // 2. Game has started (current time >= game time) AND has scores AND status is not 'final'
-  // 3. Game has scores and status is not 'final' or 'scheduled'
-  
+  // Check if game is live - ONLY if status is explicitly 'in_progress'
+  // Don't infer live status from times/scores to avoid false positives
   // Normalize status: remove "status_" prefix if present, handle hyphens
   let statusNormalized = (game.status || '').toLowerCase()
   statusNormalized = statusNormalized.replace(/^status_/i, '') // Remove "status_" prefix
   statusNormalized = statusNormalized.replace(/-/g, '_') // Convert hyphens to underscores
   
-  const hasStarted = now >= gameTime
-  const hasScores = (game.homeScore !== null && game.homeScore !== undefined) || 
-                    (game.awayScore !== null && game.awayScore !== undefined)
-  const notFinal = statusNormalized !== 'final'
-  const notScheduled = statusNormalized !== 'scheduled'
-  
-  const isLive = statusNormalized === 'in_progress' || 
-                 (hasStarted && hasScores && notFinal) ||
-                 (hasScores && notFinal && notScheduled)
+  // Only mark as live if status is explicitly 'in_progress'
+  // Games with midnight UTC times can appear as "started" even if they haven't
+  const isLive = statusNormalized === 'in_progress'
   
   return (
     <Link href={`/game/${game.id}`}>

@@ -188,9 +188,11 @@ async function fetchGamesFromESPN(sport, date) {
         // Use the queried date for the game ID (ensures consistent IDs)
         dateStr = event._queriedDate
         
-        // Use ESPN's actual event.date for the game time (preserves actual start times)
-        // ESPN's event.date includes the time component, even if it's 00:00Z
-        gameDate = new Date(event.date)
+        // For NHL: Use queried date with midnight UTC to ensure consistent date matching
+        // ESPN's scoreboard API returns event.date as midnight UTC for NHL games
+        // This creates consistent date matching, even though it shows as 7PM EST previous day
+        // This is the correct approach - we had it working before
+        gameDate = new Date(dateStr + 'T00:00:00Z')
       } else {
         // For other sports (NFL), use event.date directly (which has actual times)
         gameDate = new Date(event.date)
@@ -316,16 +318,19 @@ async function saveToSupabase(sport, games) {
     }
     
     // Step 2: Check for duplicates in the new batch
+    // Also check by matchup (homeId + awayId + date) to catch duplicates with different ESPN IDs
     const gamesToRemove = []
     const gamesToDelete = []
+    const oddsToMove = []
     
     // Check for duplicates BEFORE creating upsert array
     for (const game of games) {
+      // Check 1: Duplicate by ESPN ID
       if (game.espnGameId) {
         // Find any existing games with this ESPN ID (including ones not in current batch)
         const { data: existing } = await supabase
           .from('Game')
-          .select('id, oddsApiEventId, date')
+          .select('id, oddsApiEventId, date, status')
           .eq('espnGameId', game.espnGameId)
           .neq('id', game.id)
         
@@ -384,6 +389,49 @@ async function saveToSupabase(sport, games) {
               }
             })
           }
+        }
+      }
+      
+      // Check 2: Duplicate by matchup (homeId + awayId + date) - catch duplicates with different ESPN IDs
+      const gameDateStr = new Date(game.date).toISOString().split('T')[0]
+      const { data: matchupDuplicates } = await supabase
+        .from('Game')
+        .select('id, espnGameId, oddsApiEventId, status, date')
+        .eq('sport', sport)
+        .eq('homeId', game.homeId)
+        .eq('awayId', game.awayId)
+        .gte('date', gameDateStr + 'T00:00:00Z')
+        .lt('date', gameDateStr + 'T23:59:59Z')
+        .neq('id', game.id)
+      
+      if (matchupDuplicates && matchupDuplicates.length > 0) {
+        // Prioritize: game with odds > game with final status > newest game
+        const withOdds = matchupDuplicates.find(g => g.oddsApiEventId)
+        const withFinalStatus = matchupDuplicates.find(g => g.status === 'final')
+        const newest = matchupDuplicates.sort((a, b) => new Date(b.date) - new Date(a.date))[0]
+        
+        const gameToKeep = withOdds || withFinalStatus || newest
+        
+        // If we should keep the existing game, skip this one
+        if (gameToKeep.id !== game.id) {
+          console.log(`  ⚠️  Skipping ${game.id} - duplicate matchup exists: ${gameToKeep.id} (has odds: ${!!withOdds}, status: ${gameToKeep.status})`)
+          gamesToRemove.push(game.id)
+          continue
+        } else {
+          // We should keep this game, delete the duplicates
+          matchupDuplicates.forEach(g => {
+            if (g.id !== game.id && !gamesToDelete.includes(g.id)) {
+              // If duplicate has odds, move them to this game
+              if (g.oddsApiEventId) {
+                oddsToMove.push({
+                  fromGameId: g.id,
+                  toGameId: game.id,
+                  oddsEventId: g.oddsApiEventId
+                })
+              }
+              gamesToDelete.push(g.id)
+            }
+          })
         }
       }
     }
