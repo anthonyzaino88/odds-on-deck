@@ -6,6 +6,32 @@ import { getGameDetail } from '../../../lib/db.js'
 import { formatEdge, formatOdds, formatProbability } from '../../../lib/implied.js'
 import { format } from 'date-fns'
 
+// Helper function to parse dates consistently
+// Dates from getGameDetail are now normalized to ISO strings with 'Z'
+// This function handles any edge cases
+function parseGameDate(dateValue) {
+  if (!dateValue) return new Date()
+  
+  // If already a Date object, use it directly
+  if (dateValue instanceof Date) {
+    return dateValue
+  }
+  
+  if (typeof dateValue === 'string') {
+    // Dates should now always come with 'Z' from getGameDetail
+    // But handle edge cases just in case
+    if (dateValue.includes('Z') || dateValue.includes('+') || dateValue.match(/[+-]\d{2}:\d{2}$/)) {
+      return new Date(dateValue)
+    }
+    
+    // No timezone - add Z to treat as UTC
+    return new Date(dateValue + 'Z')
+  }
+  
+  // Fallback: try to create Date from value
+  return new Date(dateValue)
+}
+
 // Import NFL components
 import NFLRosterSection from '../../../components/NFLRosterSection'
 import NFLMatchupSection from '../../../components/NFLMatchupSection'
@@ -49,8 +75,12 @@ export default async function GameDetailPage({ params }) {
         </Link>
         <div className="text-sm text-gray-400">
           {(() => {
-            // Parse date and convert to Eastern time
-            const gameDate = new Date(game.date + (game.date.includes('Z') ? '' : 'Z'))
+            // Use exact same approach as slate page
+            const dateStr = game.date || ''
+            const gameDate = new Date(dateStr.includes('Z') || dateStr.includes('+') || dateStr.match(/[+-]\d{2}:\d{2}$/) 
+              ? dateStr 
+              : dateStr + 'Z')
+            // Format in EST timezone (same as slate page)
             return gameDate.toLocaleString('en-US', {
               weekday: 'long',
               month: 'long',
@@ -58,6 +88,7 @@ export default async function GameDetailPage({ params }) {
               year: 'numeric',
               hour: 'numeric',
               minute: '2-digit',
+              hour12: true,
               timeZone: 'America/New_York',
               timeZoneName: 'short'
             })
@@ -383,13 +414,18 @@ export default async function GameDetailPage({ params }) {
                 <span className="text-sm font-medium text-gray-400">Date & Time:</span>
                 <span className="ml-2 text-sm text-white">
                   {(() => {
-                    const gameDate = new Date(game.date + (game.date.includes('Z') ? '' : 'Z'))
+                    // Use exact same approach as slate page
+                    const dateStr = game.date || ''
+                    const gameDate = new Date(dateStr.includes('Z') || dateStr.includes('+') || dateStr.match(/[+-]\d{2}:\d{2}$/) 
+                      ? dateStr 
+                      : dateStr + 'Z')
                     return gameDate.toLocaleString('en-US', {
                       month: 'short',
                       day: 'numeric',
                       year: 'numeric',
                       hour: 'numeric',
                       minute: '2-digit',
+                      hour12: true,
                       timeZone: 'America/New_York'
                     })
                   })()}
@@ -408,8 +444,12 @@ export default async function GameDetailPage({ params }) {
               <div className="mt-4 p-4 bg-blue-900/20 border border-blue-500/50 rounded-lg">
                 <p className="text-sm text-blue-300">
                   <strong>Game Scheduled:</strong> This game is scheduled for {(() => {
-                    const gameDate = new Date(game.date + (game.date.includes('Z') ? '' : 'Z'))
-                    const dateStr = gameDate.toLocaleDateString('en-US', {
+                    // Use exact same approach as slate page
+                    const dateStr = game.date || ''
+                    const gameDate = new Date(dateStr.includes('Z') || dateStr.includes('+') || dateStr.match(/[+-]\d{2}:\d{2}$/) 
+                      ? dateStr 
+                      : dateStr + 'Z')
+                    const dateFormatted = gameDate.toLocaleDateString('en-US', {
                       month: 'long',
                       day: 'numeric',
                       year: 'numeric',
@@ -418,9 +458,10 @@ export default async function GameDetailPage({ params }) {
                     const timeStr = gameDate.toLocaleTimeString('en-US', {
                       hour: 'numeric',
                       minute: '2-digit',
+                      hour12: true,
                       timeZone: 'America/New_York'
                     })
-                    return `${dateStr} at ${timeStr}`
+                    return `${dateFormatted} at ${timeStr}`
                   })()}.
                 </p>
                 <p className="text-xs text-blue-400/80 mt-2">

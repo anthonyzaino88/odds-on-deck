@@ -188,15 +188,61 @@ async function fetchGamesFromESPN(sport, date) {
         // Use the queried date for the game ID (ensures consistent IDs)
         dateStr = event._queriedDate
         
-        // For NHL: Use queried date with midnight UTC to ensure consistent date matching
-        // ESPN's scoreboard API returns event.date as midnight UTC for NHL games
-        // This creates consistent date matching, even though it shows as 7PM EST previous day
-        // This is the correct approach - we had it working before
-        gameDate = new Date(dateStr + 'T00:00:00Z')
+        // For NHL: ESPN's event.date is often midnight UTC (00:00:00Z) which is a placeholder
+        // We need to check if it's actually midnight UTC, and if so, use the queried date with a reasonable time
+        // Otherwise, use ESPN's actual time but ensure the date matches the queried date
+        const espnDate = new Date(event.date)
+        const [queriedYear, queriedMonth, queriedDay] = dateStr.split('-')
+        
+        // If ESPN date is midnight UTC (00:00:00), it's likely a placeholder
+        // Use queried date with 5 AM UTC (midnight EST) to represent the game day
+        if (espnDate.getUTCHours() === 0 && espnDate.getUTCMinutes() === 0 && espnDate.getUTCSeconds() === 0) {
+          // Placeholder time - use queried date with 5 AM UTC (midnight EST)
+          gameDate = new Date(Date.UTC(
+            parseInt(queriedYear),
+            parseInt(queriedMonth) - 1,
+            parseInt(queriedDay),
+            5, 0, 0  // 5 AM UTC = midnight EST
+          ))
+        } else {
+          // ESPN has actual time - use ESPN's actual UTC date/time
+          // Don't override the date part, as ESPN's UTC date is correct
+          // A game at 8 PM EST on Nov 6 = 1 AM UTC on Nov 7, so ESPN will return Nov 7 UTC
+          // We just need to verify the EST date matches the queried date
+          gameDate = new Date(espnDate)
+          
+          // Verify the EST date matches the queried date
+          const estDateStr = gameDate.toLocaleDateString('en-US', {
+            timeZone: 'America/New_York',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+          })
+          const [estMonth, estDay, estYear] = estDateStr.split('/')
+          const estDateForId = `${estYear}-${estMonth.padStart(2, '0')}-${estDay.padStart(2, '0')}`
+          
+          if (estDateForId !== dateStr) {
+            console.warn(`⚠️  Date mismatch for ${awayAbbr} @ ${homeAbbr}: queried ${dateStr}, but EST date is ${estDateForId}`)
+            // Use ESPN's date as it's the source of truth for the actual game time
+            // But keep the queried date for the game ID to maintain consistency
+          }
+        }
       } else {
         // For other sports (NFL), use event.date directly (which has actual times)
         gameDate = new Date(event.date)
-        dateStr = gameDate.toISOString().split('T')[0]
+        
+        // CRITICAL: For game ID, use the EST date, not UTC date
+        // ESPN's event.date is in UTC, so a game at 8:15 PM EST on Nov 6 = 1:15 AM UTC on Nov 7
+        // We need the EST date (Nov 6) for the game ID, not the UTC date (Nov 7)
+        const estDateStr = gameDate.toLocaleDateString('en-US', {
+          timeZone: 'America/New_York',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        })
+        // Convert MM/DD/YYYY to YYYY-MM-DD
+        const [month, day, year] = estDateStr.split('/')
+        dateStr = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
       }
       
       const gameId = homeAbbr && awayAbbr 

@@ -12,10 +12,20 @@ export async function GET(req) {
   try {
     console.log('📅 API: Fetching games from Supabase...')
     
-    // Calculate date ranges - Use UTC to avoid timezone issues on Vercel
+    // Calculate date ranges - Use EST/EDT for "today" since games are scheduled in Eastern time
     const now = new Date()
-    // Get today in UTC (Vercel runs in UTC)
-    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+    
+    // Get today in Eastern timezone (America/New_York)
+    // This ensures we show games for the current day in EST/EDT, not UTC
+    const estDateStr = now.toLocaleDateString('en-US', { 
+      timeZone: 'America/New_York',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    })
+    // Parse MM/DD/YYYY format
+    const [month, day, year] = estDateStr.split('/')
+    const today = new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day)))
     const tomorrow = new Date(today)
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
     
@@ -23,10 +33,14 @@ export async function GET(req) {
     const todayStr = today.toISOString().split('T')[0] // YYYY-MM-DD
     const tomorrowStr = tomorrow.toISOString().split('T')[0] // YYYY-MM-DD
     
+    console.log(`📅 EST Date Calculation: ${estDateStr} → Today: ${todayStr}, Tomorrow: ${tomorrowStr}`)
+    
     // NFL: Current week (Thursday to Monday)
     // NFL week runs Thursday Night Football → Sunday slate → Monday Night Football
     // If we're on Tuesday/Wednesday, show the upcoming week (next Thu-Mon)
-    const dayOfWeek = now.getDay() // 0=Sunday, 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday, 5=Friday, 6=Saturday
+    // Use EST day of week for consistency (reuse the already-calculated `today` date)
+    // getUTCDay() returns 0-6 (Sunday=0, Monday=1, ..., Saturday=6)
+    const dayOfWeek = today.getUTCDay()
     let weekStart, weekEnd
     
     if (dayOfWeek === 2 || dayOfWeek === 3) {
@@ -69,7 +83,7 @@ export async function GET(req) {
       weekEnd.setUTCHours(23, 59, 59, 999)
     }
     
-    console.log(`📅 Date ranges: MLB/NHL today (${todayStr}), NFL week (${weekStart.toISOString()} - ${weekEnd.toISOString()})`)
+    console.log(`📅 Date ranges (EST): MLB/NHL today (${todayStr}), NFL week (${weekStart.toISOString()} - ${weekEnd.toISOString()})`)
     
     // Step 1: Query games with date filtering
     // MLB: Today only (use date string format)
@@ -239,24 +253,23 @@ export async function GET(req) {
     const nflFinal = nflFiltered
     
     // NHL: Filter out final games from previous days (only show today's final games)
+    // Since we already queried by date range, we just need to filter out old final games
     const nhlFiltered = enrichedGames.filter(g => {
       if (g.sport !== 'nhl') return false
       
-      // Parse date - handle both UTC and local time formats
-      // Dates from Supabase might be "2025-11-06T00:00:00" (no Z) or "2025-11-06T00:00:00.000Z"
-      let gameDate
-      if (typeof g.date === 'string' && !g.date.includes('Z') && !g.date.includes('+')) {
-        // If no timezone info, assume UTC
-        gameDate = new Date(g.date + 'Z')
+      // Parse game date - extract just the date part (YYYY-MM-DD) for comparison
+      let gameDateStr
+      if (typeof g.date === 'string') {
+        // Extract date part from "2025-11-06T00:00:00" or "2025-11-06T00:00:00.000Z"
+        gameDateStr = g.date.split('T')[0]
       } else {
-        gameDate = new Date(g.date)
+        const gameDate = new Date(g.date)
+        gameDateStr = gameDate.toISOString().split('T')[0]
       }
       
-      const gameDay = new Date(Date.UTC(gameDate.getUTCFullYear(), gameDate.getUTCMonth(), gameDate.getUTCDate()))
-      const todayDay = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
-      
-      // Exclude final games from previous days
-      if (g.status === 'final' && gameDay < todayDay) {
+      // Compare date strings directly (YYYY-MM-DD format)
+      // Only exclude final games from dates before today
+      if (g.status === 'final' && gameDateStr < todayStr) {
         return false
       }
       

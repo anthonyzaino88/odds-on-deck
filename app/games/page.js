@@ -244,7 +244,11 @@ export default function GamesPage() {
 function GameCard({ game }) {
   // Database stores times as UTC without the Z marker
   // Add Z to tell JavaScript to treat as UTC, then convert to local timezone
-  const gameTime = new Date(game.date + 'Z')
+  // Parse date - handle both with and without 'Z' (dates from API may be normalized)
+  const dateStr = game.date || ''
+  const gameTime = new Date(dateStr.includes('Z') || dateStr.includes('+') || dateStr.match(/[+-]\d{2}:\d{2}$/) 
+    ? dateStr 
+    : dateStr + 'Z')
   const now = new Date()
   
   // Format time - convert UTC to Eastern Time
