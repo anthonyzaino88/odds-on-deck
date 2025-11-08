@@ -1,15 +1,22 @@
 import './globals.css'
 import DemoBanner from '../components/DemoBanner'
+import MobileNav from '../components/MobileNav'
 
 export const metadata = {
   title: 'Odds on Deck - MLB Matchup Analytics',
   description: 'Advanced MLB matchup analytics and betting insights',
 }
 
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+}
+
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body className="bg-slate-950 text-white min-h-screen">
+      <body className="bg-slate-950 text-white min-h-screen pb-20 sm:pb-0">
         <DemoBanner />
         <nav className="bg-slate-900 shadow-lg border-b border-slate-800">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -69,6 +76,7 @@ export default function RootLayout({ children }) {
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {children}
         </main>
+        <MobileNav />
       </body>
     </html>
   )
