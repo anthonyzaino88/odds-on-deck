@@ -54,15 +54,16 @@ export default function ParlayBuilder({ onGenerate }) {
     console.log('🔄 Fetching games data (cache miss or expired)...')
     setIsLoadingGames(true)
     try {
-      const response = await fetch('/api/data')
+      // Use /api/games/today instead of disabled /api/data
+      const response = await fetch('/api/games/today')
       const data = await response.json()
       
-      if (data.success) {
-        // ✅ Store ALL games in cache
+      if (data.success && data.games) {
+        // Group games by sport
         const allGames = {
-          mlb: data.data.mlbGames || [],
-          nfl: data.data.nflGames || [],
-          nhl: data.data.nhlGames || []
+          mlb: data.games.filter(g => g.sport === 'mlb') || [],
+          nfl: data.games.filter(g => g.sport === 'nfl') || [],
+          nhl: data.games.filter(g => g.sport === 'nhl') || []
         }
         setAllGamesCache(allGames)
         setCacheTimestamp(Date.now())
@@ -156,15 +157,15 @@ export default function ParlayBuilder({ onGenerate }) {
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-lg p-6">
-      <h2 className="text-2xl font-bold text-gray-900 mb-4">
+    <div className="card p-6">
+      <h2 className="text-2xl font-bold text-white mb-4">
         🎯 Build Your Parlay
       </h2>
-      <div className="mb-6 p-3 bg-green-50 border border-green-200 rounded-lg">
-        <p className="text-sm text-green-800 font-medium">
+      <div className="mb-6 p-3 bg-green-900/20 border border-green-500/50 rounded-lg">
+        <p className="text-sm text-green-400 font-medium">
           ✅ System Priority: <strong>HIGHEST WIN PROBABILITY</strong>
         </p>
-        <p className="text-xs text-green-700 mt-1">
+        <p className="text-xs text-green-300 mt-1">
           Parlays are sorted by win chance (not payout). For safest bets, set Risk Level to 1-5%.
         </p>
       </div>
@@ -172,7 +173,7 @@ export default function ParlayBuilder({ onGenerate }) {
       <div className="space-y-6">
         {/* Filter Mode Selection */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-white mb-2">
             🎯 Betting Strategy
           </label>
           <div className="grid grid-cols-2 gap-2">
@@ -180,48 +181,48 @@ export default function ParlayBuilder({ onGenerate }) {
               onClick={() => setFilterMode('safe')}
               className={`p-3 rounded-lg border-2 text-left transition-all ${
                 filterMode === 'safe'
-                  ? 'border-green-500 bg-green-50'
-                  : 'border-gray-200 hover:border-green-300'
+                  ? 'border-green-500 bg-green-900/30 text-white'
+                  : 'border-slate-700 bg-slate-800 hover:border-green-500/50 text-gray-300'
               }`}
             >
               <div className="font-semibold text-sm">🛡️ Safe Mode</div>
-              <div className="text-xs text-gray-600 mt-1">52%+ win rate</div>
+              <div className="text-xs text-gray-400 mt-1">52%+ win rate</div>
             </button>
             <button
               onClick={() => setFilterMode('balanced')}
               className={`p-3 rounded-lg border-2 text-left transition-all ${
                 filterMode === 'balanced'
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-gray-200 hover:border-blue-300'
+                  ? 'border-blue-500 bg-blue-900/30 text-white'
+                  : 'border-slate-700 bg-slate-800 hover:border-blue-500/50 text-gray-300'
               }`}
             >
               <div className="font-semibold text-sm">⚖️ Balanced</div>
-              <div className="text-xs text-gray-600 mt-1">Best quality</div>
+              <div className="text-xs text-gray-400 mt-1">Best quality</div>
             </button>
             <button
               onClick={() => setFilterMode('value')}
               className={`p-3 rounded-lg border-2 text-left transition-all ${
                 filterMode === 'value'
-                  ? 'border-yellow-500 bg-yellow-50'
-                  : 'border-gray-200 hover:border-yellow-300'
+                  ? 'border-yellow-500 bg-yellow-900/30 text-white'
+                  : 'border-slate-700 bg-slate-800 hover:border-yellow-500/50 text-gray-300'
               }`}
             >
               <div className="font-semibold text-sm">💰 Value Hunter</div>
-              <div className="text-xs text-gray-600 mt-1">15%+ edge</div>
+              <div className="text-xs text-gray-400 mt-1">15%+ edge</div>
             </button>
             <button
               onClick={() => setFilterMode('homerun')}
               className={`p-3 rounded-lg border-2 text-left transition-all ${
                 filterMode === 'homerun'
-                  ? 'border-purple-500 bg-purple-50'
-                  : 'border-gray-200 hover:border-purple-300'
+                  ? 'border-purple-500 bg-purple-900/30 text-white'
+                  : 'border-slate-700 bg-slate-800 hover:border-purple-500/50 text-gray-300'
               }`}
             >
               <div className="font-semibold text-sm">🎰 Home Run</div>
-              <div className="text-xs text-gray-600 mt-1">Big payouts</div>
+              <div className="text-xs text-gray-400 mt-1">Big payouts</div>
             </button>
           </div>
-          <p className="mt-2 text-xs text-gray-600">
+          <p className="mt-2 text-xs text-gray-400">
             {filterMode === 'safe' && '🛡️ Highest probability picks (52%+). Consistent wins, lower variance.'}
             {filterMode === 'balanced' && '⚖️ Optimized quality score. Best overall risk/reward balance.'}
             {filterMode === 'value' && '💰 High edge opportunities (15%+). Medium risk, good value.'}
@@ -231,13 +232,13 @@ export default function ParlayBuilder({ onGenerate }) {
 
         {/* Sport Selection */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-white mb-2">
             Sport
           </label>
           <select
             value={sport}
             onChange={(e) => setSport(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="mlb">⚾ Baseball Only</option>
             <option value="nfl">🏈 Football Only</option>
@@ -248,19 +249,19 @@ export default function ParlayBuilder({ onGenerate }) {
 
         {/* Parlay Type */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-white mb-2">
             Parlay Type
           </label>
           <select
             value={type}
             onChange={(e) => setType(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="single_game">Single Game Parlay</option>
             <option value="multi_game">Multi-Game Parlay</option>
             <option value="cross_sport">Cross-Sport Parlay</option>
           </select>
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-gray-400">
             {type === 'single_game' && 'All props from one specific game'}
             {type === 'multi_game' && 'Mix props from different games'}
             {type === 'cross_sport' && 'Mix MLB, NFL, and NHL props'}
@@ -270,16 +271,16 @@ export default function ParlayBuilder({ onGenerate }) {
         {/* Game Selector (only for single_game) */}
         {type === 'single_game' && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-white mb-2">
               Select Game
             </label>
             {isLoadingGames ? (
-              <div className="text-sm text-gray-500">Loading games...</div>
+              <div className="text-sm text-gray-400">Loading games...</div>
             ) : availableGames.length > 0 ? (
               <select
                 value={selectedGameId}
                 onChange={(e) => setSelectedGameId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {availableGames.map(game => (
                   <option key={game.id} value={game.id}>
@@ -289,20 +290,20 @@ export default function ParlayBuilder({ onGenerate }) {
                 ))}
               </select>
             ) : (
-              <div className="text-sm text-gray-500">No active games available</div>
+              <div className="text-sm text-gray-400">No active games available</div>
             )}
           </div>
         )}
 
         {/* Leg Count */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-white mb-2">
             Number of Legs
           </label>
           <select
             value={legCount}
             onChange={(e) => setLegCount(parseInt(e.target.value))}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="2">2-Leg Parlay</option>
             <option value="3">3-Leg Parlay</option>
@@ -314,7 +315,7 @@ export default function ParlayBuilder({ onGenerate }) {
 
         {/* Risk Level (via Minimum Edge) */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-white mb-2">
             Risk Level: {(minEdge * 100).toFixed(0)}% Edge
           </label>
           <input
@@ -324,13 +325,13 @@ export default function ParlayBuilder({ onGenerate }) {
             step="0.01"
             value={minEdge}
             onChange={(e) => setMinEdge(parseFloat(e.target.value))}
-            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
           />
-          <div className="flex justify-between text-xs text-gray-500 mt-1">
+          <div className="flex justify-between text-xs text-gray-400 mt-1">
             <span>🛡️ Safer (1%)</span>
             <span>🎲 Riskier (25%)</span>
           </div>
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-gray-400">
             💡 <strong>For safest bets:</strong> Set to 1-5% to include all props. System will pick highest win probability.<br/>
             🎲 <strong>For value bets:</strong> Set to 15%+ to only include high-edge props (home runs, etc.)
           </p>
@@ -338,13 +339,13 @@ export default function ParlayBuilder({ onGenerate }) {
 
         {/* Maximum Parlays */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-white mb-2">
             Maximum Results
           </label>
           <select
             value={maxParlays}
             onChange={(e) => setMaxParlays(parseInt(e.target.value))}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="5">5 Parlays</option>
             <option value="10">10 Parlays</option>
@@ -359,7 +360,7 @@ export default function ParlayBuilder({ onGenerate }) {
           disabled={isGenerating}
           className={`w-full py-3 px-4 rounded-md font-medium text-white transition-colors ${
             isGenerating
-              ? 'bg-gray-400 cursor-not-allowed'
+              ? 'bg-slate-600 cursor-not-allowed'
               : 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500'
           }`}
         >
@@ -378,13 +379,13 @@ export default function ParlayBuilder({ onGenerate }) {
       </div>
 
       {/* Quick Stats */}
-      <div className="mt-6 pt-6 border-t border-gray-200">
-        <h3 className="text-sm font-medium text-gray-700 mb-3">Current Settings:</h3>
-        <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-          <div>Sport: <span className="font-medium">{sport.toUpperCase()}</span></div>
-          <div>Type: <span className="font-medium">{type.replace('_', ' ')}</span></div>
-          <div>Legs: <span className="font-medium">{legCount}</span></div>
-          <div>Min Edge: <span className="font-medium">{minEdge * 100}%</span></div>
+      <div className="mt-6 pt-6 border-t border-slate-700">
+        <h3 className="text-sm font-medium text-white mb-3">Current Settings:</h3>
+        <div className="grid grid-cols-2 gap-2 text-xs text-gray-400">
+          <div>Sport: <span className="font-medium text-white">{sport.toUpperCase()}</span></div>
+          <div>Type: <span className="font-medium text-white">{type.replace('_', ' ')}</span></div>
+          <div>Legs: <span className="font-medium text-white">{legCount}</span></div>
+          <div>Min Edge: <span className="font-medium text-white">{minEdge * 100}%</span></div>
         </div>
       </div>
     </div>

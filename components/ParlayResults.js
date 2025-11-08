@@ -118,11 +118,11 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
 
   const getConfidenceColor = (confidence) => {
     switch (confidence) {
-      case 'very_high': return 'bg-green-100 text-green-800'
-      case 'high': return 'bg-blue-100 text-blue-800'
-      case 'medium': return 'bg-yellow-100 text-yellow-800'
-      case 'low': return 'bg-red-100 text-red-800'
-      default: return 'bg-gray-100 text-gray-800'
+      case 'very_high': return 'bg-green-900/30 text-green-400 border-green-500/50'
+      case 'high': return 'bg-blue-900/30 text-blue-400 border-blue-500/50'
+      case 'medium': return 'bg-yellow-900/30 text-yellow-400 border-yellow-500/50'
+      case 'low': return 'bg-red-900/30 text-red-400 border-red-500/50'
+      default: return 'bg-slate-700 text-gray-400 border-slate-600'
     }
   }
 
@@ -138,17 +138,17 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow-lg p-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">
+      <div className="card p-6">
+        <h2 className="text-2xl font-bold text-white mb-6">
           📊 Generated Parlays
         </h2>
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
-            <svg className="animate-spin h-8 w-8 text-blue-600 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <svg className="animate-spin h-8 w-8 text-blue-400 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            <p className="text-gray-600">Generating optimized parlays...</p>
+            <p className="text-gray-400">Generating optimized parlays...</p>
           </div>
         </div>
       </div>
@@ -157,17 +157,17 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
 
   if (error) {
     return (
-      <div className="bg-white rounded-lg shadow-lg p-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">
+      <div className="card p-6">
+        <h2 className="text-2xl font-bold text-white mb-6">
           📊 Generated Parlays
         </h2>
         <div className="text-center py-12">
-          <div className="text-red-600 mb-4">
+          <div className="text-red-400 mb-4">
             <svg className="h-12 w-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
             </svg>
           </div>
-          <p className="text-gray-600 mb-4">{error}</p>
+          <p className="text-gray-400 mb-4">{error}</p>
           <button
             onClick={fetchSampleParlays}
             className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
@@ -180,21 +180,21 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-lg p-6">
+    <div className="card p-6">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">
+        <h2 className="text-2xl font-bold text-white">
           📊 Generated Parlays
         </h2>
         <div className="flex space-x-3">
           <button
             onClick={() => setShowHelp(!showHelp)}
-            className="text-gray-600 hover:text-gray-700 text-sm font-medium"
+            className="text-gray-400 hover:text-gray-300 text-sm font-medium"
           >
             {showHelp ? '✕ Close Help' : 'ℹ️ What do these mean?'}
           </button>
           <button
             onClick={fetchSampleParlays}
-            className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+            className="text-blue-400 hover:text-blue-300 text-sm font-medium"
           >
             🔄 Refresh
           </button>
@@ -203,26 +203,26 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
 
       {/* Help Panel */}
       {showHelp && (
-        <div className="mb-6 bg-blue-50 rounded-lg p-4 text-sm">
-          <h3 className="font-bold text-blue-900 mb-3">📚 Understanding Your Parlay Metrics</h3>
-          <div className="space-y-2 text-gray-700">
+        <div className="mb-6 bg-blue-900/20 border border-blue-500/50 rounded-lg p-4 text-sm">
+          <h3 className="font-bold text-blue-300 mb-3">📚 Understanding Your Parlay Metrics</h3>
+          <div className="space-y-2 text-gray-300">
             <div>
-              <span className="font-semibold text-green-700">Edge:</span> Your mathematical advantage over the sportsbook. 
-              <span className="text-xs ml-1">(10%+ = strong value, 20%+ = exceptional)</span>
+              <span className="font-semibold text-green-400">Edge:</span> Your mathematical advantage over the sportsbook. 
+              <span className="text-xs ml-1 text-gray-400">(10%+ = strong value, 20%+ = exceptional)</span>
             </div>
             <div>
-              <span className="font-semibold text-blue-700">Win Chance:</span> Our model's calculated probability this parlay wins.
-              <span className="text-xs ml-1">(Higher = more likely to hit)</span>
+              <span className="font-semibold text-blue-400">Win Chance:</span> Our model's calculated probability this parlay wins.
+              <span className="text-xs ml-1 text-gray-400">(Higher = more likely to hit)</span>
             </div>
             <div>
-              <span className="font-semibold text-purple-700">Expected Value:</span> Average profit/loss per $1 bet over many trials.
-              <span className="text-xs ml-1">(Positive = profitable long-term)</span>
+              <span className="font-semibold text-purple-400">Expected Value:</span> Average profit/loss per $1 bet over many trials.
+              <span className="text-xs ml-1 text-gray-400">(Positive = profitable long-term)</span>
             </div>
             <div>
-              <span className="font-semibold text-orange-700">Odds:</span> What the sportsbook pays if you win.
-              <span className="text-xs ml-1">(+550 = bet $100 to win $550)</span>
+              <span className="font-semibold text-orange-400">Odds:</span> What the sportsbook pays if you win.
+              <span className="text-xs ml-1 text-gray-400">(+550 = bet $100 to win $550)</span>
             </div>
-            <div className="pt-2 mt-2 border-t border-blue-200">
+            <div className="pt-2 mt-2 border-t border-blue-500/30">
               <span className="font-semibold">💡 Tip:</span> Look for parlays with <span className="font-bold">high edge</span> (10%+) 
               and <span className="font-bold">positive expected value</span> for the best long-term results!
             </div>
@@ -237,46 +237,46 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
             </svg>
           </div>
-          <p className="text-gray-600 mb-4">No parlays generated yet</p>
+          <p className="text-gray-400 mb-4">No parlays generated yet</p>
           <p className="text-sm text-gray-500">Use the builder to generate optimized parlays</p>
         </div>
       ) : (
         <div className="space-y-4">
           {parlays.map((parlay, index) => (
-            <div key={index} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+            <div key={index} className="border border-slate-700 rounded-lg p-4 hover:border-blue-500 hover:shadow-md transition-all bg-slate-800/50">
               {/* Parlay Header */}
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center space-x-3">
-                  <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded">
+                  <span className="bg-blue-600 text-white text-xs font-medium px-2.5 py-0.5 rounded">
                     #{index + 1}
                   </span>
                   <span className={`text-xs font-medium px-2.5 py-0.5 rounded ${getConfidenceColor(parlay.confidence)}`}>
                     {parlay.confidence.replace('_', ' ').toUpperCase()}
                   </span>
-                  <span className="text-xs font-medium text-gray-600">
+                  <span className="text-xs font-medium text-gray-400">
                     {parlay.legs.length} Legs
                   </span>
                 </div>
                 <div className="text-right">
-                  <div className="text-2xl font-bold text-green-600">
+                  <div className="text-2xl font-bold text-green-400">
                     {formatOdds(parlay.totalOdds)}
                   </div>
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-gray-400">
                     ({parlay.totalOdds.toFixed(2)}x payout)
                   </div>
                 </div>
               </div>
 
               {/* Payout Calculator */}
-              <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-4 mb-4">
-                <div className="text-sm font-bold text-gray-700 mb-2">💰 Payout Calculator</div>
+              <div className="bg-gradient-to-r from-green-900/20 to-blue-900/20 border border-green-500/30 rounded-lg p-4 mb-4">
+                <div className="text-sm font-bold text-white mb-2">💰 Payout Calculator</div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   {[10, 25, 50, 100].map(stake => {
                     const payout = calculatePayout(parlay.totalOdds, stake)
                     return (
-                      <div key={stake} className="flex justify-between bg-white rounded px-2 py-1.5">
-                        <span className="font-medium text-gray-700">${stake}</span>
-                        <span className="font-bold text-green-600">
+                      <div key={stake} className="flex justify-between bg-slate-700 rounded px-2 py-1.5">
+                        <span className="font-medium text-gray-300">${stake}</span>
+                        <span className="font-bold text-green-400">
                           +${payout.profit} → ${payout.totalReturn}
                         </span>
                       </div>
@@ -286,31 +286,31 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
               </div>
 
               {/* Parlay Metrics */}
-              <div className="grid grid-cols-3 gap-4 mb-4 text-center bg-gray-50 rounded-lg p-3">
+              <div className="grid grid-cols-3 gap-4 mb-4 text-center bg-slate-800 rounded-lg p-3 border border-slate-700">
                 <div>
-                  <div className="text-sm font-bold text-green-600">
+                  <div className="text-sm font-bold text-green-400">
                     {formatEdge(parlay.edge)}
                   </div>
-                  <div className="text-xs text-gray-500">Edge</div>
-                  <div className="text-xs text-gray-400 mt-1">
+                  <div className="text-xs text-gray-400">Edge</div>
+                  <div className="text-xs text-gray-500 mt-1">
                     {parlay.edge > 0.15 ? '🔥 Great!' : parlay.edge > 0.10 ? '✅ Good' : '👍 Decent'}
                   </div>
                 </div>
                 <div>
-                  <div className="text-sm font-bold text-blue-600">
+                  <div className="text-sm font-bold text-blue-400">
                     {formatProbability(parlay.probability)}
                   </div>
-                  <div className="text-xs text-gray-500">Win Chance</div>
-                  <div className="text-xs text-gray-400 mt-1">
+                  <div className="text-xs text-gray-400">Win Chance</div>
+                  <div className="text-xs text-gray-500 mt-1">
                     1 in {Math.round(1 / parlay.probability)} chance
                   </div>
                 </div>
                 <div>
-                  <div className={`text-sm font-bold ${parlay.expectedValue > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  <div className={`text-sm font-bold ${parlay.expectedValue > 0 ? 'text-green-400' : 'text-red-400'}`}>
                     {parlay.expectedValue > 0 ? '+' : ''}{parlay.expectedValue.toFixed(3)}
                   </div>
-                  <div className="text-xs text-gray-500">Expected Value</div>
-                  <div className="text-xs text-gray-400 mt-1">
+                  <div className="text-xs text-gray-400">Expected Value</div>
+                  <div className="text-xs text-gray-500 mt-1">
                     {parlay.expectedValue > 0 ? '📈 Profitable' : '📉 Negative'}
                   </div>
                 </div>
@@ -319,18 +319,18 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
               {/* Parlay Legs */}
               <div className="space-y-2">
                 {parlay.legs.map((leg, legIndex) => (
-                  <div key={legIndex} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded">
+                  <div key={legIndex} className="flex items-center justify-between py-2 px-3 bg-slate-800 rounded border border-slate-700">
                     <div className="flex items-center space-x-3">
                       <span className="text-lg">{getBetTypeIcon(leg.betType)}</span>
                       <div>
-                        <div className="text-sm font-medium text-gray-900">
+                        <div className="text-sm font-medium text-white">
                           {leg.betType === 'prop' 
                             ? `${leg.playerName} ${(leg.propType || leg.type || '').replace(/_/g, ' ')} ${leg.selection} ${leg.threshold}`
                             : `${leg.team} ${leg.betType} ${leg.selection}`
                           }
                         </div>
                         {(leg.team || leg.opponent) && (
-                          <div className="text-xs text-gray-500">
+                          <div className="text-xs text-gray-400">
                             {leg.betType === 'prop' 
                               ? (leg.team && leg.opponent ? `${leg.team} vs ${leg.opponent}` : leg.team || leg.opponent || '')
                               : leg.opponent ? `${leg.team} vs ${leg.opponent}` : leg.team || ''
@@ -340,10 +340,10 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-sm font-medium text-gray-900">
+                      <div className="text-sm font-medium text-white">
                         {formatOdds(leg.odds)}
                       </div>
-                      <div className="text-xs text-gray-500">
+                      <div className="text-xs text-gray-400">
                         {formatEdge(leg.edge)} edge
                       </div>
                     </div>
@@ -352,18 +352,18 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
-                <div className="text-xs text-gray-500">
+              <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-700">
+                <div className="text-xs text-gray-400">
                   Generated {new Date().toLocaleTimeString()}
                 </div>
                 <div className="flex space-x-2">
-                  <button className="text-blue-600 hover:text-blue-700 text-sm font-medium">
+                  <button className="text-blue-400 hover:text-blue-300 text-sm font-medium">
                     📋 Copy
                   </button>
                   <button 
                     onClick={() => saveParlay(parlay)}
                     disabled={savingParlay === parlay.id}
-                    className="text-green-600 hover:text-green-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="text-green-400 hover:text-green-300 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {savingParlay === parlay.id ? '⏳ Saving...' : '⭐ Save'}
                   </button>

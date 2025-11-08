@@ -1,48 +1,70 @@
-// Parlay Generator Page - TEMPORARILY DISABLED DURING MIGRATION
+// Parlay Generator Page - Re-enabled with Supabase
 
 'use client'
 
+import { useState } from 'react'
+import Link from 'next/link'
+import ParlayBuilder from '../../components/ParlayBuilder.js'
+import ParlayResults from '../../components/ParlayResults.js'
+
 export default function ParlaysPage() {
+  const [generatedParlays, setGeneratedParlays] = useState(null)
+
+  const handleGenerate = (parlays) => {
+    console.log('ParlaysPage: Received parlays:', parlays?.length)
+    setGeneratedParlays(parlays)
+  }
+
+  const handleParlaySaved = () => {
+    // Refresh parlay history if needed
+    console.log('Parlay saved, refreshing...')
+  }
+
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
-      <div className="container mx-auto px-4 py-16">
-        {/* Maintenance Notice */}
-        <div className="max-w-2xl mx-auto text-center">
-          <div className="bg-yellow-900/30 border border-yellow-600 rounded-lg p-8 mb-8">
-            <h1 className="text-4xl font-bold text-yellow-400 mb-4">
-              🔧 Parlay Generator Temporarily Unavailable
-            </h1>
-            <p className="text-xl text-yellow-200 mb-6">
-              We're migrating to a new database system (Supabase) to improve performance and reliability.
-            </p>
-            <div className="bg-slate-800 rounded-lg p-6 text-left">
-              <h2 className="text-lg font-semibold text-white mb-3">What's happening:</h2>
-              <ul className="space-y-2 text-slate-300">
-                <li>✅ Homepage with games - <span className="text-green-400">Working</span></li>
-                <li>✅ Today's slate - <span className="text-green-400">Working</span></li>
-                <li>✅ Game scores - <span className="text-green-400">Working</span></li>
-                <li>⏸️ Parlay generator - <span className="text-yellow-400">Migrating</span></li>
-                <li>⏸️ Player props - <span className="text-yellow-400">Migrating</span></li>
-                <li>⏸️ Validation system - <span className="text-yellow-400">Migrating</span></li>
-              </ul>
-            </div>
-            <div className="mt-6">
-              <p className="text-slate-400">
-                Expected completion: <span className="text-white font-semibold">Within 24 hours</span>
-              </p>
-              <p className="text-sm text-slate-500 mt-2">
-                This feature will be back online once the migration is complete.
-              </p>
-            </div>
-          </div>
-          
-          {/* Navigation Back */}
-          <a 
-            href="/" 
-            className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-lg transition"
+    <div className="min-h-screen bg-slate-950">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        {/* Header */}
+        <div className="mb-8">
+          <Link 
+            href="/"
+            className="inline-flex items-center text-sm font-medium text-blue-400 hover:text-blue-300 mb-4"
           >
-            ← Back to Homepage
-          </a>
+            ← Back to Home
+          </Link>
+          <div className="text-center">
+            <h1 className="text-3xl font-bold text-white">
+              🎯 Parlay Generator
+            </h1>
+            <p className="text-lg text-gray-400 mt-2">
+              Build optimized multi-leg parlays with the best betting opportunities
+            </p>
+          </div>
+        </div>
+
+        {/* Main Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          {/* Parlay Builder */}
+          <div>
+            <ParlayBuilder onGenerate={handleGenerate} />
+          </div>
+
+          {/* Parlay Results */}
+          <div>
+            <ParlayResults 
+              generatedParlays={generatedParlays} 
+              onParlaySaved={handleParlaySaved}
+            />
+          </div>
+        </div>
+
+        {/* Info Section */}
+        <div className="mt-8 p-4 bg-blue-900/20 border border-blue-500/50 rounded-lg">
+          <p className="text-sm text-blue-300">
+            <strong>💡 How it works:</strong> Select your betting strategy, sport, and parlay type. 
+            The system will generate optimized parlays based on player props and game-level bets with the best edges.
+            Parlays are sorted by win probability, quality score, or edge depending on your selected strategy.
+          </p>
         </div>
       </div>
     </div>

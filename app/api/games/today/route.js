@@ -148,7 +148,11 @@ export async function GET(req) {
       const gameEstDateFormatted = `${gameYear}-${gameMonth.padStart(2, '0')}-${gameDay.padStart(2, '0')}`
       
       // Only include if EST date matches today
-      return gameEstDateFormatted === todayStr
+      const matches = gameEstDateFormatted === todayStr
+      if (!matches) {
+        console.log(`   ❌ Filtered out ${game.id}: EST date ${gameEstDateFormatted} !== today ${todayStr}`)
+      }
+      return matches
     }) : null
     
     if (nhlGamesRaw) {
@@ -300,31 +304,50 @@ export async function GET(req) {
     })
     const nflFinal = nflFiltered
     
-    // NHL: Filter out final games from previous days (only show today's final games)
-    // Since we already queried by date range, we just need to filter out old final games
+    // NHL: Filter by EST date - only show games from today (EST)
+    // This ensures we don't show games from tomorrow or yesterday
+    // Note: We already filtered nhlGamesRaw above, but we filter again here to be safe
     const nhlFiltered = enrichedGames.filter(g => {
       if (g.sport !== 'nhl') return false
       
-      // Parse game date - extract just the date part (YYYY-MM-DD) for comparison
-      let gameDateStr
-      if (typeof g.date === 'string') {
-        // Extract date part from "2025-11-06T00:00:00" or "2025-11-06T00:00:00.000Z"
-        gameDateStr = g.date.split('T')[0]
-      } else {
-        const gameDate = new Date(g.date)
-        gameDateStr = gameDate.toISOString().split('T')[0]
-      }
+      // Parse the game date and convert to EST date string
+      const gameDateStr = g.date || ''
+      const gameDate = new Date(gameDateStr.includes('Z') || gameDateStr.includes('+') || gameDateStr.match(/[+-]\d{2}:\d{2}$/)
+        ? gameDateStr
+        : gameDateStr + 'Z')
       
-      // Compare date strings directly (YYYY-MM-DD format)
-      // Only exclude final games from dates before today
-      if (g.status === 'final' && gameDateStr < todayStr) {
+      // Get EST date string for this game
+      const gameEstDateStr = gameDate.toLocaleDateString('en-US', {
+        timeZone: 'America/New_York',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      })
+      const [gameMonth, gameDay, gameYear] = gameEstDateStr.split('/')
+      const gameEstDateFormatted = `${gameYear}-${gameMonth.padStart(2, '0')}-${gameDay.padStart(2, '0')}`
+      
+      // Only include games from today (EST date matches todayStr)
+      const matches = gameEstDateFormatted === todayStr
+      if (!matches) {
+        console.log(`   ❌ Final filter: Removed ${g.id} (${g.away?.abbr} @ ${g.home?.abbr}): EST ${gameEstDateFormatted} !== today ${todayStr}`)
+      }
+      return matches
+    })
+    
+    // Deduplicate NHL games by matchup (home vs away) - keep only the one from today
+    // This handles cases where the same matchup exists for multiple dates
+    const seenMatchups = new Set()
+    const nhlDeduplicated = nhlFiltered.filter(g => {
+      const matchupKey = `${g.away?.abbr || '?'}_at_${g.home?.abbr || '?'}`
+      if (seenMatchups.has(matchupKey)) {
+        console.log(`   ⚠️  Deduplication: Removed duplicate ${g.id} (${matchupKey})`)
         return false
       }
-      
-      // Include all other games (scheduled, live, today's finals, future games)
+      seenMatchups.add(matchupKey)
       return true
     })
-    const nhlFinal = nhlFiltered
+    
+    const nhlFinal = nhlDeduplicated
     
     // Debug: Log if games were filtered out
     const nhlBeforeFilter = enrichedGames.filter(g => g.sport === 'nhl')

@@ -7,8 +7,8 @@ export const runtime = 'nodejs'
 import { NextResponse } from 'next/server'
 import { generateSimpleParlays } from '../../../../lib/simple-parlay-generator.js'
 
-// ✅ FIXED: Import single Prisma instance instead of creating new one
-import { prisma } from '../../../../lib/db.js'
+// Note: Saving parlays to database is temporarily disabled during Supabase migration
+// Parlays are still generated and returned, just not persisted
 
 export async function POST(request) {
   try {
@@ -62,47 +62,13 @@ export async function POST(request) {
     })
 
     // Save parlays to database if requested
+    // NOTE: Temporarily disabled during Supabase migration
+    // TODO: Re-implement using Supabase when Parlay table is migrated
     const savedParlays = []
     if (saveToDatabase && parlays.length > 0) {
-      try {
-        for (const parlay of parlays) {
-          const savedParlay = await prisma.parlay.create({
-            data: {
-              sport: parlay.sport,
-              type: parlay.type,
-              legCount: parlay.legs.length,
-              totalOdds: parlay.totalOdds,
-              probability: parlay.probability,
-              edge: parlay.edge,
-              expectedValue: parlay.expectedValue,
-              confidence: parlay.confidence,
-              status: 'generated',
-              notes: `Generated parlay with ${parlay.legs.length} legs`,
-              legs: {
-                create: parlay.legs.map((leg, index) => ({
-                  gameId: leg.gameId,
-                  betType: leg.betType,
-                  selection: leg.selection,
-                  odds: leg.odds,
-                  probability: leg.probability,
-                  edge: leg.edge,
-                  confidence: leg.confidence,
-                  legOrder: index + 1,
-                  notes: leg.reasoning,
-                  playerId: leg.playerId || null,
-                  propType: leg.propType || null,
-                  threshold: leg.threshold || null
-                }))
-              }
-            }
-          })
-          savedParlays.push(savedParlay)
-        }
-        console.log(`✅ Saved ${savedParlays.length} parlays to database`)
-      } catch (error) {
-        console.error('❌ Error saving parlays to database:', error)
-        // Continue without failing the request
-      }
+      console.log(`⚠️  Parlay saving temporarily disabled during Supabase migration`)
+      // TODO: Re-implement with Supabase
+      // const savedParlays = await saveParlaysToSupabase(parlays)
     }
 
     return NextResponse.json({
@@ -119,8 +85,6 @@ export async function POST(request) {
       { error: 'Failed to generate parlays', details: error.message },
       { status: 500 }
     )
-  } finally {
-    await prisma.$disconnect()
   }
 }
 

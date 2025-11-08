@@ -2,15 +2,16 @@
 
 import Link from 'next/link'
 import { format } from 'date-fns'
-import { getAllData } from '../../lib/data-manager.js'
+import { generateEditorPicks } from '../../lib/picks.js'
 
 // Force dynamic rendering to avoid build-time database queries
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 export default async function PicksPage() {
-  // Get all data from centralized data manager (includes picks)
-  const { picks, lastUpdated } = await getAllData()
+  // Generate picks directly from Supabase
+  const picks = await generateEditorPicks()
+  const lastUpdated = new Date()
   
   return (
     <div className="min-h-screen bg-slate-950">

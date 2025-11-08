@@ -77,9 +77,35 @@ export default async function GameDetailPage({ params }) {
           {(() => {
             // Use exact same approach as slate page
             const dateStr = game.date || ''
-            const gameDate = new Date(dateStr.includes('Z') || dateStr.includes('+') || dateStr.match(/[+-]\d{2}:\d{2}$/) 
+            let gameDate = new Date(dateStr.includes('Z') || dateStr.includes('+') || dateStr.match(/[+-]\d{2}:\d{2}$/) 
               ? dateStr 
               : dateStr + 'Z')
+            
+            // Check if this is midnight UTC (00:00:00) - this is often a placeholder time
+            const isMidnightUTC = gameDate.getUTCHours() === 0 && 
+                                 gameDate.getUTCMinutes() === 0 && 
+                                 gameDate.getUTCSeconds() === 0
+            
+            // If it's midnight UTC and scheduled, show "Time TBD"
+            if (isMidnightUTC && game.status !== 'final') {
+              const estDate = gameDate.toLocaleDateString('en-US', {
+                weekday: 'long',
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric',
+                timeZone: 'America/New_York'
+              })
+              const estTime = gameDate.toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true,
+                timeZone: 'America/New_York'
+              })
+              if (estTime === '12:00 AM') {
+                return `${estDate} (Time TBD)`
+              }
+            }
+            
             // Format in EST timezone (same as slate page)
             return gameDate.toLocaleString('en-US', {
               weekday: 'long',
@@ -357,8 +383,369 @@ export default async function GameDetailPage({ params }) {
         </>
       )}
       
-      {/* NHL Matchup Analysis */}
-      {isNHL && (
+      {/* NHL Post-Game Wrap-Up - Only for finished games */}
+      {isNHL && game.status === 'final' && game.postGameStats && (() => {
+        // Find home and away team stats
+        const homeTeamId = game.home?.id?.replace('NHL_', '') || null
+        const awayTeamId = game.away?.id?.replace('NHL_', '') || null
+        
+        const homeStats = homeTeamId ? game.postGameStats[homeTeamId] : null
+        const awayStats = awayTeamId ? game.postGameStats[awayTeamId] : null
+        
+        if (!homeStats && !awayStats) return null
+        
+        return (
+          <div className="card">
+            <div className="px-6 py-4 border-b border-slate-700">
+              <h2 className="text-lg font-semibold text-white">Post-Game Wrap-Up</h2>
+              <p className="text-sm text-gray-400 mt-1">
+                Final game statistics and summary
+              </p>
+            </div>
+            <div className="p-6">
+              {/* Score Summary */}
+              <div className="mb-6 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+                <div className="flex items-center justify-between">
+                  <div className="text-center flex-1">
+                    <div className="text-2xl font-bold text-white">{game.away.abbr}</div>
+                    <div className="text-3xl font-bold text-brand-blue mt-2">{game.awayScore || 0}</div>
+                  </div>
+                  <div className="text-gray-400 mx-4">vs</div>
+                  <div className="text-center flex-1">
+                    <div className="text-2xl font-bold text-white">{game.home.abbr}</div>
+                    <div className="text-3xl font-bold text-brand-blue mt-2">{game.homeScore || 0}</div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Team Statistics Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Away Team Stats */}
+                {awayStats && (
+                  <div className="space-y-4">
+                    <h3 className="text-md font-semibold text-white border-b border-slate-700 pb-2">
+                      {awayStats.teamName || game.away.name} Statistics
+                    </h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      {awayStats.shotsOnGoal !== null && (
+                        <div>
+                          <span className="text-xs text-gray-400">Shots on Goal</span>
+                          <div className="text-lg font-semibold text-white">{awayStats.shotsOnGoal}</div>
+                        </div>
+                      )}
+                      {awayStats.powerPlayGoals !== null && awayStats.powerPlayOpportunities !== null && (
+                        <div>
+                          <span className="text-xs text-gray-400">Power Play</span>
+                          <div className="text-lg font-semibold text-white">
+                            {awayStats.powerPlayGoals}/{awayStats.powerPlayOpportunities}
+                            {awayStats.powerPlayPercentage !== null && (
+                              <span className="text-sm text-gray-400 ml-1">
+                                ({awayStats.powerPlayPercentage.toFixed(1)}%)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {awayStats.faceoffWins !== null && awayStats.faceoffTotal !== null && (
+                        <div>
+                          <span className="text-xs text-gray-400">Faceoffs</span>
+                          <div className="text-lg font-semibold text-white">
+                            {awayStats.faceoffWins}/{awayStats.faceoffTotal}
+                            {awayStats.faceoffPercentage !== null && (
+                              <span className="text-sm text-gray-400 ml-1">
+                                ({awayStats.faceoffPercentage.toFixed(1)}%)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {awayStats.hits !== null && (
+                        <div>
+                          <span className="text-xs text-gray-400">Hits</span>
+                          <div className="text-lg font-semibold text-white">{awayStats.hits}</div>
+                        </div>
+                      )}
+                      {awayStats.blockedShots !== null && (
+                        <div>
+                          <span className="text-xs text-gray-400">Blocked Shots</span>
+                          <div className="text-lg font-semibold text-white">{awayStats.blockedShots}</div>
+                        </div>
+                      )}
+                      {awayStats.takeaways !== null && (
+                        <div>
+                          <span className="text-xs text-gray-400">Takeaways</span>
+                          <div className="text-lg font-semibold text-white">{awayStats.takeaways}</div>
+                        </div>
+                      )}
+                      {awayStats.giveaways !== null && (
+                        <div>
+                          <span className="text-xs text-gray-400">Giveaways</span>
+                          <div className="text-lg font-semibold text-white">{awayStats.giveaways}</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Home Team Stats */}
+                {homeStats && (
+                  <div className="space-y-4">
+                    <h3 className="text-md font-semibold text-white border-b border-slate-700 pb-2">
+                      {homeStats.teamName || game.home.name} Statistics
+                    </h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      {homeStats.shotsOnGoal !== null && (
+                        <div>
+                          <span className="text-xs text-gray-400">Shots on Goal</span>
+                          <div className="text-lg font-semibold text-white">{homeStats.shotsOnGoal}</div>
+                        </div>
+                      )}
+                      {homeStats.powerPlayGoals !== null && homeStats.powerPlayOpportunities !== null && (
+                        <div>
+                          <span className="text-xs text-gray-400">Power Play</span>
+                          <div className="text-lg font-semibold text-white">
+                            {homeStats.powerPlayGoals}/{homeStats.powerPlayOpportunities}
+                            {homeStats.powerPlayPercentage !== null && (
+                              <span className="text-sm text-gray-400 ml-1">
+                                ({homeStats.powerPlayPercentage.toFixed(1)}%)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {homeStats.faceoffWins !== null && homeStats.faceoffTotal !== null && (
+                        <div>
+                          <span className="text-xs text-gray-400">Faceoffs</span>
+                          <div className="text-lg font-semibold text-white">
+                            {homeStats.faceoffWins}/{homeStats.faceoffTotal}
+                            {homeStats.faceoffPercentage !== null && (
+                              <span className="text-sm text-gray-400 ml-1">
+                                ({homeStats.faceoffPercentage.toFixed(1)}%)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {homeStats.hits !== null && (
+                        <div>
+                          <span className="text-xs text-gray-400">Hits</span>
+                          <div className="text-lg font-semibold text-white">{homeStats.hits}</div>
+                        </div>
+                      )}
+                      {homeStats.blockedShots !== null && (
+                        <div>
+                          <span className="text-xs text-gray-400">Blocked Shots</span>
+                          <div className="text-lg font-semibold text-white">{homeStats.blockedShots}</div>
+                        </div>
+                      )}
+                      {homeStats.takeaways !== null && (
+                        <div>
+                          <span className="text-xs text-gray-400">Takeaways</span>
+                          <div className="text-lg font-semibold text-white">{homeStats.takeaways}</div>
+                        </div>
+                      )}
+                      {homeStats.giveaways !== null && (
+                        <div>
+                          <span className="text-xs text-gray-400">Giveaways</span>
+                          <div className="text-lg font-semibold text-white">{homeStats.giveaways}</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Game Summary */}
+              {homeStats && awayStats && (
+                <div className="mt-6 p-4 bg-slate-800/30 rounded-lg border border-slate-700">
+                  <h4 className="text-sm font-semibold text-white mb-3">Game Summary</h4>
+                  <div className="space-y-2 text-sm text-gray-300">
+                    {homeStats.shotsOnGoal !== null && awayStats.shotsOnGoal !== null && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Total Shots:</span>
+                        <span className="text-white font-medium">
+                          {awayStats.shotsOnGoal + homeStats.shotsOnGoal}
+                        </span>
+                      </div>
+                    )}
+                    {homeStats.powerPlayOpportunities !== null && awayStats.powerPlayOpportunities !== null && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Total Power Plays:</span>
+                        <span className="text-white font-medium">
+                          {awayStats.powerPlayOpportunities + homeStats.powerPlayOpportunities}
+                        </span>
+                      </div>
+                    )}
+                    {homeStats.hits !== null && awayStats.hits !== null && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Total Hits:</span>
+                        <span className="text-white font-medium">
+                          {awayStats.hits + homeStats.hits}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              {/* Player Statistics */}
+              {game.postGamePlayerStats && (() => {
+                try {
+                  const playerStats = game.postGamePlayerStats
+                  
+                  // Handle different possible data structures
+                  const skaters = Array.isArray(playerStats?.skaters) 
+                    ? playerStats.skaters 
+                    : Array.isArray(playerStats?.players?.skaters)
+                    ? playerStats.players.skaters
+                    : []
+                  
+                  const goalies = Array.isArray(playerStats?.goalies)
+                    ? playerStats.goalies
+                    : Array.isArray(playerStats?.players?.goalies)
+                    ? playerStats.players.goalies
+                    : []
+                  
+                  // Get top scorers (points) - include all players with any stats
+                  const topScorers = skaters
+                    .filter(p => p && (p.points > 0 || p.goals > 0 || p.assists > 0))
+                    .slice(0, 10)
+                  
+                  // Get goalies - include all goalies
+                  const gameGoalies = goalies.filter(g => g && g.saves !== null && g.saves !== undefined)
+                  
+                  // Get penalty leaders
+                  const penaltyLeaders = skaters
+                    .filter(p => p && p.penaltyMinutes > 0)
+                    .sort((a, b) => b.penaltyMinutes - a.penaltyMinutes)
+                    .slice(0, 5)
+                  
+                  // Show debug info if no stats found
+                  if (topScorers.length === 0 && gameGoalies.length === 0 && penaltyLeaders.length === 0) {
+                    // Debug: Show what we have
+                    return (
+                      <div className="mt-6 p-4 bg-yellow-900/20 border border-yellow-500/50 rounded-lg">
+                        <p className="text-sm text-yellow-300">
+                          Player stats data available but no stats to display. 
+                          Skaters: {skaters.length}, Goalies: {goalies.length}
+                        </p>
+                      </div>
+                    )
+                  }
+                
+                return (
+                  <div className="mt-6 space-y-6">
+                    {/* Top Scorers */}
+                    {topScorers.length > 0 && (
+                      <div>
+                        <h4 className="text-md font-semibold text-white mb-3 border-b border-slate-700 pb-2">
+                          Top Scorers
+                        </h4>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-slate-700">
+                                <th className="text-left py-2 text-gray-400 font-medium">Player</th>
+                                <th className="text-center py-2 text-gray-400 font-medium">Team</th>
+                                <th className="text-center py-2 text-gray-400 font-medium">G</th>
+                                <th className="text-center py-2 text-gray-400 font-medium">A</th>
+                                <th className="text-center py-2 text-gray-400 font-medium">PTS</th>
+                                <th className="text-center py-2 text-gray-400 font-medium">SOG</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {topScorers.map((player, idx) => (
+                                <tr key={idx} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                                  <td className="py-2 text-white font-medium">{player.playerName}</td>
+                                  <td className="py-2 text-center text-gray-300">{player.teamAbbr}</td>
+                                  <td className="py-2 text-center text-white font-semibold">{player.goals}</td>
+                                  <td className="py-2 text-center text-gray-300">{player.assists}</td>
+                                  <td className="py-2 text-center text-brand-blue font-bold">{player.points}</td>
+                                  <td className="py-2 text-center text-gray-400">{player.shots}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Goalies */}
+                    {gameGoalies.length > 0 && (
+                      <div>
+                        <h4 className="text-md font-semibold text-white mb-3 border-b border-slate-700 pb-2">
+                          Goaltenders
+                        </h4>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-slate-700">
+                                <th className="text-left py-2 text-gray-400 font-medium">Goalie</th>
+                                <th className="text-center py-2 text-gray-400 font-medium">Team</th>
+                                <th className="text-center py-2 text-gray-400 font-medium">SV</th>
+                                <th className="text-center py-2 text-gray-400 font-medium">GA</th>
+                                {gameGoalies.some(g => g.savePercentage !== null) && (
+                                  <th className="text-center py-2 text-gray-400 font-medium">SV%</th>
+                                )}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {gameGoalies.map((goalie, idx) => (
+                                <tr key={idx} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                                  <td className="py-2 text-white font-medium">{goalie.playerName}</td>
+                                  <td className="py-2 text-center text-gray-300">{goalie.teamAbbr}</td>
+                                  <td className="py-2 text-center text-white font-semibold">{goalie.saves}</td>
+                                  <td className="py-2 text-center text-gray-300">{goalie.goalsAgainst !== null ? goalie.goalsAgainst : '-'}</td>
+                                  {goalie.savePercentage !== null && (
+                                    <td className="py-2 text-center text-brand-blue font-semibold">
+                                      {(goalie.savePercentage * 100).toFixed(1)}%
+                                    </td>
+                                  )}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Penalty Leaders */}
+                    {penaltyLeaders.length > 0 && (
+                      <div>
+                        <h4 className="text-md font-semibold text-white mb-3 border-b border-slate-700 pb-2">
+                          Penalty Minutes
+                        </h4>
+                        <div className="space-y-2">
+                          {penaltyLeaders.map((player, idx) => (
+                            <div key={idx} className="flex items-center justify-between p-2 bg-slate-800/30 rounded">
+                              <div>
+                                <span className="text-white font-medium">{player.playerName}</span>
+                                <span className="text-gray-400 ml-2">({player.teamAbbr})</span>
+                              </div>
+                              <div className="text-yellow-400 font-semibold">{player.penaltyMinutes} PIM</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+                } catch (error) {
+                  console.error('Error rendering player stats:', error)
+                  return (
+                    <div className="mt-6 p-4 bg-red-900/20 border border-red-500/50 rounded-lg">
+                      <p className="text-sm text-red-300">Error displaying player statistics</p>
+                    </div>
+                  )
+                }
+              })()}
+            </div>
+          </div>
+        )
+      })()}
+      
+      {/* NHL Matchup Analysis - Only show for scheduled or live games */}
+      {isNHL && game.status !== 'final' && (
         <NHLMatchupSection gameId={game.id} />
       )}
       
@@ -416,9 +803,39 @@ export default async function GameDetailPage({ params }) {
                   {(() => {
                     // Use exact same approach as slate page
                     const dateStr = game.date || ''
-                    const gameDate = new Date(dateStr.includes('Z') || dateStr.includes('+') || dateStr.match(/[+-]\d{2}:\d{2}$/) 
+                    let gameDate = new Date(dateStr.includes('Z') || dateStr.includes('+') || dateStr.match(/[+-]\d{2}:\d{2}$/) 
                       ? dateStr 
                       : dateStr + 'Z')
+                    
+                    // Check if this is midnight UTC (00:00:00) - this is often a placeholder time
+                    // If it's midnight UTC and the game is scheduled (not final), it might be missing actual time
+                    const isMidnightUTC = gameDate.getUTCHours() === 0 && 
+                                         gameDate.getUTCMinutes() === 0 && 
+                                         gameDate.getUTCSeconds() === 0
+                    
+                    // If it's midnight UTC, check if we should show "TBD" or the date only
+                    // For now, show the date/time as-is (the database should have correct times)
+                    // But log a warning if we see midnight UTC times
+                    if (isMidnightUTC && game.status !== 'final') {
+                      // This might be a placeholder - show date only or "Time TBD"
+                      const estDate = gameDate.toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        timeZone: 'America/New_York'
+                      })
+                      const estTime = gameDate.toLocaleTimeString('en-US', {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        hour12: true,
+                        timeZone: 'America/New_York'
+                      })
+                      // If time shows as 12:00 AM, it's likely a placeholder
+                      if (estTime === '12:00 AM') {
+                        return `${estDate} (Time TBD)`
+                      }
+                    }
+                    
                     return gameDate.toLocaleString('en-US', {
                       month: 'short',
                       day: 'numeric',
