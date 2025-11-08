@@ -141,7 +141,16 @@ export default function NFLMatchupSection({ gameId }) {
 }
 
 function MatchupCard({ title, advantages, teamSide }) {
-  if (!advantages || advantages.gamesAnalyzed === 0) {
+  // Check if we have any data (either historical or season stats)
+  const hasData = advantages && (
+    advantages.pointsAvg != null ||
+    advantages.totalYardsAvg != null ||
+    advantages.turnoversAvg != null ||
+    advantages.thirdDownPct != null ||
+    advantages.redZonePct != null
+  )
+  
+  if (!hasData) {
     return (
       <div className="p-4 border border-slate-700 rounded-lg bg-slate-900">
         <h4 className="font-medium text-gray-300 mb-2">{title}</h4>
@@ -172,20 +181,26 @@ function MatchupCard({ title, advantages, teamSide }) {
       <h4 className="font-medium text-white mb-3">{title}</h4>
       
       <div className="space-y-2 text-sm">
-        <div className="flex justify-between">
-          <span className="text-gray-400">Avg Points:</span>
-          <span className="font-medium text-white">{advantages.pointsAvg}</span>
-        </div>
+        {advantages.pointsAvg != null && (
+          <div className="flex justify-between">
+            <span className="text-gray-400">Avg Points:</span>
+            <span className="font-medium text-white">{advantages.pointsAvg}</span>
+          </div>
+        )}
         
-        <div className="flex justify-between">
-          <span className="text-gray-400">Avg Yards:</span>
-          <span className="font-medium text-white">{advantages.totalYardsAvg}</span>
-        </div>
+        {advantages.totalYardsAvg != null && (
+          <div className="flex justify-between">
+            <span className="text-gray-400">Avg Yards:</span>
+            <span className="font-medium text-white">{advantages.totalYardsAvg}</span>
+          </div>
+        )}
         
-        <div className="flex justify-between">
-          <span className="text-gray-400">Turnovers:</span>
-          <span className="font-medium text-white">{advantages.turnoversAvg}</span>
-        </div>
+        {advantages.turnoversAvg != null && (
+          <div className="flex justify-between">
+            <span className="text-gray-400">Turnovers:</span>
+            <span className="font-medium text-white">{advantages.turnoversAvg}</span>
+          </div>
+        )}
         
         {advantages.thirdDownPct && (
           <div className="flex justify-between">
@@ -219,7 +234,10 @@ function MatchupCard({ title, advantages, teamSide }) {
         
         <div className="mt-3 pt-2 border-t border-slate-700">
           <span className="text-xs text-gray-500">
-            Based on {advantages.gamesAnalyzed} game{advantages.gamesAnalyzed !== 1 ? 's' : ''}
+            {advantages.gamesAnalyzed > 0 
+              ? `Based on ${advantages.gamesAnalyzed} game${advantages.gamesAnalyzed !== 1 ? 's' : ''}`
+              : 'Based on current season stats'
+            }
           </span>
         </div>
       </div>

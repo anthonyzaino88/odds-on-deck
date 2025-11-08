@@ -105,30 +105,78 @@ export async function GET(req) {
       .lt('date', weekEnd.toISOString())
       .order('date', { ascending: true })
     
-    // NHL: Today only (use ISO string for proper timestamp comparison)
-    // Exclude games that are final and from previous days
+    // NHL: Today only (filter by EST date, not UTC date)
+    // Problem: Games at 8 PM EST on Nov 6 = 1 AM UTC on Nov 7, so UTC-based queries include them
+    // Solution: Query a wider range (yesterday to tomorrow in UTC), then filter by EST date
     
-    // Query NHL games - use date string format that matches database storage
-    // Database stores dates as "2025-11-06T00:00:00" (no Z), so we need to match that format
-    // Use the date string for the start, and add time component for end
-    const todayStart = `${todayStr}T00:00:00`
-    const tomorrowStart = `${tomorrowStr}T00:00:00`
+    // Query NHL games from yesterday EST (to catch late games) to tomorrow EST
+    const yesterday = new Date(today)
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1)
+    const yesterdayStr = yesterday.toISOString().split('T')[0]
+    const dayAfterTomorrow = new Date(tomorrow)
+    dayAfterTomorrow.setUTCDate(dayAfterTomorrow.getUTCDate() + 1)
+    const dayAfterTomorrowStr = dayAfterTomorrow.toISOString().split('T')[0]
     
-    console.log(`🔍 NHL Query: date >= ${todayStart} AND date < ${tomorrowStart}`)
-    const { data: nhlGames, error: nhlError } = await supabase
+    const queryStart = `${yesterdayStr}T00:00:00Z`
+    const queryEnd = `${dayAfterTomorrowStr}T23:59:59Z`
+    
+    console.log(`🔍 NHL Query: date >= ${queryStart} AND date < ${queryEnd} (then filter by EST date)`)
+    const { data: nhlGamesRaw, error: nhlError } = await supabase
       .from('Game')
       .select('*')
       .eq('sport', 'nhl')
-      .gte('date', todayStart)
-      .lt('date', tomorrowStart)
+      .gte('date', queryStart)
+      .lt('date', queryEnd)
       .order('date', { ascending: true })
     
-    if (nhlGames) {
-      console.log(`📊 NHL Query returned ${nhlGames.length} games`)
-      if (nhlGames.length > 0) {
-        console.log(`   First game: ${nhlGames[0].id} - ${nhlGames[0].date}`)
-        console.log(`   Last game: ${nhlGames[nhlGames.length - 1].id} - ${nhlGames[nhlGames.length - 1].date}`)
-        console.log(`   All game IDs: ${nhlGames.map(g => g.id).join(', ')}`)
+    // Filter by EST date - only include games where the EST date matches today
+    const nhlGames = nhlGamesRaw ? nhlGamesRaw.filter(game => {
+      // Parse the game date (could be with or without Z)
+      const gameDateStr = game.date || ''
+      const gameDate = new Date(gameDateStr.includes('Z') || gameDateStr.includes('+') || gameDateStr.match(/[+-]\d{2}:\d{2}$/)
+        ? gameDateStr
+        : gameDateStr + 'Z')
+      
+      // Get EST date string for this game
+      const gameEstDateStr = gameDate.toLocaleDateString('en-US', {
+        timeZone: 'America/New_York',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      })
+      const [gameMonth, gameDay, gameYear] = gameEstDateStr.split('/')
+      const gameEstDateFormatted = `${gameYear}-${gameMonth.padStart(2, '0')}-${gameDay.padStart(2, '0')}`
+      
+      // Only include if EST date matches today
+      return gameEstDateFormatted === todayStr
+    }) : null
+    
+    if (nhlGamesRaw) {
+      console.log(`📊 NHL Query returned ${nhlGamesRaw.length} games before EST filtering`)
+      if (nhlGames) {
+        console.log(`📊 NHL Filtered to ${nhlGames.length} games for today (EST date: ${todayStr})`)
+        if (nhlGames.length > 0) {
+          console.log(`   First game: ${nhlGames[0].id} - ${nhlGames[0].date}`)
+          console.log(`   Last game: ${nhlGames[nhlGames.length - 1].id} - ${nhlGames[nhlGames.length - 1].date}`)
+          console.log(`   All game IDs: ${nhlGames.map(g => g.id).join(', ')}`)
+        }
+        if (nhlGamesRaw.length > nhlGames.length) {
+          const filteredOut = nhlGamesRaw.filter(g => !nhlGames.includes(g))
+          console.log(`   Filtered out ${filteredOut.length} games from other dates:`)
+          filteredOut.forEach(g => {
+            const gameDateStr = g.date || ''
+            const gameDate = new Date(gameDateStr.includes('Z') || gameDateStr.includes('+') || gameDateStr.match(/[+-]\d{2}:\d{2}$/)
+              ? gameDateStr
+              : gameDateStr + 'Z')
+            const gameEstDateStr = gameDate.toLocaleDateString('en-US', {
+              timeZone: 'America/New_York',
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit'
+            })
+            console.log(`     - ${g.id} (EST: ${gameEstDateStr}, UTC: ${g.date})`)
+          })
+        }
       }
     } else {
       console.log(`⚠️  NHL Query returned null/undefined`)

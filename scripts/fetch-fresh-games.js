@@ -318,7 +318,6 @@ async function saveToSupabase(sport, games) {
     // Use UPSERT to update existing games or create new ones
     // This prevents duplicates and preserves foreign key relationships
     // Store odds migration info separately (not in upsert object)
-    const oddsToMove = []
     // Before upserting, check for existing games with same ESPN ID but different game ID
     // This prevents duplicates when dates shift due to timezone issues
     // IMPORTANT: Check ALL games first, then process in batch
