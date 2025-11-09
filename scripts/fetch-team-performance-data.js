@@ -148,22 +148,45 @@ function extractPerformanceData(data, sport) {
       }
       
       // Extract stats from the overall record
+      let totalPointsFor = null
+      let totalPointsAgainst = null
+      let gamesPlayed = null
+      
       if (overallRecord && overallRecord.stats) {
         for (const stat of overallRecord.stats) {
           const name = stat.name || ''
           const value = parseFloat(stat.value)
           
-          // Points/Goals per game
-          if (name === 'avgPointsFor' || name === 'pointsFor') {
+          // Check for per-game averages first (preferred)
+          if (name === 'avgPointsFor' || name === 'ppg') {
             performanceData.avgPointsLast10 = value
           }
-          
-          // Points/Goals against per game
-          if (name === 'avgPointsAgainst' || name === 'pointsAgainst') {
+          if (name === 'avgPointsAgainst' || name === 'oppPpg') {
             performanceData.avgPointsAllowedLast10 = value
           }
           
-          // Skip gamesPlayed - column doesn't exist in Team table
+          // Collect totals and games played to calculate averages if needed
+          if (name === 'pointsFor' || name === 'points') {
+            totalPointsFor = value
+          }
+          if (name === 'pointsAgainst' || name === 'pointsAllowed') {
+            totalPointsAgainst = value
+          }
+          if (name === 'gamesPlayed' || name === 'playedGames') {
+            gamesPlayed = value
+          }
+        }
+      }
+      
+      // Calculate per-game averages if we have totals but not averages
+      if (gamesPlayed && gamesPlayed > 0) {
+        if (!performanceData.avgPointsLast10 && totalPointsFor !== null) {
+          performanceData.avgPointsLast10 = totalPointsFor / gamesPlayed
+          console.log(`  📊 Calculated PPG: ${performanceData.avgPointsLast10.toFixed(2)} (${totalPointsFor} / ${gamesPlayed})`)
+        }
+        if (!performanceData.avgPointsAllowedLast10 && totalPointsAgainst !== null) {
+          performanceData.avgPointsAllowedLast10 = totalPointsAgainst / gamesPlayed
+          console.log(`  🛡️  Calculated PA: ${performanceData.avgPointsAllowedLast10.toFixed(2)} (${totalPointsAgainst} / ${gamesPlayed})`)
         }
       }
     }
