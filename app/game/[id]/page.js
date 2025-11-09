@@ -247,7 +247,7 @@ export default async function GameDetailPage({ params }) {
                 {h2hOdds && h2hOdds.priceHome != null && h2hOdds.priceAway != null && (
                   <StatCard
                     title="Moneyline"
-                    value={`${h2hOdds.priceHome > 0 ? '+' : ''}${h2hOdds.priceHome} / ${h2hOdds.priceAway > 0 ? '+' : ''}${h2hOdds.priceAway}`}
+                    value={`${formatOdds(h2hOdds.priceHome)} / ${formatOdds(h2hOdds.priceAway)}`}
                     subtitle={`Home / Away`}
                   />
                 )}
@@ -271,7 +271,7 @@ export default async function GameDetailPage({ params }) {
                 {h2hOdds && (
                   <StatCard
                     title="ML Odds"
-                    value={`${h2hOdds.priceHome > 0 ? '+' : ''}${h2hOdds.priceHome} / ${h2hOdds.priceAway > 0 ? '+' : ''}${h2hOdds.priceAway}`}
+                    value={`${formatOdds(h2hOdds.priceHome)} / ${formatOdds(h2hOdds.priceAway)}`}
                     subtitle="Home / Away"
                   />
                 )}
@@ -1337,10 +1337,10 @@ function OddsTable({ odds, isNFL, isNHL }) {
                       {odds.spread > 0 ? `+${odds.spread}` : odds.spread}
                     </td>
                     <td className="py-2 text-sm text-white">
-                      {odds.priceAway > 0 ? `+${odds.priceAway}` : odds.priceAway}
+                      {formatOdds(odds.priceAway)}
                     </td>
                     <td className="py-2 text-sm text-white">
-                      {odds.priceHome > 0 ? `+${odds.priceHome}` : odds.priceHome}
+                      {formatOdds(odds.priceHome)}
                     </td>
                     <td className="py-2 text-xs text-gray-400">
                       {format(new Date(odds.ts), 'h:mm a')}
