@@ -894,14 +894,30 @@ async function saveGameOdds(games, sport, date) {
           let priceAway = null, priceHome = null, spread = null, total = null
           
           if (market.key === 'h2h' && outcomes.length >= 2) {
-            priceAway = outcomes[0].price
-            priceHome = outcomes[1].price
+            // Match outcomes to teams by name
+            const awayOutcome = outcomes.find(o => 
+              o.name === game.away_team || 
+              o.name?.toLowerCase().includes(game.away_team?.toLowerCase())
+            )
+            const homeOutcome = outcomes.find(o => 
+              o.name === game.home_team || 
+              o.name?.toLowerCase().includes(game.home_team?.toLowerCase())
+            )
+            priceAway = awayOutcome?.price || outcomes[0].price
+            priceHome = homeOutcome?.price || outcomes[1].price
           } else if (market.key === 'spreads' && outcomes.length >= 2) {
-            const away = outcomes.find(o => o.name === 'Away' || o.name.includes('Away'))
-            const home = outcomes.find(o => o.name === 'Home' || o.name.includes('Home'))
-            spread = market.description ? parseFloat(market.description) : null
-            priceAway = away?.price
-            priceHome = home?.price
+            // Match outcomes to teams by name for spreads
+            const awayOutcome = outcomes.find(o => 
+              o.name === game.away_team || 
+              o.name?.toLowerCase().includes(game.away_team?.toLowerCase())
+            )
+            const homeOutcome = outcomes.find(o => 
+              o.name === game.home_team || 
+              o.name?.toLowerCase().includes(game.home_team?.toLowerCase())
+            )
+            spread = awayOutcome?.point || homeOutcome?.point || (market.description ? parseFloat(market.description) : null)
+            priceAway = awayOutcome?.price || outcomes[0]?.price
+            priceHome = homeOutcome?.price || outcomes[1]?.price
           } else if (market.key === 'totals' && outcomes.length >= 2) {
             // Try multiple fields for total value
             total = market.description ? parseFloat(market.description) : null
@@ -1140,7 +1156,8 @@ async function savePlayerProps(gameProps, sport) {
   
   console.log(`  💾 Saving player props to database (${Object.keys(eventIdToGameId).length} games mapped out of ${eventIds.length} props)...`)
   
-  let saved = 0
+  // OPTIMIZED: Collect all props first, then batch insert
+  const propsToSave = []
   
   for (const { gameId, props } of gameProps) {
     // Look up our database game ID
@@ -1186,43 +1203,73 @@ async function savePlayerProps(gameProps, sport) {
               confidence: confidence
             })
             
-            // Save to PlayerPropCache (insert only, ignore duplicates)
-            const { error } = await supabase
-              .from('PlayerPropCache')
-              .insert({
-                id: generateId(),
-                propId,
-                gameId: ourGameId,  // Use our database game ID
-                playerName,
-                type: market.key,
-                pick,
-                threshold: line,
-                odds: price,
-                probability: ourProb,
-                edge: edge,
-                confidence: confidence,
-                qualityScore: qualityScore,
-                sport,
-                bookmaker: bookmaker.title,
-                gameTime: new Date().toISOString(),
-                fetchedAt: new Date().toISOString(),
-                expiresAt: new Date(Date.now() + CACHE_DURATION.PROPS).toISOString(),
-                isStale: false
-              })
-            
-            // Ignore duplicate key errors (code 23505)
-            if (error) {
-              if (!error.code?.includes('23505')) {
-                console.error(`    ❌ Save error: ${error.message} (code: ${error.code})`)
-              }
-            } else {
-              saved++
-            }
+            // Collect prop data
+            propsToSave.push({
+              id: generateId(),
+              propId,
+              gameId: ourGameId,  // Use our database game ID
+              playerName,
+              type: market.key,
+              pick,
+              threshold: line,
+              odds: price,
+              probability: ourProb,
+              edge: edge,
+              confidence: confidence,
+              qualityScore: qualityScore,
+              sport,
+              bookmaker: bookmaker.title,
+              gameTime: new Date().toISOString(),
+              fetchedAt: new Date().toISOString(),
+              expiresAt: new Date(Date.now() + CACHE_DURATION.PROPS).toISOString(),
+              isStale: false
+            })
           }
         }
       }
     } catch (error) {
       console.error(`    ❌ Processing error: ${error.message}`)
+    }
+  }
+  
+  // DEDUPLICATE: Keep best odds for each unique propId
+  const propMap = {}
+  for (const prop of propsToSave) {
+    if (!propMap[prop.propId] || prop.odds > propMap[prop.propId].odds) {
+      propMap[prop.propId] = prop
+    }
+  }
+  const uniqueProps = Object.values(propMap)
+  
+  console.log(`  📦 Batch saving ${uniqueProps.length} unique props (${propsToSave.length} total with duplicates)...`)
+  let saved = 0
+  const BATCH_SIZE = 50
+  
+  for (let i = 0; i < uniqueProps.length; i += BATCH_SIZE) {
+    const batch = uniqueProps.slice(i, i + BATCH_SIZE)
+    
+    try {
+      const { data, error } = await supabase
+        .from('PlayerPropCache')
+        .insert(batch, { 
+          ignoreDuplicates: true
+        })
+      
+      if (error) {
+        // Ignore duplicate key errors
+        if (!error.code?.includes('23505')) {
+          console.error(`    ❌ Batch save error: ${error.message}`)
+        }
+      } else {
+        saved += batch.length
+      }
+      
+      // Progress indicator
+      if ((i + BATCH_SIZE) % 200 === 0 || i + BATCH_SIZE >= uniqueProps.length) {
+        console.log(`    ✓ Saved ${Math.min(i + BATCH_SIZE, uniqueProps.length)}/${uniqueProps.length} props`)
+      }
+    } catch (error) {
+      console.error(`    ❌ Batch error: ${error.message}`)
     }
   }
   
