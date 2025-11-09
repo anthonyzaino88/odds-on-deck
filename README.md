@@ -1,6 +1,6 @@
-# 🎲 Odds on Deck - Sports Betting Analytics Platform
+# 🎲 Odds on Deck - AI Sports Analytics Platform
 
-> **Portfolio Demo Version** - Advanced sports betting analytics with AI-powered prop picks and parlay generation.
+> **Portfolio Demo Version** - AI-powered sports analytics for MLB, NFL & NHL with player props, betting edges, and real-time odds tracking.
 
 ![Next.js](https://img.shields.io/badge/Next.js-13-black)
 ![React](https://img.shields.io/badge/React-18-blue)
@@ -13,29 +13,38 @@
 
 ## 🎯 Features
 
-### **Smart Parlay Generator**
+### **🎯 Editor's Picks**
+- Top recommended plays across all sports
+- Multi-tier quality filtering (Safe, Balanced, Value)
+- AI-generated insights for each pick
+- Separate picks by sport (NHL, NFL, MLB)
+- Moneyline, totals, and player prop recommendations
+
+### **📊 Player Prop Analytics**
+- Real-time odds from The Odds API
+- Advanced filtering by sport, confidence, edge, quality
+- Live odds display with bookmaker info
+- Projection vs. line comparison
+- 200+ props analyzed daily
+
+### **🎲 Smart Parlay Generator**
 - AI-powered prop pick selection
 - Quality score calculation (0-100)
 - Edge detection and probability analysis
-- Multi-sport support (MLB, NFL, NHL)
+- Multi-sport parlay builder
 
-### **Player Prop Analytics**
-- Real-time odds from The Odds API
-- Advanced filtering (confidence, edge, quality)
-- Projection vs. line comparison
-- Historical validation tracking
-
-### **Validation System**
-- Automatic prop result validation
-- Bayesian learning for accuracy improvement
-- Win rate and ROI tracking
+### **📈 Validation System**
+- Multi-tier prop tracking (Elite, High, Good quality)
+- Automatic result validation via ESPN API
+- Win rate and ROI tracking by sport
 - Performance analytics by prop type
+- 1,400+ props validated weekly
 
-### **Data Management**
-- CSV/JSON export for analysis
-- Database-backed prop tracking
-- Automatic data refresh (cron jobs)
-- API usage monitoring
+### **💡 Performance Insights**
+- Sport-specific accuracy metrics
+- Best/worst performing prop types
+- ROI analysis and recommendations
+- Historical trend tracking
 
 ---
 
@@ -43,11 +52,12 @@
 
 - **Frontend:** Next.js 13, React 18, TailwindCSS
 - **Backend:** Next.js API Routes
-- **Database:** Prisma ORM + SQLite (dev) / PostgreSQL (prod)
+- **Database:** Supabase (PostgreSQL)
 - **APIs:** 
-  - The Odds API (betting odds & player props)
-  - ESPN API (game stats & validation)
-  - MLB Stats API (historical data)
+  - The Odds API (betting odds & player props for MLB, NFL, NHL)
+  - ESPN API (live scores, game stats & validation for all sports)
+  - MLB Stats API (historical baseball data)
+  - Supabase Realtime (live data updates)
 
 ---
 
@@ -164,11 +174,15 @@ npm run studio       # Open Prisma Studio (DB viewer)
 
 ## 🔮 Future Enhancements
 
+- [x] Multi-sport support (MLB, NFL, NHL) ✅
+- [x] Editor's Picks with AI insights ✅
+- [x] Comprehensive validation system ✅
 - [ ] Add historical trend analysis
 - [ ] Implement user accounts & saved parlays
 - [ ] Build mobile app (React Native)
 - [ ] Add more sports (NBA, soccer)
-- [ ] Create bankroll management tools
+- [ ] Live betting odds updates
+- [ ] Bankroll management tools
 
 ---
 

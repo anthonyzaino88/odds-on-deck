@@ -3,8 +3,8 @@ import DemoBanner from '../components/DemoBanner'
 import MobileNav from '../components/MobileNav'
 
 export const metadata = {
-  title: 'Odds on Deck - MLB Matchup Analytics',
-  description: 'Advanced MLB matchup analytics and betting insights',
+  title: 'Odds on Deck - AI Sports Analytics & Betting Insights',
+  description: 'AI-powered sports analytics for MLB, NFL & NHL. Player props, betting edges, parlay generator, and real-time odds tracking.',
 }
 
 export const viewport = {
