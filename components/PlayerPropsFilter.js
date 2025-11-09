@@ -24,6 +24,34 @@ export default function PlayerPropsFilter({ props }) {
     } else if (filterMode === 'homerun') {
       // High variance props
       filtered.sort((a, b) => (b.edge || 0) - (a.edge || 0))
+    } else if (filterMode === 'power') {
+      // Power Offense: Hot teams with high win probability
+      filtered = filtered.filter(p => {
+        const ctx = p.teamContext
+        return ctx && ctx.isHotOffense && ctx.isFavored && (p.probability || 0) >= 0.50
+      })
+      filtered.sort((a, b) => (b.teamContext?.offensiveRating || 0) - (a.teamContext?.offensiveRating || 0))
+    } else if (filterMode === 'home') {
+      // Home Heroes: Players at home with strong home records
+      filtered = filtered.filter(p => {
+        const ctx = p.teamContext
+        return ctx && ctx.isHome && ctx.venueRating >= 60 && (p.probability || 0) >= 0.50
+      })
+      filtered.sort((a, b) => (b.teamContext?.venueRating || 0) - (a.teamContext?.venueRating || 0))
+    } else if (filterMode === 'scoring') {
+      // High Scoring: Props from games expected to be high scoring
+      filtered = filtered.filter(p => {
+        const ctx = p.teamContext
+        return ctx && ctx.isHighScoring && (p.probability || 0) >= 0.50
+      })
+      filtered.sort((a, b) => (b.teamContext?.expectedTotal || 0) - (a.teamContext?.expectedTotal || 0))
+    } else if (filterMode === 'matchup') {
+      // Favorable Matchup: Props against weak defenses
+      filtered = filtered.filter(p => {
+        const ctx = p.teamContext
+        return ctx && ctx.isWeakDefense && (p.probability || 0) >= 0.50
+      })
+      filtered.sort((a, b) => (b.teamContext?.defensiveMatchupRating || 0) - (a.teamContext?.defensiveMatchupRating || 0))
     }
 
     return filtered
@@ -114,6 +142,75 @@ export default function PlayerPropsFilter({ props }) {
                 </div>
               )}
             </button>
+
+            {/* Smart Filters - Team Context Based */}
+            <button
+              onClick={() => setFilterMode('power')}
+              className={`p-3 sm:p-4 rounded-lg border-2 text-left transition-all ${
+                filterMode === 'power'
+                  ? 'border-orange-500 bg-orange-900/30 text-white'
+                  : 'border-slate-700 bg-slate-800 hover:border-orange-500/50 text-gray-300'
+              }`}
+            >
+              <div className="font-semibold text-xs sm:text-sm">⚡ Power Offense</div>
+              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Hot teams</div>
+              {filterMode === 'power' && (
+                <div className="text-[10px] sm:text-xs text-orange-400 mt-1 sm:mt-2 font-medium">
+                  {filteredProps.length} props
+                </div>
+              )}
+            </button>
+
+            <button
+              onClick={() => setFilterMode('home')}
+              className={`p-3 sm:p-4 rounded-lg border-2 text-left transition-all ${
+                filterMode === 'home'
+                  ? 'border-cyan-500 bg-cyan-900/30 text-white'
+                  : 'border-slate-700 bg-slate-800 hover:border-cyan-500/50 text-gray-300'
+              }`}
+            >
+              <div className="font-semibold text-xs sm:text-sm">🏠 Home Heroes</div>
+              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Home advantage</div>
+              {filterMode === 'home' && (
+                <div className="text-[10px] sm:text-xs text-cyan-400 mt-1 sm:mt-2 font-medium">
+                  {filteredProps.length} props
+                </div>
+              )}
+            </button>
+
+            <button
+              onClick={() => setFilterMode('scoring')}
+              className={`p-3 sm:p-4 rounded-lg border-2 text-left transition-all ${
+                filterMode === 'scoring'
+                  ? 'border-red-500 bg-red-900/30 text-white'
+                  : 'border-slate-700 bg-slate-800 hover:border-red-500/50 text-gray-300'
+              }`}
+            >
+              <div className="font-semibold text-xs sm:text-sm">🎯 High Scoring</div>
+              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">48+ expected</div>
+              {filterMode === 'scoring' && (
+                <div className="text-[10px] sm:text-xs text-red-400 mt-1 sm:mt-2 font-medium">
+                  {filteredProps.length} props
+                </div>
+              )}
+            </button>
+
+            <button
+              onClick={() => setFilterMode('matchup')}
+              className={`p-3 sm:p-4 rounded-lg border-2 text-left transition-all ${
+                filterMode === 'matchup'
+                  ? 'border-pink-500 bg-pink-900/30 text-white'
+                  : 'border-slate-700 bg-slate-800 hover:border-pink-500/50 text-gray-300'
+              }`}
+            >
+              <div className="font-semibold text-xs sm:text-sm">🎪 Weak Defense</div>
+              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Soft matchup</div>
+              {filterMode === 'matchup' && (
+                <div className="text-[10px] sm:text-xs text-pink-400 mt-1 sm:mt-2 font-medium">
+                  {filteredProps.length} props
+                </div>
+              )}
+            </button>
           </div>
 
           {/* Mode Description */}
@@ -123,6 +220,10 @@ export default function PlayerPropsFilter({ props }) {
               {filterMode === 'balanced' && '⚖️ Showing props with optimal quality scores (45%+ probability, 5%+ edge). Best overall picks.'}
               {filterMode === 'value' && '💰 Showing props with 15%+ edge. These are market inefficiencies with higher potential value.'}
               {filterMode === 'homerun' && '🎰 Showing all props sorted by edge. Includes higher-variance opportunities.'}
+              {filterMode === 'power' && '⚡ Showing props from teams with hot offenses (28+ PPG NFL, 3.5+ GPG NHL) and 55%+ win probability. Offensive powerhouses.'}
+              {filterMode === 'home' && '🏠 Showing props from players at home with strong home records (65%+ win rate). Home field advantage matters!'}
+              {filterMode === 'scoring' && '🎯 Showing props from high-scoring games (48+ expected points NFL, 6.5+ NHL). More opportunities for player production.'}
+              {filterMode === 'matchup' && '🎪 Showing props against weak defenses (26+ PPG allowed NFL, 3.5+ GA NHL). Favorable matchups for big performances.'}
             </p>
           </div>
         </div>
@@ -175,7 +276,14 @@ export default function PlayerPropsFilter({ props }) {
               🔥 Top Props
             </h2>
             <p className="text-xs sm:text-sm text-gray-400 mt-1">
-              {filterMode === 'safe' ? 'Safest' : filterMode === 'balanced' ? 'Best Quality' : filterMode === 'value' ? 'Best Value' : 'Highest Edge'}
+              {filterMode === 'safe' && 'Safest'}
+              {filterMode === 'balanced' && 'Best Quality'}
+              {filterMode === 'value' && 'Best Value'}
+              {filterMode === 'homerun' && 'Highest Edge'}
+              {filterMode === 'power' && 'Power Offenses'}
+              {filterMode === 'home' && 'Home Advantage'}
+              {filterMode === 'scoring' && 'High Scoring Games'}
+              {filterMode === 'matchup' && 'Weak Defense Matchups'}
             </p>
           </div>
           <div className="p-3 sm:p-6">
@@ -379,11 +487,35 @@ function PlayerPropCard({ prop, rank }) {
               #{rank}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="font-semibold text-sm sm:text-base text-white truncate">
-                {prop.playerName}
+              <div className="flex items-center gap-2">
+                <div className="font-semibold text-sm sm:text-base text-white truncate">
+                  {prop.playerName}
+                </div>
+                {/* Team Context Badges */}
+                {prop.teamContext && (
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {prop.teamContext.isHotOffense && (
+                      <span className="text-xs" title={`Hot Offense: ${prop.teamContext.formattedOffense}`}>🔥</span>
+                    )}
+                    {prop.teamContext.isHome && prop.teamContext.venueRating >= 65 && (
+                      <span className="text-xs" title="Strong Home Record">🏠</span>
+                    )}
+                    {prop.teamContext.isHighScoring && (
+                      <span className="text-xs" title={`High Scoring Game: ${prop.teamContext.formattedTotal}`}>⚡</span>
+                    )}
+                    {prop.teamContext.isWeakDefense && (
+                      <span className="text-xs" title={`Weak Defense: ${prop.teamContext.formattedDefense}`}>🎯</span>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="text-xs sm:text-sm text-gray-400">
                 {prop.pick?.toUpperCase()} {prop.threshold} {(prop.type || '').replace(/_/g, ' ')}
+                {prop.teamContext && (
+                  <span className="text-gray-500 ml-1">
+                    • {prop.teamContext.team} {prop.teamContext.isHome ? 'vs' : '@'} {prop.teamContext.opponent}
+                  </span>
+                )}
               </div>
               {displayOdds && (
                 <div className="flex items-center gap-2 mt-1">

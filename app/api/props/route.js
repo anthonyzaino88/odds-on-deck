@@ -2,6 +2,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabase } from '../../../lib/supabase.js'
+import { enrichPropsWithTeamContext } from '../../../lib/prop-enrichment.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -84,10 +85,13 @@ export async function GET(request) {
       isSaved: savedPropIds.has(prop.propId) // Flag if already saved
     }))
     
+    // Enrich props with team context (offensive power, win probability, etc.)
+    const enrichedProps = await enrichPropsWithTeamContext(props)
+    
     return NextResponse.json({
       success: true,
-      props,
-      count: props.length
+      props: enrichedProps,
+      count: enrichedProps.length
     })
     
   } catch (error) {
