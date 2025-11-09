@@ -1,721 +1,330 @@
-# Validation System Guide
+# Prop Validation System Guide
 
-## ✅ System Status: **WORKING**
+## Overview
 
-Your validation system is functioning correctly for all three sports (MLB, NFL, NHL).
+The validation system tracks the performance of all player prop predictions to measure model accuracy and improve future predictions.
 
----
+## Current System Architecture
 
-## 📊 Recent Validation Results
+### 1. Data Flow
 
-**Last Validation: October 30, 2025**
-
-- ✅ **136 MLB props validated** from World Series Game 3 (TOR @ LAD, Oct 29)
-- ⏳ **408 NFL props pending** (games scheduled for Oct 30-31 & Nov 2)
-- ⚠️ **22 NHL props marked "needs_review"** (player stats unavailable from API)
-
----
-
-## 🎯 How the Validation System Works
-
-### Automatic Validation
-
-1. **Prop Predictions are Saved** when you generate parlays or save props
-2. **Games are Monitored** for completion (status = "final" or date = yesterday)
-3. **Stats are Fetched** from free APIs (ESPN for MLB, ESPN for NFL/NHL)
-4. **Results are Calculated** (correct/incorrect/push)
-5. **Database is Updated** with actual values and outcomes
-
-### Manual Validation
-
-You can manually trigger validation checks:
-
-```bash
-# Check what props are ready to validate
-npm run check-validations
-
-# Validate all ready props
-npm run validate
+```
+PlayerPropCache (Top Props) → PropValidation (Tracking) → Validation (Results)
+       ↓
+User Saves Prop → PropValidation
+       ↓
+User Creates Parlay → PropValidation (one record per leg)
 ```
 
-Or use the **"Check for Completed Games"** button in the Validation Dashboard at `/validation`.
+### 2. Prop Sources Tracked
 
----
+**Three sources of props are saved for validation:**
 
-## 📍 Where to View Results
+#### A. System-Generated Props (`source: 'system_generated'`)
+- **How**: Automatically saved via `scripts/save-top-props-for-validation.js`
+- **When**: Run daily before games start
+- **What**: Up to 200 props across multiple quality tiers from `PlayerPropCache`
+- **Criteria**: 
+  - **Elite Tier (50 props)**: Quality Score ≥ 75, Probability ≥ 60%
+  - **High Tier (75 props)**: Quality Score 65-74, Probability ≥ 55%
+  - **Good Tier (75 props)**: Quality Score 55-64, Probability ≥ 52%
+  - Not expired
+- **Purpose**: Track performance across quality tiers for comprehensive model improvement
 
-### Validation Dashboard
-**URL**: `http://localhost:3000/validation`
+#### B. User-Saved Props (`source: 'user_saved'`)
+- **How**: When users click "Save Prop" button
+- **API**: `/api/props/save`
+- **Purpose**: Track what users find valuable and their outcomes
 
-Shows:
-- Overall accuracy statistics
-- Pending props waiting for games to finish
-- Completed validations with results
-- Props that need manual review
-- Breakdown by source (user saved, parlay legs, system generated)
+#### C. Parlay Leg Props (`source: 'parlay_leg'`)
+- **How**: When users save multi-leg parlays
+- **API**: `/api/parlays/save`
+- **Purpose**: Track performance of parlayed props
+- **Note**: Each parlay leg gets its own `PropValidation` record
 
-### Insights Page
-**URL**: `http://localhost:3000/insights`
+## Database Schema
 
-Shows:
-- Advanced accuracy metrics
-- Performance by sport, prop type, prediction direction
-- Edge analysis
-- Quality score correlations
-- Time-based trends
+### PropValidation Table
 
----
-
-## 🔧 Command Reference
-
-### Check Validation Status
-```bash
-npm run check-validations
-```
-**What it does:**
-- Shows how many props are pending
-- Identifies which props are ready to validate
-- Shows which props are waiting for games to finish
-- Flags issues (missing game IDs, orphaned props, etc.)
-
-### Run Validation
-```bash
-npm run validate
-```
-**What it does:**
-- Validates all props from completed games
-- Fetches actual stats from APIs
-- Updates database with results
-- Shows live progress with ✅/❌ indicators
-
-### View in Browser
-```bash
-# Start dev server
-npm run dev
-
-# Visit validation dashboard
-# http://localhost:3000/validation
-
-# Click "Check for Completed Games" button
-```
-
----
-
-## 📋 Validation States
-
-### `pending`
-- Game hasn't finished yet
-- Waiting for completion
-- **Action**: None needed, will auto-validate when ready
-
-### `completed`
-- Game finished and stat was found
-- Result calculated (correct/incorrect/push)
-- **Action**: None, validation successful
-
-### `needs_review`
-- Game finished but stat couldn't be fetched
-- Could be due to:
-  - Player didn't play
-  - API doesn't have the stat
-  - Player name mismatch
-- **Action**: Manual verification needed
-
----
-
-## 🎮 Sport-Specific Details
-
-### MLB Validation
-- **API**: ESPN MLB Stats API
-- **Game ID**: Uses `mlbGameId` field
-- **Status**: ✅ Fully working
-- **Props Supported**: 
-  - hits, rbis, runs, total_bases
-  - strikeouts, innings_pitched, earned_runs, hits_allowed
-  - batter_walks, etc.
-
-### NFL Validation
-- **API**: ESPN NFL Stats API
-- **Game ID**: Uses `espnGameId` field
-- **Status**: ✅ Fully working (waiting for games to finish)
-- **Props Supported**:
-  - passing_yards, passing_touchdowns, passing_interceptions
-  - rushing_yards, rushing_attempts
-  - receiving_yards, receptions
-  - kicking_points, etc.
-
-### NHL Validation
-- **API**: ESPN NHL Stats API
-- **Game ID**: Uses `espnGameId` field
-- **Status**: ⚠️ Limited (player name matching issues)
-- **Props Supported**:
-  - goals, assists, points
-  - shots, blocked_shots
-  - saves (for goalies)
-
-**Known Issue**: NHL player names from The Odds API don't always match ESPN roster names exactly, causing some validations to fail. These are marked "needs_review".
-
----
-
-## 🔍 Troubleshooting
-
-### "No props are validating"
-
-**Run diagnostic:**
-```bash
-npm run check-validations
-```
-
-**Common causes:**
-1. **Games haven't finished yet** → Wait for game completion
-2. **Game status not updated** → Game might be marked "in_progress" but is actually over
-3. **Missing game IDs** → `mlbGameId` or `espnGameId` not set on Game record
-
-**Fix:**
-- Wait for games to finish (automatic)
-- Game status updates on next data refresh
-- Ensure `espnGameId` and `mlbGameId` are captured when creating games
-
-### "Stats not found for player"
-
-**Possible reasons:**
-1. Player didn't play in that game
-2. Player name doesn't match API roster
-3. API doesn't have that stat
-
-**Marked as**: `needs_review`
-
-**Manual verification:**
-- Check box score for actual stat
-- Update validation record manually if needed
-
-### "Validation says incorrect but looks right"
-
-**Check:**
-1. Prediction direction (`over` vs `under`)
-2. Threshold value
-3. Actual value fetched from API
-
-**Example:**
-```
-Prediction: passing_yards OVER 250.5
-Actual: 248 yards
-Result: INCORRECT ❌
-```
-This is correct behavior.
-
----
-
-## 📊 Accuracy Metrics
-
-### What "Accuracy" Means
-
-**Formula**: `Correct Predictions / Total Completed Validations`
-
-- **Correct**: Prediction matched actual outcome
-- **Push**: Actual value exactly equals threshold (rare, counts as neutral)
-- **Incorrect**: Prediction was wrong
-
-### Expected Accuracy
-
-For betting props:
-- **50-55%** = Good (beating the bookmaker)
-- **60%+** = Excellent (professional level)
-- **Below 50%** = Need to adjust model
-
-Remember: Bookmakers aim for 50/50 action, so even 52-53% accuracy can be profitable with good odds.
-
----
-
-## 🚀 Integration with Deployment
-
-### Vercel Deployment
-
-Validation works on Vercel **after games finish**.
-
-**Important**: Make sure your production PostgreSQL database has:
-- Correct `mlbGameId` and `espnGameId` values on Game records
-- PropValidation records are being created when props are generated
-- Cron job or manual trigger to run validations
-
-### Cron Job (Optional)
-
-You can add a cron job to auto-validate:
-
-```json
-// vercel.json
+```javascript
 {
-  "crons": [
-    {
-      "path": "/api/validation/auto-check",
-      "schedule": "0 * * * *"  // Every hour
-    }
-  ]
+  id: string,                    // Unique validation ID
+  propId: string,                // References prop from cache/parlay
+  gameIdRef: string,             // References Game.id
+  playerName: string,            // Player name
+  propType: string,              // 'hits', 'strikeouts', 'goals', etc.
+  threshold: number,             // The line (e.g., 1.5 goals)
+  prediction: string,            // 'over' or 'under'
+  projectedValue: number,        // Our model's projection
+  confidence: string,            // 'low', 'medium', 'high', 'very_high'
+  edge: number,                  // Betting edge (0-1)
+  odds: number,                  // American odds
+  probability: number,           // Win probability (0-1)
+  qualityScore: number,          // Overall quality (0-100)
+  source: string,                // 'system_generated', 'user_saved', 'parlay_leg'
+  parlayId: string | null,       // If from parlay
+  status: string,                // 'pending', 'completed', 'needs_review'
+  sport: string,                 // 'mlb', 'nhl', 'nfl'
+  timestamp: datetime,           // When prediction was made
+  actualValue: number | null,    // Actual stat value (filled after game)
+  result: string | null,         // 'correct', 'incorrect', 'push'
+  completedAt: datetime | null   // When validation completed
 }
 ```
 
-Then create the API endpoint to call validation logic.
+## Validation Process
 
----
+### Step 1: Save Props for Validation
 
-## 🎯 Best Practices
+**Automatic (System-Generated):**
+```bash
+# Run daily before games start (e.g., 10 AM)
+node scripts/save-top-props-for-validation.js
+```
 
-### 1. **Wait for Official Final**
-Don't force-validate games that just ended. Wait for official "final" status to ensure all stats are recorded.
+**Manual (User Actions):**
+- User clicks "Save Prop" → Immediately saved
+- User creates parlay → All legs saved
 
-### 2. **Review "Needs Review" Props**
-Props marked `needs_review` might have valid results - check manually when you have time.
+### Step 2: Games Complete
 
-### 3. **Track Accuracy Over Time**
-Use the Insights page to see if your model is improving or degrading.
+Props move to `status: 'needs_review'` when games end
 
-### 4. **Focus on High-Confidence Props**
-Props with higher `qualityScore` or `confidence` should validate better.
+### Step 3: Fetch Game Stats
 
-### 5. **Sport-Specific Strategies**
-- **MLB**: Most reliable validation (98%+ success rate)
-- **NFL**: Very reliable (95%+ success rate)
-- **NHL**: Good but some name matching issues (~70% auto-validate, rest needs review)
+**Automatic validation check:**
+```bash
+# Runs periodically (e.g., every 30 minutes)
+POST /api/validation/check
+```
 
----
+**Manual validation:**
+```bash
+# Force check all pending props
+node scripts/check-and-validate-props.js
+```
 
-## 📝 Manual Validation (If Needed)
+### Step 4: Update Results
 
-If a prop is stuck in `pending` or `needs_review`, you can manually update it:
+For each prop:
+1. Fetch player's actual game stats from ESPN API
+2. Compare actual value to threshold
+3. Determine result:
+   - `correct`: Prediction matched actual outcome
+   - `incorrect`: Prediction didn't match
+   - `push`: Actual value exactly equals threshold
+4. Update `PropValidation` record with result
 
+### Step 5: Track Performance
+
+View validation dashboard:
+- Overall accuracy by sport
+- Performance by prop type
+- ROI and edge analysis
+- Best/worst performing categories
+
+## Scripts Reference
+
+### Daily Operations
+
+**1. Save Top Props for Validation**
+```bash
+node scripts/save-top-props-for-validation.js
+```
+- **When**: Daily before games (10 AM recommended)
+- **What**: Saves up to 200 props across 3 quality tiers
+- **Why**: Tracks model performance with large sample size for statistical significance
+
+**2. Validate Completed Props**
+```bash
+# Check all pending props
+curl -X POST http://localhost:3000/api/validation/check
+
+# Or via script
+node scripts/check-and-validate-props.js
+```
+- **When**: Every 30-60 minutes during/after games
+- **What**: Fetches stats and validates results
+- **Why**: Keeps validation data current
+
+### Maintenance Scripts
+
+**Check Validation Status**
+```bash
+node scripts/check-validation-status.js
+```
+Shows counts by status (pending, completed, needs_review)
+
+**Revalidate Specific Props**
+```bash
+node scripts/revalidate-props.js --sport nhl --date 2024-11-09
+```
+Re-runs validation for specific date/sport
+
+**Clean Up Orphaned Props**
+```bash
+node scripts/cleanup-orphaned-props.js
+```
+Removes props referencing non-existent games
+
+## Cron Job Setup
+
+Add to your cron schedule or task scheduler:
+
+```bash
+# Save top props daily at 10 AM (before most games)
+0 10 * * * cd /path/to/project && node scripts/save-top-props-for-validation.js >> logs/validation.log 2>&1
+
+# Check and validate props every 30 minutes (during game hours)
+*/30 14-23 * * * cd /path/to/project && curl -X POST http://localhost:3000/api/validation/check >> logs/validation-check.log 2>&1
+
+# Cleanup orphaned props weekly (Sunday 3 AM)
+0 3 * * 0 cd /path/to/project && node scripts/cleanup-orphaned-props.js >> logs/cleanup.log 2>&1
+```
+
+## API Endpoints
+
+### GET /api/validation/stats
+Get validation statistics
 ```javascript
-// In Prisma Studio or via script
-await prisma.propValidation.update({
-  where: { id: 'prop_id_here' },
-  data: {
-    actualValue: 2.5,  // The actual stat value
-    result: 'correct',  // or 'incorrect' or 'push'
-    status: 'completed',
-    completedAt: new Date(),
-    notes: 'Manually verified from box score'
-  }
-})
-```
-
----
-
-## 🆘 Need Help?
-
-### Check Logs
-```bash
-# Run validation with full output
-npm run validate
-
-# Check Vercel Function Logs (production)
-# Vercel Dashboard → Deployments → Function Logs
-```
-
-### Database Inspection
-```bash
-# Open Prisma Studio
-npm run prisma:studio
-
-# Check PropValidation table
-# Filter by status: 'pending', 'needs_review', 'completed'
-```
-
-### Common Errors
-
-**"Game not found"**
-- The `gameIdRef` doesn't match any Game record
-- Check if the Game exists in the database
-
-**"No mlbGameId/espnGameId"**
-- The game record is missing the required ID
-- Re-fetch the game data or add the ID manually
-
-**"Player not found"**
-- Player name doesn't match API roster
-- Common with NHL due to name formatting
-
----
-
-## ✅ Summary
-
-Your validation system is **fully operational** for MLB and NFL, with limited NHL support due to name matching issues.
-
-**Current Status:**
-- ✅ 136 MLB props validated (World Series Game 3)
-- ⏳ 408 NFL props waiting for games to finish
-- ⚠️ 22 NHL props need manual review
-
-**Commands:**
-```bash
-npm run check-validations  # Check status
-npm run validate           # Run validation
-```
-
-**Web Interface:**
-- `/validation` - Dashboard
-- `/insights` - Advanced analytics
-
----
-
-*Last Updated: October 30, 2025*  
-*All systems operational* ✅
-
-
-## ✅ System Status: **WORKING**
-
-Your validation system is functioning correctly for all three sports (MLB, NFL, NHL).
-
----
-
-## 📊 Recent Validation Results
-
-**Last Validation: October 30, 2025**
-
-- ✅ **136 MLB props validated** from World Series Game 3 (TOR @ LAD, Oct 29)
-- ⏳ **408 NFL props pending** (games scheduled for Oct 30-31 & Nov 2)
-- ⚠️ **22 NHL props marked "needs_review"** (player stats unavailable from API)
-
----
-
-## 🎯 How the Validation System Works
-
-### Automatic Validation
-
-1. **Prop Predictions are Saved** when you generate parlays or save props
-2. **Games are Monitored** for completion (status = "final" or date = yesterday)
-3. **Stats are Fetched** from free APIs (ESPN for MLB, ESPN for NFL/NHL)
-4. **Results are Calculated** (correct/incorrect/push)
-5. **Database is Updated** with actual values and outcomes
-
-### Manual Validation
-
-You can manually trigger validation checks:
-
-```bash
-# Check what props are ready to validate
-npm run check-validations
-
-# Validate all ready props
-npm run validate
-```
-
-Or use the **"Check for Completed Games"** button in the Validation Dashboard at `/validation`.
-
----
-
-## 📍 Where to View Results
-
-### Validation Dashboard
-**URL**: `http://localhost:3000/validation`
-
-Shows:
-- Overall accuracy statistics
-- Pending props waiting for games to finish
-- Completed validations with results
-- Props that need manual review
-- Breakdown by source (user saved, parlay legs, system generated)
-
-### Insights Page
-**URL**: `http://localhost:3000/insights`
-
-Shows:
-- Advanced accuracy metrics
-- Performance by sport, prop type, prediction direction
-- Edge analysis
-- Quality score correlations
-- Time-based trends
-
----
-
-## 🔧 Command Reference
-
-### Check Validation Status
-```bash
-npm run check-validations
-```
-**What it does:**
-- Shows how many props are pending
-- Identifies which props are ready to validate
-- Shows which props are waiting for games to finish
-- Flags issues (missing game IDs, orphaned props, etc.)
-
-### Run Validation
-```bash
-npm run validate
-```
-**What it does:**
-- Validates all props from completed games
-- Fetches actual stats from APIs
-- Updates database with results
-- Shows live progress with ✅/❌ indicators
-
-### View in Browser
-```bash
-# Start dev server
-npm run dev
-
-# Visit validation dashboard
-# http://localhost:3000/validation
-
-# Click "Check for Completed Games" button
-```
-
----
-
-## 📋 Validation States
-
-### `pending`
-- Game hasn't finished yet
-- Waiting for completion
-- **Action**: None needed, will auto-validate when ready
-
-### `completed`
-- Game finished and stat was found
-- Result calculated (correct/incorrect/push)
-- **Action**: None, validation successful
-
-### `needs_review`
-- Game finished but stat couldn't be fetched
-- Could be due to:
-  - Player didn't play
-  - API doesn't have the stat
-  - Player name mismatch
-- **Action**: Manual verification needed
-
----
-
-## 🎮 Sport-Specific Details
-
-### MLB Validation
-- **API**: ESPN MLB Stats API
-- **Game ID**: Uses `mlbGameId` field
-- **Status**: ✅ Fully working
-- **Props Supported**: 
-  - hits, rbis, runs, total_bases
-  - strikeouts, innings_pitched, earned_runs, hits_allowed
-  - batter_walks, etc.
-
-### NFL Validation
-- **API**: ESPN NFL Stats API
-- **Game ID**: Uses `espnGameId` field
-- **Status**: ✅ Fully working (waiting for games to finish)
-- **Props Supported**:
-  - passing_yards, passing_touchdowns, passing_interceptions
-  - rushing_yards, rushing_attempts
-  - receiving_yards, receptions
-  - kicking_points, etc.
-
-### NHL Validation
-- **API**: ESPN NHL Stats API
-- **Game ID**: Uses `espnGameId` field
-- **Status**: ⚠️ Limited (player name matching issues)
-- **Props Supported**:
-  - goals, assists, points
-  - shots, blocked_shots
-  - saves (for goalies)
-
-**Known Issue**: NHL player names from The Odds API don't always match ESPN roster names exactly, causing some validations to fail. These are marked "needs_review".
-
----
-
-## 🔍 Troubleshooting
-
-### "No props are validating"
-
-**Run diagnostic:**
-```bash
-npm run check-validations
-```
-
-**Common causes:**
-1. **Games haven't finished yet** → Wait for game completion
-2. **Game status not updated** → Game might be marked "in_progress" but is actually over
-3. **Missing game IDs** → `mlbGameId` or `espnGameId` not set on Game record
-
-**Fix:**
-- Wait for games to finish (automatic)
-- Game status updates on next data refresh
-- Ensure `espnGameId` and `mlbGameId` are captured when creating games
-
-### "Stats not found for player"
-
-**Possible reasons:**
-1. Player didn't play in that game
-2. Player name doesn't match API roster
-3. API doesn't have that stat
-
-**Marked as**: `needs_review`
-
-**Manual verification:**
-- Check box score for actual stat
-- Update validation record manually if needed
-
-### "Validation says incorrect but looks right"
-
-**Check:**
-1. Prediction direction (`over` vs `under`)
-2. Threshold value
-3. Actual value fetched from API
-
-**Example:**
-```
-Prediction: passing_yards OVER 250.5
-Actual: 248 yards
-Result: INCORRECT ❌
-```
-This is correct behavior.
-
----
-
-## 📊 Accuracy Metrics
-
-### What "Accuracy" Means
-
-**Formula**: `Correct Predictions / Total Completed Validations`
-
-- **Correct**: Prediction matched actual outcome
-- **Push**: Actual value exactly equals threshold (rare, counts as neutral)
-- **Incorrect**: Prediction was wrong
-
-### Expected Accuracy
-
-For betting props:
-- **50-55%** = Good (beating the bookmaker)
-- **60%+** = Excellent (professional level)
-- **Below 50%** = Need to adjust model
-
-Remember: Bookmakers aim for 50/50 action, so even 52-53% accuracy can be profitable with good odds.
-
----
-
-## 🚀 Integration with Deployment
-
-### Vercel Deployment
-
-Validation works on Vercel **after games finish**.
-
-**Important**: Make sure your production PostgreSQL database has:
-- Correct `mlbGameId` and `espnGameId` values on Game records
-- PropValidation records are being created when props are generated
-- Cron job or manual trigger to run validations
-
-### Cron Job (Optional)
-
-You can add a cron job to auto-validate:
-
-```json
-// vercel.json
 {
-  "crons": [
-    {
-      "path": "/api/validation/auto-check",
-      "schedule": "0 * * * *"  // Every hour
-    }
-  ]
+  overall: { total, correct, accuracy, roi },
+  byPropType: { ... },
+  bySport: { ... }
 }
 ```
 
-Then create the API endpoint to call validation logic.
-
----
-
-## 🎯 Best Practices
-
-### 1. **Wait for Official Final**
-Don't force-validate games that just ended. Wait for official "final" status to ensure all stats are recorded.
-
-### 2. **Review "Needs Review" Props**
-Props marked `needs_review` might have valid results - check manually when you have time.
-
-### 3. **Track Accuracy Over Time**
-Use the Insights page to see if your model is improving or degrading.
-
-### 4. **Focus on High-Confidence Props**
-Props with higher `qualityScore` or `confidence` should validate better.
-
-### 5. **Sport-Specific Strategies**
-- **MLB**: Most reliable validation (98%+ success rate)
-- **NFL**: Very reliable (95%+ success rate)
-- **NHL**: Good but some name matching issues (~70% auto-validate, rest needs review)
-
----
-
-## 📝 Manual Validation (If Needed)
-
-If a prop is stuck in `pending` or `needs_review`, you can manually update it:
-
+### POST /api/validation/check
+Trigger validation check for pending props
 ```javascript
-// In Prisma Studio or via script
-await prisma.propValidation.update({
-  where: { id: 'prop_id_here' },
-  data: {
-    actualValue: 2.5,  // The actual stat value
-    result: 'correct',  // or 'incorrect' or 'push'
-    status: 'completed',
-    completedAt: new Date(),
-    notes: 'Manually verified from box score'
-  }
-})
+{
+  checked: 42,
+  validated: 38,
+  needsReview: 4
+}
 ```
 
----
-
-## 🆘 Need Help?
-
-### Check Logs
-```bash
-# Run validation with full output
-npm run validate
-
-# Check Vercel Function Logs (production)
-# Vercel Dashboard → Deployments → Function Logs
+### GET /api/validation/records
+Get validation records with filters
+```javascript
+?sport=nhl&status=completed&limit=100
 ```
 
-### Database Inspection
-```bash
-# Open Prisma Studio
-npm run prisma:studio
+## Monitoring
 
-# Check PropValidation table
-# Filter by status: 'pending', 'needs_review', 'completed'
+### Key Metrics to Watch
+
+**1. Overall Accuracy**
+- Target: ≥ 55% (better than implied odds)
+- Alert if < 50% over 100+ props
+
+**2. ROI (Return on Investment)**
+- Target: Positive ROI across all tracked props
+- Formula: `(wins * avgOdds - losses) / total_bets`
+
+**3. Props Stuck in "needs_review"**
+- Should be < 5% of completed games
+- Indicates API issues or missing data
+
+**4. Quality Score Correlation**
+- Higher quality scores should have higher win rates
+- If not, model needs recalibration
+
+### Dashboard Access
+
+**Validation Dashboard:**
+```
+http://localhost:3000/validation
 ```
 
-### Common Errors
+Shows:
+- Overall performance stats
+- Sport-specific breakdown
+- Prop type performance
+- Recent predictions and results
+- Props needing review
 
-**"Game not found"**
-- The `gameIdRef` doesn't match any Game record
-- Check if the Game exists in the database
+## Troubleshooting
 
-**"No mlbGameId/espnGameId"**
-- The game record is missing the required ID
-- Re-fetch the game data or add the ID manually
+### Props Not Validating
 
-**"Player not found"**
-- Player name doesn't match API roster
-- Common with NHL due to name formatting
+**Problem**: Props stuck in "pending" or "needs_review"
 
----
+**Solutions**:
+1. Check game status: `SELECT * FROM Game WHERE id = 'game-id'`
+2. Verify ESPN Game ID exists
+3. Manually fetch stats: `node scripts/test-espn-api.js game-id`
+4. Check player name spelling matches ESPN
 
-## ✅ Summary
+### Incorrect Validations
 
-Your validation system is **fully operational** for MLB and NFL, with limited NHL support due to name matching issues.
+**Problem**: Props marked incorrect when they should be correct
 
-**Current Status:**
-- ✅ 136 MLB props validated (World Series Game 3)
-- ⏳ 408 NFL props waiting for games to finish
-- ⚠️ 22 NHL props need manual review
+**Solutions**:
+1. Check actual stat value logged
+2. Verify prop type mapping (hits → 'H', strikeouts → 'SO')
+3. Re-fetch stats with debug logging
+4. Update stat mapping in `lib/vendors/*-game-stats.js`
 
-**Commands:**
-```bash
-npm run check-validations  # Check status
-npm run validate           # Run validation
-```
+### Performance Issues
 
-**Web Interface:**
-- `/validation` - Dashboard
-- `/insights` - Advanced analytics
+**Problem**: Validation checks taking too long
 
----
+**Solutions**:
+1. Add index on `PropValidation.status`
+2. Batch process by sport
+3. Cache ESPN API responses
+4. Rate limit validation checks
 
-*Last Updated: October 30, 2025*  
-*All systems operational* ✅
+## Future Enhancements
 
+### Planned Features
+
+**1. Line Movement Tracking**
+- Record odds at save time and game time
+- Analyze if we're betting at good lines
+
+**2. Confidence Calibration**
+- Compare stated confidence to actual win rate
+- Auto-adjust confidence scoring
+
+**3. Historical Performance**
+- Track accuracy trends over time
+- Identify improving/declining performance
+
+**4. Player-Specific Tracking**
+- Which players do we predict best?
+- Identify consistently profitable props
+
+**5. Bookmaker Comparison**
+- Track which bookmakers have best lines for us
+- ROI by bookmaker
+
+## Best Practices
+
+### For System Maintenance
+
+1. **Run saves before games start** - Don't save props mid-game
+2. **Validate frequently** - Every 30-60 minutes during games
+3. **Monitor logs** - Check for API errors and failures
+4. **Clean up weekly** - Remove orphaned/invalid props
+5. **Review performance monthly** - Adjust model based on results
+
+### For Model Improvement
+
+1. **Track everything** - More data = better insights
+2. **Analyze failures** - Why did high-quality props lose?
+3. **Adjust thresholds** - If 65+ quality props underperform, raise bar
+4. **Sport-specific tuning** - Different sports need different criteria
+5. **Iterate quickly** - Test model changes and measure impact
+
+## Summary
+
+The validation system provides:
+✅ Automatic tracking of top model picks
+✅ User-saved prop performance
+✅ Parlay leg outcome tracking  
+✅ Comprehensive performance analytics
+✅ Model improvement feedback loop
+
+**Key Script**: Run `scripts/save-top-props-for-validation.js` daily to track your best picks!

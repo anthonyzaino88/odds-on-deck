@@ -1,7 +1,6 @@
 // Validation Dashboard - Track prediction accuracy
 
 import Link from 'next/link'
-import { format } from 'date-fns'
 import { getValidationStats, getValidationRecords } from '../../lib/validation.js'
 import CheckPropsButton from '../../components/CheckPropsButton.js'
 import CompletedPropsTable from '../../components/CompletedPropsTable.js'
@@ -351,9 +350,6 @@ export default async function ValidationDashboard() {
                         {record.qualityScore && <span>Quality: {record.qualityScore.toFixed(1)}</span>}
                         <span className="capitalize">{(record.source || 'system_generated').replace(/_/g, ' ')}</span>
                       </div>
-                    </div>
-                    <div className="text-right text-sm text-gray-400">
-                      {format(new Date(record.timestamp), 'MMM d, h:mm a')}
                     </div>
                   </div>
                 </div>
