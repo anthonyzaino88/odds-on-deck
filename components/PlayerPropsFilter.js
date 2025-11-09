@@ -346,9 +346,19 @@ function PlayerPropCard({ prop, rank }) {
   // Format odds for display
   const formatOdds = (odds) => {
     if (!odds) return null
-    const numOdds = parseFloat(odds)
-    if (isNaN(numOdds)) return null
-    return numOdds > 0 ? `+${numOdds}` : numOdds.toString()
+    const decimalOdds = parseFloat(odds)
+    if (isNaN(decimalOdds)) return null
+    
+    // Convert decimal odds to American format
+    if (decimalOdds >= 2.0) {
+      // Underdog: convert to positive American odds
+      const americanOdds = Math.round((decimalOdds - 1) * 100)
+      return `+${americanOdds}`
+    } else {
+      // Favorite: convert to negative American odds
+      const americanOdds = Math.round(-100 / (decimalOdds - 1))
+      return americanOdds.toString()
+    }
   }
 
   const displayOdds = formatOdds(prop.odds)
@@ -433,9 +443,19 @@ function PropRow({ prop }) {
   // Format odds for display
   const formatOdds = (odds) => {
     if (!odds) return null
-    const numOdds = parseFloat(odds)
-    if (isNaN(numOdds)) return null
-    return numOdds > 0 ? `+${numOdds}` : numOdds.toString()
+    const decimalOdds = parseFloat(odds)
+    if (isNaN(decimalOdds)) return null
+    
+    // Convert decimal odds to American format
+    if (decimalOdds >= 2.0) {
+      // Underdog: convert to positive American odds
+      const americanOdds = Math.round((decimalOdds - 1) * 100)
+      return `+${americanOdds}`
+    } else {
+      // Favorite: convert to negative American odds
+      const americanOdds = Math.round(-100 / (decimalOdds - 1))
+      return americanOdds.toString()
+    }
   }
 
   const displayOdds = formatOdds(prop.odds)
