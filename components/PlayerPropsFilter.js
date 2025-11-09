@@ -2,7 +2,6 @@
 
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
-import { format } from 'date-fns'
 import { getQualityTier } from '../lib/quality-score.js'
 
 export default function PlayerPropsFilter({ props }) {
@@ -344,6 +343,16 @@ function PlayerPropCard({ prop, rank }) {
     }
   }
 
+  // Format odds for display
+  const formatOdds = (odds) => {
+    if (!odds) return null
+    const numOdds = parseFloat(odds)
+    if (isNaN(numOdds)) return null
+    return numOdds > 0 ? `+${numOdds}` : numOdds.toString()
+  }
+
+  const displayOdds = formatOdds(prop.odds)
+
   return (
     <div className="border border-slate-700 rounded-lg p-3 sm:p-4 hover:border-blue-500 hover:shadow-md transition-all bg-slate-800/50">
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -366,9 +375,16 @@ function PlayerPropCard({ prop, rank }) {
               <div className="text-xs sm:text-sm text-gray-400">
                 {prop.pick?.toUpperCase()} {prop.threshold} {(prop.type || '').replace(/_/g, ' ')}
               </div>
-              {prop.gameTime && (
-                <div className="text-xs text-gray-500 mt-0.5">
-                  {format(new Date(prop.gameTime), 'h:mm a')}
+              {displayOdds && (
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs sm:text-sm text-amber-400 font-bold">
+                    {displayOdds}
+                  </span>
+                  {prop.bookmaker && (
+                    <span className="text-[10px] sm:text-xs text-gray-500">
+                      via {prop.bookmaker}
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -414,6 +430,16 @@ function PlayerPropCard({ prop, rank }) {
 function PropRow({ prop }) {
   const qualityTier = getQualityTier(prop.qualityScore || 0)
 
+  // Format odds for display
+  const formatOdds = (odds) => {
+    if (!odds) return null
+    const numOdds = parseFloat(odds)
+    if (isNaN(numOdds)) return null
+    return numOdds > 0 ? `+${numOdds}` : numOdds.toString()
+  }
+
+  const displayOdds = formatOdds(prop.odds)
+
   return (
     <Link href={`/game/${prop.gameId}`}>
       <div className="flex items-center justify-between p-2 sm:p-3 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors cursor-pointer border border-slate-700">
@@ -426,6 +452,18 @@ function PropRow({ prop }) {
             <div className="text-xs sm:text-sm text-gray-400 truncate">
               {prop.pick?.toUpperCase()} {prop.threshold} {(prop.type || '').replace(/_/g, ' ')}
             </div>
+            {displayOdds && (
+              <div className="flex items-center gap-1 sm:gap-2 mt-0.5">
+                <span className="text-[10px] sm:text-xs text-amber-400 font-semibold">
+                  {displayOdds}
+                </span>
+                {prop.bookmaker && (
+                  <span className="text-[10px] text-gray-500">
+                    via {prop.bookmaker}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
         <div className="text-right ml-2">

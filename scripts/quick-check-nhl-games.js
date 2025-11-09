@@ -21,3 +21,4 @@ data?.forEach(g => console.log(`${g.id} - ${g.awayTeam} @ ${g.homeTeam} (${g.sta
 console.log(`\nTotal: ${data?.length || 0}\n`)
 
 
+
