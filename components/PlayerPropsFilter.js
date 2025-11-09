@@ -331,7 +331,7 @@ function PlayerPropCard({ prop, rank }) {
       
       if (data.success) {
         setIsSaved(true)
-        setTimeout(() => setIsSaved(false), 2000) // Reset after 2 seconds
+        // Keep saved state permanently to prevent duplicate saves
       } else {
         alert('Failed to save prop: ' + (data.error || 'Unknown error'))
       }
