@@ -46,6 +46,21 @@ export async function GET(request) {
       )
     }
     
+    // Get all propIds to check which ones are already saved
+    const propIds = (data || []).map(p => p.propId)
+    
+    let savedPropIds = new Set()
+    if (propIds.length > 0) {
+      const { data: savedProps } = await supabase
+        .from('PropValidation')
+        .select('propId')
+        .in('propId', propIds)
+      
+      if (savedProps) {
+        savedPropIds = new Set(savedProps.map(p => p.propId))
+      }
+    }
+    
     // Transform data to match expected format
     const props = (data || []).map(prop => ({
       propId: prop.propId,
@@ -65,7 +80,8 @@ export async function GET(request) {
       reasoning: prop.reasoning,
       projection: prop.projection,
       bookmaker: prop.bookmaker,
-      gameTime: prop.gameTime
+      gameTime: prop.gameTime,
+      isSaved: savedPropIds.has(prop.propId) // Flag if already saved
     }))
     
     return NextResponse.json({

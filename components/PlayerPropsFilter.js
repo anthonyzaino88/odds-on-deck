@@ -304,7 +304,7 @@ export default function PlayerPropsFilter({ props }) {
 
 function PlayerPropCard({ prop, rank }) {
   const [isSaving, setIsSaving] = useState(false)
-  const [isSaved, setIsSaved] = useState(false)
+  const [isSaved, setIsSaved] = useState(prop.isSaved || false) // Initialize from API
   const qualityTier = getQualityTier(prop.qualityScore || 0)
 
   const tierColors = {
