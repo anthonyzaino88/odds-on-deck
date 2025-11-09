@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { format } from 'date-fns'
 import { getValidationStats, getValidationRecords } from '../../lib/validation.js'
 import CheckPropsButton from '../../components/CheckPropsButton.js'
+import CompletedPropsTable from '../../components/CompletedPropsTable.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,8 +12,8 @@ export default async function ValidationDashboard() {
   const stats = await getValidationStats()
   const recentRecords = await getValidationRecords({ limit: 50 })
   
-  // Fetch completed records separately to ensure we get them all
-  const allCompletedRecords = await getValidationRecords({ status: 'completed', limit: 100 })
+  // Fetch ALL completed records (no limit to ensure we get everything)
+  const allCompletedRecords = await getValidationRecords({ status: 'completed' })
 
   const pendingRecords = recentRecords.filter(r => r.status === 'pending')
   const completedRecords = allCompletedRecords // Use the dedicated completed query
@@ -25,12 +26,22 @@ export default async function ValidationDashboard() {
     system_generated: recentRecords.filter(r => r.source === 'system_generated')
   }
 
+  // Get stats by sport
+  const nflStats = await getValidationStats({ sport: 'nfl' })
+  const nhlStats = await getValidationStats({ sport: 'nhl' })
+  const mlbStats = await getValidationStats({ sport: 'mlb' })
+  
+  // Group records by sport
+  const nflRecords = completedRecords.filter(r => r.sport === 'nfl')
+  const nhlRecords = completedRecords.filter(r => r.sport === 'nhl')
+  const mlbRecords = completedRecords.filter(r => r.sport === 'mlb')
+
   return (
     <div className="min-h-screen bg-slate-950">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         
         {/* Header */}
-        <div className="mb-8">
+        <div className="mb-6 sm:mb-8">
           <Link 
             href="/"
             className="inline-flex items-center text-sm font-medium text-blue-400 hover:text-blue-300 mb-4"
@@ -38,17 +49,17 @@ export default async function ValidationDashboard() {
             ← Back to Home
           </Link>
           <div className="text-center">
-            <h1 className="text-3xl font-bold text-white">
+            <h1 className="text-2xl sm:text-3xl font-bold text-white">
               📊 Validation Dashboard
             </h1>
-            <p className="text-lg text-gray-400 mt-2">
+            <p className="text-base sm:text-lg text-gray-400 mt-2">
               Track prediction accuracy and system performance
             </p>
-            <div className="mt-4 flex items-center justify-center gap-4">
+            <div className="mt-4 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
               <CheckPropsButton />
               <Link
                 href="/insights"
-                className="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors"
+                className="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors"
               >
                 💡 View Insights
               </Link>
@@ -57,36 +68,36 @@ export default async function ValidationDashboard() {
         </div>
 
         {/* Overall Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="card p-6">
-            <div className="text-sm font-medium text-gray-400">Total Predictions</div>
-            <div className="mt-2 text-3xl font-bold text-white">{stats.total}</div>
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 mb-6 sm:mb-8">
+          <div className="card p-4 sm:p-6">
+            <div className="text-xs sm:text-sm font-medium text-gray-400">Total Predictions</div>
+            <div className="mt-1 sm:mt-2 text-2xl sm:text-3xl font-bold text-white">{stats.total}</div>
           </div>
           
-          <div className="bg-green-900/20 rounded-lg shadow p-6 border-2 border-green-500/50">
-            <div className="text-sm font-medium text-green-400">Win Rate</div>
-            <div className="mt-2 text-3xl font-bold text-green-400">
+          <div className="bg-green-900/20 rounded-lg shadow p-4 sm:p-6 border-2 border-green-500/50">
+            <div className="text-xs sm:text-sm font-medium text-green-400">Win Rate</div>
+            <div className="mt-1 sm:mt-2 text-2xl sm:text-3xl font-bold text-green-400">
               {stats.total > 0 ? `${(stats.accuracy * 100).toFixed(1)}%` : 'N/A'}
             </div>
             <div className="text-xs text-green-300 mt-1">
-              {stats.correct} correct / {stats.total} completed
+              {stats.correct} / {stats.total}
             </div>
           </div>
           
-          <div className="bg-blue-900/20 rounded-lg shadow p-6 border-2 border-blue-500/50">
-            <div className="text-sm font-medium text-blue-400">Average Edge</div>
-            <div className="mt-2 text-3xl font-bold text-blue-400">
+          <div className="bg-blue-900/20 rounded-lg shadow p-4 sm:p-6 border-2 border-blue-500/50">
+            <div className="text-xs sm:text-sm font-medium text-blue-400">Avg Edge</div>
+            <div className="mt-1 sm:mt-2 text-2xl sm:text-3xl font-bold text-blue-400">
               {stats.total > 0 ? `${(stats.avgEdge * 100).toFixed(1)}%` : 'N/A'}
             </div>
           </div>
           
-          <div className="bg-purple-900/20 rounded-lg shadow p-6 border-2 border-purple-500/50">
-            <div className="text-sm font-medium text-purple-400">ROI</div>
-            <div className="mt-2 text-3xl font-bold text-purple-400">
+          <div className="bg-purple-900/20 rounded-lg shadow p-4 sm:p-6 border-2 border-purple-500/50">
+            <div className="text-xs sm:text-sm font-medium text-purple-400">ROI</div>
+            <div className="mt-1 sm:mt-2 text-2xl sm:text-3xl font-bold text-purple-400">
               {stats.total > 0 ? `${(stats.roi * 100).toFixed(1)}%` : 'N/A'}
             </div>
-            <div className="text-xs text-purple-300 mt-1">
-              Estimated return on investment
+            <div className="text-xs text-purple-300 mt-1 hidden sm:block">
+              Est. return on investment
             </div>
           </div>
         </div>
@@ -198,6 +209,108 @@ export default async function ValidationDashboard() {
           </div>
         )}
 
+        {/* Performance by Sport */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          {/* NFL Stats */}
+          {nflStats.total > 0 && (
+            <div className="card p-6 border-l-4 border-blue-500">
+              <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+                🏈 NFL
+              </h3>
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">Total Props</span>
+                  <span className="font-bold text-white">{nflStats.total}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">Win Rate</span>
+                  <span className={`font-bold ${nflStats.accuracy >= 0.50 ? 'text-green-400' : 'text-red-400'}`}>
+                    {(nflStats.accuracy * 100).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">ROI</span>
+                  <span className={`font-bold ${nflStats.roi >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {(nflStats.roi * 100).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">Record</span>
+                  <span className="text-white">
+                    {nflStats.correct}-{nflStats.incorrect}{nflStats.pushes > 0 && `-${nflStats.pushes}`}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* NHL Stats */}
+          {nhlStats.total > 0 && (
+            <div className="card p-6 border-l-4 border-cyan-500">
+              <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+                🏒 NHL
+              </h3>
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">Total Props</span>
+                  <span className="font-bold text-white">{nhlStats.total}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">Win Rate</span>
+                  <span className={`font-bold ${nhlStats.accuracy >= 0.50 ? 'text-green-400' : 'text-red-400'}`}>
+                    {(nhlStats.accuracy * 100).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">ROI</span>
+                  <span className={`font-bold ${nhlStats.roi >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {(nhlStats.roi * 100).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">Record</span>
+                  <span className="text-white">
+                    {nhlStats.correct}-{nhlStats.incorrect}{nhlStats.pushes > 0 && `-${nhlStats.pushes}`}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MLB Stats */}
+          {mlbStats.total > 0 && (
+            <div className="card p-6 border-l-4 border-green-500">
+              <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+                ⚾ MLB
+              </h3>
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">Total Props</span>
+                  <span className="font-bold text-white">{mlbStats.total}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">Win Rate</span>
+                  <span className={`font-bold ${mlbStats.accuracy >= 0.50 ? 'text-green-400' : 'text-red-400'}`}>
+                    {(mlbStats.accuracy * 100).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">ROI</span>
+                  <span className={`font-bold ${mlbStats.roi >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {(mlbStats.roi * 100).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">Record</span>
+                  <span className="text-white">
+                    {mlbStats.correct}-{mlbStats.incorrect}{mlbStats.pushes > 0 && `-${mlbStats.pushes}`}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Recent Records */}
         <div className="card p-6">
           <h3 className="text-lg font-semibold text-white mb-4">📋 Recent Predictions</h3>
@@ -259,121 +372,7 @@ export default async function ValidationDashboard() {
 
         {/* Completed Props History */}
         {completedRecords.length > 0 && (
-          <div className="card p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">📜 Completed Props History</h3>
-              <span className="text-sm text-gray-400">
-                {completedRecords.length} completed
-              </span>
-            </div>
-            
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-700">
-                <thead className="bg-slate-900">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                      Result
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                      Player & Prop
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
-                      Prediction
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
-                      Actual
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
-                      Metrics
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
-                      Source
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">
-                      Date
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-slate-800 divide-y divide-slate-700">
-                  {completedRecords.map((record) => (
-                    <tr key={record.id} className="hover:bg-slate-700/50">
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2.5 py-1.5 rounded-full text-xs font-medium ${
-                          record.result === 'correct' ? 'bg-green-900/30 text-green-400 border border-green-500/50' :
-                          record.result === 'push' ? 'bg-slate-700 text-gray-400 border border-slate-600' :
-                          'bg-red-900/30 text-red-400 border border-red-500/50'
-                        }`}>
-                          {record.result === 'correct' ? '✓ WIN' : 
-                           record.result === 'push' ? '− PUSH' : 
-                           '✗ LOSS'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="text-sm font-medium text-white">{record.playerName}</div>
-                        <div className="text-xs text-gray-400">{record.propType.replace(/_/g, ' ')}</div>
-                      </td>
-                      <td className="px-4 py-4 text-center">
-                        <div className="text-sm font-semibold text-white">
-                          {record.prediction.toUpperCase()} {record.threshold}
-                        </div>
-                        {record.projectedValue && (
-                          <div className="text-xs text-gray-400">
-                            Proj: {record.projectedValue.toFixed(1)}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-4 text-center">
-                        <div className={`text-sm font-bold ${
-                          record.result === 'correct' ? 'text-green-400' :
-                          record.result === 'push' ? 'text-gray-400' :
-                          'text-red-400'
-                        }`}>
-                          {record.actualValue !== null ? record.actualValue.toFixed(1) : 'N/A'}
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 text-center">
-                        <div className="text-xs space-y-1">
-                          <div className="text-gray-400">
-                            Win: {((record.probability || 0.5) * 100).toFixed(0)}%
-                          </div>
-                          <div className="text-blue-400">
-                            Edge: +{(record.edge * 100).toFixed(1)}%
-                          </div>
-                          {record.qualityScore && (
-                            <div className="text-purple-400">
-                              Q: {record.qualityScore.toFixed(0)}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 text-center">
-                        <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
-                          record.source === 'user_saved' ? 'bg-blue-900/30 text-blue-400 border border-blue-500/50' :
-                          record.source === 'parlay_leg' ? 'bg-purple-900/30 text-purple-400 border border-purple-500/50' :
-                          'bg-slate-700 text-gray-400 border border-slate-600'
-                        }`}>
-                          {record.source === 'user_saved' ? '👤 Saved' :
-                           record.source === 'parlay_leg' ? '🎯 Parlay' :
-                           '🤖 Auto'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 text-right text-xs text-gray-400 whitespace-nowrap">
-                        {format(new Date(record.timestamp), 'MMM d')}
-                        <br />
-                        {format(new Date(record.timestamp), 'h:mm a')}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            
-            {completedRecords.length > 20 && (
-              <div className="mt-4 text-center text-sm text-gray-400">
-                Showing {Math.min(20, completedRecords.length)} of {completedRecords.length} completed props
-              </div>
-            )}
-          </div>
+          <CompletedPropsTable records={completedRecords} />
         )}
 
         {/* Info Box */}

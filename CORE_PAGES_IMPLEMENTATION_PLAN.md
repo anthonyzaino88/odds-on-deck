@@ -147,3 +147,4 @@ After each phase:
 - [ ] Responsive design works
 - [ ] Links to game detail pages work
 
+

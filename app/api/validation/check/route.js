@@ -34,6 +34,8 @@ export async function POST(request) {
         // Try multiple lookup strategies to find the game
         let game = null
         
+        console.log(`🔍 Looking for game: ${validation.gameIdRef} (sport: ${validation.sport || 'unknown'})`)
+        
         // First try by id
         const { data: gameById } = await supabase
           .from('Game')
@@ -43,6 +45,7 @@ export async function POST(request) {
         
         if (gameById) {
           game = gameById
+          console.log(`   ✅ Found by id`)
         } else {
           // Try by mlbGameId
           const { data: gameByMlbId } = await supabase
@@ -53,6 +56,7 @@ export async function POST(request) {
           
           if (gameByMlbId) {
             game = gameByMlbId
+            console.log(`   ✅ Found by mlbGameId`)
           } else {
             // Try by espnGameId
             const { data: gameByEspnId } = await supabase
@@ -63,6 +67,19 @@ export async function POST(request) {
             
             if (gameByEspnId) {
               game = gameByEspnId
+              console.log(`   ✅ Found by espnGameId`)
+            } else {
+              // Try by oddsApiEventId
+              const { data: gameByOddsId } = await supabase
+                .from('Game')
+                .select('*')
+                .eq('oddsApiEventId', validation.gameIdRef)
+                .maybeSingle()
+              
+              if (gameByOddsId) {
+                game = gameByOddsId
+                console.log(`   ✅ Found by oddsApiEventId`)
+              }
             }
           }
         }
@@ -77,7 +94,10 @@ export async function POST(request) {
               .eq('sport', 'mlb')
               .maybeSingle()
             
-            if (mlbGame) game = mlbGame
+            if (mlbGame) {
+              game = mlbGame
+              console.log(`   ✅ Found by MLB sport-specific lookup`)
+            }
           } else if (validation.sport === 'nhl' || validation.sport === 'nfl') {
             const { data: espnGame } = await supabase
               .from('Game')
@@ -86,7 +106,10 @@ export async function POST(request) {
               .eq('sport', validation.sport)
               .maybeSingle()
             
-            if (espnGame) game = espnGame
+            if (espnGame) {
+              game = espnGame
+              console.log(`   ✅ Found by ESPN sport-specific lookup`)
+            }
           }
         }
         
