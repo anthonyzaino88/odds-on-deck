@@ -166,12 +166,12 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
         <h2 className="text-2xl font-bold text-white">
           📊 Generated Parlays
         </h2>
-        <button
-          onClick={() => setShowHelp(!showHelp)}
-          className="text-gray-400 hover:text-gray-300 text-sm font-medium"
-        >
-          {showHelp ? '✕ Close Help' : 'ℹ️ What do these mean?'}
-        </button>
+          <button
+            onClick={() => setShowHelp(!showHelp)}
+            className="text-gray-400 hover:text-gray-300 text-sm font-medium"
+          >
+            {showHelp ? '✕ Close Help' : 'ℹ️ What do these mean?'}
+          </button>
       </div>
 
       {/* Help Panel */}

@@ -150,8 +150,8 @@ export default function GamesPage() {
               statusNormalized = statusNormalized.replace(/^status_/i, '') // Remove "status_" prefix
               statusNormalized = statusNormalized.replace(/-/g, '_') // Convert hyphens to underscores
               
-              // Only count as live if status is explicitly 'in_progress'
-              return statusNormalized === 'in_progress'
+              // Count as live if status is 'in_progress' or 'halftime'
+              return statusNormalized === 'in_progress' || statusNormalized === 'halftime'
             })
             
             if (liveGames.length > 0) {
@@ -266,14 +266,24 @@ function GameCard({ game }) {
   statusNormalized = statusNormalized.replace(/^status_/i, '') // Remove "status_" prefix
   statusNormalized = statusNormalized.replace(/-/g, '_') // Convert hyphens to underscores
   
-  // Only mark as live if status is explicitly 'in_progress'
+  // Mark as live if status is 'in_progress' or 'halftime' (still part of the live game)
   // Games with midnight UTC times can appear as "started" even if they haven't
-  const isLive = statusNormalized === 'in_progress'
+  const isLive = statusNormalized === 'in_progress' || statusNormalized === 'halftime'
+  const isFinal = statusNormalized === 'final' || statusNormalized === 'completed' || statusNormalized === 'f'
+  
+  // Debug logging for live games
+  if (isLive) {
+    console.log(`🔴 LIVE GAME: ${game.away?.abbr} @ ${game.home?.abbr} (status: "${game.status}" -> normalized: "${statusNormalized}")`)
+  }
   
   return (
     <Link href={`/game/${game.id}`}>
-      <div className={`bg-gradient-to-br from-slate-800 to-slate-900 border rounded-lg p-6 hover:border-blue-500 hover:shadow-lg hover:shadow-blue-500/20 transition cursor-pointer ${
-        isLive ? 'border-red-500/50 shadow-red-500/20' : 'border-slate-700'
+      <div className={`bg-gradient-to-br rounded-lg p-6 transition cursor-pointer ${
+        isLive 
+          ? 'from-slate-800 to-slate-900 border-2 border-red-500/50 shadow-lg shadow-red-500/20 hover:border-red-500' 
+          : isFinal 
+            ? 'from-green-950/30 to-slate-900 border border-green-500/30 hover:border-green-500/50 hover:shadow-lg hover:shadow-green-500/10'
+            : 'from-slate-800 to-slate-900 border border-slate-700 hover:border-blue-500 hover:shadow-lg hover:shadow-blue-500/20'
       }`}>
         
         {/* Game Header */}
@@ -284,7 +294,7 @@ function GameCard({ game }) {
                 {game.away?.abbr || '?'} @ {game.home?.abbr || '?'}
               </h3>
               
-              {/* Live Indicator - Red Dot + LIVE Text */}
+              {/* Live Indicator - Red Dot + LIVE/HALFTIME Text */}
               {isLive && (
                 <div className="flex items-center gap-2">
                   <span className="relative flex h-3 w-3">
@@ -292,7 +302,7 @@ function GameCard({ game }) {
                     <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
                   </span>
                   <span className="px-2 py-0.5 bg-red-900/50 border border-red-500/50 rounded text-xs font-bold text-red-400 uppercase tracking-wide">
-                    LIVE
+                    {statusNormalized === 'halftime' ? 'HALFTIME' : 'LIVE'}
                   </span>
                 </div>
               )}
@@ -300,10 +310,10 @@ function GameCard({ game }) {
               {/* Status Badge */}
               {!isLive && (
                 <span className={`px-3 py-1 rounded text-xs font-semibold ${
-                  game.status === 'final' ? 'bg-slate-700 text-slate-300' :
+                  isFinal ? 'bg-green-900/50 border border-green-500/50 text-green-300' :
                   'bg-blue-900/50 text-blue-300'
                 }`}>
-                  {game.status === 'final' ? 'FINAL' : timeString}
+                  {isFinal ? 'FINAL' : timeString}
                 </span>
               )}
             </div>
@@ -313,7 +323,9 @@ function GameCard({ game }) {
             {/* Show inning for MLB games or period for NHL */}
             {isLive && (
               <p className="text-red-400 text-xs mt-1 font-medium">
-                {game.sport === 'mlb' && game.inning ? (
+                {statusNormalized === 'halftime' ? (
+                  <>Halftime</>
+                ) : game.sport === 'mlb' && game.inning ? (
                   <>{game.inningHalf === 'top' ? '▲' : '▼'} {game.inning}</>
                 ) : game.sport === 'nhl' && game.lastPlay ? (
                   <>{game.lastPlay}</>
