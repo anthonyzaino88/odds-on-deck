@@ -235,15 +235,54 @@ export default function PlayerPropsFilter({ props }) {
       {/* NHL Props */}
       {nhlProps.length > 0 && (
         <div className="card">
-          <div className="px-6 py-4 border-b border-slate-700">
-            <h3 className="text-lg font-semibold text-white">
-              🏒 NHL Props
+          <div className="px-6 py-4 border-b border-slate-700 bg-gradient-to-r from-purple-900/20 to-transparent">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">🏒</span>
+                <div>
+                  <h3 className="text-xl font-semibold text-purple-400">
+                    NHL Props
             </h3>
-            <div className="text-sm text-gray-400">{nhlProps.length} opportunities</div>
+                  <div className="text-sm text-purple-300">{nhlProps.length} opportunities</div>
+                </div>
+              </div>
+              <div className="text-sm text-gray-400">
+                {nhlProps.filter(p => (p.edge || 0) >= 0.10).length} with 10%+ edge
+              </div>
+            </div>
           </div>
           <div className="p-6">
             <div className="space-y-3 max-h-96 overflow-y-auto">
               {nhlProps.map((prop) => (
+                <PropRow key={`${prop.gameId}-${prop.playerName}-${prop.type}`} prop={prop} />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* NFL Props */}
+      {nflProps.length > 0 && (
+        <div className="card">
+          <div className="px-6 py-4 border-b border-slate-700 bg-gradient-to-r from-green-900/20 to-transparent">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">🏈</span>
+                <div>
+                  <h3 className="text-xl font-semibold text-green-400">
+                    NFL Props
+                  </h3>
+                  <div className="text-sm text-green-300">{nflProps.length} opportunities</div>
+                </div>
+              </div>
+              <div className="text-sm text-gray-400">
+                {nflProps.filter(p => (p.edge || 0) >= 0.10).length} with 10%+ edge
+              </div>
+            </div>
+          </div>
+          <div className="p-6">
+            <div className="space-y-3 max-h-[600px] overflow-y-auto">
+              {nflProps.map((prop) => (
                 <PropRow key={`${prop.gameId}-${prop.playerName}-${prop.type}`} prop={prop} />
               ))}
             </div>

@@ -64,20 +64,52 @@ export default function PropsPage() {
         </div>
 
         {/* Sport Filter */}
-        <div className="mb-6 flex justify-center gap-3">
-          {['all', 'mlb', 'nfl', 'nhl'].map((sport) => (
+        <div className="mb-6">
+          <div className="flex justify-center gap-3 mb-4">
+            {[
+              { value: 'all', label: 'All Sports', emoji: '🎯', color: 'blue' },
+              { value: 'nfl', label: 'NFL', emoji: '🏈', color: 'green' },
+              { value: 'nhl', label: 'NHL', emoji: '🏒', color: 'purple' },
+              { value: 'mlb', label: 'MLB', emoji: '⚾', color: 'yellow' }
+            ].map((sport) => (
             <button
-              key={sport}
-              onClick={() => setSportFilter(sport)}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                sportFilter === sport
-                  ? 'bg-blue-600 text-white'
+                key={sport.value}
+                onClick={() => setSportFilter(sport.value)}
+                className={`px-6 py-3 rounded-lg font-medium transition-all transform hover:scale-105 ${
+                  sportFilter === sport.value
+                    ? `bg-${sport.color}-600 text-white shadow-lg shadow-${sport.color}-500/50`
                   : 'bg-slate-800 text-gray-300 hover:bg-slate-700'
               }`}
             >
-              {sport === 'all' ? 'All Sports' : sport.toUpperCase()}
+                <span className="text-xl mr-2">{sport.emoji}</span>
+                {sport.label}
             </button>
           ))}
+          </div>
+          
+          {/* Quick Stats Bar */}
+          {!loading && !error && props.length > 0 && (
+            <div className="flex justify-center items-center gap-6 text-sm text-gray-400">
+              <div className="flex items-center gap-2">
+                <span className="text-white font-bold">{props.length}</span>
+                <span>Total Props</span>
+              </div>
+              <div className="h-4 w-px bg-slate-700"></div>
+              <div className="flex items-center gap-2">
+                <span className="text-green-400 font-bold">
+                  {props.filter(p => (p.probability || 0) >= 0.55).length}
+                </span>
+                <span>High Confidence</span>
+              </div>
+              <div className="h-4 w-px bg-slate-700"></div>
+              <div className="flex items-center gap-2">
+                <span className="text-blue-400 font-bold">
+                  {props.filter(p => (p.edge || 0) >= 0.10).length}
+                </span>
+                <span>10%+ Edge</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Loading State */}
@@ -104,23 +136,64 @@ export default function PropsPage() {
         {!loading && !error && (
           <>
             {props.length > 0 ? (
-              <div className="mb-4 text-center">
-                <p className="text-gray-400">
-                  Found <span className="font-bold text-white">{props.length}</span> player props
-                </p>
+              <div className="mb-6">
+                {/* Sport-specific header */}
+                {sportFilter !== 'all' && (
+                  <div className={`p-4 rounded-lg mb-4 ${
+                    sportFilter === 'nfl' ? 'bg-green-900/20 border border-green-500/50' :
+                    sportFilter === 'nhl' ? 'bg-purple-900/20 border border-purple-500/50' :
+                    'bg-yellow-900/20 border border-yellow-500/50'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="text-3xl">
+                          {sportFilter === 'nfl' ? '🏈' : sportFilter === 'nhl' ? '🏒' : '⚾'}
+                        </span>
+                        <div>
+                          <h2 className={`text-xl font-bold ${
+                            sportFilter === 'nfl' ? 'text-green-400' :
+                            sportFilter === 'nhl' ? 'text-purple-400' :
+                            'text-yellow-400'
+                          }`}>
+                            {sportFilter.toUpperCase()} Player Props
+                          </h2>
+                          <p className="text-sm text-gray-400">
+                            {props.length} betting opportunities available
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setSportFilter('all')}
+                        className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm transition-colors"
+                      >
+                        View All Sports
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-center py-12">
-                <div className="text-gray-500 text-6xl mb-4">📊</div>
+                <div className="text-gray-500 text-6xl mb-4">
+                  {sportFilter === 'nfl' ? '🏈' : sportFilter === 'nhl' ? '🏒' : sportFilter === 'mlb' ? '⚾' : '📊'}
+                </div>
                 <h3 className="text-lg font-medium text-white mb-2">No Player Props Available</h3>
                 <p className="text-gray-400 mb-4">
                   {sportFilter === 'all' 
                     ? 'No player props found. Props are fetched via the odds script.'
                     : `No ${sportFilter.toUpperCase()} player props found.`}
                 </p>
-                <p className="text-sm text-gray-500">
-                  Run <code className="bg-slate-800 px-2 py-1 rounded">node scripts/fetch-live-odds.js all</code> to fetch props.
+                <p className="text-sm text-gray-500 mb-4">
+                  Run <code className="bg-slate-800 px-2 py-1 rounded">node scripts/fetch-live-odds.js {sportFilter}</code> to fetch props.
                 </p>
+                {sportFilter !== 'all' && (
+                  <button
+                    onClick={() => setSportFilter('all')}
+                    className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                  >
+                    View All Sports
+                  </button>
+                )}
               </div>
             )}
             

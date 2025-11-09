@@ -1,11 +1,12 @@
 // API endpoint to check and update completed prop validations
+// MIGRATED TO SUPABASE - No Prisma dependency
 
 // Force dynamic rendering (required for Vercel deployment)
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
-import { prisma } from '../../../../lib/db.js'
+import { supabase } from '../../../../lib/supabase.js'
 import { getPlayerGameStat as getMLBStat } from '../../../../lib/vendors/mlb-game-stats.js'
 import { getPlayerGameStat as getNFLStat } from '../../../../lib/vendors/nfl-game-stats.js'
 import { getPlayerGameStat as getNHLStat } from '../../../../lib/vendors/nhl-game-stats.js'
@@ -15,29 +16,94 @@ export async function POST(request) {
     console.log('🔍 Checking completed prop validations...')
     
     // Get all pending validations
-    const pendingValidations = await prisma.propValidation.findMany({
-      where: { status: 'pending' }
-    })
+    const { data: pendingValidations, error: fetchError } = await supabase
+      .from('PropValidation')
+      .select('*')
+      .eq('status', 'pending')
     
-    console.log(`📊 Found ${pendingValidations.length} pending validations`)
+    if (fetchError) throw fetchError
+    
+    console.log(`📊 Found ${pendingValidations?.length || 0} pending validations`)
     
     let updated = 0
     let errors = 0
     
-    for (const validation of pendingValidations) {
+    for (const validation of pendingValidations || []) {
       try {
         // Get the game to check if it's finished
-        const game = await prisma.game.findFirst({
-          where: {
-            OR: [
-              { id: validation.gameIdRef },
-              { mlbGameId: validation.gameIdRef }
-            ]
+        // Try multiple lookup strategies to find the game
+        let game = null
+        
+        // First try by id
+        const { data: gameById } = await supabase
+          .from('Game')
+          .select('*')
+          .eq('id', validation.gameIdRef)
+          .maybeSingle()
+        
+        if (gameById) {
+          game = gameById
+        } else {
+          // Try by mlbGameId
+          const { data: gameByMlbId } = await supabase
+            .from('Game')
+            .select('*')
+            .eq('mlbGameId', validation.gameIdRef)
+            .maybeSingle()
+          
+          if (gameByMlbId) {
+            game = gameByMlbId
+          } else {
+            // Try by espnGameId
+            const { data: gameByEspnId } = await supabase
+              .from('Game')
+              .select('*')
+              .eq('espnGameId', validation.gameIdRef)
+              .maybeSingle()
+            
+            if (gameByEspnId) {
+              game = gameByEspnId
+            }
           }
-        })
+        }
+        
+        // If still not found, try by sport-specific ID fields
+        if (!game && validation.sport) {
+          if (validation.sport === 'mlb') {
+            const { data: mlbGame } = await supabase
+              .from('Game')
+              .select('*')
+              .eq('mlbGameId', validation.gameIdRef)
+              .eq('sport', 'mlb')
+              .maybeSingle()
+            
+            if (mlbGame) game = mlbGame
+          } else if (validation.sport === 'nhl' || validation.sport === 'nfl') {
+            const { data: espnGame } = await supabase
+              .from('Game')
+              .select('*')
+              .eq('espnGameId', validation.gameIdRef)
+              .eq('sport', validation.sport)
+              .maybeSingle()
+            
+            if (espnGame) game = espnGame
+          }
+        }
         
         if (!game) {
-          console.log(`⚠️ Game not found for validation ${validation.id}`)
+          console.log(`⚠️ Game not found for validation ${validation.id} (gameIdRef: ${validation.gameIdRef}, sport: ${validation.sport || 'unknown'})`)
+          // Mark as needs_review if game doesn't exist - might be deleted or invalid reference
+          const { error: updateError } = await supabase
+            .from('PropValidation')
+            .update({
+              status: 'needs_review',
+              notes: `Game not found in database (gameIdRef: ${validation.gameIdRef}). Game may have been deleted or reference is invalid.`,
+              completedAt: new Date().toISOString()
+            })
+            .eq('id', validation.id)
+          
+          if (updateError) throw updateError
+          updated++
           continue
         }
         
@@ -67,14 +133,16 @@ export async function POST(request) {
           // For MLB, we need the mlbGameId
           if (!game.mlbGameId) {
             console.warn(`⚠️ No mlbGameId for game ${game.id}, marking for manual review`)
-            await prisma.propValidation.update({
-              where: { id: validation.id },
-              data: {
+            const { error: updateError } = await supabase
+              .from('PropValidation')
+              .update({
                 status: 'needs_review',
                 notes: `Game finished but no mlbGameId available. Manual verification needed.`,
-                completedAt: new Date()
-              }
-            })
+                completedAt: new Date().toISOString()
+              })
+              .eq('id', validation.id)
+            
+            if (updateError) throw updateError
             updated++
             continue
           }
@@ -84,14 +152,16 @@ export async function POST(request) {
           // For NFL, we need the espnGameId
           if (!game.espnGameId) {
             console.warn(`⚠️ No espnGameId for game ${game.id}, marking for manual review`)
-            await prisma.propValidation.update({
-              where: { id: validation.id },
-              data: {
+            const { error: updateError } = await supabase
+              .from('PropValidation')
+              .update({
                 status: 'needs_review',
                 notes: `Game finished but no espnGameId available. Manual verification needed.`,
-                completedAt: new Date()
-              }
-            })
+                completedAt: new Date().toISOString()
+              })
+              .eq('id', validation.id)
+            
+            if (updateError) throw updateError
             updated++
             continue
           }
@@ -101,32 +171,37 @@ export async function POST(request) {
           // For NHL, we need the espnGameId
           if (!game.espnGameId) {
             console.warn(`⚠️ No espnGameId for game ${game.id}, marking for manual review`)
-            await prisma.propValidation.update({
-              where: { id: validation.id },
-              data: {
+            const { error: updateError } = await supabase
+              .from('PropValidation')
+              .update({
                 status: 'needs_review',
                 notes: `Game finished but no espnGameId available. Manual verification needed.`,
-                completedAt: new Date()
-              }
-            })
+                completedAt: new Date().toISOString()
+              })
+              .eq('id', validation.id)
+            
+            if (updateError) throw updateError
             updated++
             continue
           }
           
+          console.log(`📊 Fetching NHL stats for ${validation.playerName} (${validation.propType}) from game ${game.espnGameId}`)
           actualValue = await getNHLStat(game.espnGameId, validation.playerName, validation.propType)
         }
         
         // If we couldn't get the stat, mark for manual review
         if (actualValue === null || actualValue === undefined) {
           console.warn(`⚠️ Could not fetch stat for ${validation.playerName} ${validation.propType}`)
-          await prisma.propValidation.update({
-            where: { id: validation.id },
-            data: {
+          const { error: updateError } = await supabase
+            .from('PropValidation')
+            .update({
               status: 'needs_review',
               notes: `Game finished but stat not available from API. Manual verification needed.`,
-              completedAt: new Date()
-            }
-          })
+              completedAt: new Date().toISOString()
+            })
+            .eq('id', validation.id)
+          
+          if (updateError) throw updateError
           updated++
           continue
         }
@@ -143,21 +218,23 @@ export async function POST(request) {
         }
         
         // Update validation with result
-        await prisma.propValidation.update({
-          where: { id: validation.id },
-          data: {
+        const { error: updateError } = await supabase
+          .from('PropValidation')
+          .update({
             actualValue,
             result,
             status: 'completed',
-            completedAt: new Date(),
+            completedAt: new Date().toISOString(),
             notes: `Auto-validated: ${validation.prediction.toUpperCase()} ${validation.threshold} → Actual: ${actualValue}`
-          }
-        })
+          })
+          .eq('id', validation.id)
+        
+        if (updateError) throw updateError
         
         updated++
         
         const resultEmoji = result === 'correct' ? '✅' : result === 'push' ? '🟰' : '❌'
-        console.log(`${resultEmoji} ${validation.playerName} ${validation.propType}: ${result} (${actualValue} vs ${validation.threshold})`)
+        console.log(`${resultEmoji} ${validation.playerName} ${validation.propType}: ${result} (${actualValue} vs ${validation.threshold}) - Status: completed, Result: ${result}`)
         
       } catch (error) {
         console.error(`❌ Error processing validation ${validation.id}:`, error)
@@ -169,10 +246,10 @@ export async function POST(request) {
     
     return NextResponse.json({
       success: true,
-      message: `Checked ${pendingValidations.length} validations`,
+      message: `Checked ${pendingValidations?.length || 0} validations`,
       updated,
       errors,
-      remaining: pendingValidations.length - updated - errors
+      remaining: (pendingValidations?.length || 0) - updated - errors
     })
     
   } catch (error) {
@@ -187,27 +264,28 @@ export async function POST(request) {
 export async function GET(request) {
   // Just return current validation stats
   try {
-    const pending = await prisma.propValidation.count({
-      where: { status: 'pending' }
-    })
+    const { count: pending } = await supabase
+      .from('PropValidation')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending')
     
-    const completed = await prisma.propValidation.count({
-      where: { status: 'completed' }
-    })
+    const { count: completed } = await supabase
+      .from('PropValidation')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'completed')
     
-    const correct = await prisma.propValidation.count({
-      where: { 
-        status: 'completed',
-        result: 'correct'
-      }
-    })
+    const { count: correct } = await supabase
+      .from('PropValidation')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'completed')
+      .eq('result', 'correct')
     
     return NextResponse.json({
       success: true,
-      pending,
-      completed,
-      correct,
-      accuracy: completed > 0 ? (correct / completed) : 0
+      pending: pending || 0,
+      completed: completed || 0,
+      correct: correct || 0,
+      accuracy: (completed || 0) > 0 ? ((correct || 0) / completed) : 0
     })
     
   } catch (error) {

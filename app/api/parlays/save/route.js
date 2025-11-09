@@ -2,10 +2,19 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
-import { PrismaClient } from '@prisma/client'
+import { createClient } from '@supabase/supabase-js'
 import { recordPropPrediction } from '../../../../lib/validation.js'
 
-const prisma = new PrismaClient()
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+)
+
+// Generate unique ID (same format as other parts of the app)
+function generateId() {
+  return `${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
+}
 
 export async function POST(request) {
   try {
@@ -21,9 +30,14 @@ export async function POST(request) {
 
     console.log(`💾 Saving parlay with ${parlay.legs?.length || 0} legs`)
 
-    // Save parlay to database
-    const savedParlay = await prisma.parlay.create({
-      data: {
+    // Generate parlay ID
+    const parlayId = generateId()
+
+    // Save parlay to database using Supabase
+    const { data: savedParlay, error: parlayError } = await supabase
+      .from('Parlay')
+      .insert({
+        id: parlayId,
         sport: parlay.sport || 'mixed',
         type: parlay.type || 'multi_game',
         legCount: parlay.legs?.length || 0,
@@ -34,9 +48,21 @@ export async function POST(request) {
         confidence: parlay.confidence || 'medium',
         status: 'pending',
         notes: `User saved parlay with ${parlay.legs?.length || 0} legs`,
-        legs: {
-          create: parlay.legs.map((leg, index) => ({
-            gameIdRef: leg.gameId,  // Changed from gameId to gameIdRef
+        createdAt: new Date().toISOString()
+      })
+      .select()
+      .single()
+
+    if (parlayError) {
+      throw new Error(`Failed to save parlay: ${parlayError.message}`)
+    }
+
+    // Save parlay legs separately
+    if (parlay.legs && parlay.legs.length > 0) {
+      const legs = parlay.legs.map((leg, index) => ({
+        id: generateId(),
+        parlayId: parlayId,
+        gameIdRef: leg.gameId,
             betType: leg.betType || 'prop',
             selection: leg.selection || leg.pick,
             odds: leg.odds || -110,
@@ -45,16 +71,20 @@ export async function POST(request) {
             confidence: leg.confidence || 'medium',
             legOrder: index + 1,
             notes: leg.reasoning,
-            playerName: leg.playerName,  // Changed from playerId to playerName
+        playerName: leg.playerName,
             propType: leg.propType || leg.type,
             threshold: leg.threshold
           }))
-        }
-      },
-      include: {
-        legs: true
+
+      const { error: legsError } = await supabase
+        .from('ParlayLeg')
+        .insert(legs)
+
+      if (legsError) {
+        console.error('⚠️ Error saving parlay legs:', legsError.message)
+        // Don't fail the entire request, just log the error
       }
-    })
+    }
 
     console.log(`✅ Saved parlay ${savedParlay.id} to database`)
 
@@ -102,7 +132,5 @@ export async function POST(request) {
       { error: 'Failed to save parlay', details: error.message },
       { status: 500 }
     )
-  } finally {
-    await prisma.$disconnect()
   }
 }

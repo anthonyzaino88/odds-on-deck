@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 
 export default function ParlayBuilder({ onGenerate }) {
-  const [sport, setSport] = useState('mlb')
+  const [sport, setSport] = useState('nhl') // Changed default from 'mlb' to 'nhl'
   const [type, setType] = useState('multi_game')
   const [legCount, setLegCount] = useState(3)
   const [minEdge, setMinEdge] = useState(0.05)
@@ -56,14 +56,16 @@ export default function ParlayBuilder({ onGenerate }) {
     try {
       // Use /api/games/today instead of disabled /api/data
       const response = await fetch('/api/games/today')
-      const data = await response.json()
+      const result = await response.json()
       
-      if (data.success && data.games) {
-        // Group games by sport
+      console.log('📊 API Response:', result)
+      
+      if (result.success && result.data) {
+        // The API returns data in a nested structure: { success, data: { mlb, nfl, nhl } }
         const allGames = {
-          mlb: data.games.filter(g => g.sport === 'mlb') || [],
-          nfl: data.games.filter(g => g.sport === 'nfl') || [],
-          nhl: data.games.filter(g => g.sport === 'nhl') || []
+          mlb: result.data.mlb || [],
+          nfl: result.data.nfl || [],
+          nhl: result.data.nhl || []
         }
         setAllGamesCache(allGames)
         setCacheTimestamp(Date.now())
@@ -75,6 +77,8 @@ export default function ParlayBuilder({ onGenerate }) {
         
         // Filter and set available games for current sport
         filterGamesForSport(allGames, sport)
+      } else {
+        console.error('❌ API response missing data:', result)
       }
     } catch (error) {
       console.error('Error fetching games:', error)
@@ -103,7 +107,9 @@ export default function ParlayBuilder({ onGenerate }) {
     }
     
     const activeGames = games.filter(g => 
-      ['scheduled', 'pre-game', 'pre_game', 'in_progress', 'delayed_start', 'warmup'].includes(g.status)
+      // For single-game parlays, prefer scheduled games (more likely to have props)
+      // Exclude in_progress and final games as props expire when games start
+      ['scheduled', 'pre-game', 'pre_game', 'delayed_start', 'warmup'].includes(g.status)
     )
     setAvailableGames(activeGames)
     if (activeGames.length > 0 && !selectedGameId) {

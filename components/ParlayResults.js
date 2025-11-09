@@ -50,9 +50,17 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
     }
   }
 
-  const formatOdds = (odds) => {
-    if (odds > 0) return `+${odds}`
-    return odds.toString()
+  const formatOdds = (decimalOdds) => {
+    // Convert decimal odds to American odds
+    // Decimal odds < 2.0 = negative American odds
+    // Decimal odds >= 2.0 = positive American odds
+    if (decimalOdds >= 2.0) {
+      const americanOdds = Math.round((decimalOdds - 1) * 100)
+      return `+${americanOdds}`
+    } else {
+      const americanOdds = Math.round(-100 / (decimalOdds - 1))
+      return americanOdds.toString()
+    }
   }
 
   const saveParlay = async (parlay) => {
@@ -102,9 +110,9 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
     const totalReturn = stake + profit
     
     return {
-      stake: stake.toFixed(2),
-      profit: profit.toFixed(2),
-      totalReturn: totalReturn.toFixed(2)
+      stake: Math.round(stake * 100) / 100,
+      profit: Math.round(profit * 100) / 100,
+      totalReturn: Math.round(totalReturn * 100) / 100
     }
   }
 
@@ -277,7 +285,7 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
                       <div key={stake} className="flex justify-between bg-slate-700 rounded px-2 py-1.5">
                         <span className="font-medium text-gray-300">${stake}</span>
                         <span className="font-bold text-green-400">
-                          +${payout.profit} → ${payout.totalReturn}
+                          +${payout.profit.toFixed(0)} → ${payout.totalReturn.toFixed(0)}
                         </span>
                       </div>
                     )

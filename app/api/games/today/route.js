@@ -372,12 +372,21 @@ export async function GET(req) {
       })
     }
     
+    // Normalize dates - ensure they're all in UTC format with 'Z' marker
+    // Supabase returns timestamps without 'Z', which can cause parsing issues
+    const normalizeDates = (games) => games.map(game => ({
+      ...game,
+      date: game.date && !game.date.endsWith('Z') && !game.date.includes('+') 
+        ? game.date + 'Z' 
+        : game.date
+    }))
+    
     return NextResponse.json({
       success: true,
       data: {
-        mlb: mlbFinal,
-        nfl: nflFinal,
-        nhl: nhlFinal
+        mlb: normalizeDates(mlbFinal),
+        nfl: normalizeDates(nflFinal),
+        nhl: normalizeDates(nhlFinal)
       },
       timestamp: new Date().toISOString(),
       debug: {

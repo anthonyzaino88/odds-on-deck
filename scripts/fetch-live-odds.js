@@ -20,6 +20,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
+import { calculateQualityScore } from '../lib/quality-score.js'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -1036,6 +1037,58 @@ async function fetchPlayerProps(sport, date, oddsGames) {
   }
 }
 
+// ============================================================================
+// EDGE CALCULATION HELPERS
+// ============================================================================
+
+/**
+ * Convert decimal odds to implied probability
+ * The Odds API returns DECIMAL odds (1.95, 2.10, etc), not American odds
+ */
+function oddsToImpliedProbability(decimalOdds) {
+  // Decimal odds formula: probability = 1 / decimal_odds
+  return 1 / decimalOdds
+}
+
+/**
+ * Calculate our probability estimate
+ * 
+ * TEMPORARY: Until we build a real model based on historical data,
+ * we use the bookmaker's implied probability directly.
+ * 
+ * TODO: Replace with real model using:
+ * - Player season stats (goals/assists per game)
+ * - Historical PropValidation data (our tracked results)
+ * - Opponent defensive stats
+ * - Home/away splits
+ * - Recent form (last 5-10 games)
+ */
+function calculateOurProbability(pick, threshold, impliedProb) {
+  // For now, use bookmaker's probability directly (no fake edges)
+  // This is the honest approach until we have real data to back up adjustments
+  return impliedProb
+  
+  // FUTURE: When we have historical data, use something like:
+  // const playerHitRate = getHistoricalHitRate(playerName, propType, threshold)
+  // const opponentFactor = getOpponentAdjustment(opponent, propType)
+  // const formFactor = getRecentForm(playerName, propType, last5Games)
+  // return weightedAverage([impliedProb, playerHitRate, opponentFactor, formFactor])
+}
+
+/**
+ * Get confidence level based on edge
+ */
+function getConfidence(edge) {
+  if (edge >= 0.15) return 'high'
+  if (edge >= 0.08) return 'medium'
+  if (edge >= 0.03) return 'low'
+  return 'very_low'
+}
+
+// ============================================================================
+// PLAYER PROPS FETCHING AND SAVING
+// ============================================================================
+
 async function savePlayerProps(gameProps, sport) {
   if (gameProps.length === 0) return
   
@@ -1097,19 +1150,36 @@ async function savePlayerProps(gameProps, sport) {
       for (const bookmaker of props.bookmakers || []) {
         for (const market of bookmaker.markets || []) {
           for (const outcome of market.outcomes || []) {
-            const playerName = outcome.name
-            const line = market.description ? parseFloat(market.description) : null
+            // NHL/MLB props structure:
+            // - outcome.description = player name (e.g., "Adam Fox")
+            // - outcome.name = "Over" or "Under"
+            // - outcome.point = threshold (e.g., 0.5 assists)
+            const playerName = outcome.description || outcome.name
+            const line = outcome.point || (market.description ? parseFloat(market.description) : null)
             const price = outcome.price
+            const pick = (outcome.name || '').toLowerCase()
             
-            if (!playerName || !line || !price) continue
-            
-            // Determine over/under
-            let pick = 'over'
-            if (outcome.point !== undefined && outcome.point < 0) {
-              pick = 'under'
-            }
+            if (!playerName || line === null || line === undefined || !price) continue
+            if (!['over', 'under'].includes(pick)) continue
             
             const propId = `${ourGameId}-${playerName}-${market.key}-${line}`
+            
+            // Calculate edge and probability
+            const impliedProb = oddsToImpliedProbability(price)
+            const ourProb = calculateOurProbability(pick, line, impliedProb)
+            const edge = (ourProb - impliedProb) / impliedProb
+            
+            // Note: Edge will be ~0% until we build a real model
+            // We're using bookmaker probabilities directly for now
+            // Skip only if edge is suspiciously high (data error)
+            if (edge > 0.50) continue // Only filter obvious errors
+            
+            const confidence = getConfidence(edge)
+            const qualityScore = calculateQualityScore({
+              probability: ourProb,
+              edge: edge,
+              confidence: confidence
+            })
             
             // Save to PlayerPropCache (insert only, ignore duplicates)
             const { error } = await supabase
@@ -1123,10 +1193,10 @@ async function savePlayerProps(gameProps, sport) {
                 pick,
                 threshold: line,
                 odds: price,
-                probability: 0.5,  // Default, will be calculated later
-                edge: 0,           // Default, will be calculated later
-                confidence: 'low',  // Default, will be calculated later
-                qualityScore: 0,
+                probability: ourProb,
+                edge: edge,
+                confidence: confidence,
+                qualityScore: qualityScore,
                 sport,
                 bookmaker: bookmaker.title,
                 gameTime: new Date().toISOString(),
