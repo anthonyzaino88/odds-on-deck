@@ -43,10 +43,10 @@ export default function PropsPage() {
 
   return (
     <div className="min-h-screen bg-slate-950">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
         
         {/* Header */}
-        <div className="mb-8">
+        <div className="mb-4 sm:mb-8">
           <Link 
             href="/"
             className="inline-flex items-center text-sm font-medium text-blue-400 hover:text-blue-300 mb-4"

@@ -81,7 +81,7 @@ export default function GamesPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
-        <div className="max-w-7xl mx-auto px-4 py-12">
+        <div className="max-w-7xl mx-auto px-4 py-4 sm:py-12">
           <div className="text-center py-16">
             <div className="inline-block">
               <div className="animate-spin h-8 w-8 border-4 border-slate-600 border-t-blue-400 rounded-full"></div>
@@ -96,7 +96,7 @@ export default function GamesPage() {
   if (error) {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
-        <div className="max-w-7xl mx-auto px-4 py-12">
+        <div className="max-w-7xl mx-auto px-4 py-4 sm:py-12">
           <div className="bg-red-950 border border-red-800 rounded-lg p-6">
             <p className="text-red-200 font-medium">⚠️ {error}</p>
             <button 
@@ -116,7 +116,7 @@ export default function GamesPage() {
   if (totalGames === 0) {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
-        <div className="max-w-7xl mx-auto px-4 py-12">
+        <div className="max-w-7xl mx-auto px-4 py-4 sm:py-12">
           <h1 className="text-4xl font-bold mb-4 text-slate-100">Today's Slate</h1>
           <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-12 text-center">
             <p className="text-slate-400 text-lg mb-4">No games scheduled for today</p>
@@ -129,9 +129,9 @@ export default function GamesPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      <div className="max-w-7xl mx-auto px-4 py-12">
+      <div className="max-w-7xl mx-auto px-4 py-4 sm:py-12">
         {/* Header */}
-        <div className="mb-8">
+        <div className="mb-4 sm:mb-8">
           <h1 className="text-4xl font-bold mb-3">Today's Slate</h1>
           <p className="text-slate-400">
             {totalGames} games • ⚾ {games.mlb.length} MLB • 🏈 {games.nfl.length} NFL • 🏒 {games.nhl.length} NHL
