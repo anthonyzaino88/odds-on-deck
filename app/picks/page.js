@@ -461,6 +461,11 @@ function PickCard({ pick, rank }) {
                         : pick.reasoning
                   }
                 </div>
+                {pick.quickInsight && (
+                  <div className="text-[10px] sm:text-xs text-blue-400 mt-1">
+                    💡 {pick.quickInsight}
+                  </div>
+                )}
                 <div className="flex items-center gap-2 sm:gap-3 mt-1 sm:mt-2 flex-wrap">
                   {displayOdds && (
                     <span className="text-xs sm:text-sm text-amber-400 font-bold">
@@ -532,6 +537,11 @@ function PickRow({ pick }) {
                     : pick.pick.toUpperCase()
               }
             </div>
+            {pick.quickInsight && (
+              <div className="text-[10px] sm:text-xs text-blue-400 mt-0.5 truncate">
+                {pick.quickInsight}
+              </div>
+            )}
             {displayOdds && (
               <div className="flex items-center gap-1 sm:gap-2 mt-0.5">
                 <span className="text-[10px] sm:text-xs text-amber-400 font-semibold">
