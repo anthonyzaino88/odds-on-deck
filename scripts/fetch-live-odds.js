@@ -1159,7 +1159,7 @@ async function savePlayerProps(gameProps, sport) {
   // OPTIMIZED: Collect all props first, then batch insert
   const propsToSave = []
   
-  for (const { gameId, props } of gameProps) {
+  for (const { gameId, homeTeam, awayTeam, props } of gameProps) {
     // Look up our database game ID
     const ourGameId = eventIdToGameId[gameId]
     
@@ -1167,6 +1167,10 @@ async function savePlayerProps(gameProps, sport) {
       console.warn(`    ⚠️  No database game found for Odds API event ${gameId}`)
       continue
     }
+    
+    // Note: Odds API doesn't provide team info for each player
+    // We have homeTeam/awayTeam for the game, but can't match players to teams
+    // without additional data sources. Setting team=null for now.
     
     try {
       for (const bookmaker of props.bookmakers || []) {
@@ -1209,6 +1213,7 @@ async function savePlayerProps(gameProps, sport) {
               propId,
               gameId: ourGameId,  // Use our database game ID
               playerName,
+              team: null,  // Odds API doesn't provide player-team mapping
               type: market.key,
               pick,
               threshold: line,

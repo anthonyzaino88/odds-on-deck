@@ -11,6 +11,12 @@ export default function PlayerPropsFilter({ props }) {
   const filteredProps = useMemo(() => {
     let filtered = [...props]
 
+    // Debug: Check team context coverage
+    if (typeof window !== 'undefined' && props.length > 0) {
+      const withContext = props.filter(p => p.teamContext).length
+      console.log(`🔍 Team Context Coverage: ${withContext}/${props.length} props (${Math.round(withContext/props.length*100)}%)`)
+    }
+
     // Apply filters based on mode
     if (filterMode === 'safe') {
       filtered = filtered.filter(p => (p.probability || 0) >= 0.52)
@@ -32,10 +38,16 @@ export default function PlayerPropsFilter({ props }) {
       })
       filtered.sort((a, b) => (b.teamContext?.offensiveRating || 0) - (a.teamContext?.offensiveRating || 0))
     } else if (filterMode === 'home') {
-      // Home Heroes: Players at home with strong home records
+      // Home Heroes: Strong venue performance
+      // NOTE: Odds API doesn't provide player-team mapping, so we can't
+      // reliably determine if a player is home or away. Instead, we filter
+      // by strong venue performance (65+ venue rating)
       filtered = filtered.filter(p => {
         const ctx = p.teamContext
-        return ctx && ctx.isHome && ctx.venueRating >= 60 && (p.probability || 0) >= 0.50
+        if (!ctx) return false
+        
+        // Show props where team has strong venue performance (home OR away)
+        return ctx.venueRating >= 65 && (p.probability || 0) >= 0.45
       })
       filtered.sort((a, b) => (b.teamContext?.venueRating || 0) - (a.teamContext?.venueRating || 0))
     } else if (filterMode === 'scoring') {
@@ -221,7 +233,7 @@ export default function PlayerPropsFilter({ props }) {
               {filterMode === 'value' && '💰 Showing props with 15%+ edge. These are market inefficiencies with higher potential value.'}
               {filterMode === 'homerun' && '🎰 Showing all props sorted by edge. Includes higher-variance opportunities.'}
               {filterMode === 'power' && '⚡ Showing props from teams with hot offenses (28+ PPG NFL, 3.5+ GPG NHL) and 55%+ win probability. Offensive powerhouses.'}
-              {filterMode === 'home' && '🏠 Showing props from players at home with strong home records (65%+ win rate). Home field advantage matters!'}
+              {filterMode === 'home' && '🏠 Showing props from teams with strong venue performance (65+ rating). Teams that perform well at their home venue or on the road!'}
               {filterMode === 'scoring' && '🎯 Showing props from high-scoring games (48+ expected points NFL, 6.5+ NHL). More opportunities for player production.'}
               {filterMode === 'matchup' && '🎪 Showing props against weak defenses (26+ PPG allowed NFL, 3.5+ GA NHL). Favorable matchups for big performances.'}
             </p>

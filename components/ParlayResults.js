@@ -18,37 +18,15 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
       setLoading(false)
       setError(null)
     } else {
-      // Fetch sample parlays on component mount if no props
-      console.log('ParlayResults: No props, fetching sample parlays')
-      fetchSampleParlays()
+      // Show empty state - don't auto-generate
+      console.log('ParlayResults: No props, showing empty state')
+      setParlays([])
+      setLoading(false)
+      setError(null)
     }
   }, [generatedParlays])
 
-  const fetchSampleParlays = async () => {
-    setLoading(true)
-    setError(null)
-    
-    try {
-      console.log('ParlayResults: Fetching sample parlays...')
-      const response = await fetch('/api/parlays/generate?sport=mlb&legs=3&maxParlays=5')
-      const data = await response.json()
-      
-      console.log('ParlayResults: API response:', data)
-      
-      if (data.success) {
-        console.log('ParlayResults: Setting sample parlays:', data.parlays.length)
-        setParlays(data.parlays)
-      } else {
-        console.error('ParlayResults: API error:', data.error)
-        setError(data.error || 'Failed to fetch parlays')
-      }
-    } catch (err) {
-      console.error('ParlayResults: Fetch error:', err)
-      setError('Error fetching parlays')
-    } finally {
-      setLoading(false)
-    }
-  }
+  // Removed fetchSampleParlays - we now show an empty state instead of auto-generating
 
   const formatOdds = (decimalOdds) => {
     // Convert decimal odds to American odds
@@ -176,12 +154,7 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
             </svg>
           </div>
           <p className="text-gray-400 mb-4">{error}</p>
-          <button
-            onClick={fetchSampleParlays}
-            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
-          >
-            Try Again
-          </button>
+          <p className="text-sm text-gray-500">Please adjust your settings and try generating again</p>
         </div>
       </div>
     )
@@ -193,20 +166,12 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
         <h2 className="text-2xl font-bold text-white">
           📊 Generated Parlays
         </h2>
-        <div className="flex space-x-3">
-          <button
-            onClick={() => setShowHelp(!showHelp)}
-            className="text-gray-400 hover:text-gray-300 text-sm font-medium"
-          >
-            {showHelp ? '✕ Close Help' : 'ℹ️ What do these mean?'}
-          </button>
-          <button
-            onClick={fetchSampleParlays}
-            className="text-blue-400 hover:text-blue-300 text-sm font-medium"
-          >
-            🔄 Refresh
-          </button>
-        </div>
+        <button
+          onClick={() => setShowHelp(!showHelp)}
+          className="text-gray-400 hover:text-gray-300 text-sm font-medium"
+        >
+          {showHelp ? '✕ Close Help' : 'ℹ️ What do these mean?'}
+        </button>
       </div>
 
       {/* Help Panel */}
@@ -239,14 +204,46 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
       )}
 
       {parlays.length === 0 ? (
-        <div className="text-center py-12">
-          <div className="text-gray-400 mb-4">
-            <svg className="h-12 w-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+        <div className="text-center py-12 px-6">
+          <div className="text-blue-400 mb-6">
+            <svg className="h-20 w-20 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
             </svg>
           </div>
-          <p className="text-gray-400 mb-4">No parlays generated yet</p>
-          <p className="text-sm text-gray-500">Use the builder to generate optimized parlays</p>
+          <h3 className="text-2xl font-bold text-white mb-3">
+            Ready to Build Winning Parlays?
+          </h3>
+          <p className="text-lg text-gray-300 mb-4">
+            Select your preferences and click <span className="font-semibold text-blue-400">"Generate Parlays"</span>
+          </p>
+          <div className="max-w-md mx-auto space-y-3 text-left">
+            <div className="flex items-start space-x-3 text-gray-400">
+              <span className="text-blue-400 text-xl">1️⃣</span>
+              <div>
+                <p className="font-medium text-white">Choose Your Sport</p>
+                <p className="text-sm">NHL, NFL, or MLB</p>
+              </div>
+            </div>
+            <div className="flex items-start space-x-3 text-gray-400">
+              <span className="text-blue-400 text-xl">2️⃣</span>
+              <div>
+                <p className="font-medium text-white">Select Strategy</p>
+                <p className="text-sm">Safe, Balanced, Value, or Home Run</p>
+              </div>
+            </div>
+            <div className="flex items-start space-x-3 text-gray-400">
+              <span className="text-blue-400 text-xl">3️⃣</span>
+              <div>
+                <p className="font-medium text-white">Pick Number of Legs</p>
+                <p className="text-sm">3-8 legs per parlay</p>
+              </div>
+            </div>
+          </div>
+          <div className="mt-8 p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg max-w-md mx-auto">
+            <p className="text-sm text-blue-200">
+              <span className="font-semibold">💡 Pro Tip:</span> Start with <span className="font-bold">3-4 legs</span> in <span className="font-bold">Balanced</span> mode for the best risk/reward ratio!
+            </p>
+          </div>
         </div>
       ) : (
         <div className="space-y-4">
