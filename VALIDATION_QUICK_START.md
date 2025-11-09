@@ -50,24 +50,24 @@ node scripts/check-and-validate-props.js
 
 | Tier | Quality Score | Probability | Count | Purpose |
 |------|--------------|-------------|-------|---------|
-| 🏆 Elite | 75-100 | ≥60% | 50 | Test our absolute best picks |
-| ⭐ High | 65-74 | ≥55% | 75 | Validate good opportunities |
-| ✅ Good | 55-64 | ≥52% | 75 | Analyze threshold calibration |
+| 🏆 Elite | 40-50 | ≥60% | 50 | Test our absolute best picks |
+| ⭐ High | 35-39 | ≥55% | 75 | Validate good opportunities |
+| ✅ Good | 30-34 | ≥52% | 75 | Analyze threshold calibration |
 | **Total** | | | **200** | **Statistical significance** |
 
 ### Why Multiple Tiers?
 
-**Elite Tier (75+)**
+**Elite Tier (40+)**
 - These should have the highest win rate
 - If not, your quality calculation needs tuning
 - Target: 60-65% accuracy
 
-**High Tier (65-74)**
+**High Tier (35-39)**
 - Should still be profitable
 - Good risk/reward ratio
 - Target: 55-60% accuracy
 
-**Good Tier (55-64)**
+**Good Tier (30-34)**
 - Tests lower boundary of model
 - Helps determine minimum viable quality
 - Target: 52-57% accuracy
@@ -114,8 +114,8 @@ Overall:      55-60% accuracy, 5-10% ROI
 - Edge calculations are incorrect
 
 **If Good Tier < 50% accuracy:**
-- Threshold (55) is too low
-- Raise minimum quality to 60-65
+- Threshold (30) is too low
+- Raise minimum quality to 35-40
 
 **If any tier has negative ROI:**
 - Check if odds are accurate

@@ -25,9 +25,9 @@ User Creates Parlay → PropValidation (one record per leg)
 - **When**: Run daily before games start
 - **What**: Up to 200 props across multiple quality tiers from `PlayerPropCache`
 - **Criteria**: 
-  - **Elite Tier (50 props)**: Quality Score ≥ 75, Probability ≥ 60%
-  - **High Tier (75 props)**: Quality Score 65-74, Probability ≥ 55%
-  - **Good Tier (75 props)**: Quality Score 55-64, Probability ≥ 52%
+  - **Elite Tier (50 props)**: Quality Score ≥ 40, Probability ≥ 60%
+  - **High Tier (75 props)**: Quality Score 35-39, Probability ≥ 55%
+  - **Good Tier (75 props)**: Quality Score 30-34, Probability ≥ 52%
   - Not expired
 - **Purpose**: Track performance across quality tiers for comprehensive model improvement
 

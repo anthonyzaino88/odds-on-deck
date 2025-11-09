@@ -43,13 +43,14 @@ async function saveTopPropsForValidation() {
     console.log('🎯 Fetching props from multiple quality tiers...\n')
     
     // Tier 1: Elite props (top 50)
+    // Based on actual quality scores in your system (max ~45)
     const { data: eliteProps } = await supabase
       .from('PlayerPropCache')
       .select('*')
       .eq('isStale', false)
       .gte('expiresAt', now)
       .gte('probability', 0.60) // 60%+ win probability
-      .gte('qualityScore', 75)  // Elite quality
+      .gte('qualityScore', 40)  // Elite quality (top tier)
       .order('qualityScore', { ascending: false })
       .limit(50)
     
@@ -60,8 +61,8 @@ async function saveTopPropsForValidation() {
       .eq('isStale', false)
       .gte('expiresAt', now)
       .gte('probability', 0.55) // 55%+ win probability
-      .gte('qualityScore', 65)  // High quality
-      .lt('qualityScore', 75)   // But not elite
+      .gte('qualityScore', 35)  // High quality
+      .lt('qualityScore', 40)   // But not elite
       .order('qualityScore', { ascending: false })
       .limit(75)
     
@@ -72,8 +73,8 @@ async function saveTopPropsForValidation() {
       .eq('isStale', false)
       .gte('expiresAt', now)
       .gte('probability', 0.52) // 52%+ win probability
-      .gte('qualityScore', 55)  // Good quality
-      .lt('qualityScore', 65)   // But not high
+      .gte('qualityScore', 30)  // Good quality
+      .lt('qualityScore', 35)   // But not high
       .order('qualityScore', { ascending: false })
       .limit(75)
     
@@ -90,9 +91,9 @@ async function saveTopPropsForValidation() {
     }
     
     console.log('📊 Props by tier:')
-    console.log(`   🏆 Elite (Q75+, P60+): ${eliteProps?.length || 0}`)
-    console.log(`   ⭐ High (Q65-74, P55+): ${highProps?.length || 0}`)
-    console.log(`   ✅ Good (Q55-64, P52+): ${goodProps?.length || 0}`)
+    console.log(`   🏆 Elite (Q40+, P60+): ${eliteProps?.length || 0}`)
+    console.log(`   ⭐ High (Q35-39, P55+): ${highProps?.length || 0}`)
+    console.log(`   ✅ Good (Q30-34, P52+): ${goodProps?.length || 0}`)
     console.log(`   📈 Total: ${allProps.length}\n`)
     
     // Group by sport for visibility
