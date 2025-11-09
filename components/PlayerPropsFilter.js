@@ -40,26 +40,26 @@ export default function PlayerPropsFilter({ props }) {
   const pitchingProps = mlbProps.filter(p => p.category === 'pitching')
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 sm:space-y-8">
       {/* Filter Mode Selector */}
       <div className="card">
-        <div className="px-6 py-4">
-          <h3 className="text-lg font-semibold text-white mb-4">
+        <div className="px-4 sm:px-6 py-3 sm:py-4">
+          <h3 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4">
             🎯 Betting Strategy
           </h3>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3">
             <button
               onClick={() => setFilterMode('safe')}
-              className={`p-4 rounded-lg border-2 text-left transition-all ${
+              className={`p-3 sm:p-4 rounded-lg border-2 text-left transition-all ${
                 filterMode === 'safe'
                   ? 'border-green-500 bg-green-900/30 text-white'
                   : 'border-slate-700 bg-slate-800 hover:border-green-500/50 text-gray-300'
               }`}
             >
-              <div className="font-semibold text-sm">🛡️ Safe Mode</div>
-              <div className="text-xs text-gray-400 mt-1">52%+ win rate</div>
+              <div className="font-semibold text-xs sm:text-sm">🛡️ Safe</div>
+              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">52%+ win</div>
               {filterMode === 'safe' && (
-                <div className="text-xs text-green-400 mt-2 font-medium">
+                <div className="text-[10px] sm:text-xs text-green-400 mt-1 sm:mt-2 font-medium">
                   {filteredProps.length} props
                 </div>
               )}
@@ -67,16 +67,16 @@ export default function PlayerPropsFilter({ props }) {
 
             <button
               onClick={() => setFilterMode('balanced')}
-              className={`p-4 rounded-lg border-2 text-left transition-all ${
+              className={`p-3 sm:p-4 rounded-lg border-2 text-left transition-all ${
                 filterMode === 'balanced'
                   ? 'border-blue-500 bg-blue-900/30 text-white'
                   : 'border-slate-700 bg-slate-800 hover:border-blue-500/50 text-gray-300'
               }`}
             >
-              <div className="font-semibold text-sm">⚖️ Balanced</div>
-              <div className="text-xs text-gray-400 mt-1">Best quality</div>
+              <div className="font-semibold text-xs sm:text-sm">⚖️ Balanced</div>
+              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Best quality</div>
               {filterMode === 'balanced' && (
-                <div className="text-xs text-blue-400 mt-2 font-medium">
+                <div className="text-[10px] sm:text-xs text-blue-400 mt-1 sm:mt-2 font-medium">
                   {filteredProps.length} props
                 </div>
               )}
@@ -84,16 +84,16 @@ export default function PlayerPropsFilter({ props }) {
 
             <button
               onClick={() => setFilterMode('value')}
-              className={`p-4 rounded-lg border-2 text-left transition-all ${
+              className={`p-3 sm:p-4 rounded-lg border-2 text-left transition-all ${
                 filterMode === 'value'
                   ? 'border-yellow-500 bg-yellow-900/30 text-white'
                   : 'border-slate-700 bg-slate-800 hover:border-yellow-500/50 text-gray-300'
               }`}
             >
-              <div className="font-semibold text-sm">💰 Value Hunter</div>
-              <div className="text-xs text-gray-400 mt-1">15%+ edge</div>
+              <div className="font-semibold text-xs sm:text-sm">💰 Value</div>
+              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">15%+ edge</div>
               {filterMode === 'value' && (
-                <div className="text-xs text-yellow-400 mt-2 font-medium">
+                <div className="text-[10px] sm:text-xs text-yellow-400 mt-1 sm:mt-2 font-medium">
                   {filteredProps.length} props
                 </div>
               )}
@@ -101,16 +101,16 @@ export default function PlayerPropsFilter({ props }) {
 
             <button
               onClick={() => setFilterMode('homerun')}
-              className={`p-4 rounded-lg border-2 text-left transition-all ${
+              className={`p-3 sm:p-4 rounded-lg border-2 text-left transition-all ${
                 filterMode === 'homerun'
                   ? 'border-purple-500 bg-purple-900/30 text-white'
                   : 'border-slate-700 bg-slate-800 hover:border-purple-500/50 text-gray-300'
               }`}
             >
-              <div className="font-semibold text-sm">🎰 Home Run</div>
-              <div className="text-xs text-gray-400 mt-1">Big edges</div>
+              <div className="font-semibold text-xs sm:text-sm">🎰 Home Run</div>
+              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Big edges</div>
               {filterMode === 'homerun' && (
-                <div className="text-xs text-purple-400 mt-2 font-medium">
+                <div className="text-[10px] sm:text-xs text-purple-400 mt-1 sm:mt-2 font-medium">
                   {filteredProps.length} props
                 </div>
               )}
@@ -118,8 +118,8 @@ export default function PlayerPropsFilter({ props }) {
           </div>
 
           {/* Mode Description */}
-          <div className="mt-4 p-3 bg-slate-800 rounded-lg border border-slate-700">
-            <p className="text-sm text-gray-300">
+          <div className="mt-3 sm:mt-4 p-2 sm:p-3 bg-slate-800 rounded-lg border border-slate-700">
+            <p className="text-xs sm:text-sm text-gray-300 leading-relaxed">
               {filterMode === 'safe' && '🛡️ Showing props with 52%+ win probability. These are the safest, most consistent picks.'}
               {filterMode === 'balanced' && '⚖️ Showing props with optimal quality scores (45%+ probability, 5%+ edge). Best overall picks.'}
               {filterMode === 'value' && '💰 Showing props with 15%+ edge. These are market inefficiencies with higher potential value.'}
@@ -171,16 +171,16 @@ export default function PlayerPropsFilter({ props }) {
       {/* Top Props */}
       {filteredProps.length > 0 && (
         <div className="card">
-          <div className="px-6 py-4 border-b border-slate-700">
-            <h2 className="text-xl font-semibold text-white">
-              🔥 Top Props ({filterMode === 'safe' ? 'Safest' : filterMode === 'balanced' ? 'Best Quality' : filterMode === 'value' ? 'Best Value' : 'Highest Edge'})
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-700">
+            <h2 className="text-lg sm:text-xl font-semibold text-white">
+              🔥 Top Props
             </h2>
-            <p className="text-sm text-gray-400 mt-1">
-              Sorted by {filterMode === 'safe' ? 'win probability' : filterMode === 'balanced' ? 'quality score' : 'edge'}
+            <p className="text-xs sm:text-sm text-gray-400 mt-1">
+              {filterMode === 'safe' ? 'Safest' : filterMode === 'balanced' ? 'Best Quality' : filterMode === 'value' ? 'Best Value' : 'Highest Edge'}
             </p>
           </div>
-          <div className="p-6">
-            <div className="space-y-3 max-h-[600px] overflow-y-auto">
+          <div className="p-3 sm:p-6">
+            <div className="space-y-2 sm:space-y-3 max-h-[500px] sm:max-h-[600px] overflow-y-auto">
               {filteredProps.slice(0, 20).map((prop, index) => (
                 <PlayerPropCard key={`${prop.gameId}-${prop.playerName}-${prop.type}`} prop={prop} rank={index + 1} />
               ))}
@@ -345,50 +345,66 @@ function PlayerPropCard({ prop, rank }) {
   }
 
   return (
-    <div className="border border-slate-700 rounded-lg p-4 hover:border-blue-500 hover:shadow-md transition-all bg-slate-800/50">
-      <div className="flex items-center justify-between">
-        <Link href={`/game/${prop.gameId}`} className="flex items-center space-x-4 flex-1 cursor-pointer">
-          <div className="text-2xl font-bold text-blue-400">#{rank}</div>
-          <div>
-            <div className="font-semibold text-white">
-              {prop.playerName} {prop.pick?.toUpperCase()} {prop.threshold} {(prop.type || '').replace(/_/g, ' ')}
+    <div className="border border-slate-700 rounded-lg p-3 sm:p-4 hover:border-blue-500 hover:shadow-md transition-all bg-slate-800/50">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        {/* Rank - Hidden on mobile */}
+        <div className="hidden sm:block text-xl font-bold text-blue-400 min-w-[40px]">
+          #{rank}
+        </div>
+
+        {/* Main Content */}
+        <Link href={`/game/${prop.gameId}`} className="flex-1 cursor-pointer min-w-0">
+          <div className="flex items-start gap-2">
+            {/* Rank on mobile */}
+            <div className="sm:hidden text-sm font-bold text-blue-400 min-w-[32px]">
+              #{rank}
             </div>
-            <div className="text-sm text-gray-400">
-              {prop.gameTime && format(new Date(prop.gameTime), 'h:mm a')}
-            </div>
-            {prop.reasoning && (
-              <div className="text-sm text-gray-400 mt-1">
-                {prop.reasoning}
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-sm sm:text-base text-white truncate">
+                {prop.playerName}
               </div>
-            )}
+              <div className="text-xs sm:text-sm text-gray-400">
+                {prop.pick?.toUpperCase()} {prop.threshold} {(prop.type || '').replace(/_/g, ' ')}
+              </div>
+              {prop.gameTime && (
+                <div className="text-xs text-gray-500 mt-0.5">
+                  {format(new Date(prop.gameTime), 'h:mm a')}
+                </div>
+              )}
+            </div>
           </div>
         </Link>
-        <div className="flex items-center space-x-3">
+
+        {/* Stats and Button */}
+        <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 pl-10 sm:pl-0">
+          {/* Stats */}
+          <div className="flex flex-col items-end gap-0.5">
+            <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${tierColors[qualityTier.tier]}`}>
+              {qualityTier.emoji} {qualityTier.label}
+            </div>
+            <div className="text-xs sm:text-sm text-gray-400">
+              Q: <span className="font-semibold text-white">{prop.qualityScore?.toFixed(1) || 'N/A'}</span>
+            </div>
+            <div className="text-sm sm:text-base font-bold text-green-400">
+              {((prop.probability || 0) * 100).toFixed(0)}%
+            </div>
+            <div className="text-xs sm:text-sm font-semibold text-blue-400">
+              +{((prop.edge || 0) * 100).toFixed(1)}%
+            </div>
+          </div>
+
+          {/* Save Button */}
           <button
             onClick={handleSaveProp}
             disabled={isSaving || isSaved}
-            className={`px-4 py-2 rounded-lg font-medium transition-all ${
+            className={`px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-all text-xs sm:text-sm whitespace-nowrap ${
               isSaved 
                 ? 'bg-green-600 text-white' 
                 : 'bg-blue-600 hover:bg-blue-700 text-white'
             } disabled:opacity-50`}
           >
-            {isSaved ? '✓ Saved!' : isSaving ? 'Saving...' : '💾 Save'}
+            {isSaved ? '✓ Saved' : isSaving ? '...' : '💾 Save'}
           </button>
-          <div className="text-right">
-            <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${tierColors[qualityTier.tier]} mb-2`}>
-              {qualityTier.emoji} {qualityTier.label}
-            </div>
-            <div className="text-sm text-gray-400 mb-1">
-              Score: <span className="font-semibold text-white">{prop.qualityScore?.toFixed(1) || 'N/A'}</span>
-            </div>
-            <div className="text-lg font-bold text-green-400">
-              {((prop.probability || 0) * 100).toFixed(1)}% win
-            </div>
-            <div className="text-sm font-semibold text-blue-400">
-              +{((prop.edge || 0) * 100).toFixed(1)}% edge
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -400,26 +416,26 @@ function PropRow({ prop }) {
 
   return (
     <Link href={`/game/${prop.gameId}`}>
-      <div className="flex items-center justify-between p-3 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors cursor-pointer border border-slate-700">
-        <div className="flex items-center space-x-3 flex-1">
-          <div className="text-lg">{qualityTier.emoji}</div>
-          <div>
-            <div className="font-medium text-white">
+      <div className="flex items-center justify-between p-2 sm:p-3 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors cursor-pointer border border-slate-700">
+        <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+          <div className="text-base sm:text-lg">{qualityTier.emoji}</div>
+          <div className="flex-1 min-w-0">
+            <div className="font-medium text-sm sm:text-base text-white truncate">
               {prop.playerName}
             </div>
-            <div className="text-sm text-gray-400">
+            <div className="text-xs sm:text-sm text-gray-400 truncate">
               {prop.pick?.toUpperCase()} {prop.threshold} {(prop.type || '').replace(/_/g, ' ')}
             </div>
           </div>
         </div>
-        <div className="text-right">
-          <div className="text-xs text-gray-500 mb-1">
+        <div className="text-right ml-2">
+          <div className="text-[10px] sm:text-xs text-gray-500 mb-0.5">
             Q: {prop.qualityScore?.toFixed(1) || 'N/A'}
           </div>
-          <div className="font-semibold text-green-400">
+          <div className="font-semibold text-sm sm:text-base text-green-400">
             {((prop.probability || 0) * 100).toFixed(0)}%
           </div>
-          <div className="text-xs text-blue-400">
+          <div className="text-[10px] sm:text-xs text-blue-400">
             +{((prop.edge || 0) * 100).toFixed(1)}%
           </div>
         </div>

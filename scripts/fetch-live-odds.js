@@ -1076,13 +1076,18 @@ function calculateOurProbability(pick, threshold, impliedProb) {
 }
 
 /**
- * Get confidence level based on edge
+ * Get confidence level based on probability (how likely to hit)
+ * NOT based on edge - edge is about value, confidence is about likelihood
+ * 
+ * High confidence = High probability of hitting
+ * Medium confidence = Moderate probability
+ * Low confidence = Lower probability (but still might have value!)
  */
-function getConfidence(edge) {
-  if (edge >= 0.15) return 'high'
-  if (edge >= 0.08) return 'medium'
-  if (edge >= 0.03) return 'low'
-  return 'very_low'
+function getConfidence(probability) {
+  if (probability >= 0.65) return 'high'      // 65%+ chance to hit
+  if (probability >= 0.50) return 'medium'    // 50-65% chance
+  if (probability >= 0.35) return 'low'       // 35-50% chance
+  return 'very_low'                            // <35% chance
 }
 
 // ============================================================================
@@ -1174,7 +1179,7 @@ async function savePlayerProps(gameProps, sport) {
             // Skip only if edge is suspiciously high (data error)
             if (edge > 0.50) continue // Only filter obvious errors
             
-            const confidence = getConfidence(edge)
+            const confidence = getConfidence(ourProb)
             const qualityScore = calculateQualityScore({
               probability: ourProb,
               edge: edge,

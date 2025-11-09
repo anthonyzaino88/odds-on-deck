@@ -4,7 +4,12 @@
 export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
-import { prisma } from '../../../../lib/db.js'
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+)
 
 export async function GET(request) {
   try {
@@ -15,37 +20,38 @@ export async function GET(request) {
 
     console.log(`📊 Fetching parlay history (limit: ${limit})`)
 
-    // Fetch parlays from database
-    const parlays = await prisma.parlay.findMany({
-      take: limit,
-      orderBy: {
-        createdAt: 'desc'
-      },
-      include: {
-        legs: true
-      }
-    })
-    
-    console.log(`✅ Found ${parlays.length} parlays in database`)
+    // Build query
+    let query = supabase
+      .from('Parlay')
+      .select('*, legs:ParlayLeg(*)')
+      .order('createdAt', { ascending: false })
+      .limit(limit)
 
-    // Filter by sport if specified (additional client-side filtering)
-    let filteredParlays = parlays
+    // Filter by sport if specified
     if (sport) {
-      filteredParlays = parlays.filter(parlay => parlay.sport === sport)
+      query = query.eq('sport', sport)
     }
 
-    // Filter by status if specified (additional client-side filtering)
+    // Filter by status if specified
     if (status) {
-      filteredParlays = filteredParlays.filter(parlay => parlay.status === status)
+      query = query.eq('status', status)
     }
+
+    const { data: parlays, error } = await query
+
+    if (error) {
+      throw new Error(`Database query failed: ${error.message}`)
+    }
+    
+    console.log(`✅ Found ${parlays?.length || 0} parlays in database`)
 
     // Calculate performance metrics
-    const performance = calculatePerformanceMetrics(filteredParlays)
+    const performance = calculatePerformanceMetrics(parlays || [])
 
     return NextResponse.json({
       success: true,
-      parlays: filteredParlays,
-      count: filteredParlays.length,
+      parlays: parlays || [],
+      count: parlays?.length || 0,
       performance: performance,
       fetchedAt: new Date().toISOString()
     })
@@ -56,8 +62,6 @@ export async function GET(request) {
       { error: 'Failed to fetch parlay history', details: error.message },
       { status: 500 }
     )
-  } finally {
-    await prisma.$disconnect()
   }
 }
 

@@ -65,7 +65,7 @@ export default function PropsPage() {
 
         {/* Sport Filter */}
         <div className="mb-6">
-          <div className="flex justify-center gap-3 mb-4">
+          <div className="flex flex-wrap justify-center gap-2 sm:gap-3 mb-4">
             {[
               { value: 'all', label: 'All Sports', emoji: '🎯', color: 'blue' },
               { value: 'nfl', label: 'NFL', emoji: '🏈', color: 'green' },
@@ -75,34 +75,37 @@ export default function PropsPage() {
             <button
                 key={sport.value}
                 onClick={() => setSportFilter(sport.value)}
-                className={`px-6 py-3 rounded-lg font-medium transition-all transform hover:scale-105 ${
+                className={`px-3 sm:px-6 py-2 sm:py-3 rounded-lg font-medium transition-all text-sm sm:text-base ${
                   sportFilter === sport.value
                     ? `bg-${sport.color}-600 text-white shadow-lg shadow-${sport.color}-500/50`
                   : 'bg-slate-800 text-gray-300 hover:bg-slate-700'
               }`}
             >
-                <span className="text-xl mr-2">{sport.emoji}</span>
-                {sport.label}
+                <span className="text-lg sm:text-xl mr-1 sm:mr-2">{sport.emoji}</span>
+                <span className="hidden xs:inline">{sport.label}</span>
+                <span className="xs:hidden">{sport.value.toUpperCase()}</span>
             </button>
           ))}
           </div>
           
           {/* Quick Stats Bar */}
           {!loading && !error && props.length > 0 && (
-            <div className="flex justify-center items-center gap-6 text-sm text-gray-400">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-wrap justify-center items-center gap-3 sm:gap-6 text-xs sm:text-sm text-gray-400">
+              <div className="flex items-center gap-1 sm:gap-2">
                 <span className="text-white font-bold">{props.length}</span>
-                <span>Total Props</span>
+                <span className="hidden sm:inline">Total Props</span>
+                <span className="sm:hidden">Props</span>
               </div>
-              <div className="h-4 w-px bg-slate-700"></div>
-              <div className="flex items-center gap-2">
+              <div className="hidden sm:block h-4 w-px bg-slate-700"></div>
+              <div className="flex items-center gap-1 sm:gap-2">
                 <span className="text-green-400 font-bold">
                   {props.filter(p => (p.probability || 0) >= 0.55).length}
                 </span>
-                <span>High Confidence</span>
+                <span className="hidden sm:inline">High Confidence</span>
+                <span className="sm:hidden">High</span>
               </div>
-              <div className="h-4 w-px bg-slate-700"></div>
-              <div className="flex items-center gap-2">
+              <div className="hidden sm:block h-4 w-px bg-slate-700"></div>
+              <div className="flex items-center gap-1 sm:gap-2">
                 <span className="text-blue-400 font-bold">
                   {props.filter(p => (p.edge || 0) >= 0.10).length}
                 </span>
@@ -139,34 +142,34 @@ export default function PropsPage() {
               <div className="mb-6">
                 {/* Sport-specific header */}
                 {sportFilter !== 'all' && (
-                  <div className={`p-4 rounded-lg mb-4 ${
+                  <div className={`p-3 sm:p-4 rounded-lg mb-4 ${
                     sportFilter === 'nfl' ? 'bg-green-900/20 border border-green-500/50' :
                     sportFilter === 'nhl' ? 'bg-purple-900/20 border border-purple-500/50' :
                     'bg-yellow-900/20 border border-yellow-500/50'
                   }`}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className="text-3xl">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 sm:gap-3">
+                        <span className="text-2xl sm:text-3xl">
                           {sportFilter === 'nfl' ? '🏈' : sportFilter === 'nhl' ? '🏒' : '⚾'}
                         </span>
                         <div>
-                          <h2 className={`text-xl font-bold ${
+                          <h2 className={`text-lg sm:text-xl font-bold ${
                             sportFilter === 'nfl' ? 'text-green-400' :
                             sportFilter === 'nhl' ? 'text-purple-400' :
                             'text-yellow-400'
                           }`}>
-                            {sportFilter.toUpperCase()} Player Props
+                            {sportFilter.toUpperCase()} Props
                           </h2>
-                          <p className="text-sm text-gray-400">
-                            {props.length} betting opportunities available
+                          <p className="text-xs sm:text-sm text-gray-400">
+                            {props.length} opportunities
                           </p>
                         </div>
                       </div>
                       <button
                         onClick={() => setSportFilter('all')}
-                        className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm transition-colors"
+                        className="px-3 py-1.5 sm:px-4 sm:py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs sm:text-sm transition-colors whitespace-nowrap"
                       >
-                        View All Sports
+                        View All
                       </button>
                     </div>
                   </div>

@@ -34,6 +34,7 @@ export async function POST(request) {
     const parlayId = generateId()
 
     // Save parlay to database using Supabase
+    const now = new Date().toISOString()
     const { data: savedParlay, error: parlayError } = await supabase
       .from('Parlay')
       .insert({
@@ -48,7 +49,8 @@ export async function POST(request) {
         confidence: parlay.confidence || 'medium',
         status: 'pending',
         notes: `User saved parlay with ${parlay.legs?.length || 0} legs`,
-        createdAt: new Date().toISOString()
+        createdAt: now,
+        updatedAt: now
       })
       .select()
       .single()
@@ -63,18 +65,20 @@ export async function POST(request) {
         id: generateId(),
         parlayId: parlayId,
         gameIdRef: leg.gameId,
-            betType: leg.betType || 'prop',
-            selection: leg.selection || leg.pick,
-            odds: leg.odds || -110,
-            probability: leg.probability || 0.5,
-            edge: leg.edge || 0,
-            confidence: leg.confidence || 'medium',
-            legOrder: index + 1,
-            notes: leg.reasoning,
+        betType: leg.betType || 'prop',
+        selection: leg.selection || leg.pick,
+        odds: leg.odds || -110,
+        probability: leg.probability || 0.5,
+        edge: leg.edge || 0,
+        confidence: leg.confidence || 'medium',
+        legOrder: index + 1,
+        notes: leg.reasoning,
         playerName: leg.playerName,
-            propType: leg.propType || leg.type,
-            threshold: leg.threshold
-          }))
+        propType: leg.propType || leg.type,
+        threshold: leg.threshold,
+        createdAt: now,
+        updatedAt: now
+      }))
 
       const { error: legsError } = await supabase
         .from('ParlayLeg')
