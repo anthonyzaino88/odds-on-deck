@@ -61,12 +61,12 @@ function normalizeStatus(status) {
 async function updateScoresForSport(sport) {
   console.log(`\n🔄 Updating ${sport.toUpperCase()} scores...\n`)
   
-  // Get active games (scheduled or in_progress) for this sport
+  // Get active games (scheduled, in_progress, or halftime) for this sport
   const { data: games, error } = await supabase
     .from('Game')
     .select('id, espnGameId, mlbGameId, homeId, awayId, homeScore, awayScore, status, date, home:Team!Game_homeId_fkey(abbr), away:Team!Game_awayId_fkey(abbr)')
     .eq('sport', sport)
-    .in('status', ['scheduled', 'in_progress', 'in-progress'])
+    .in('status', ['scheduled', 'in_progress', 'in-progress', 'halftime'])
     .order('date', { ascending: true })
   
   if (error) {
