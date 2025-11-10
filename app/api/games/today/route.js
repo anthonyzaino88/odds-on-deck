@@ -50,8 +50,7 @@ export async function GET(req) {
       weekStart.setUTCDate(today.getUTCDate() + daysUntilThursday)
       weekEnd = new Date(weekStart)
       weekEnd.setUTCDate(weekStart.getUTCDate() + 5) // Thursday + 5 days = Tuesday at 00:00
-      weekEnd.setUTCDate(weekEnd.getUTCDate() - 1) // Go back to Monday
-      weekEnd.setUTCHours(23, 59, 59, 999)
+      weekEnd.setUTCHours(5, 0, 0, 0) // Tuesday 5 AM UTC = Monday 11:59 PM EST (catch all MNF)
     } else {
       // Thursday through Monday - show current week
       // Find the most recent Thursday
@@ -76,11 +75,12 @@ export async function GET(req) {
         weekStart.setUTCDate(today.getUTCDate() - 2) // Go back 2 days to Thursday
       }
       
-      // Week ends on Monday (inclusive, so Monday 23:59:59)
+      // Week ends on Monday 11:59 PM EST
+      // But Monday 11:59 PM EST = Tuesday 4:59 AM UTC, so we need to query until Tuesday ~5 AM UTC
+      // to catch Monday Night Football games (8:15 PM EST Monday = 1:15 AM UTC Tuesday)
       weekEnd = new Date(weekStart)
       weekEnd.setUTCDate(weekStart.getUTCDate() + 5) // Thursday + 5 days = Tuesday at 00:00
-      weekEnd.setUTCDate(weekEnd.getUTCDate() - 1) // Go back to Monday
-      weekEnd.setUTCHours(23, 59, 59, 999)
+      weekEnd.setUTCHours(5, 0, 0, 0) // Tuesday 5 AM UTC = Monday 11:59 PM EST (catch all MNF)
     }
     
     console.log(`📅 Date ranges (EST): MLB/NHL today (${todayStr}), NFL week (${weekStart.toISOString()} - ${weekEnd.toISOString()})`)
@@ -286,16 +286,30 @@ export async function GET(req) {
       if (g.sport !== 'nfl') return false
       
       const gameDate = new Date(g.date)
-      const gameDay = new Date(gameDate.getFullYear(), gameDate.getMonth(), gameDate.getDate())
-      const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate())
       
-      // Game must be in the current week range (Sunday to Sunday)
+      // Game must be in the current week range (Thursday to Monday)
       if (gameDate < weekStart || gameDate >= weekEnd) {
         return false
       }
       
-      // Exclude final games from previous days (keep only today's final games)
-      if (g.status === 'final' && gameDay < todayDay) {
+      // Get EST date for the game to properly filter by "today"
+      const gameDateStr = g.date || ''
+      const gameDateObj = new Date(gameDateStr.includes('Z') || gameDateStr.includes('+') || gameDateStr.match(/[+-]\d{2}:\d{2}$/)
+        ? gameDateStr
+        : gameDateStr + 'Z')
+      
+      const gameEstDateStr = gameDateObj.toLocaleDateString('en-US', {
+        timeZone: 'America/New_York',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      })
+      const [gameMonth, gameDay, gameYear] = gameEstDateStr.split('/')
+      const gameEstDate = `${gameYear}-${gameMonth.padStart(2, '0')}-${gameDay.padStart(2, '0')}`
+      
+      // Exclude final games from previous days (keep only today's final games and future)
+      if (g.status === 'final' && gameEstDate < todayStr) {
+        console.log(`   🏈 Filtered out final game from ${gameEstDate}: ${g.away?.abbr} @ ${g.home?.abbr}`)
         return false
       }
       
