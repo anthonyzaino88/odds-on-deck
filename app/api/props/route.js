@@ -51,15 +51,30 @@ export async function GET(request) {
     const propIds = (data || []).map(p => p.propId)
     
     let savedPropIds = new Set()
-    if (propIds.length > 0) {
-      const { data: savedProps } = await supabase
-        .from('PropValidation')
-        .select('propId')
-        .in('propId', propIds)
+    
+    // FIXED: Query ALL saved props instead of using .in() which causes "Request Header Too Large" error
+    // .in() with 1000 propIds creates a URL that's too long for HTTP headers
+    const { data: allSavedProps, error: savedError } = await supabase
+      .from('PropValidation')
+      .select('propId')
+      .eq('status', 'pending') // Only get pending validations (not completed ones)
+      .limit(5000) // Reasonable limit to avoid loading everything
+    
+    if (savedError) {
+      console.error(`   Error querying saved props:`, savedError)
+    } else if (allSavedProps && allSavedProps.length > 0) {
+      // Filter to only propIds that are in our current props list
+      const currentPropIdSet = new Set(propIds)
+      const matchingSaved = allSavedProps.filter(sp => currentPropIdSet.has(sp.propId))
       
-      if (savedProps) {
-        savedPropIds = new Set(savedProps.map(p => p.propId))
+      savedPropIds = new Set(matchingSaved.map(p => p.propId))
+      console.log(`   Found ${savedPropIds.size} saved props out of ${allSavedProps.length} total saved`)
+      
+      if (savedPropIds.size > 0) {
+        console.log(`   Sample saved: ${[...savedPropIds].slice(0, 3).join(', ')}`)
       }
+    } else {
+      console.log(`   No saved props found in PropValidation table`)
     }
     
     // Transform data to match expected format
