@@ -14,10 +14,41 @@ export async function GET(request) {
     const limit = parseInt(searchParams.get('limit') || '1000')
     
     // Step 1: Get active games (not finished)
-    const { data: activeGames, error: gamesError } = await supabase
+    // NFL: Show all week's games (Thu-Mon)
+    // NHL/MLB: Only show TODAY's games
+    let activeGamesQuery = supabase
       .from('Game')
-      .select('id')
+      .select('id, sport, date')
       .in('status', ['scheduled', 'in_progress', 'in-progress', 'halftime'])
+    
+    // For NHL/MLB, filter to today's games only (by EST date)
+    if (sport === 'nhl' || sport === 'mlb') {
+      const today = new Date()
+      const todayEST = today.toLocaleDateString('en-US', {
+        timeZone: 'America/New_York',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      })
+      const [month, day, year] = todayEST.split('/')
+      const todayStr = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
+      
+      // Get a wide UTC range (yesterday to tomorrow) then filter by EST date below
+      const yesterdayUTC = new Date(today)
+      yesterdayUTC.setDate(yesterdayUTC.getDate() - 1)
+      yesterdayUTC.setHours(0, 0, 0, 0)
+      
+      const tomorrowUTC = new Date(today)
+      tomorrowUTC.setDate(tomorrowUTC.getDate() + 2)
+      tomorrowUTC.setHours(0, 0, 0, 0)
+      
+      activeGamesQuery = activeGamesQuery
+        .eq('sport', sport)
+        .gte('date', yesterdayUTC.toISOString())
+        .lt('date', tomorrowUTC.toISOString())
+    }
+    
+    const { data: activeGames, error: gamesError } = await activeGamesQuery
     
     if (gamesError) {
       console.error('Error fetching active games:', gamesError)

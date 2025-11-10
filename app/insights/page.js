@@ -29,6 +29,38 @@ export default async function InsightsDashboard() {
   const bestPropTypes = propTypeArray.slice(0, 5)
   const worstPropTypes = propTypeArray.slice(-5).reverse()
   
+  // Determine status based on accuracy
+  const getStatusInfo = (accuracy) => {
+    if (accuracy >= 0.524) {
+      return { 
+        label: '🎯 Profitable', 
+        color: 'text-green-400',
+        bg: 'bg-green-900/20',
+        border: 'border-green-500/50',
+        description: 'Above break-even threshold'
+      }
+    } else if (accuracy >= 0.45) {
+      return { 
+        label: '📈 Improving', 
+        color: 'text-yellow-400',
+        bg: 'bg-yellow-900/20',
+        border: 'border-yellow-500/50',
+        description: 'Close to profitability'
+      }
+    } else {
+      return { 
+        label: '🔧 Needs Work', 
+        color: 'text-orange-400',
+        bg: 'bg-orange-900/20',
+        border: 'border-orange-500/50',
+        description: 'Focus on improvement'
+      }
+    }
+  }
+  
+  const statusInfo = getStatusInfo(overallAccuracy)
+  const gapToBreakEven = ((0.524 - overallAccuracy) * 100).toFixed(1)
+
   return (
     <div className="min-h-screen bg-slate-950">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
@@ -50,30 +82,45 @@ export default async function InsightsDashboard() {
           </div>
         </div>
 
-        {/* Overall Performance */}
-        <div className="card p-4 sm:p-6 mb-6 sm:mb-8">
+        {/* Overall Performance - Enhanced */}
+        <div className={`${statusInfo.bg} border-2 ${statusInfo.border} rounded-lg p-6 mb-6 sm:mb-8`}>
           <h3 className="text-lg font-semibold text-white mb-4">📊 Overall Performance</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
-            <div className="text-center p-4 bg-slate-900/50 rounded-lg">
-              <div className={`text-3xl sm:text-4xl font-bold ${overallAccuracy >= 0.524 ? 'text-green-400' : 'text-red-400'}`}>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="text-center">
+              <div className={`text-4xl sm:text-5xl font-bold ${statusInfo.color}`}>
                 {(overallAccuracy * 100).toFixed(1)}%
               </div>
-              <div className="text-sm text-gray-400 mt-1">Overall Accuracy</div>
+              <div className="text-sm text-gray-400 mt-2">Overall Win Rate</div>
               <div className="text-xs text-gray-500 mt-1">
-                Break-even: 52.4%
+                Break-even: 52.4% (standard -110 odds)
               </div>
+              {overallAccuracy < 0.524 && (
+                <div className="text-xs text-yellow-400 mt-2">
+                  Only {gapToBreakEven}% away from profitability!
+                </div>
+              )}
             </div>
-            <div className="text-center p-4 bg-slate-900/50 rounded-lg">
-              <div className={`text-2xl sm:text-4xl font-bold ${overallAccuracy >= 0.524 ? 'text-green-400' : 'text-red-400'}`}>
-                {overallAccuracy >= 0.524 ? '📈 Profitable' : '📉 Needs Work'}
+            
+            <div className="text-center">
+              <div className={`text-3xl sm:text-4xl font-bold ${statusInfo.color}`}>
+                {statusInfo.label}
               </div>
-              <div className="text-sm text-gray-400 mt-1">Status</div>
+              <div className="text-sm text-gray-400 mt-2">{statusInfo.description}</div>
+              {overallAccuracy >= 0.45 && overallAccuracy < 0.524 && (
+                <div className="text-xs text-yellow-300 mt-2">
+                  💪 You're getting close! Keep refining your strategy.
+                </div>
+              )}
             </div>
-            <div className="text-center p-4 bg-slate-900/50 rounded-lg">
-              <div className="text-3xl sm:text-4xl font-bold text-blue-400">
+            
+            <div className="text-center">
+              <div className="text-4xl sm:text-5xl font-bold text-blue-400">
                 {insights.length}
               </div>
-              <div className="text-sm text-gray-400 mt-1">Insights Generated</div>
+              <div className="text-sm text-gray-400 mt-2">Actionable Insights</div>
+              <div className="text-xs text-gray-500 mt-1">
+                {successInsights.length} strengths • {warningInsights.length} improvements
+              </div>
             </div>
           </div>
         </div>
@@ -85,7 +132,7 @@ export default async function InsightsDashboard() {
             <div className="card p-4 sm:p-6 border-l-4 border-blue-500">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-base sm:text-lg font-semibold text-white">🏈 NFL</h3>
-                <span className={`text-2xl ${nflStats.accuracy >= 0.524 ? 'text-green-400' : 'text-red-400'}`}>
+                <span className={`text-2xl ${nflStats.accuracy >= 0.524 ? 'text-green-400' : nflStats.accuracy >= 0.45 ? 'text-yellow-400' : 'text-orange-400'}`}>
                   {(nflStats.accuracy * 100).toFixed(1)}%
                 </span>
               </div>
@@ -98,7 +145,7 @@ export default async function InsightsDashboard() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-400">ROI</span>
-                  <span className={`font-medium ${nflStats.roi >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  <span className={`font-medium ${nflStats.roi >= 0 ? 'text-green-400' : 'text-orange-400'}`}>
                     {(nflStats.roi * 100).toFixed(1)}%
                   </span>
                 </div>
@@ -117,7 +164,7 @@ export default async function InsightsDashboard() {
             <div className="card p-4 sm:p-6 border-l-4 border-cyan-500">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-base sm:text-lg font-semibold text-white">🏒 NHL</h3>
-                <span className={`text-2xl ${nhlStats.accuracy >= 0.524 ? 'text-green-400' : 'text-red-400'}`}>
+                <span className={`text-2xl ${nhlStats.accuracy >= 0.524 ? 'text-green-400' : nhlStats.accuracy >= 0.45 ? 'text-yellow-400' : 'text-orange-400'}`}>
                   {(nhlStats.accuracy * 100).toFixed(1)}%
                 </span>
               </div>
@@ -130,7 +177,7 @@ export default async function InsightsDashboard() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-400">ROI</span>
-                  <span className={`font-medium ${nhlStats.roi >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  <span className={`font-medium ${nhlStats.roi >= 0 ? 'text-green-400' : 'text-orange-400'}`}>
                     {(nhlStats.roi * 100).toFixed(1)}%
                   </span>
                 </div>
@@ -149,7 +196,7 @@ export default async function InsightsDashboard() {
             <div className="card p-4 sm:p-6 border-l-4 border-green-500">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-base sm:text-lg font-semibold text-white">⚾ MLB</h3>
-                <span className={`text-2xl ${mlbStats.accuracy >= 0.524 ? 'text-green-400' : 'text-red-400'}`}>
+                <span className={`text-2xl ${mlbStats.accuracy >= 0.524 ? 'text-green-400' : mlbStats.accuracy >= 0.45 ? 'text-yellow-400' : 'text-orange-400'}`}>
                   {(mlbStats.accuracy * 100).toFixed(1)}%
                 </span>
               </div>
@@ -162,7 +209,7 @@ export default async function InsightsDashboard() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-400">ROI</span>
-                  <span className={`font-medium ${mlbStats.roi >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  <span className={`font-medium ${mlbStats.roi >= 0 ? 'text-green-400' : 'text-orange-400'}`}>
                     {(mlbStats.roi * 100).toFixed(1)}%
                   </span>
                 </div>
@@ -199,25 +246,35 @@ export default async function InsightsDashboard() {
           </div>
         )}
 
-        {/* Warning Insights */}
+        {/* Warning Insights - LIMITED TO TOP 10 */}
         {warningInsights.length > 0 && (
-          <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4 sm:p-6 mb-6 sm:mb-8">
-            <h3 className="text-base sm:text-lg font-semibold text-red-400 mb-4">⚠️ What to Avoid</h3>
+          <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-4 sm:p-6 mb-6 sm:mb-8">
+            <h3 className="text-base sm:text-lg font-semibold text-orange-400 mb-2">
+              💭 Areas for Improvement
+            </h3>
+            <p className="text-sm text-orange-300 mb-4">
+              Focus on these {warningInsights.length > 10 ? 'top 10' : warningInsights.length} areas to boost your win rate
+            </p>
             <div className="space-y-3">
-              {warningInsights.map((insight, idx) => (
-                <div key={idx} className="card p-4 border border-red-500/30">
-                  <div className="font-semibold text-red-300">{insight.message}</div>
-                  <div className="text-sm text-red-400 mt-1">
+              {warningInsights.slice(0, 10).map((insight, idx) => (
+                <div key={idx} className="card p-4 border border-orange-500/30">
+                  <div className="font-semibold text-orange-300">{insight.message}</div>
+                  <div className="text-sm text-orange-400 mt-1">
                     💡 {insight.recommendation}
                   </div>
                   {insight.boost && (
-                    <div className="text-xs text-red-500 mt-2">
-                      Confidence Penalty: {((insight.boost - 1) * 100).toFixed(0)}%
+                    <div className="text-xs text-orange-500 mt-2">
+                      Consider reducing bet size or avoiding
                     </div>
                   )}
                 </div>
               ))}
             </div>
+            {warningInsights.length > 10 && (
+              <div className="mt-4 text-center text-xs text-gray-500">
+                Showing top 10 of {warningInsights.length} areas. Focus on these first.
+              </div>
+            )}
           </div>
         )}
 
@@ -296,20 +353,25 @@ export default async function InsightsDashboard() {
           </div>
         )}
 
-        {/* Worst Prop Types */}
+        {/* Worst Prop Types - LIMITED TO TOP 5 */}
         {worstPropTypes.length > 0 && (
           <div className="card p-4 sm:p-6 mb-6 sm:mb-8">
-            <h3 className="text-base sm:text-lg font-semibold text-white mb-4">⚠️ Struggling Prop Types</h3>
+            <h3 className="text-base sm:text-lg font-semibold text-white mb-2">
+              📉 Prop Types to Avoid or Reduce
+            </h3>
+            <p className="text-sm text-gray-400 mb-4">
+              Consider reducing bet size or skipping these prop types
+            </p>
             
             {/* Mobile Card View */}
             <div className="block lg:hidden space-y-3">
-              {worstPropTypes.map((prop, idx) => (
+              {worstPropTypes.slice(0, 5).map((prop, idx) => (
                 <div key={idx} className="bg-slate-900/50 rounded-lg p-3 border border-slate-700">
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-medium text-white text-sm">
                       {prop.type.replace(/_/g, ' ')}
                     </span>
-                    <span className={`text-lg font-bold ${prop.accuracy < 0.45 ? 'text-red-400' : 'text-gray-400'}`}>
+                    <span className={`text-lg font-bold ${prop.accuracy < 0.45 ? 'text-orange-400' : 'text-gray-400'}`}>
                       {(prop.accuracy * 100).toFixed(1)}%
                     </span>
                   </div>
@@ -320,7 +382,7 @@ export default async function InsightsDashboard() {
                     </div>
                     <div>
                       <span className="text-gray-500">Correct:</span>
-                      <span className="text-red-400 ml-1 font-medium">{prop.correct}</span>
+                      <span className="text-orange-400 ml-1 font-medium">{prop.correct}</span>
                     </div>
                     <div>
                       <span className="text-gray-500">Avg Edge:</span>
@@ -344,7 +406,7 @@ export default async function InsightsDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-700">
-                  {worstPropTypes.map((prop, idx) => (
+                  {worstPropTypes.slice(0, 5).map((prop, idx) => (
                     <tr key={idx} className="hover:bg-slate-900/30">
                       <td className="px-4 py-3 text-sm font-medium text-white">
                         {prop.type.replace(/_/g, ' ')}
@@ -352,11 +414,11 @@ export default async function InsightsDashboard() {
                       <td className="px-4 py-3 text-sm text-center text-gray-400">
                         {prop.total}
                       </td>
-                      <td className="px-4 py-3 text-sm text-center text-red-400 font-semibold">
+                      <td className="px-4 py-3 text-sm text-center text-orange-400 font-semibold">
                         {prop.correct}
                       </td>
                       <td className="px-4 py-3 text-sm text-center">
-                        <span className={`font-bold ${prop.accuracy < 0.45 ? 'text-red-400' : 'text-gray-400'}`}>
+                        <span className={`font-bold ${prop.accuracy < 0.45 ? 'text-orange-400' : 'text-gray-400'}`}>
                           {(prop.accuracy * 100).toFixed(1)}%
                         </span>
                       </td>
@@ -368,6 +430,11 @@ export default async function InsightsDashboard() {
                 </tbody>
               </table>
             </div>
+            {worstPropTypes.length > 5 && (
+              <div className="mt-4 text-center text-xs text-gray-500">
+                Showing top 5 to focus improvement efforts
+              </div>
+            )}
           </div>
         )}
 
@@ -375,19 +442,14 @@ export default async function InsightsDashboard() {
         <div className="mt-6 sm:mt-8 p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg">
           <h4 className="font-semibold text-blue-400 mb-2">💡 How to Use These Insights</h4>
           <ul className="text-sm text-gray-300 space-y-1">
-            <li>• <strong className="text-white">Prioritize</strong> prop types with high accuracy in your parlays</li>
-            <li>• <strong className="text-white">Avoid or reduce</strong> prop types with low accuracy</li>
-            <li>• <strong className="text-white">Track players</strong> you predict well and focus on them</li>
-            <li>• <strong className="text-white">Adjust confidence</strong> based on historical performance</li>
-            <li>• <strong className="text-white">Review regularly</strong> as more data becomes available</li>
+            <li>• <strong className="text-white">Focus on strengths:</strong> Prioritize prop types with 55%+ accuracy</li>
+            <li>• <strong className="text-white">Reduce weaknesses:</strong> Bet smaller on props below 45% accuracy</li>
+            <li>• <strong className="text-white">Track progress:</strong> Monitor your gap to break-even (52.4%)</li>
+            <li>• <strong className="text-white">Build on winners:</strong> Increase bet size on consistently accurate prop types</li>
+            <li>• <strong className="text-white">Stay patient:</strong> Small improvements compound over time</li>
           </ul>
         </div>
       </div>
     </div>
   )
 }
-
-
-
-
-
