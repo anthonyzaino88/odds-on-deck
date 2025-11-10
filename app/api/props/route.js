@@ -13,10 +13,13 @@ export async function GET(request) {
     const gameId = searchParams.get('gameId') // Optional: filter by specific game
     const limit = parseInt(searchParams.get('limit') || '1000')
     
-    // Build query
+    // Build query - Join with Game table to filter out finished/old games
     let query = supabase
       .from('PlayerPropCache')
-      .select('*')
+      .select(`
+        *,
+        game:Game!inner(id, status, date)
+      `)
       .order('gameTime', { ascending: true })
       .order('qualityScore', { ascending: false })
       .limit(limit)
@@ -36,6 +39,10 @@ export async function GET(request) {
     query = query
       .eq('isStale', false)
       .gte('expiresAt', now)
+    
+    // CRITICAL: Filter out props from finished games
+    // Only show props for scheduled, in_progress, or halftime games
+    query = query.in('game.status', ['scheduled', 'in_progress', 'in-progress', 'halftime'])
     
     const { data, error } = await query
     
@@ -77,7 +84,7 @@ export async function GET(request) {
       console.log(`   No saved props found in PropValidation table`)
     }
     
-    // Transform data to match expected format
+    // Transform data to match expected format (remove the 'game' field used for filtering)
     const props = (data || []).map(prop => ({
       propId: prop.propId,
       gameId: prop.gameId,
@@ -98,6 +105,7 @@ export async function GET(request) {
       bookmaker: prop.bookmaker,
       gameTime: prop.gameTime,
       isSaved: savedPropIds.has(prop.propId) // Flag if already saved
+      // Note: 'game' field from join is intentionally excluded
     }))
     
     // Enrich props with team context (offensive power, win probability, etc.)
