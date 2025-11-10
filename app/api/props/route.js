@@ -13,13 +13,37 @@ export async function GET(request) {
     const gameId = searchParams.get('gameId') // Optional: filter by specific game
     const limit = parseInt(searchParams.get('limit') || '1000')
     
-    // Build query - Join with Game table to filter out finished/old games
+    // Step 1: Get active games (not finished)
+    const { data: activeGames, error: gamesError } = await supabase
+      .from('Game')
+      .select('id')
+      .in('status', ['scheduled', 'in_progress', 'in-progress', 'halftime'])
+    
+    if (gamesError) {
+      console.error('Error fetching active games:', gamesError)
+      return NextResponse.json(
+        { error: 'Failed to fetch active games', details: gamesError.message },
+        { status: 500 }
+      )
+    }
+    
+    const activeGameIds = (activeGames || []).map(g => g.id)
+    console.log(`✅ Found ${activeGameIds.length} active games`)
+    
+    if (activeGameIds.length === 0) {
+      // No active games, return empty props
+      return NextResponse.json({
+        success: true,
+        props: [],
+        count: 0
+      })
+    }
+    
+    // Step 2: Build query for props - only from active games
     let query = supabase
       .from('PlayerPropCache')
-      .select(`
-        *,
-        game:Game!inner(id, status, date)
-      `)
+      .select('*')
+      .in('gameId', activeGameIds) // CRITICAL: Only props from active games
       .order('gameTime', { ascending: true })
       .order('qualityScore', { ascending: false })
       .limit(limit)
@@ -39,10 +63,6 @@ export async function GET(request) {
     query = query
       .eq('isStale', false)
       .gte('expiresAt', now)
-    
-    // CRITICAL: Filter out props from finished games
-    // Only show props for scheduled, in_progress, or halftime games
-    query = query.in('game.status', ['scheduled', 'in_progress', 'in-progress', 'halftime'])
     
     const { data, error } = await query
     
@@ -84,7 +104,7 @@ export async function GET(request) {
       console.log(`   No saved props found in PropValidation table`)
     }
     
-    // Transform data to match expected format (remove the 'game' field used for filtering)
+    // Transform data to match expected format
     const props = (data || []).map(prop => ({
       propId: prop.propId,
       gameId: prop.gameId,
@@ -105,7 +125,6 @@ export async function GET(request) {
       bookmaker: prop.bookmaker,
       gameTime: prop.gameTime,
       isSaved: savedPropIds.has(prop.propId) // Flag if already saved
-      // Note: 'game' field from join is intentionally excluded
     }))
     
     // Enrich props with team context (offensive power, win probability, etc.)

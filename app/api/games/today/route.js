@@ -105,6 +105,14 @@ export async function GET(req) {
       .lt('date', weekEnd.toISOString())
       .order('date', { ascending: true })
     
+    console.log(`📊 NFL Query returned ${nflGames?.length || 0} games`)
+    const mondayGame = nflGames?.find(g => g.id.includes('PHI') && g.id.includes('GB'))
+    if (mondayGame) {
+      console.log(`   ✅ Monday game IN query: ${mondayGame.id} (${mondayGame.status})`)
+    } else {
+      console.log(`   ❌ Monday game NOT in query results!`)
+    }
+    
     // NHL: Today only (filter by EST date, not UTC date)
     // Problem: Games at 8 PM EST on Nov 6 = 1 AM UTC on Nov 7, so UTC-based queries include them
     // Solution: Query a wider range (yesterday to tomorrow in UTC), then filter by EST date
@@ -276,6 +284,14 @@ export async function GET(req) {
       }
     })
     
+    // Debug: Check if Monday game made it through enrichment
+    const mondayGameEnriched = enrichedGames.find(g => g.id && g.id.includes('PHI') && g.id.includes('GB'))
+    if (mondayGameEnriched) {
+      console.log(`   ✅ Monday game IN enriched games: ${mondayGameEnriched.id}`)
+    } else {
+      console.log(`   ❌ Monday game LOST during enrichment!`)
+    }
+    
     // Step 5: Group by sport and apply additional filtering
     const mlbFinal = enrichedGames.filter(g => g.sport === 'mlb')
     
@@ -285,18 +301,21 @@ export async function GET(req) {
     const nflFiltered = enrichedGames.filter(g => {
       if (g.sport !== 'nfl') return false
       
-      const gameDate = new Date(g.date)
+      // Normalize date - add 'Z' if missing to ensure UTC parsing
+      const gameDateStr = g.date || ''
+      const gameDateNormalized = (gameDateStr.includes('Z') || gameDateStr.includes('+') || gameDateStr.match(/[+-]\d{2}:\d{2}$/))
+        ? gameDateStr
+        : gameDateStr + 'Z'
+      const gameDate = new Date(gameDateNormalized)
       
       // Game must be in the current week range (Thursday to Monday)
       if (gameDate < weekStart || gameDate >= weekEnd) {
+        console.log(`   ⚠️  NFL game OUTSIDE week range: ${g.away?.abbr} @ ${g.home?.abbr} (${gameDate.toISOString()} not in ${weekStart.toISOString()} - ${weekEnd.toISOString()})`)
         return false
       }
       
       // Get EST date for the game to properly filter by "today"
-      const gameDateStr = g.date || ''
-      const gameDateObj = new Date(gameDateStr.includes('Z') || gameDateStr.includes('+') || gameDateStr.match(/[+-]\d{2}:\d{2}$/)
-        ? gameDateStr
-        : gameDateStr + 'Z')
+      const gameDateObj = new Date(gameDateNormalized)
       
       const gameEstDateStr = gameDateObj.toLocaleDateString('en-US', {
         timeZone: 'America/New_York',
@@ -314,9 +333,12 @@ export async function GET(req) {
       }
       
       // Include all other games (scheduled, live, today's finals, future games)
+      console.log(`   ✅ NFL game KEPT: ${g.away?.abbr} @ ${g.home?.abbr} (${gameEstDate}, status: ${g.status})`)
       return true
     })
     const nflFinal = nflFiltered
+    
+    console.log(`📊 NFL filtering result: ${nflFiltered.length} games kept after filtering`)
     
     // NHL: Filter by EST date - only show games from today (EST)
     // This ensures we don't show games from tomorrow or yesterday
