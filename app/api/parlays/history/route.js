@@ -20,8 +20,28 @@ export async function GET(request) {
     
     console.log(`📊 Fetching parlay history (limit: ${limit}, sport: ${sport || 'all'}, outcome: ${outcome || 'all'})`)
     
-    // Build query
-    let query = supabase
+    // FETCH PENDING PARLAYS from Parlay table
+    let pendingQuery = supabase
+      .from('Parlay')
+      .select('*')
+      .eq('status', 'pending')
+      .order('createdAt', { ascending: false })
+      .limit(limit)
+    
+    if (sport) {
+      pendingQuery = pendingQuery.eq('sport', sport)
+    }
+    
+    const { data: pendingParlays, error: pendingError } = await pendingQuery
+    
+    if (pendingError) {
+      console.warn('⚠️ Error fetching pending parlays:', pendingError.message)
+    }
+    
+    console.log(`📋 Found ${pendingParlays?.length || 0} pending parlays`)
+    
+    // FETCH COMPLETED PARLAYS from ParlayHistory table
+    let historyQuery = supabase
       .from('ParlayHistory')
       .select('*')
       .order('completedAt', { ascending: false })
@@ -29,14 +49,14 @@ export async function GET(request) {
     
     // Apply filters
     if (sport) {
-      query = query.eq('sport', sport)
+      historyQuery = historyQuery.eq('sport', sport)
     }
     
     if (outcome) {
-      query = query.eq('outcome', outcome)
+      historyQuery = historyQuery.eq('outcome', outcome)
     }
     
-    const { data: history, error } = await query
+    const { data: history, error } = await historyQuery
     
     if (error) {
       // If table doesn't exist yet, return empty data gracefully
@@ -44,6 +64,7 @@ export async function GET(request) {
         console.log('⚠️ ParlayHistory table not created yet. Run scripts/create-parlay-history-table.sql')
         return NextResponse.json({
           success: true,
+          pending: pendingParlays || [],
           history: [],
           stats: calculateStats([]),
           count: 0,
@@ -58,9 +79,10 @@ export async function GET(request) {
     
     return NextResponse.json({
       success: true,
+      pending: pendingParlays || [],
       history: history || [],
       stats,
-      count: history?.length || 0
+      count: (history?.length || 0) + (pendingParlays?.length || 0)
     })
     
   } catch (error) {

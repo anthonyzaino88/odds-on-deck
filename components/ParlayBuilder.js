@@ -107,9 +107,9 @@ export default function ParlayBuilder({ onGenerate }) {
     }
     
     const activeGames = games.filter(g => 
-      // For single-game parlays, prefer scheduled games (more likely to have props)
-      // Exclude in_progress and final games as props expire when games start
-      ['scheduled', 'pre-game', 'pre_game', 'delayed_start', 'warmup'].includes(g.status)
+      // For single-game parlays, include scheduled and live games
+      // Only exclude final games as those are truly finished
+      ['scheduled', 'pre-game', 'pre_game', 'delayed_start', 'warmup', 'in_progress', 'in-progress', 'halftime'].includes(g.status)
     )
     setAvailableGames(activeGames)
     if (activeGames.length > 0 && !selectedGameId) {

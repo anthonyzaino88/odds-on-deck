@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 
 export default function ParlayHistory({ refreshTrigger = 0 }) {
-  const [parlays, setParlays] = useState([])
+  const [pendingParlays, setPendingParlays] = useState([])
+  const [completedParlays, setCompletedParlays] = useState([])
   const [performance, setPerformance] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -23,13 +24,15 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
       await fetch('/api/parlays/validate', { method: 'POST' })
         .catch(err => console.warn('Validation check failed:', err))
       
-      // Then fetch history
+      // Then fetch history (both pending and completed)
       const response = await fetch('/api/parlays/history?limit=20')
       const data = await response.json()
       
       if (data.success) {
-        setParlays(data.history || [])
+        setPendingParlays(data.pending || [])
+        setCompletedParlays(data.history || [])
         setPerformance(data.stats || null)
+        console.log(`✅ Loaded ${data.pending?.length || 0} pending, ${data.history?.length || 0} completed parlays`)
       } else {
         setError(data.error || 'Failed to fetch parlay history')
       }
@@ -146,30 +149,72 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
       </div>
 
       {/* Performance Metrics */}
-      {performance && performance.totalParlays > 0 && (
+      {(pendingParlays.length > 0 || completedParlays.length > 0) && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
           <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
             <div className="text-sm font-medium text-gray-400">Total Saved</div>
-            <div className="mt-1 text-2xl font-bold text-white">{parlays.length}</div>
+            <div className="mt-1 text-2xl font-bold text-white">{pendingParlays.length + completedParlays.length}</div>
           </div>
           <div className="bg-green-900/20 border border-green-500/50 rounded-lg p-4">
             <div className="text-sm font-medium text-green-400">Win Rate</div>
-            <div className="mt-1 text-2xl font-bold text-green-400">{performance.winRate.toFixed(1)}%</div>
-            <div className="text-xs text-green-300 mt-1">{performance.wonParlays}W / {performance.lostParlays}L</div>
+            <div className="mt-1 text-2xl font-bold text-green-400">{performance?.winRate?.toFixed?.(1) || 0}%</div>
+            <div className="text-xs text-green-300 mt-1">{performance?.won || 0}W / {performance?.lost || 0}L</div>
           </div>
           <div className="bg-blue-900/20 border border-blue-500/50 rounded-lg p-4">
             <div className="text-sm font-medium text-blue-400">Avg Edge</div>
-            <div className="mt-1 text-2xl font-bold text-blue-400">{(performance.avgEdge * 100).toFixed(1)}%</div>
+            <div className="mt-1 text-2xl font-bold text-blue-400">{performance?.avgEdge?.toFixed?.(1) || 0}%</div>
           </div>
           <div className="bg-purple-900/20 border border-purple-500/50 rounded-lg p-4">
-            <div className="text-sm font-medium text-purple-400">ROI</div>
-            <div className="mt-1 text-2xl font-bold text-purple-400">{performance.roi.toFixed(1)}%</div>
+            <div className="text-sm font-medium text-purple-400">Avg Odds</div>
+            <div className="mt-1 text-2xl font-bold text-purple-400">{performance?.avgOdds?.toFixed?.(2) || 0}x</div>
           </div>
         </div>
       )}
 
-      {/* Parlays List */}
-      {!parlays || parlays.length === 0 ? (
+      {/* Pending Parlays Section */}
+      {pendingParlays && pendingParlays.length > 0 && (
+        <div className="mb-8">
+          <h3 className="text-lg font-bold text-yellow-400 mb-4 flex items-center gap-2">
+            ⏳ Pending Parlays ({pendingParlays.length})
+            <span className="text-xs font-normal text-gray-400">Awaiting game results</span>
+          </h3>
+          <div className="space-y-3">
+            {pendingParlays.map((parlay) => (
+              <div key={parlay.id} className="bg-slate-800 border border-yellow-500/30 rounded-lg p-4 hover:bg-slate-750 transition-colors">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-sm font-medium text-yellow-400 uppercase">
+                        {parlay.sport || 'mixed'} • {parlay.legCount}-Leg
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {formatDate(parlay.createdAt)}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      Odds: {formatOdds(parlay.totalOdds)} • Win Prob: {(parlay.probability * 100).toFixed(1)}% • Edge: {(parlay.edge * 100).toFixed(1)}%
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="px-3 py-1 bg-yellow-500/20 border border-yellow-500/50 rounded-full">
+                      <span className="text-xs font-semibold text-yellow-400">PENDING</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Completed Parlays Section */}
+      <div>
+        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+          📊 Completed Parlays ({completedParlays?.length || 0})
+          <span className="text-xs font-normal text-gray-400">Validated results</span>
+        </h3>
+      
+      {!completedParlays || completedParlays.length === 0 ? (
         <div className="text-center py-12">
           <div className="text-gray-400 mb-4">
             <svg className="h-12 w-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -181,16 +226,16 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
         </div>
       ) : (
         <div className="space-y-3 sm:space-y-4">
-          {parlays.map((parlay) => (
+          {completedParlays.map((parlay) => (
             <div key={parlay.id} className="border border-slate-700 rounded-lg p-3 sm:p-4 hover:border-blue-500 hover:shadow-md transition-all bg-slate-800/50">
               {/* Parlay Header */}
               <div className="flex items-center justify-between mb-2 sm:mb-3">
                 <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                  <span className={`px-2 sm:px-2.5 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs font-medium border ${getStatusColor(parlay.status)}`}>
-                    {parlay.status.toUpperCase()}
+                  <span className={`px-2 sm:px-2.5 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs font-medium border ${getStatusColor(parlay.outcome || parlay.status)}`}>
+                    {(parlay.outcome || parlay.status)?.toUpperCase()}
                   </span>
                   <span className="text-[10px] sm:text-xs text-gray-400">
-                    {parlay.sport?.toUpperCase()} • {parlay.legs?.length || 0} Legs
+                    {parlay.sport?.toUpperCase()} • {parlay.legCount || parlay.legs?.length || 0} Legs
                   </span>
                 </div>
                 <div className="text-right">
@@ -246,6 +291,7 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
           ))}
         </div>
       )}
+      </div>
     </div>
   )
 }
