@@ -7,6 +7,7 @@ import CompletedPropsTable from '../../components/CompletedPropsTable.js'
 import CollapsibleSection from '../../components/CollapsibleSection.js'
 import RecentPredictions from '../../components/RecentPredictions.js'
 import PendingProps from '../../components/PendingProps.js'
+import ParlayStats from '../../components/ParlayStats.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -317,6 +318,15 @@ export default async function ValidationDashboard() {
             </div>
           )}
           </div>
+        </CollapsibleSection>
+
+        {/* Parlay Performance - Collapsible */}
+        <CollapsibleSection 
+          title="🎲 Parlay Performance" 
+          badge="Track your parlays"
+          defaultOpen={true}
+        >
+          <ParlayStats mode="full" />
         </CollapsibleSection>
 
         {/* Pending Props - Action Required */}

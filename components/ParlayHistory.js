@@ -18,12 +18,18 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
     setError(null)
     
     try {
+      // First, trigger validation check for pending parlays
+      console.log('🔍 Checking for pending parlay validations...')
+      await fetch('/api/parlays/validate', { method: 'POST' })
+        .catch(err => console.warn('Validation check failed:', err))
+      
+      // Then fetch history
       const response = await fetch('/api/parlays/history?limit=20')
       const data = await response.json()
       
       if (data.success) {
-        setParlays(data.parlays)
-        setPerformance(data.performance)
+        setParlays(data.history || [])
+        setPerformance(data.stats || null)
       } else {
         setError(data.error || 'Failed to fetch parlay history')
       }
@@ -99,34 +105,34 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
   }
 
   return (
-    <div className="card p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="card p-4 sm:p-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 sm:mb-6 gap-3">
         <div>
-          <h2 className="text-2xl font-bold text-white">
+          <h2 className="text-xl sm:text-2xl font-bold text-white">
             📋 Your Saved Parlays
           </h2>
-          <p className="text-sm text-gray-400 mt-1">
+          <p className="text-xs sm:text-sm text-gray-400 mt-1">
             Track your saved parlays • View performance
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <Link
             href="/validation"
-            className="text-sm text-purple-400 hover:text-purple-300 font-medium"
+            className="text-xs sm:text-sm text-purple-400 hover:text-purple-300 font-medium whitespace-nowrap"
           >
-            📊 Detailed Stats
+            📊 Stats
           </Link>
           <button
             onClick={fetchParlayHistory}
-            className="text-blue-400 hover:text-blue-300 text-sm font-medium"
+            className="text-blue-400 hover:text-blue-300 text-xs sm:text-sm font-medium whitespace-nowrap"
           >
             🔄 Refresh
           </button>
         </div>
       </div>
 
-      {/* Info Banner */}
-      <div className="bg-blue-900/20 border border-blue-500/50 rounded-lg p-4 mb-6">
+      {/* Info Banner - Hidden on mobile */}
+      <div className="hidden sm:block bg-blue-900/20 border border-blue-500/50 rounded-lg p-4 mb-6">
         <div className="flex items-start gap-3">
           <div className="text-2xl">💡</div>
           <div className="flex-1">
@@ -141,7 +147,7 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
 
       {/* Performance Metrics */}
       {performance && performance.totalParlays > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
           <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
             <div className="text-sm font-medium text-gray-400">Total Saved</div>
             <div className="mt-1 text-2xl font-bold text-white">{parlays.length}</div>
@@ -163,7 +169,7 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
       )}
 
       {/* Parlays List */}
-      {parlays.length === 0 ? (
+      {!parlays || parlays.length === 0 ? (
         <div className="text-center py-12">
           <div className="text-gray-400 mb-4">
             <svg className="h-12 w-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -174,31 +180,31 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
           <p className="text-sm text-gray-500">Generate and save parlays above to track them here</p>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3 sm:space-y-4">
           {parlays.map((parlay) => (
-            <div key={parlay.id} className="border border-slate-700 rounded-lg p-4 hover:border-blue-500 hover:shadow-md transition-all bg-slate-800/50">
+            <div key={parlay.id} className="border border-slate-700 rounded-lg p-3 sm:p-4 hover:border-blue-500 hover:shadow-md transition-all bg-slate-800/50">
               {/* Parlay Header */}
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <span className={`px-2.5 py-1 rounded text-xs font-medium border ${getStatusColor(parlay.status)}`}>
+              <div className="flex items-center justify-between mb-2 sm:mb-3">
+                <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                  <span className={`px-2 sm:px-2.5 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs font-medium border ${getStatusColor(parlay.status)}`}>
                     {parlay.status.toUpperCase()}
                   </span>
-                  <span className="text-xs text-gray-400">
+                  <span className="text-[10px] sm:text-xs text-gray-400">
                     {parlay.sport?.toUpperCase()} • {parlay.legs?.length || 0} Legs
                   </span>
                 </div>
                 <div className="text-right">
-                  <div className="text-xl font-bold text-green-400">
+                  <div className="text-lg sm:text-xl font-bold text-green-400">
                     {formatOdds(parlay.totalOdds)}
                   </div>
-                  <div className="text-xs text-gray-400">
+                  <div className="text-[10px] sm:text-xs text-gray-400">
                     ({parlay.totalOdds?.toFixed(2)}x)
                   </div>
                 </div>
               </div>
 
               {/* Parlay Stats */}
-              <div className="flex gap-4 text-xs text-gray-400 mb-3">
+              <div className="flex gap-2 sm:gap-4 text-[10px] sm:text-xs text-gray-400 mb-2 sm:mb-3">
                 <span>Win: {((parlay.probability || 0.5) * 100).toFixed(0)}%</span>
                 <span>Edge: {((parlay.edge || 0) * 100).toFixed(1)}%</span>
                 <span className="capitalize">{parlay.confidence || 'medium'}</span>
@@ -206,17 +212,17 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
 
               {/* Parlay Legs */}
               {parlay.legs && parlay.legs.length > 0 && (
-                <div className="space-y-2">
+                <div className="space-y-1.5 sm:space-y-2">
                   {parlay.legs.map((leg, idx) => (
-                    <div key={leg.id} className="bg-slate-900/50 rounded p-2 text-sm">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <span className="text-white font-medium">{leg.playerName || 'Unknown'}</span>
-                          <span className="text-gray-400 ml-2">
+                    <div key={leg.id} className="bg-slate-900/50 rounded p-2 text-xs sm:text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <span className="text-white font-medium truncate block">{leg.playerName || 'Unknown'}</span>
+                          <span className="text-gray-400 text-[10px] sm:text-xs">
                             {leg.propType?.replace(/_/g, ' ')}
                           </span>
                         </div>
-                        <div className="text-gray-400">
+                        <div className="text-gray-400 text-[10px] sm:text-xs whitespace-nowrap">
                           {leg.selection?.toUpperCase()} {leg.threshold}
                         </div>
                       </div>
@@ -226,12 +232,12 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
               )}
 
               {/* Footer */}
-              <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-700">
-                <span className="text-xs text-gray-500">
+              <div className="flex items-center justify-between mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-slate-700">
+                <span className="text-[10px] sm:text-xs text-gray-500">
                   {formatDate(parlay.createdAt)}
                 </span>
                 {parlay.notes && (
-                  <span className="text-xs text-gray-400 italic">
+                  <span className="text-[10px] sm:text-xs text-gray-400 italic truncate max-w-[150px]">
                     {parlay.notes}
                   </span>
                 )}

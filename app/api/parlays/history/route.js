@@ -1,7 +1,7 @@
-// Parlay History API Endpoint
+// Parlay History API - Fetch completed parlay results and statistics
 
-// Force dynamic rendering (required for Vercel deployment)
 export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -14,48 +14,55 @@ const supabase = createClient(
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url)
-    const limit = parseInt(searchParams.get('limit')) || 50
-    const sport = searchParams.get('sport')
-    const status = searchParams.get('status')
-
-    console.log(`📊 Fetching parlay history (limit: ${limit})`)
-
+    const limit = parseInt(searchParams.get('limit') || '50')
+    const sport = searchParams.get('sport') // null | 'nfl' | 'nhl' | 'mlb'
+    const outcome = searchParams.get('outcome') // null | 'won' | 'lost'
+    
+    console.log(`📊 Fetching parlay history (limit: ${limit}, sport: ${sport || 'all'}, outcome: ${outcome || 'all'})`)
+    
     // Build query
     let query = supabase
-      .from('Parlay')
-      .select('*, legs:ParlayLeg(*)')
-      .order('createdAt', { ascending: false })
+      .from('ParlayHistory')
+      .select('*')
+      .order('completedAt', { ascending: false })
       .limit(limit)
-
-    // Filter by sport if specified
+    
+    // Apply filters
     if (sport) {
       query = query.eq('sport', sport)
     }
-
-    // Filter by status if specified
-    if (status) {
-      query = query.eq('status', status)
-    }
-
-    const { data: parlays, error } = await query
-
-    if (error) {
-      throw new Error(`Database query failed: ${error.message}`)
+    
+    if (outcome) {
+      query = query.eq('outcome', outcome)
     }
     
-    console.log(`✅ Found ${parlays?.length || 0} parlays in database`)
-
-    // Calculate performance metrics
-    const performance = calculatePerformanceMetrics(parlays || [])
-
+    const { data: history, error } = await query
+    
+    if (error) {
+      // If table doesn't exist yet, return empty data gracefully
+      if (error.message.includes('Could not find the table') || error.message.includes('ParlayHistory')) {
+        console.log('⚠️ ParlayHistory table not created yet. Run scripts/create-parlay-history-table.sql')
+        return NextResponse.json({
+          success: true,
+          history: [],
+          stats: calculateStats([]),
+          count: 0,
+          message: 'ParlayHistory table not created yet. Please run the SQL script to enable tracking.'
+        })
+      }
+      throw new Error(`Failed to fetch parlay history: ${error.message}`)
+    }
+    
+    // Calculate statistics
+    const stats = calculateStats(history || [])
+    
     return NextResponse.json({
       success: true,
-      parlays: parlays || [],
-      count: parlays?.length || 0,
-      performance: performance,
-      fetchedAt: new Date().toISOString()
+      history: history || [],
+      stats,
+      count: history?.length || 0
     })
-
+    
   } catch (error) {
     console.error('❌ Error fetching parlay history:', error)
     return NextResponse.json(
@@ -65,38 +72,107 @@ export async function GET(request) {
   }
 }
 
-/**
- * Calculate performance metrics for parlays
- */
-function calculatePerformanceMetrics(parlays) {
-  const completedParlays = parlays.filter(p => p.outcome && p.outcome !== 'pending')
-  const wonParlays = completedParlays.filter(p => p.outcome === 'won')
-  const lostParlays = completedParlays.filter(p => p.outcome === 'lost')
-
-  const totalParlays = completedParlays.length
-  const winRate = totalParlays > 0 ? (wonParlays.length / totalParlays) * 100 : 0
-
-  // Calculate average edge and expected value
-  const avgEdge = parlays.length > 0 
-    ? parlays.reduce((sum, p) => sum + p.edge, 0) / parlays.length 
+function calculateStats(history) {
+  if (!history || history.length === 0) {
+    return {
+      total: 0,
+      won: 0,
+      lost: 0,
+      cancelled: 0,
+      winRate: 0,
+      avgOdds: 0,
+      avgEdge: 0,
+      bySport: {},
+      byLegCount: {},
+      byConfidence: {}
+    }
+  }
+  
+  const total = history.length
+  const won = history.filter(p => p.outcome === 'won').length
+  const lost = history.filter(p => p.outcome === 'lost').length
+  const cancelled = history.filter(p => p.outcome === 'cancelled').length
+  const winRate = total > 0 ? ((won / total) * 100).toFixed(1) : 0
+  
+  // Calculate averages
+  const avgOdds = history.length > 0 
+    ? (history.reduce((sum, p) => sum + (p.totalOdds || 0), 0) / history.length).toFixed(2)
     : 0
-
-  const avgExpectedValue = parlays.length > 0 
-    ? parlays.reduce((sum, p) => sum + p.expectedValue, 0) / parlays.length 
+  
+  const avgEdge = history.length > 0
+    ? (history.reduce((sum, p) => sum + (p.edge || 0), 0) / history.length * 100).toFixed(1)
     : 0
-
-  // Calculate ROI (simplified)
-  const totalWagered = totalParlays * 100 // Assuming $100 per parlay
-  const totalWon = wonParlays.reduce((sum, p) => sum + (p.totalOdds * 100), 0)
-  const roi = totalWagered > 0 ? ((totalWon - totalWagered) / totalWagered) * 100 : 0
-
+  
+  // By sport
+  const bySport = {}
+  history.forEach(p => {
+    const sport = p.sport || 'unknown'
+    if (!bySport[sport]) {
+      bySport[sport] = { total: 0, won: 0, lost: 0, winRate: 0 }
+    }
+    bySport[sport].total++
+    if (p.outcome === 'won') bySport[sport].won++
+    if (p.outcome === 'lost') bySport[sport].lost++
+  })
+  
+  // Calculate win rates for each sport
+  Object.keys(bySport).forEach(sport => {
+    const sportStats = bySport[sport]
+    sportStats.winRate = sportStats.total > 0
+      ? ((sportStats.won / sportStats.total) * 100).toFixed(1)
+      : 0
+  })
+  
+  // By leg count
+  const byLegCount = {}
+  history.forEach(p => {
+    const legCount = p.legCount || 0
+    if (!byLegCount[legCount]) {
+      byLegCount[legCount] = { total: 0, won: 0, lost: 0, winRate: 0 }
+    }
+    byLegCount[legCount].total++
+    if (p.outcome === 'won') byLegCount[legCount].won++
+    if (p.outcome === 'lost') byLegCount[legCount].lost++
+  })
+  
+  // Calculate win rates for each leg count
+  Object.keys(byLegCount).forEach(legCount => {
+    const stats = byLegCount[legCount]
+    stats.winRate = stats.total > 0
+      ? ((stats.won / stats.total) * 100).toFixed(1)
+      : 0
+  })
+  
+  // By confidence
+  const byConfidence = {}
+  history.forEach(p => {
+    const conf = p.confidence || 'unknown'
+    if (!byConfidence[conf]) {
+      byConfidence[conf] = { total: 0, won: 0, lost: 0, winRate: 0 }
+    }
+    byConfidence[conf].total++
+    if (p.outcome === 'won') byConfidence[conf].won++
+    if (p.outcome === 'lost') byConfidence[conf].lost++
+  })
+  
+  // Calculate win rates for each confidence level
+  Object.keys(byConfidence).forEach(conf => {
+    const stats = byConfidence[conf]
+    stats.winRate = stats.total > 0
+      ? ((stats.won / stats.total) * 100).toFixed(1)
+      : 0
+  })
+  
   return {
-    totalParlays: totalParlays,
-    wonParlays: wonParlays.length,
-    lostParlays: lostParlays.length,
-    winRate: Math.round(winRate * 100) / 100,
-    avgEdge: Math.round(avgEdge * 1000) / 1000,
-    avgExpectedValue: Math.round(avgExpectedValue * 1000) / 1000,
-    roi: Math.round(roi * 100) / 100
+    total,
+    won,
+    lost,
+    cancelled,
+    winRate: parseFloat(winRate),
+    avgOdds: parseFloat(avgOdds),
+    avgEdge: parseFloat(avgEdge),
+    bySport,
+    byLegCount,
+    byConfidence
   }
 }

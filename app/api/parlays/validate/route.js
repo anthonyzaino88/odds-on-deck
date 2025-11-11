@@ -66,6 +66,8 @@ export async function POST(request) {
         let allLegsWon = true
         const legResults = []
         
+        console.log(`   Checking ${legs.length} legs for parlay ${parlay.id}`)
+        
         for (const leg of legs) {
           // Find the PropValidation record for this leg
           // The parlayId is stored in PropValidation.parlayId
@@ -78,8 +80,12 @@ export async function POST(request) {
             .eq('threshold', leg.threshold || 0)
             .limit(1)
           
+          console.log(`   Leg ${leg.legOrder}: ${leg.playerName} ${leg.propType} ${leg.threshold}`)
+          console.log(`   Found ${validations?.length || 0} validation records`)
+          
           if (validationError || !validations || validations.length === 0) {
             // No validation record found - leg not yet validated
+            console.log(`   ⏸️ Leg ${leg.legOrder} not validated yet`)
             allLegsValidated = false
             legResults.push({ leg: leg.legOrder, status: 'pending' })
             break
@@ -150,6 +156,77 @@ export async function POST(request) {
           else lostCount++
           
           console.log(`✅ Parlay ${parlay.id}: ${parlayResult.toUpperCase()} (${legs.length} legs)`)
+          
+          // SAVE TO HISTORY: Before deleting, save the parlay result for tracking
+          console.log(`💾 Saving parlay ${parlay.id} to history...`)
+          try {
+            // Build legs array with results
+            const legsWithResults = legs.map((leg, index) => ({
+              gameId: leg.gameIdRef,
+              betType: leg.betType,
+              selection: leg.selection,
+              playerName: leg.playerName,
+              propType: leg.propType,
+              threshold: leg.threshold,
+              odds: leg.odds,
+              probability: leg.probability,
+              outcome: legResults[index]?.status || 'unknown',
+              actualValue: legResults[index]?.actualValue,
+              legOrder: leg.legOrder
+            }))
+            
+            const historyRecord = {
+              id: parlay.id,
+              sport: parlay.sport || 'mixed',
+              type: parlay.type || 'multi_game',
+              legCount: parlay.legCount || legs.length,
+              totalOdds: parlay.totalOdds || 0,
+              probability: parlay.probability || 0,
+              edge: parlay.edge || 0,
+              expectedValue: parlay.expectedValue || 0,
+              confidence: parlay.confidence || 'medium',
+              outcome: parlayResult,
+              actualResult: allLegsWon 
+                ? `All ${legs.length} legs won`
+                : `Lost on leg(s): ${legResults.filter(r => r.status === 'lost').map(r => r.leg).join(', ')}`,
+              legs: legsWithResults,
+              createdAt: parlay.createdAt || parlay.generatedAt,
+              completedAt: new Date().toISOString(),
+              validatedAt: new Date().toISOString()
+            }
+            
+            const { error: historyError } = await supabase
+              .from('ParlayHistory')
+              .insert([historyRecord])
+            
+            if (historyError) {
+              // If table doesn't exist, just log it - don't fail validation
+              if (historyError.message.includes('Could not find the table') || historyError.message.includes('ParlayHistory')) {
+                console.log(`⚠️ ParlayHistory table not created yet. Parlay result not saved to history.`)
+                console.log(`   Run scripts/create-parlay-history-table.sql to enable tracking`)
+              } else {
+                console.error(`⚠️ Error saving to history: ${historyError.message}`)
+              }
+              // Don't fail - continue with deletion even if history save fails
+            } else {
+              console.log(`✅ Saved to history`)
+            }
+          } catch (historyErr) {
+            console.error(`⚠️ Error saving parlay history:`, historyErr.message)
+          }
+          
+          // AUTO-CLEANUP: Delete validated parlays immediately to keep list clean
+          // (User can see results before refresh, then it auto-cleans)
+          console.log(`🗑️ Auto-deleting validated parlay ${parlay.id}`)
+          try {
+            // Delete legs first (foreign key constraint)
+            await supabase.from('ParlayLeg').delete().eq('parlayId', parlay.id)
+            // Then delete parlay
+            await supabase.from('Parlay').delete().eq('id', parlay.id)
+            console.log(`✅ Deleted parlay ${parlay.id}`)
+          } catch (deleteErr) {
+            console.error(`⚠️ Error deleting parlay ${parlay.id}:`, deleteErr.message)
+          }
         }
         
       } catch (error) {

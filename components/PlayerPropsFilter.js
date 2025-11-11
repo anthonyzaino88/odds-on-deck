@@ -6,6 +6,8 @@ import { getQualityTier } from '../lib/quality-score.js'
 
 export default function PlayerPropsFilter({ props }) {
   const [filterMode, setFilterMode] = useState('safe')
+  const [showFilters, setShowFilters] = useState(false) // Collapsed by default on mobile
+  const [simpleMode, setSimpleMode] = useState(true) // Simple view by default
 
   // Filter and sort props based on selected mode
   const filteredProps = useMemo(() => {
@@ -80,13 +82,39 @@ export default function PlayerPropsFilter({ props }) {
 
   return (
     <div className="space-y-6 sm:space-y-8">
-      {/* Filter Mode Selector */}
-      <div className="card">
-        <div className="px-4 sm:px-6 py-3 sm:py-4">
-          <h3 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4">
-            🎯 Betting Strategy
-          </h3>
-          <div className="grid grid-cols-2 gap-2 sm:gap-3">
+      {/* View Mode Toggle */}
+      <div className="flex justify-between items-center">
+        <button
+          onClick={() => setShowFilters(!showFilters)}
+          className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-white transition-colors"
+        >
+          <span>🎯 {showFilters ? 'Hide' : 'Show'} Filters</span>
+          <svg
+            className={`w-4 h-4 transition-transform ${showFilters ? 'rotate-180' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        
+        <button
+          onClick={() => setSimpleMode(!simpleMode)}
+          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-white transition-colors text-sm"
+        >
+          {simpleMode ? '📊 Advanced View' : '⚡ Simple View'}
+        </button>
+      </div>
+
+      {/* Filter Mode Selector - Collapsible */}
+      {showFilters && (
+        <div className="card">
+          <div className="px-4 sm:px-6 py-3 sm:py-4">
+            <h3 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4">
+              🎯 Betting Strategy
+            </h3>
+            <div className="grid grid-cols-2 gap-2 sm:gap-3">
             <button
               onClick={() => setFilterMode('safe')}
               className={`p-3 sm:p-4 rounded-lg border-2 text-left transition-all ${
@@ -240,6 +268,7 @@ export default function PlayerPropsFilter({ props }) {
           </div>
         </div>
       </div>
+      )}
 
       {/* Stats Summary - Only show sports with props */}
       {(mlbProps.length > 0 || nflProps.length > 0 || nhlProps.length > 0) && (
@@ -301,7 +330,7 @@ export default function PlayerPropsFilter({ props }) {
           <div className="p-3 sm:p-6">
             <div className="space-y-2 sm:space-y-3 max-h-[500px] sm:max-h-[600px] overflow-y-auto">
               {filteredProps.slice(0, 20).map((prop, index) => (
-                <PlayerPropCard key={`${prop.gameId}-${prop.playerName}-${prop.type}`} prop={prop} rank={index + 1} />
+                <PlayerPropCard key={`${prop.gameId}-${prop.playerName}-${prop.type}`} prop={prop} rank={index + 1} simpleMode={simpleMode} />
               ))}
             </div>
           </div>
@@ -323,7 +352,7 @@ export default function PlayerPropsFilter({ props }) {
               <div className="p-6">
                 <div className="space-y-3 max-h-96 overflow-y-auto">
                   {battingProps.map((prop) => (
-                    <PropRow key={`${prop.gameId}-${prop.playerName}-${prop.type}`} prop={prop} />
+                    <PropRow key={`${prop.gameId}-${prop.playerName}-${prop.type}`} prop={prop} simpleMode={simpleMode} />
                   ))}
                 </div>
               </div>
@@ -342,7 +371,7 @@ export default function PlayerPropsFilter({ props }) {
               <div className="p-6">
                 <div className="space-y-3 max-h-96 overflow-y-auto">
                   {pitchingProps.map((prop) => (
-                    <PropRow key={`${prop.gameId}-${prop.playerName}-${prop.type}`} prop={prop} />
+                    <PropRow key={`${prop.gameId}-${prop.playerName}-${prop.type}`} prop={prop} simpleMode={simpleMode} />
                   ))}
                 </div>
               </div>
@@ -373,7 +402,7 @@ export default function PlayerPropsFilter({ props }) {
           <div className="p-6">
             <div className="space-y-3 max-h-96 overflow-y-auto">
               {nhlProps.map((prop) => (
-                <PropRow key={`${prop.gameId}-${prop.playerName}-${prop.type}`} prop={prop} />
+                <PropRow key={`${prop.gameId}-${prop.playerName}-${prop.type}`} prop={prop} simpleMode={simpleMode} />
               ))}
             </div>
           </div>
@@ -402,7 +431,7 @@ export default function PlayerPropsFilter({ props }) {
           <div className="p-6">
             <div className="space-y-3 max-h-[600px] overflow-y-auto">
               {nflProps.map((prop) => (
-                <PropRow key={`${prop.gameId}-${prop.playerName}-${prop.type}`} prop={prop} />
+                <PropRow key={`${prop.gameId}-${prop.playerName}-${prop.type}`} prop={prop} simpleMode={simpleMode} />
               ))}
             </div>
           </div>
@@ -422,7 +451,7 @@ export default function PlayerPropsFilter({ props }) {
   )
 }
 
-function PlayerPropCard({ prop, rank }) {
+function PlayerPropCard({ prop, rank, simpleMode }) {
   const [isSaving, setIsSaving] = useState(false)
   const [isSaved, setIsSaved] = useState(prop.isSaved || false) // Initialize from API
   const qualityTier = getQualityTier(prop.qualityScore || 0)
@@ -549,18 +578,24 @@ function PlayerPropCard({ prop, rank }) {
         <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 pl-10 sm:pl-0">
           {/* Stats */}
           <div className="flex flex-col items-end gap-0.5">
-            <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${tierColors[qualityTier.tier]}`}>
-              {qualityTier.emoji} {qualityTier.label}
-            </div>
-            <div className="text-xs sm:text-sm text-gray-400">
-              Q: <span className="font-semibold text-white">{prop.qualityScore?.toFixed(1) || 'N/A'}</span>
-            </div>
+            {!simpleMode && (
+              <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${tierColors[qualityTier.tier]}`}>
+                {qualityTier.emoji} {qualityTier.label}
+              </div>
+            )}
+            {!simpleMode && (
+              <div className="text-xs sm:text-sm text-gray-400">
+                Q: <span className="font-semibold text-white">{prop.qualityScore?.toFixed(1) || 'N/A'}</span>
+              </div>
+            )}
             <div className="text-sm sm:text-base font-bold text-green-400">
               {((prop.probability || 0) * 100).toFixed(0)}%
             </div>
-            <div className="text-xs sm:text-sm font-semibold text-blue-400">
-              +{((prop.edge || 0) * 100).toFixed(1)}%
-            </div>
+            {!simpleMode && (
+              <div className="text-xs sm:text-sm font-semibold text-blue-400">
+                +{((prop.edge || 0) * 100).toFixed(1)}%
+              </div>
+            )}
           </div>
 
           {/* Save Button */}
@@ -581,8 +616,38 @@ function PlayerPropCard({ prop, rank }) {
   )
 }
 
-function PropRow({ prop }) {
+function PropRow({ prop, simpleMode }) {
+  const [isSaving, setIsSaving] = useState(false)
+  const [isSaved, setIsSaved] = useState(prop.isSaved || false) // Initialize from API
   const qualityTier = getQualityTier(prop.qualityScore || 0)
+
+  const handleSaveProp = async (e) => {
+    e.preventDefault() // Prevent navigation
+    e.stopPropagation()
+    
+    setIsSaving(true)
+    try {
+      const response = await fetch('/api/props/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prop })
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        setIsSaved(true)
+        // Keep saved state permanently to prevent duplicate saves
+      } else {
+        alert('Failed to save prop: ' + (data.error || 'Unknown error'))
+      }
+    } catch (error) {
+      console.error('Error saving prop:', error)
+      alert('Failed to save prop')
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   // Format odds for display
   const formatOdds = (odds) => {
@@ -605,44 +670,61 @@ function PropRow({ prop }) {
   const displayOdds = formatOdds(prop.odds)
 
   return (
-    <Link href={`/game/${prop.gameId}`}>
-      <div className="flex items-center justify-between p-2 sm:p-3 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors cursor-pointer border border-slate-700">
-        <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-          <div className="text-base sm:text-lg">{qualityTier.emoji}</div>
-          <div className="flex-1 min-w-0">
-            <div className="font-medium text-sm sm:text-base text-white truncate">
-              {prop.playerName}
-            </div>
-            <div className="text-xs sm:text-sm text-gray-400 truncate">
-              {prop.pick?.toUpperCase()} {prop.threshold} {(prop.type || '').replace(/_/g, ' ')}
-            </div>
-            {displayOdds && (
-              <div className="flex items-center gap-1 sm:gap-2 mt-0.5">
-                <span className="text-[10px] sm:text-xs text-amber-400 font-semibold">
-                  {displayOdds}
-                </span>
-                {prop.bookmaker && (
-                  <span className="text-[10px] text-gray-500">
-                    via {prop.bookmaker}
-                  </span>
-                )}
-              </div>
-            )}
+    <div className="flex items-center justify-between p-2 sm:p-3 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors border border-slate-700">
+      <Link href={`/game/${prop.gameId}`} className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0 cursor-pointer">
+        <div className="text-base sm:text-lg">{qualityTier.emoji}</div>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-sm sm:text-base text-white truncate">
+            {prop.playerName}
           </div>
+          <div className="text-xs sm:text-sm text-gray-400 truncate">
+            {prop.pick?.toUpperCase()} {prop.threshold} {(prop.type || '').replace(/_/g, ' ')}
+          </div>
+          {displayOdds && (
+            <div className="flex items-center gap-1 sm:gap-2 mt-0.5">
+              <span className="text-[10px] sm:text-xs text-amber-400 font-semibold">
+                {displayOdds}
+              </span>
+              {prop.bookmaker && (
+                <span className="text-[10px] text-gray-500">
+                  via {prop.bookmaker}
+                </span>
+              )}
+            </div>
+          )}
         </div>
-        <div className="text-right ml-2">
+      </Link>
+      
+      {/* Stats */}
+      <div className="text-right ml-2">
+        {!simpleMode && (
           <div className="text-[10px] sm:text-xs text-gray-500 mb-0.5">
             Q: {prop.qualityScore?.toFixed(1) || 'N/A'}
           </div>
-          <div className="font-semibold text-sm sm:text-base text-green-400">
-            {((prop.probability || 0) * 100).toFixed(0)}%
-          </div>
+        )}
+        <div className="font-semibold text-sm sm:text-base text-green-400">
+          {((prop.probability || 0) * 100).toFixed(0)}%
+        </div>
+        {!simpleMode && (
           <div className="text-[10px] sm:text-xs text-blue-400">
             +{((prop.edge || 0) * 100).toFixed(1)}%
           </div>
-        </div>
+        )}
       </div>
-    </Link>
+      
+      {/* Save Button */}
+      <button
+        onClick={handleSaveProp}
+        disabled={isSaving || isSaved}
+        className={`ml-2 px-2 py-1 sm:px-3 sm:py-2 rounded-lg font-medium transition-all text-xs whitespace-nowrap ${
+          isSaved 
+            ? 'bg-green-600 text-white' 
+            : 'bg-blue-600 hover:bg-blue-700 text-white'
+        } disabled:opacity-50`}
+      >
+        {isSaved ? '✓' : isSaving ? '...' : '💾'}
+      </button>
+    </div>
   )
 }
 

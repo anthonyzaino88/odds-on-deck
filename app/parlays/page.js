@@ -5,6 +5,7 @@ import Link from 'next/link'
 import ParlayBuilder from '../../components/ParlayBuilder.js'
 import ParlayResults from '../../components/ParlayResults.js'
 import ParlayHistory from '../../components/ParlayHistory.js'
+import ParlayStats from '../../components/ParlayStats.js'
 
 export default function ParlaysPage() {
   const [generatedParlays, setGeneratedParlays] = useState(null)
@@ -26,7 +27,7 @@ export default function ParlaysPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
         
         {/* Header */}
-        <div className="mb-8">
+        <div className="mb-4 sm:mb-6">
           <Link 
             href="/"
             className="inline-flex items-center text-sm font-medium text-blue-400 hover:text-blue-300 mb-4"
@@ -34,17 +35,22 @@ export default function ParlaysPage() {
             ← Back to Home
           </Link>
           <div className="text-center">
-            <h1 className="text-3xl font-bold text-white">
+            <h1 className="text-2xl sm:text-3xl font-bold text-white">
               🎯 Parlay Generator
             </h1>
-            <p className="text-lg text-gray-400 mt-2">
-              Build optimized multi-leg parlays with the best betting opportunities
+            <p className="text-base sm:text-lg text-gray-400 mt-2">
+              Build optimized multi-leg parlays
             </p>
           </div>
         </div>
 
+        {/* Parlay Performance Banner */}
+        <div className="mb-6">
+          <ParlayStats mode="simple" />
+        </div>
+
         {/* Main Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
           {/* Parlay Builder */}
           <div>
             <ParlayBuilder onGenerate={handleGenerate} />
