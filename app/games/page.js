@@ -8,6 +8,62 @@ export default function GamesPage() {
   const [games, setGames] = useState({ mlb: [], nfl: [], nhl: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [updatingScores, setUpdatingScores] = useState(false)
+  const [updateStatus, setUpdateStatus] = useState(null)
+  const [rateLimitInfo, setRateLimitInfo] = useState(null)
+  
+  // Check rate limit status
+  const checkRateLimit = async () => {
+    try {
+      const response = await fetch('/api/games/update-scores')
+      const data = await response.json()
+      setRateLimitInfo(data)
+    } catch (err) {
+      console.error('Error checking rate limit:', err)
+    }
+  }
+  
+  // Update scores
+  const handleUpdateScores = async () => {
+    setUpdatingScores(true)
+    setUpdateStatus(null)
+    
+    try {
+      const response = await fetch('/api/games/update-scores', {
+        method: 'POST'
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        setUpdateStatus({
+          type: 'success',
+          message: `✅ Updated ${data.updated} games`,
+          nextUpdate: data.nextUpdateAvailable
+        })
+        // Refresh games after update
+        setTimeout(() => {
+          window.location.reload()
+        }, 1500)
+      } else {
+        setUpdateStatus({
+          type: 'error',
+          message: data.message || data.error || 'Update failed',
+          timeRemaining: data.timeRemaining
+        })
+        setRateLimitInfo(data)
+      }
+    } catch (err) {
+      setUpdateStatus({
+        type: 'error',
+        message: 'Failed to update scores: ' + err.message
+      })
+    } finally {
+      setUpdatingScores(false)
+      // Re-check rate limit after update
+      setTimeout(checkRateLimit, 1000)
+    }
+  }
 
   useEffect(() => {
     const fetchGames = async () => {
@@ -40,7 +96,35 @@ export default function GamesPage() {
     }
 
     fetchGames()
+    
+    // Check rate limit status on mount
+    checkRateLimit()
   }, [])
+  
+  // Update countdown timer every second
+  useEffect(() => {
+    if (!rateLimitInfo || rateLimitInfo.available) return
+    
+    const interval = setInterval(() => {
+      setRateLimitInfo(prev => {
+        if (!prev || prev.available || !prev.timeRemaining) return prev
+        
+        const newTimeRemaining = Math.max(0, prev.timeRemaining - 1000)
+        if (newTimeRemaining > 0) {
+          return {
+            ...prev,
+            timeRemaining: newTimeRemaining
+          }
+        } else {
+          // Rate limit expired, check again
+          checkRateLimit()
+          return null
+        }
+      })
+    }, 1000)
+    
+    return () => clearInterval(interval)
+  }, [rateLimitInfo])
 
   // Handle scroll to sport section on mount or URL change
   useEffect(() => {
@@ -132,13 +216,58 @@ export default function GamesPage() {
       <div className="max-w-7xl mx-auto px-4 py-4 sm:py-12">
         {/* Header */}
         <div className="mb-4 sm:mb-8">
-          <h1 className="text-4xl font-bold mb-3">Today's Slate</h1>
-          <p className="text-slate-400">
-            {totalGames} games • ⚾ {games.mlb.length} MLB • 🏈 {games.nfl.length} NFL • 🏒 {games.nhl.length} NHL
-          </p>
-          <p className="text-slate-500 text-sm mt-2">
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-          </p>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-3">
+            <div>
+              <h1 className="text-4xl font-bold mb-3">Today's Slate</h1>
+              <p className="text-slate-400">
+                {totalGames} games • ⚾ {games.mlb.length} MLB • 🏈 {games.nfl.length} NFL • 🏒 {games.nhl.length} NHL
+              </p>
+              <p className="text-slate-500 text-sm mt-2">
+                {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              </p>
+            </div>
+            
+            {/* Update Scores Button */}
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={handleUpdateScores}
+                disabled={updatingScores || (rateLimitInfo && !rateLimitInfo.available)}
+                className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                  updatingScores || (rateLimitInfo && !rateLimitInfo.available)
+                    ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                }`}
+              >
+                {updatingScores ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Updating...
+                  </span>
+                ) : rateLimitInfo && !rateLimitInfo.available ? (
+                  <span className="flex items-center gap-2">
+                    ⏳ Wait {Math.floor(rateLimitInfo.timeRemaining / 60000)}m {Math.floor((rateLimitInfo.timeRemaining % 60000) / 1000)}s
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    🔄 Update Scores
+                  </span>
+                )}
+              </button>
+              
+              {updateStatus && (
+                <div className={`text-xs px-3 py-1 rounded ${
+                  updateStatus.type === 'success' 
+                    ? 'bg-green-900/30 text-green-400 border border-green-500/50'
+                    : 'bg-red-900/30 text-red-400 border border-red-500/50'
+                }`}>
+                  {updateStatus.message}
+                </div>
+              )}
+            </div>
+          </div>
           
           {/* Live Games Indicator */}
           {(() => {
