@@ -30,8 +30,18 @@ export default function GamesPage() {
     
     try {
       const response = await fetch('/api/games/update-scores', {
-        method: 'POST'
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
       })
+      
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text()
+        throw new Error(`Server returned non-JSON response: ${text.substring(0, 100)}`)
+      }
       
       const data = await response.json()
       
@@ -54,9 +64,10 @@ export default function GamesPage() {
         setRateLimitInfo(data)
       }
     } catch (err) {
+      console.error('Update scores error:', err)
       setUpdateStatus({
         type: 'error',
-        message: 'Failed to update scores: ' + err.message
+        message: err.message || 'Failed to update scores. Please try again.'
       })
     } finally {
       setUpdatingScores(false)

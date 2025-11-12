@@ -5,9 +5,6 @@ export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { fetchNHLGameDetail } from '../../../../lib/vendors/nhl-stats.js'
-import { fetchNFLGameDetail } from '../../../../lib/vendors/nfl-stats.js'
-import { fetchLiveGameData } from '../../../../lib/vendors/stats.js'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -66,15 +63,34 @@ async function updateScoresForSport(sport) {
   let updated = 0
   let errors = 0
   
+  // Dynamic imports to avoid Vercel build issues
+  let fetchNHLGameDetail, fetchNFLGameDetail, fetchLiveGameData
+  
+  try {
+    // Import all modules dynamically
+    const [nhlModule, nflModule, statsModule] = await Promise.all([
+      import('../../../../lib/vendors/nhl-stats.js').catch(() => null),
+      import('../../../../lib/vendors/nfl-stats.js').catch(() => null),
+      import('../../../../lib/vendors/stats.js').catch(() => null)
+    ])
+    
+    fetchNHLGameDetail = nhlModule?.fetchNHLGameDetail
+    fetchNFLGameDetail = nflModule?.fetchNFLGameDetail
+    fetchLiveGameData = statsModule?.fetchLiveGameData
+  } catch (importError) {
+    console.error(`⚠️ Error importing stats modules:`, importError.message)
+    // Continue anyway - some sports might still work
+  }
+  
   for (const game of games) {
     try {
       let liveData = null
       
-      if (sport === 'nhl' && game.espnGameId) {
+      if (sport === 'nhl' && game.espnGameId && fetchNHLGameDetail) {
         liveData = await fetchNHLGameDetail(game.espnGameId)
-      } else if (sport === 'nfl' && game.espnGameId) {
+      } else if (sport === 'nfl' && game.espnGameId && fetchNFLGameDetail) {
         liveData = await fetchNFLGameDetail(game.espnGameId)
-      } else if (game.espnGameId) {
+      } else if (game.espnGameId && fetchLiveGameData) {
         liveData = await fetchLiveGameData(game.espnGameId, sport)
       }
       
@@ -166,18 +182,42 @@ export async function POST(request) {
     let totalUpdated = 0
     let totalErrors = 0
     
-    // Update all sports
-    const nhlResult = await updateScoresForSport('nhl')
-    totalUpdated += nhlResult.updated
-    totalErrors += nhlResult.errors
+    // Update all sports with error handling
+    try {
+      const nhlResult = await updateScoresForSport('nhl').catch(err => {
+        console.error('❌ NHL update error:', err.message)
+        return { updated: 0, errors: 0 }
+      })
+      totalUpdated += nhlResult?.updated || 0
+      totalErrors += nhlResult?.errors || 0
+    } catch (err) {
+      console.error('❌ NHL update failed:', err.message)
+      totalErrors++
+    }
     
-    const nflResult = await updateScoresForSport('nfl')
-    totalUpdated += nflResult.updated
-    totalErrors += nflResult.errors
+    try {
+      const nflResult = await updateScoresForSport('nfl').catch(err => {
+        console.error('❌ NFL update error:', err.message)
+        return { updated: 0, errors: 0 }
+      })
+      totalUpdated += nflResult?.updated || 0
+      totalErrors += nflResult?.errors || 0
+    } catch (err) {
+      console.error('❌ NFL update failed:', err.message)
+      totalErrors++
+    }
     
-    const mlbResult = await updateScoresForSport('mlb')
-    totalUpdated += mlbResult.updated
-    totalErrors += mlbResult.errors
+    try {
+      const mlbResult = await updateScoresForSport('mlb').catch(err => {
+        console.error('❌ MLB update error:', err.message)
+        return { updated: 0, errors: 0 }
+      })
+      totalUpdated += mlbResult?.updated || 0
+      totalErrors += mlbResult?.errors || 0
+    } catch (err) {
+      console.error('❌ MLB update failed:', err.message)
+      totalErrors++
+    }
     
     return NextResponse.json({
       success: true,
@@ -188,12 +228,14 @@ export async function POST(request) {
     })
     
   } catch (error) {
-    console.error('❌ Error updating scores:', error)
+    console.error('❌ Fatal error updating scores:', error)
+    // Always return JSON, never HTML
     return NextResponse.json(
       { 
         success: false,
         error: 'Failed to update scores',
-        details: error.message 
+        details: error?.message || 'Unknown error',
+        stack: process.env.NODE_ENV === 'development' ? error?.stack : undefined
       },
       { status: 500 }
     )
