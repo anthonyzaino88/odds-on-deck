@@ -42,48 +42,64 @@ async function saveTopPropsForValidation() {
     
     console.log('🎯 Fetching props from multiple quality tiers...\n')
     
-    // Tier 1: Elite props (top 50)
-    // Based on actual quality scores in your system (max ~45)
+    // Tier 1: Elite props (top 100) - by quality score only
     const { data: eliteProps } = await supabase
       .from('PlayerPropCache')
       .select('*')
       .eq('isStale', false)
       .gte('expiresAt', now)
-      .gte('probability', 0.60) // 60%+ win probability
-      .gte('qualityScore', 40)  // Elite quality (top tier)
+      .gte('qualityScore', 35)  // Top quality props
       .order('qualityScore', { ascending: false })
-      .limit(50)
+      .order('probability', { ascending: false })
+      .limit(100)
     
-    // Tier 2: High-quality props (next 75)
+    // Tier 2: High-quality props (next 100) - by probability
     const { data: highProps } = await supabase
       .from('PlayerPropCache')
       .select('*')
       .eq('isStale', false)
       .gte('expiresAt', now)
-      .gte('probability', 0.55) // 55%+ win probability
-      .gte('qualityScore', 35)  // High quality
-      .lt('qualityScore', 40)   // But not elite
+      .gte('probability', 0.50) // 50%+ win probability
+      .gte('qualityScore', 30)  // Decent quality
+      .lt('qualityScore', 35)   // But not top tier
+      .order('probability', { ascending: false })
       .order('qualityScore', { ascending: false })
-      .limit(75)
+      .limit(100)
     
-    // Tier 3: Good props (next 75)
+    // Tier 3: Good props (next 100) - balanced approach
     const { data: goodProps } = await supabase
       .from('PlayerPropCache')
       .select('*')
       .eq('isStale', false)
       .gte('expiresAt', now)
-      .gte('probability', 0.52) // 52%+ win probability
-      .gte('qualityScore', 30)  // Good quality
-      .lt('qualityScore', 35)   // But not high
+      .gte('probability', 0.48) // 48%+ win probability
+      .gte('qualityScore', 25)  // Reasonable quality
+      .lt('qualityScore', 30)
       .order('qualityScore', { ascending: false })
-      .limit(75)
+      .limit(100)
     
-    // Combine all tiers
-    const allProps = [
-      ...(eliteProps || []),
-      ...(highProps || []),
-      ...(goodProps || [])
-    ]
+    // Tier 4: Additional props for broader coverage (next 50)
+    const { data: additionalProps } = await supabase
+      .from('PlayerPropCache')
+      .select('*')
+      .eq('isStale', false)
+      .gte('expiresAt', now)
+      .gte('probability', 0.45) // 45%+ win probability
+      .gte('qualityScore', 20)  // Minimum quality
+      .lt('qualityScore', 25)
+      .order('qualityScore', { ascending: false })
+      .limit(50)
+    
+    // Combine all tiers and deduplicate by propId
+    const allPropsMap = new Map()
+    
+    ;[...(eliteProps || []), ...(highProps || []), ...(goodProps || []), ...(additionalProps || [])].forEach(prop => {
+      if (!allPropsMap.has(prop.propId)) {
+        allPropsMap.set(prop.propId, prop)
+      }
+    })
+    
+    const allProps = Array.from(allPropsMap.values())
     
     if (allProps.length === 0) {
       console.log('⚠️  No props found to validate')
@@ -91,9 +107,10 @@ async function saveTopPropsForValidation() {
     }
     
     console.log('📊 Props by tier:')
-    console.log(`   🏆 Elite (Q40+, P60+): ${eliteProps?.length || 0}`)
-    console.log(`   ⭐ High (Q35-39, P55+): ${highProps?.length || 0}`)
-    console.log(`   ✅ Good (Q30-34, P52+): ${goodProps?.length || 0}`)
+    console.log(`   🏆 Elite (Q35+): ${eliteProps?.length || 0}`)
+    console.log(`   ⭐ High (Q30-34, P50+): ${highProps?.length || 0}`)
+    console.log(`   ✅ Good (Q25-29, P48+): ${goodProps?.length || 0}`)
+    console.log(`   📋 Additional (Q20-24, P45+): ${additionalProps?.length || 0}`)
     console.log(`   📈 Total: ${allProps.length}\n`)
     
     // Group by sport for visibility
