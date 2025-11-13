@@ -94,10 +94,14 @@ export async function POST(request) {
 
     // Record each prop leg for validation tracking
     let validationRecordsCreated = 0
-    for (const leg of parlay.legs) {
+    for (let i = 0; i < parlay.legs.length; i++) {
+      const leg = parlay.legs[i]
       if (leg.betType === 'prop' || leg.type) {
+        // Generate unique propId that includes parlayId and legOrder to avoid collisions
+        const legOrder = i + 1
         const propData = {
-          id: `prop-${leg.playerId || leg.playerName}-${leg.propType || leg.type}-${leg.gameId}`,
+          // Include parlayId and legOrder in propId to ensure uniqueness per leg
+          propId: `parlay-${savedParlay.id}-leg-${legOrder}-${leg.playerName}-${leg.propType || leg.type}-${leg.gameId}`,
           playerId: leg.playerId,
           playerName: leg.playerName,
           gameId: leg.gameId,
@@ -116,8 +120,13 @@ export async function POST(request) {
           projection: leg.projection
         }
         
-        await recordPropPrediction(propData, 'parlay_leg', savedParlay.id)
-        validationRecordsCreated++
+        const result = await recordPropPrediction(propData, 'parlay_leg', savedParlay.id)
+        if (result) {
+          validationRecordsCreated++
+          console.log(`   ✅ Recorded leg ${legOrder}: ${leg.playerName} ${leg.propType || leg.type}`)
+        } else {
+          console.warn(`   ⚠️ Failed to record leg ${legOrder}: ${leg.playerName} ${leg.propType || leg.type}`)
+        }
       }
     }
 

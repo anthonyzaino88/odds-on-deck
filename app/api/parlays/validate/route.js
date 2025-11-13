@@ -70,20 +70,68 @@ export async function POST(request) {
         
         for (const leg of legs) {
           // Find the PropValidation record for this leg
-          // The parlayId is stored in PropValidation.parlayId
-          const { data: validations, error: validationError } = await supabase
+          // Try matching by propId first (new format includes parlayId and legOrder)
+          const expectedPropId = `parlay-${parlay.id}-leg-${leg.legOrder}-${leg.playerName}-${leg.propType || ''}-${leg.gameIdRef || ''}`
+          
+          // First try exact propId match (for new parlays)
+          let { data: validations, error: validationError } = await supabase
             .from('PropValidation')
             .select('*')
-            .eq('parlayId', parlay.id)
-            .eq('playerName', leg.playerName || '')
-            .eq('propType', leg.propType || '')
-            .eq('threshold', leg.threshold || 0)
+            .eq('propId', expectedPropId)
             .limit(1)
           
-          console.log(`   Leg ${leg.legOrder}: ${leg.playerName} ${leg.propType} ${leg.threshold}`)
+          // If no match by propId, try matching by parlayId + player + propType + threshold (for old parlays)
+          if (!validations || validations.length === 0) {
+            let query = supabase
+              .from('PropValidation')
+              .select('*')
+              .eq('parlayId', parlay.id)
+            
+            // Add filters only if values exist (handle null/undefined)
+            if (leg.playerName) {
+              query = query.eq('playerName', leg.playerName.trim())
+            }
+            if (leg.propType) {
+              query = query.eq('propType', leg.propType)
+            }
+            if (leg.threshold != null && leg.threshold !== undefined) {
+              // Handle both string and number thresholds
+              query = query.eq('threshold', leg.threshold)
+            }
+            
+            const result = await query.limit(5)
+            validations = result.data
+            validationError = result.error
+          }
+          
+          console.log(`   Leg ${leg.legOrder}: ${leg.playerName || 'N/A'} ${leg.propType || 'N/A'} ${leg.threshold || 'N/A'}`)
           console.log(`   Found ${validations?.length || 0} validation records`)
           
-          if (validationError || !validations || validations.length === 0) {
+          if (validationError) {
+            console.error(`   ❌ Error querying validations: ${validationError.message}`)
+            allLegsValidated = false
+            legResults.push({ leg: leg.legOrder, status: 'pending', error: validationError.message })
+            break
+          }
+          
+          if (!validations || validations.length === 0) {
+            // No validation record found - try broader search
+            console.log(`   🔍 No exact match, trying broader search...`)
+            const { data: broadValidations } = await supabase
+              .from('PropValidation')
+              .select('*')
+              .eq('parlayId', parlay.id)
+              .eq('playerName', leg.playerName?.trim() || '')
+              .limit(5)
+            
+            if (broadValidations && broadValidations.length > 0) {
+              console.log(`   ⚠️ Found ${broadValidations.length} validations with matching parlayId and player, but different prop/threshold`)
+              broadValidations.forEach(v => {
+                console.log(`      - PropType: ${v.propType} (expected: ${leg.propType})`)
+                console.log(`        Threshold: ${v.threshold} (expected: ${leg.threshold})`)
+              })
+            }
+            
             // No validation record found - leg not yet validated
             console.log(`   ⏸️ Leg ${leg.legOrder} not validated yet`)
             allLegsValidated = false
@@ -91,12 +139,25 @@ export async function POST(request) {
             break
           }
           
-          const validation = validations[0]
+          // Use the first matching validation (or find best match if multiple)
+          let validation = validations[0]
+          
+          // If multiple matches, prefer exact threshold match
+          if (validations.length > 1 && leg.threshold != null) {
+            const exactMatch = validations.find(v => 
+              v.threshold === leg.threshold || 
+              Math.abs(parseFloat(v.threshold) - parseFloat(leg.threshold)) < 0.01
+            )
+            if (exactMatch) {
+              validation = exactMatch
+            }
+          }
           
           if (validation.status !== 'completed') {
             // Leg validation not complete yet
+            console.log(`   ⏸️ Leg ${leg.legOrder} validation not complete (status: ${validation.status})`)
             allLegsValidated = false
-            legResults.push({ leg: leg.legOrder, status: 'pending' })
+            legResults.push({ leg: leg.legOrder, status: 'pending', validationStatus: validation.status })
             break
           }
           
@@ -108,6 +169,8 @@ export async function POST(request) {
             result: validation.result,
             actualValue: validation.actualValue
           })
+          
+          console.log(`   ✅ Leg ${leg.legOrder}: ${validation.result} (actual: ${validation.actualValue || 'N/A'})`)
           
           if (!legWon) {
             allLegsWon = false
