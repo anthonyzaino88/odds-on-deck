@@ -190,8 +190,7 @@ node scripts/fetch-live-odds.js mlb
 node scripts/calculate-game-edges.js
 node scripts/save-top-props-for-validation.js
 
-# During games (every 20 min, 1-11 PM EST)
-node scripts/update-scores-safely.js
+# During games cripts/update-scores-safely.js
 ```
 
 ---
@@ -245,7 +244,8 @@ node scripts/update-scores-safely.js
 **Solution:** Run it manually or set up cron job
 
 ### Monday Night Football not showing
-**Problem:** NFL week calculation issue  
+**Problem:** NFL(every 20 min, 1-11 PM EST)
+node s week calculation issue  
 **Solution:** Already fixed - refresh app at `/games`
 
 ### Props won't save (duplicate error)

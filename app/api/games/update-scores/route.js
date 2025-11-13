@@ -41,10 +41,38 @@ function normalizeStatus(status) {
   return statusMap[cleanStatus] || cleanStatus
 }
 
-async function updateScoresForSport(sport) {
-  const now = new Date().toISOString()
+// Process games in parallel with concurrency limit to avoid timeouts
+async function processGameBatch(games, processFn, concurrency = 5) {
+  const results = { updated: 0, errors: 0 }
+  const batches = []
   
-  // Get active games (in progress, halftime, or scheduled today)
+  for (let i = 0; i < games.length; i += concurrency) {
+    batches.push(games.slice(i, i + concurrency))
+  }
+  
+  for (const batch of batches) {
+    const batchResults = await Promise.allSettled(
+      batch.map(game => processFn(game))
+    )
+    
+    for (const result of batchResults) {
+      if (result.status === 'fulfilled' && result.value) {
+        if (result.value.success) {
+          results.updated++
+        } else {
+          results.errors++
+        }
+      } else {
+        results.errors++
+      }
+    }
+  }
+  
+  return results
+}
+
+async function updateScoresForSport(sport, startTime, maxDuration = 8000) {
+  // Prioritize games that are actually in progress (not just scheduled)
   const { data: games, error: gamesError } = await supabase
     .from('Game')
     .select('*, home:Team!Game_homeId_fkey(abbr), away:Team!Game_awayId_fkey(abbr)')
@@ -60,8 +88,17 @@ async function updateScoresForSport(sport) {
     return { updated: 0, errors: 0 }
   }
   
-  let updated = 0
-  let errors = 0
+  // Sort: in-progress games first, then scheduled
+  games.sort((a, b) => {
+    const aActive = ['in_progress', 'in-progress', 'halftime'].includes(a.status)
+    const bActive = ['in_progress', 'in-progress', 'halftime'].includes(b.status)
+    if (aActive && !bActive) return -1
+    if (!aActive && bActive) return 1
+    return 0
+  })
+  
+  // Limit to first 10 games to avoid timeout
+  const gamesToProcess = games.slice(0, 10)
   
   // Dynamic imports to avoid Vercel build issues
   let fetchNHLGameDetail, fetchNFLGameDetail, fetchLiveGameData
@@ -79,10 +116,16 @@ async function updateScoresForSport(sport) {
     fetchLiveGameData = statsModule?.fetchLiveGameData
   } catch (importError) {
     console.error(`⚠️ Error importing stats modules:`, importError.message)
-    // Continue anyway - some sports might still work
+    return { updated: 0, errors: gamesToProcess.length }
   }
   
-  for (const game of games) {
+  // Process games in parallel batches
+  const processGame = async (game) => {
+    // Check timeout
+    if (Date.now() - startTime > maxDuration) {
+      return { success: false, timeout: true }
+    }
+    
     try {
       let liveData = null
       
@@ -95,7 +138,7 @@ async function updateScoresForSport(sport) {
       }
       
       if (!liveData) {
-        continue
+        return { success: false }
       }
       
       const updateData = {
@@ -140,22 +183,26 @@ async function updateScoresForSport(sport) {
         .eq('id', targetGameId)
       
       if (updateError) {
-        errors++
-      } else {
-        updated++
+        return { success: false }
       }
       
-      await new Promise(resolve => setTimeout(resolve, 300))
+      return { success: true }
       
     } catch (error) {
-      errors++
+      return { success: false }
     }
   }
   
-  return { updated, errors }
+  // Process in parallel batches of 5
+  const results = await processGameBatch(gamesToProcess, processGame, 5)
+  
+  return results
 }
 
 export async function POST(request) {
+  const startTime = Date.now()
+  const MAX_DURATION = 8000 // 8 seconds to leave buffer for Vercel's 10s limit
+  
   try {
     const now = Date.now()
     
@@ -182,9 +229,22 @@ export async function POST(request) {
     let totalUpdated = 0
     let totalErrors = 0
     
-    // Update all sports with error handling
+    // Update all sports with error handling and timeout protection
+    // Process in-progress games first, then scheduled
     try {
-      const nhlResult = await updateScoresForSport('nhl').catch(err => {
+      // Check timeout before each sport
+      if (Date.now() - startTime > MAX_DURATION) {
+        return NextResponse.json({
+          success: true,
+          updated: totalUpdated,
+          errors: totalErrors,
+          message: `Updated ${totalUpdated} games (timeout protection)`,
+          partial: true,
+          nextUpdateAvailable: new Date(now + RATE_LIMIT_MS).toISOString()
+        })
+      }
+      
+      const nhlResult = await updateScoresForSport('nhl', startTime, MAX_DURATION).catch(err => {
         console.error('❌ NHL update error:', err.message)
         return { updated: 0, errors: 0 }
       })
@@ -196,7 +256,18 @@ export async function POST(request) {
     }
     
     try {
-      const nflResult = await updateScoresForSport('nfl').catch(err => {
+      if (Date.now() - startTime > MAX_DURATION) {
+        return NextResponse.json({
+          success: true,
+          updated: totalUpdated,
+          errors: totalErrors,
+          message: `Updated ${totalUpdated} games (timeout protection)`,
+          partial: true,
+          nextUpdateAvailable: new Date(now + RATE_LIMIT_MS).toISOString()
+        })
+      }
+      
+      const nflResult = await updateScoresForSport('nfl', startTime, MAX_DURATION).catch(err => {
         console.error('❌ NFL update error:', err.message)
         return { updated: 0, errors: 0 }
       })
@@ -208,7 +279,18 @@ export async function POST(request) {
     }
     
     try {
-      const mlbResult = await updateScoresForSport('mlb').catch(err => {
+      if (Date.now() - startTime > MAX_DURATION) {
+        return NextResponse.json({
+          success: true,
+          updated: totalUpdated,
+          errors: totalErrors,
+          message: `Updated ${totalUpdated} games (timeout protection)`,
+          partial: true,
+          nextUpdateAvailable: new Date(now + RATE_LIMIT_MS).toISOString()
+        })
+      }
+      
+      const mlbResult = await updateScoresForSport('mlb', startTime, MAX_DURATION).catch(err => {
         console.error('❌ MLB update error:', err.message)
         return { updated: 0, errors: 0 }
       })
@@ -224,6 +306,7 @@ export async function POST(request) {
       updated: totalUpdated,
       errors: totalErrors,
       message: `Updated ${totalUpdated} games`,
+      duration: Date.now() - startTime,
       nextUpdateAvailable: new Date(now + RATE_LIMIT_MS).toISOString()
     })
     
@@ -235,6 +318,7 @@ export async function POST(request) {
         success: false,
         error: 'Failed to update scores',
         details: error?.message || 'Unknown error',
+        duration: Date.now() - startTime,
         stack: process.env.NODE_ENV === 'development' ? error?.stack : undefined
       },
       { status: 500 }
