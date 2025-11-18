@@ -121,35 +121,72 @@ export async function GET(req) {
       .gte('date', mlbTodayStart)
       .lt('date', mlbTomorrowStart)
     
-    // NFL: Show upcoming NFL games (Week 12) - prioritize future games
+    // NFL: Smart week detection - show upcoming week after Monday night game
     let nflGames, nflError
 
-    console.log(`🔍 NFL Query: Showing upcoming NFL games for Week 12`)
+    console.log(`🔍 NFL Query: Smart week detection`)
 
-    // Always show NFL Week 12 games (Nov 20-24) regardless of day
-    const week12Start = new Date('2025-11-20T00:00:00Z')
-    const week12End = new Date('2025-11-25T00:00:00Z')
-
-    console.log(`🔍 NFL Week 12: ${week12Start.toISOString()} to ${week12End.toISOString()}`)
-
-    const week12Result = await supabase
-      .from('Game')
-      .select('*')
-      .eq('sport', 'nfl')
-      .gte('date', week12Start.toISOString())
-      .lt('date', week12End.toISOString())
-      .order('date', { ascending: true })
-
-    console.log(`🔍 NFL Week 12 query result: ${week12Result.data?.length || 0} games, error: ${week12Result.error?.message || 'none'}`)
-
-    if (week12Result.data && week12Result.data.length > 0) {
-      // Found Week 12 games - show them
-      nflGames = week12Result.data
-      nflError = week12Result.error
-      console.log(`📊 NFL: Showing Week 12 (${week12Start.toDateString()} - ${week12End.toDateString()}) - ${nflGames.length} games`)
+    // Check if current week's Monday night game has finished
+    const currentWeekMonday = new Date(today)
+    if (dayOfWeek === 1) {
+      // Today is Monday, so Monday night game is tonight
+      currentWeekMonday.setUTCHours(24, 0, 0, 0) // Set to tomorrow (after game)
+    } else if (dayOfWeek === 2) {
+      // Today is Tuesday, Monday night game was last night
+      currentWeekMonday.setUTCDate(today.getUTCDate() - 1) // Yesterday
+      currentWeekMonday.setUTCHours(24, 0, 0, 0) // Set to today (after game)
+    } else if (dayOfWeek === 3) {
+      // Today is Wednesday, Monday night game was 2 days ago
+      currentWeekMonday.setUTCDate(today.getUTCDate() - 2)
+      currentWeekMonday.setUTCHours(24, 0, 0, 0)
     } else {
-      // Fallback to the original logic if no Week 12 games found
-      console.log(`🔍 No Week 12 games found, using fallback logic`)
+      // Other days, find the most recent Monday
+      const daysSinceMonday = (dayOfWeek + 6) % 7 // Convert Sunday=0 to Monday=6
+      currentWeekMonday.setUTCDate(today.getUTCDate() - daysSinceMonday)
+      currentWeekMonday.setUTCHours(24, 0, 0, 0)
+    }
+
+    console.log(`🔍 Current week Monday night game cutoff: ${currentWeekMonday.toISOString()}`)
+
+    // If we're past Monday night game time, check if we should show upcoming week
+    const isPastMondayGame = today >= currentWeekMonday
+    console.log(`🔍 Is past Monday night game: ${isPastMondayGame}`)
+
+    if (isPastMondayGame) {
+      // Check if there are upcoming NFL games in the next 7 days
+      const upcomingWeekStart = new Date(today)
+      upcomingWeekStart.setUTCHours(0, 0, 0, 0)
+
+      const upcomingWeekEnd = new Date(upcomingWeekStart)
+      upcomingWeekEnd.setUTCDate(upcomingWeekStart.getUTCDate() + 7)
+
+      console.log(`🔍 Checking for upcoming NFL games: ${upcomingWeekStart.toISOString()} to ${upcomingWeekEnd.toISOString()}`)
+
+      const upcomingResult = await supabase
+        .from('Game')
+        .select('*')
+        .eq('sport', 'nfl')
+        .gte('date', upcomingWeekStart.toISOString())
+        .lt('date', upcomingWeekEnd.toISOString())
+        .order('date', { ascending: true })
+
+      console.log(`🔍 Upcoming games found: ${upcomingResult.data?.length || 0}`)
+
+      if (upcomingResult.data && upcomingResult.data.length > 0) {
+        // Show upcoming week games
+        nflGames = upcomingResult.data
+        nflError = upcomingResult.error
+        console.log(`📊 NFL: Showing UPCOMING week - ${nflGames.length} games`)
+        console.log(`   Date range: ${upcomingWeekStart.toDateString()} - ${upcomingWeekEnd.toDateString()}`)
+      } else {
+        // No upcoming games, fall back to original logic
+        console.log(`🔍 No upcoming games found, using original logic`)
+      }
+    }
+
+    // If we didn't find upcoming games or it's not past Monday, use original logic
+    if (!nflGames) {
+      console.log(`🔍 Using original NFL week detection logic`)
 
       if (dayOfWeek === 2 || dayOfWeek === 3) {
         // Tuesday or Wednesday - check current week first, then upcoming week
