@@ -9,16 +9,20 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
+// Get today's date in YYYY-MM-DD format
+const today = new Date().toISOString().split('T')[0]
+
 const { data } = await supabase
   .from('Game')
-  .select('id, homeTeam, awayTeam, date, status')
-  .eq('sport', 'nhl')
-  .gte('date', '2025-11-08')
+  .select('id, homeTeam, awayTeam, date, status, sport')
   .order('date')
+  .limit(20)
 
-console.log('\nNHL Games in DB (Nov 8+):\n')
-data?.forEach(g => console.log(`${g.id} - ${g.awayTeam} @ ${g.homeTeam} (${g.status})`))
+console.log(`\nAll Games in DB (showing first 20):\n`)
+data?.forEach(g => console.log(`${g.id} - ${g.awayTeam} @ ${g.homeTeam} (${g.sport}, ${g.status})`))
 console.log(`\nTotal: ${data?.length || 0}\n`)
+
+
 
 
 

@@ -357,6 +357,7 @@ function parseArguments() {
   const today = new Date()
   const localDate = new Date(today.getFullYear(), today.getMonth(), today.getDate())
   let date = localDate.toISOString().split('T')[0]
+
   let dryRun = false
   let cacheFresh = false
   
@@ -378,7 +379,16 @@ function parseArguments() {
       sport = arg.toLowerCase()
     }
   }
-  
+
+  // For NHL, provide helpful tip about Odds API timing
+  if (sport === 'nhl') {
+    const tomorrow = new Date(localDate)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const tomorrowStr = tomorrow.toISOString().split('T')[0]
+    console.log(`  💡 NHL Tip: Odds API data is usually available 2-3 days before games.`)
+    console.log(`     Try: node scripts/fetch-live-odds.js nhl ${tomorrowStr}`)
+  }
+
   return { sport, date, dryRun, cacheFresh }
 }
 
@@ -477,11 +487,20 @@ async function fetchGameOdds(sport, date, ignoreCache = false) {
     
     if (isCached) {
       console.log(`  ✅ Cache hit for moneyline odds`)
-      // Even if cached, we need games for props - query database for games with oddsApiEventId
-      const dateStart = new Date(date)
-      dateStart.setHours(0, 0, 0, 0)
-      const dateEnd = new Date(date)
-      dateEnd.setHours(23, 59, 59, 999)
+    // Even if cached, we need games for props - query database for games with oddsApiEventId
+    // Use UTC dates to avoid timezone issues
+    const dateStart = new Date(Date.UTC(
+      parseInt(date.split('-')[0]),  // year
+      parseInt(date.split('-')[1]) - 1,  // month (0-based)
+      parseInt(date.split('-')[2]),  // day
+      0, 0, 0, 0  // 00:00:00.000 UTC
+    ))
+    const dateEnd = new Date(Date.UTC(
+      parseInt(date.split('-')[0]),  // year
+      parseInt(date.split('-')[1]) - 1,  // month (0-based)
+      parseInt(date.split('-')[2]),  // day
+      23, 59, 59, 999  // 23:59:59.999 UTC
+    ))
       
       // First check if there are ANY games for this date
       const { data: allGames, error: allGamesError } = await supabase

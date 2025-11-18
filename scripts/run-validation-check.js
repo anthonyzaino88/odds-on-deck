@@ -13,7 +13,7 @@ async function runValidationCheck() {
   console.log('\n🔍 Running Validation Check...\n')
   
   try {
-    const response = await fetch('http://localhost:3000/api/validation/check', {
+    const response = await fetch('https://odds-on-deck.vercel.app/api/validation/check', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -48,6 +48,11 @@ async function runValidationCheck() {
 }
 
 runValidationCheck().catch(console.error)
+
+
+
+
+
 
 
 

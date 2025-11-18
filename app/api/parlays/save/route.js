@@ -3,6 +3,7 @@ export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { recordPropPrediction } from '../../../../lib/validation.js'
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -119,102 +120,12 @@ export async function POST(request) {
           projection: leg.projection
         }
         
-        // Directly create validation record
-        try {
-          // Check if game exists
-          const { data: game, error: gameError } = await supabase
-            .from('Game')
-            .select('id, sport')
-            .eq('id', propData.gameId)
-            .maybeSingle();
-
-          if (gameError || !game) {
-            console.warn(`   ⚠️ Game not found for leg ${legOrder}: ${propData.gameId}`);
-            continue;
-          }
-
-          const propId = propData.propId;
-
-          // Check for existing validation
-          const { data: existingRecords } = await supabase
-            .from('PropValidation')
-            .select('*')
-            .eq('propId', propId)
-            .order('timestamp', { ascending: false })
-            .limit(1);
-
-          const existing = existingRecords && existingRecords.length > 0 ? existingRecords[0] : null;
-
-          if (existing && existing.status === 'completed') {
-            console.log(`   ✅ Prop already completed: ${leg.playerName} ${leg.propType || leg.type}`);
-            validationRecordsCreated++;
-            continue;
-          }
-
-          const validationData = {
-            propId: propId,
-            gameIdRef: propData.gameId,
-            playerName: propData.playerName,
-            propType: propData.type || 'unknown',
-            threshold: propData.threshold || 0,
-            prediction: propData.pick || 'over',
-            projectedValue: propData.projection || propData.projectedValue || 0,
-            confidence: propData.confidence || 'low',
-            edge: propData.edge || 0,
-            odds: propData.odds || null,
-            probability: propData.probability || null,
-            qualityScore: 50,
-            source: 'parlay_leg',
-            parlayId: savedParlay.id,
-            status: 'pending',
-            sport: propData.sport || 'nhl',
-            timestamp: new Date().toISOString()
-          };
-
-          let result;
-          if (existing) {
-            // Update existing
-            const { data, error } = await supabase
-              .from('PropValidation')
-              .update({
-                threshold: validationData.threshold,
-                prediction: validationData.prediction,
-                projectedValue: validationData.projectedValue,
-                confidence: validationData.confidence,
-                edge: validationData.edge,
-                odds: validationData.odds,
-                probability: validationData.probability,
-                qualityScore: validationData.qualityScore,
-                source: validationData.source,
-                parlayId: validationData.parlayId,
-                status: validationData.status
-              })
-              .eq('id', existing.id)
-              .select()
-              .single();
-
-            if (error) throw error;
-            result = data;
-            console.log(`   ✅ Updated validation for leg ${legOrder}: ${leg.playerName} ${leg.propType || leg.type}`);
-          } else {
-            // Create new
-            validationData.id = `${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-            const { data, error } = await supabase
-              .from('PropValidation')
-              .insert(validationData)
-              .select()
-              .single();
-
-            if (error) throw error;
-            result = data;
-            console.log(`   ✅ Created validation for leg ${legOrder}: ${leg.playerName} ${leg.propType || leg.type}`);
-          }
-
-          if (result) {
-            validationRecordsCreated++;
-          }
-        } catch (error) {
-          console.error(`   ❌ Error recording leg ${legOrder}:`, error.message);
+        const result = await recordPropPrediction(propData, 'parlay_leg', savedParlay.id)
+        if (result) {
+          validationRecordsCreated++
+          console.log(`   ✅ Recorded leg ${legOrder}: ${leg.playerName} ${leg.propType || leg.type}`)
+        } else {
+          console.warn(`   ⚠️ Failed to record leg ${legOrder}: ${leg.playerName} ${leg.propType || leg.type}`)
         }
       }
     }
