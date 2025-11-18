@@ -76,11 +76,31 @@ export async function GET(request) {
     
     // Calculate statistics
     const stats = calculateStats(history || [])
-    
+
+    // Normalize dates - ensure they're all in UTC format with 'Z' marker
+    // Supabase returns timestamps without 'Z', which can cause parsing issues
+    const normalizeDates = (games) => games.map(game => ({
+      ...game,
+      date: game.date && !game.date.endsWith('Z') && !game.date.includes('+')
+        ? game.date + 'Z'
+        : game.date
+    }))
+
+    // Normalize dates in parlay legs (they reference game dates)
+    const normalizeParlays = (parlays) => parlays.map(parlay => ({
+      ...parlay,
+      legs: parlay.legs ? parlay.legs.map(leg => ({
+        ...leg,
+        gameTime: leg.gameTime && !leg.gameTime.endsWith('Z') && !leg.gameTime.includes('+')
+          ? leg.gameTime + 'Z'
+          : leg.gameTime
+      })) : parlay.legs
+    }))
+
     return NextResponse.json({
       success: true,
-      pending: pendingParlays || [],
-      history: history || [],
+      pending: normalizeParlays(pendingParlays || []),
+      history: normalizeParlays(history || []),
       stats,
       count: (history?.length || 0) + (pendingParlays?.length || 0)
     })
