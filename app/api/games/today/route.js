@@ -121,49 +121,82 @@ export async function GET(req) {
       .gte('date', mlbTodayStart)
       .lt('date', mlbTomorrowStart)
     
-    // NFL: Smart week detection with fallback
+    // NFL: Show upcoming NFL games (Week 12) - prioritize future games
     let nflGames, nflError
 
-    console.log(`🔍 NFL Query Debug: dayOfWeek=${dayOfWeek}, weekStart=${weekStart.toISOString()}, weekEnd=${weekEnd.toISOString()}`)
+    console.log(`🔍 NFL Query: Showing upcoming NFL games for Week 12`)
 
-    if (dayOfWeek === 2 || dayOfWeek === 3) {
-      // Tuesday or Wednesday - check current week first, then upcoming week
-      const currentWeekStart = new Date(today)
-      if (dayOfWeek === 2) {
-        // Tuesday: Thursday was 5 days ago
-        currentWeekStart.setUTCDate(today.getUTCDate() - 5)
+    // Always show NFL Week 12 games (Nov 20-24) regardless of day
+    const week12Start = new Date('2025-11-20T00:00:00Z')
+    const week12End = new Date('2025-11-25T00:00:00Z')
+
+    console.log(`🔍 NFL Week 12: ${week12Start.toISOString()} to ${week12End.toISOString()}`)
+
+    const week12Result = await supabase
+      .from('Game')
+      .select('*')
+      .eq('sport', 'nfl')
+      .gte('date', week12Start.toISOString())
+      .lt('date', week12End.toISOString())
+      .order('date', { ascending: true })
+
+    console.log(`🔍 NFL Week 12 query result: ${week12Result.data?.length || 0} games, error: ${week12Result.error?.message || 'none'}`)
+
+    if (week12Result.data && week12Result.data.length > 0) {
+      // Found Week 12 games - show them
+      nflGames = week12Result.data
+      nflError = week12Result.error
+      console.log(`📊 NFL: Showing Week 12 (${week12Start.toDateString()} - ${week12End.toDateString()}) - ${nflGames.length} games`)
+    } else {
+      // Fallback to the original logic if no Week 12 games found
+      console.log(`🔍 No Week 12 games found, using fallback logic`)
+
+      if (dayOfWeek === 2 || dayOfWeek === 3) {
+        // Tuesday or Wednesday - check current week first, then upcoming week
+        const currentWeekStart = new Date(today)
+        if (dayOfWeek === 2) {
+          // Tuesday: Thursday was 5 days ago
+          currentWeekStart.setUTCDate(today.getUTCDate() - 5)
+        } else {
+          // Wednesday: Thursday was 6 days ago
+          currentWeekStart.setUTCDate(today.getUTCDate() - 6)
+        }
+
+        const currentWeekEnd = new Date(currentWeekStart)
+        currentWeekEnd.setUTCDate(currentWeekStart.getUTCDate() + 5)
+        currentWeekEnd.setUTCHours(5, 0, 0, 0)
+
+        // First try current week
+        const currentWeekResult = await supabase
+          .from('Game')
+          .select('*')
+          .eq('sport', 'nfl')
+          .gte('date', currentWeekStart.toISOString())
+          .lt('date', currentWeekEnd.toISOString())
+          .order('date', { ascending: true })
+
+        if (currentWeekResult.data && currentWeekResult.data.length > 0) {
+          // Current week has games - use it
+          nflGames = currentWeekResult.data
+          nflError = currentWeekResult.error
+          console.log(`📊 NFL: Using CURRENT week (${currentWeekStart.toDateString()} - ${currentWeekEnd.toDateString()}) - ${nflGames.length} games`)
+        } else {
+          // No current week games - use upcoming week (already calculated)
+          const upcomingResult = await supabase
+            .from('Game')
+            .select('*')
+            .eq('sport', 'nfl')
+            .gte('date', weekStart.toISOString())
+            .lt('date', weekEnd.toISOString())
+            .order('date', { ascending: true })
+
+          nflGames = upcomingResult.data
+          nflError = upcomingResult.error
+          console.log(`📊 NFL: Using UPCOMING week (${weekStart.toDateString()} - ${weekEnd.toDateString()}) - ${nflGames.length} games`)
+        }
       } else {
-        // Wednesday: Thursday was 6 days ago
-        currentWeekStart.setUTCDate(today.getUTCDate() - 6)
-      }
-
-      const currentWeekEnd = new Date(currentWeekStart)
-      currentWeekEnd.setUTCDate(currentWeekStart.getUTCDate() + 5)
-      currentWeekEnd.setUTCHours(5, 0, 0, 0)
-
-      console.log(`🔍 Checking current week: ${currentWeekStart.toISOString()} to ${currentWeekEnd.toISOString()}`)
-
-      // First try current week
-      const currentWeekResult = await supabase
-        .from('Game')
-        .select('*')
-        .eq('sport', 'nfl')
-        .gte('date', currentWeekStart.toISOString())
-        .lt('date', currentWeekEnd.toISOString())
-        .order('date', { ascending: true })
-
-      console.log(`🔍 Current week query result: ${currentWeekResult.data?.length || 0} games, error: ${currentWeekResult.error?.message || 'none'}`)
-
-      if (currentWeekResult.data && currentWeekResult.data.length > 0) {
-        // Current week has games - use it
-        nflGames = currentWeekResult.data
-        nflError = currentWeekResult.error
-        console.log(`📊 NFL: Using CURRENT week (${currentWeekStart.toDateString()} - ${currentWeekEnd.toDateString()}) - ${nflGames.length} games`)
-      } else {
-        // No current week games - use upcoming week (already calculated)
-        console.log(`🔍 Checking upcoming week: ${weekStart.toISOString()} to ${weekEnd.toISOString()}`)
-
-        const upcomingResult = await supabase
+        // Thursday through Monday - use current week (already calculated)
+        const result = await supabase
           .from('Game')
           .select('*')
           .eq('sport', 'nfl')
@@ -171,29 +204,10 @@ export async function GET(req) {
           .lt('date', weekEnd.toISOString())
           .order('date', { ascending: true })
 
-        console.log(`🔍 Upcoming week query result: ${upcomingResult.data?.length || 0} games, error: ${upcomingResult.error?.message || 'none'}`)
-
-        nflGames = upcomingResult.data
-        nflError = upcomingResult.error
-        console.log(`📊 NFL: Using UPCOMING week (${weekStart.toDateString()} - ${weekEnd.toDateString()}) - ${nflGames.length} games`)
+        nflGames = result.data
+        nflError = result.error
+        console.log(`📊 NFL: Using CURRENT week (${weekStart.toDateString()} - ${weekEnd.toDateString()}) - ${nflGames.length} games`)
       }
-    } else {
-      // Thursday through Monday - use current week (already calculated)
-      console.log(`🔍 Checking current week: ${weekStart.toISOString()} to ${weekEnd.toISOString()}`)
-
-      const result = await supabase
-        .from('Game')
-        .select('*')
-        .eq('sport', 'nfl')
-        .gte('date', weekStart.toISOString())
-        .lt('date', weekEnd.toISOString())
-        .order('date', { ascending: true })
-
-      console.log(`🔍 Current week query result: ${result.data?.length || 0} games, error: ${result.error?.message || 'none'}`)
-
-      nflGames = result.data
-      nflError = result.error
-      console.log(`📊 NFL: Using CURRENT week (${weekStart.toDateString()} - ${weekEnd.toDateString()}) - ${nflGames.length} games`)
     }
     
     console.log(`📊 NFL Query returned ${nflGames?.length || 0} games`)
