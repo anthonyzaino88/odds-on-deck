@@ -33,7 +33,7 @@ export async function GET(req) {
     const todayStr = today.toISOString().split('T')[0] // YYYY-MM-DD
     const tomorrowStr = tomorrow.toISOString().split('T')[0] // YYYY-MM-DD
     
-    console.log(`📅 EST Date Calculation: ${estDateStr} → Today: ${todayStr}, Tomorrow: ${tomorrowStr} (NFL Week 12 loaded)`)
+    console.log(`📅 EST Date Calculation: ${estDateStr} → Today: ${todayStr}, Tomorrow: ${tomorrowStr} (NFL Week 12 synced)`)
     
     // NFL: Smart week detection
     // NFL week runs Thursday Night Football → Sunday slate → Monday Night Football
