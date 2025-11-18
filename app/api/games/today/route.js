@@ -124,6 +124,8 @@ export async function GET(req) {
     // NFL: Smart week detection with fallback
     let nflGames, nflError
 
+    console.log(`🔍 NFL Query Debug: dayOfWeek=${dayOfWeek}, weekStart=${weekStart.toISOString()}, weekEnd=${weekEnd.toISOString()}`)
+
     if (dayOfWeek === 2 || dayOfWeek === 3) {
       // Tuesday or Wednesday - check current week first, then upcoming week
       const currentWeekStart = new Date(today)
@@ -139,6 +141,8 @@ export async function GET(req) {
       currentWeekEnd.setUTCDate(currentWeekStart.getUTCDate() + 5)
       currentWeekEnd.setUTCHours(5, 0, 0, 0)
 
+      console.log(`🔍 Checking current week: ${currentWeekStart.toISOString()} to ${currentWeekEnd.toISOString()}`)
+
       // First try current week
       const currentWeekResult = await supabase
         .from('Game')
@@ -148,6 +152,8 @@ export async function GET(req) {
         .lt('date', currentWeekEnd.toISOString())
         .order('date', { ascending: true })
 
+      console.log(`🔍 Current week query result: ${currentWeekResult.data?.length || 0} games, error: ${currentWeekResult.error?.message || 'none'}`)
+
       if (currentWeekResult.data && currentWeekResult.data.length > 0) {
         // Current week has games - use it
         nflGames = currentWeekResult.data
@@ -155,6 +161,8 @@ export async function GET(req) {
         console.log(`📊 NFL: Using CURRENT week (${currentWeekStart.toDateString()} - ${currentWeekEnd.toDateString()}) - ${nflGames.length} games`)
       } else {
         // No current week games - use upcoming week (already calculated)
+        console.log(`🔍 Checking upcoming week: ${weekStart.toISOString()} to ${weekEnd.toISOString()}`)
+
         const upcomingResult = await supabase
           .from('Game')
           .select('*')
@@ -163,12 +171,16 @@ export async function GET(req) {
           .lt('date', weekEnd.toISOString())
           .order('date', { ascending: true })
 
+        console.log(`🔍 Upcoming week query result: ${upcomingResult.data?.length || 0} games, error: ${upcomingResult.error?.message || 'none'}`)
+
         nflGames = upcomingResult.data
         nflError = upcomingResult.error
         console.log(`📊 NFL: Using UPCOMING week (${weekStart.toDateString()} - ${weekEnd.toDateString()}) - ${nflGames.length} games`)
       }
     } else {
       // Thursday through Monday - use current week (already calculated)
+      console.log(`🔍 Checking current week: ${weekStart.toISOString()} to ${weekEnd.toISOString()}`)
+
       const result = await supabase
         .from('Game')
         .select('*')
@@ -176,6 +188,8 @@ export async function GET(req) {
         .gte('date', weekStart.toISOString())
         .lt('date', weekEnd.toISOString())
         .order('date', { ascending: true })
+
+      console.log(`🔍 Current week query result: ${result.data?.length || 0} games, error: ${result.error?.message || 'none'}`)
 
       nflGames = result.data
       nflError = result.error
