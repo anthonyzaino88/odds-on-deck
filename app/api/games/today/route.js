@@ -35,22 +35,47 @@ export async function GET(req) {
     
     console.log(`📅 EST Date Calculation: ${estDateStr} → Today: ${todayStr}, Tomorrow: ${tomorrowStr}`)
     
-    // NFL: Current week (Thursday to Monday)
+    // NFL: Smart week detection
     // NFL week runs Thursday Night Football → Sunday slate → Monday Night Football
-    // If we're on Tuesday/Wednesday, show the upcoming week (next Thu-Mon)
     // Use EST day of week for consistency (reuse the already-calculated `today` date)
     // getUTCDay() returns 0-6 (Sunday=0, Monday=1, ..., Saturday=6)
     const dayOfWeek = today.getUTCDay()
     let weekStart, weekEnd
-    
+
+    // First, try to determine the current NFL week based on day of week
     if (dayOfWeek === 2 || dayOfWeek === 3) {
-      // Tuesday or Wednesday - show upcoming week (next Thursday to next Monday)
-      const daysUntilThursday = dayOfWeek === 2 ? 2 : 1 // Tuesday: 2 days, Wednesday: 1 day
-      weekStart = new Date(today)
-      weekStart.setUTCDate(today.getUTCDate() + daysUntilThursday)
+      // Tuesday or Wednesday - typically show upcoming week, but check if current week has games
+      // For NFL, we want to show current week's games if they exist (season active)
+      // Calculate both current and upcoming weeks
+
+      // Current week: find most recent Thursday
+      const currentWeekThursday = new Date(today)
+      if (dayOfWeek === 2) {
+        // Tuesday: Thursday was 5 days ago
+        currentWeekThursday.setUTCDate(today.getUTCDate() - 5)
+      } else {
+        // Wednesday: Thursday was 6 days ago
+        currentWeekThursday.setUTCDate(today.getUTCDate() - 6)
+      }
+
+      // Upcoming week: next Thursday
+      const upcomingWeekThursday = new Date(today)
+      const daysUntilThursday = dayOfWeek === 2 ? 2 : 1
+      upcomingWeekThursday.setUTCDate(today.getUTCDate() + daysUntilThursday)
+
+      // Default to upcoming week, but we'll check for current week games below
+      weekStart = new Date(upcomingWeekThursday)
       weekEnd = new Date(weekStart)
       weekEnd.setUTCDate(weekStart.getUTCDate() + 5) // Thursday + 5 days = Tuesday at 00:00
       weekEnd.setUTCHours(5, 0, 0, 0) // Tuesday 5 AM UTC = Monday 11:59 PM EST (catch all MNF)
+
+      // Store both week ranges for checking
+      const currentWeekStart = new Date(currentWeekThursday)
+      const currentWeekEnd = new Date(currentWeekThursday)
+      currentWeekEnd.setUTCDate(currentWeekThursday.getUTCDate() + 5)
+      currentWeekEnd.setUTCHours(5, 0, 0, 0)
+
+      // We'll check for games in both ranges below
     } else {
       // Thursday through Monday - show current week
       // Find the most recent Thursday
@@ -74,7 +99,7 @@ export async function GET(req) {
         weekStart = new Date(today)
         weekStart.setUTCDate(today.getUTCDate() - 2) // Go back 2 days to Thursday
       }
-      
+
       // Week ends on Monday 11:59 PM EST
       // But Monday 11:59 PM EST = Tuesday 4:59 AM UTC, so we need to query until Tuesday ~5 AM UTC
       // to catch Monday Night Football games (8:15 PM EST Monday = 1:15 AM UTC Tuesday)
@@ -96,14 +121,66 @@ export async function GET(req) {
       .gte('date', mlbTodayStart)
       .lt('date', mlbTomorrowStart)
     
-    // NFL: Current week (Thursday to Monday)
-    const { data: nflGames, error: nflError } = await supabase
-      .from('Game')
-      .select('*')
-      .eq('sport', 'nfl')
-      .gte('date', weekStart.toISOString())
-      .lt('date', weekEnd.toISOString())
-      .order('date', { ascending: true })
+    // NFL: Smart week detection with fallback
+    let nflGames, nflError
+
+    if (dayOfWeek === 2 || dayOfWeek === 3) {
+      // Tuesday or Wednesday - check current week first, then upcoming week
+      const currentWeekStart = new Date(today)
+      if (dayOfWeek === 2) {
+        // Tuesday: Thursday was 5 days ago
+        currentWeekStart.setUTCDate(today.getUTCDate() - 5)
+      } else {
+        // Wednesday: Thursday was 6 days ago
+        currentWeekStart.setUTCDate(today.getUTCDate() - 6)
+      }
+
+      const currentWeekEnd = new Date(currentWeekStart)
+      currentWeekEnd.setUTCDate(currentWeekStart.getUTCDate() + 5)
+      currentWeekEnd.setUTCHours(5, 0, 0, 0)
+
+      // First try current week
+      const currentWeekResult = await supabase
+        .from('Game')
+        .select('*')
+        .eq('sport', 'nfl')
+        .gte('date', currentWeekStart.toISOString())
+        .lt('date', currentWeekEnd.toISOString())
+        .order('date', { ascending: true })
+
+      if (currentWeekResult.data && currentWeekResult.data.length > 0) {
+        // Current week has games - use it
+        nflGames = currentWeekResult.data
+        nflError = currentWeekResult.error
+        console.log(`📊 NFL: Using CURRENT week (${currentWeekStart.toDateString()} - ${currentWeekEnd.toDateString()}) - ${nflGames.length} games`)
+      } else {
+        // No current week games - use upcoming week (already calculated)
+        const upcomingResult = await supabase
+          .from('Game')
+          .select('*')
+          .eq('sport', 'nfl')
+          .gte('date', weekStart.toISOString())
+          .lt('date', weekEnd.toISOString())
+          .order('date', { ascending: true })
+
+        nflGames = upcomingResult.data
+        nflError = upcomingResult.error
+        console.log(`📊 NFL: Using UPCOMING week (${weekStart.toDateString()} - ${weekEnd.toDateString()}) - ${nflGames.length} games`)
+      }
+    } else {
+      // Thursday through Monday - use current week (already calculated)
+      const result = await supabase
+        .from('Game')
+        .select('*')
+        .eq('sport', 'nfl')
+        .gte('date', weekStart.toISOString())
+        .lt('date', weekEnd.toISOString())
+        .order('date', { ascending: true })
+
+      nflGames = result.data
+      nflError = result.error
+      console.log(`📊 NFL: Using CURRENT week (${weekStart.toDateString()} - ${weekEnd.toDateString()}) - ${nflGames.length} games`)
+    }
     
     console.log(`📊 NFL Query returned ${nflGames?.length || 0} games`)
     const mondayGame = nflGames?.find(g => g.id.includes('PHI') && g.id.includes('GB'))

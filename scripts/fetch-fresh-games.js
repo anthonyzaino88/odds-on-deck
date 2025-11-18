@@ -117,23 +117,59 @@ async function fetchGamesFromESPN(sport, date) {
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     
     if (sport === 'nfl') {
-      // NFL: Current WEEK's games (Thursday to Monday)
+      // NFL: Smart week detection - prioritize current week games when available
       // NFL week runs Thursday Night Football → Sunday slate → Monday Night Football
-      // If we're on Tuesday/Wednesday, fetch the upcoming week (next Thu-Mon)
       const dayOfWeek = now.getDay()
       let weekStart, weekEnd
-      
+
       if (dayOfWeek === 2 || dayOfWeek === 3) {
-        // Tuesday or Wednesday - fetch upcoming week (next Thursday to next Monday)
-        const daysUntilThursday = dayOfWeek === 2 ? 2 : 1
-        weekStart = new Date(today)
-        weekStart.setDate(today.getDate() + daysUntilThursday)
-        weekEnd = new Date(weekStart)
-        weekEnd.setDate(weekStart.getDate() + 5)
-        weekEnd.setDate(weekEnd.getDate() - 1) // Go back to Monday
-        weekEnd.setHours(23, 59, 59)
+        // Tuesday or Wednesday - check for current week games first, then upcoming week
+        // Calculate current week (most recent Thursday)
+        const currentWeekThursday = new Date(today)
+        if (dayOfWeek === 2) {
+          // Tuesday: Thursday was 5 days ago
+          currentWeekThursday.setDate(today.getDate() - 5)
+        } else {
+          // Wednesday: Thursday was 6 days ago
+          currentWeekThursday.setDate(today.getDate() - 6)
+        }
+
+        // Filter for current week games
+        const currentWeekStart = new Date(currentWeekThursday)
+        const currentWeekEnd = new Date(currentWeekThursday)
+        currentWeekEnd.setDate(currentWeekThursday.getDate() + 4) // Thursday + 4 days = Monday
+        currentWeekEnd.setHours(23, 59, 59)
+
+        const currentWeekGames = allEvents.filter(event => {
+          const gameDate = new Date(event.date)
+          return gameDate >= currentWeekStart && gameDate <= currentWeekEnd
+        })
+
+        if (currentWeekGames.length > 0) {
+          // Current week has games - use it
+          allEvents = currentWeekGames
+          weekStart = currentWeekStart
+          weekEnd = currentWeekEnd
+          console.log(`📅 Filtered to CURRENT WEEK's games (${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}): ${allEvents.length}`)
+        } else {
+          // No current week games - use upcoming week
+          const daysUntilThursday = dayOfWeek === 2 ? 2 : 1
+          weekStart = new Date(today)
+          weekStart.setDate(today.getDate() + daysUntilThursday)
+          weekEnd = new Date(weekStart)
+          weekEnd.setDate(weekStart.getDate() + 4) // Thursday + 4 days = Monday
+          weekEnd.setHours(23, 59, 59)
+
+          // Filter for upcoming week games
+          allEvents = allEvents.filter(event => {
+            const gameDate = new Date(event.date)
+            return gameDate >= weekStart && gameDate <= weekEnd
+          })
+
+          console.log(`📅 Filtered to UPCOMING WEEK's games (${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}): ${allEvents.length}`)
+        }
       } else {
-        // Thursday through Monday - fetch current week
+        // Thursday through Monday - use current week
         if (dayOfWeek === 4) {
           weekStart = new Date(today)
         } else if (dayOfWeek === 0) {
@@ -149,18 +185,21 @@ async function fetchGamesFromESPN(sport, date) {
           weekStart = new Date(today)
           weekStart.setDate(today.getDate() - 2) // Go back to Thursday
         }
-        
+
         weekEnd = new Date(weekStart)
-        weekEnd.setDate(weekStart.getDate() + 5)
-        weekEnd.setDate(weekEnd.getDate() - 1) // Go back to Monday
+        weekEnd.setDate(weekStart.getDate() + 4) // Thursday + 4 days = Monday
         weekEnd.setHours(23, 59, 59)
+
+        console.log(`📅 Filtered to CURRENT WEEK's games (${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}): ${allEvents.length}`)
+
+        // Filter events to only include games within this week's date range
+        allEvents = allEvents.filter(event => {
+          const gameDate = new Date(event.date)
+          return gameDate >= weekStart && gameDate <= weekEnd
+        })
+
+        console.log(`✅ Filtered to ${allEvents.length} games within date range`)
       }
-      
-      allEvents = allEvents.filter(event => {
-        const gameDate = new Date(event.date)
-        return gameDate >= weekStart && gameDate <= weekEnd
-      })
-      console.log(`📅 Filtered to THIS WEEK's games (Thu-Mon: ${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}): ${allEvents.length}`)
     }
     
     console.log(`✅ Found ${allEvents.length} ${sport.toUpperCase()} games`)
