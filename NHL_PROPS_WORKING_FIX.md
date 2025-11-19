@@ -47,7 +47,7 @@ The Supabase `PlayerPropCache` table has `odds` column as `INTEGER`, but the Odd
 
 ### Step 1: Fix the Supabase Schema
 
-1. Go to: https://przixigqxtdbunfsaped.supabase.co
+1. Go to: https://[your-project-ref].supabase.co
 2. Click on **"SQL Editor"** in the left sidebar
 3. Run this SQL command:
 

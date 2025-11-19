@@ -1,0 +1,40 @@
+# Odds on Deck - Proprietary Software License
+
+Copyright (c) 2025 [Your Name/Company]. All rights reserved.
+
+## RESTRICTIONS
+
+This software and its associated intellectual property are proprietary and confidential. You may NOT:
+
+1. **Copy, modify, or distribute** this software without explicit written permission
+2. **Reverse engineer, decompile, or disassemble** any portion of this software
+3. **Use this software for commercial purposes** without a license agreement
+4. **Share API keys, database credentials, or other sensitive configuration** with unauthorized parties
+5. **Create derivative works** based on this software without permission
+
+## PERMITTED USE
+
+- Personal, non-commercial use only
+- Educational study of the codebase (with attribution)
+- Non-commercial forks for learning purposes only
+
+## API KEYS & CREDENTIALS
+
+All API keys, database credentials, and sensitive configuration data contained within this repository are the sole property of the original author. Unauthorized use of these credentials constitutes theft and may violate terms of service agreements with third-party providers.
+
+## LEGAL NOTICE
+
+This software includes integrations with third-party APIs including:
+- The Odds API (theoddsapi.com)
+- ESPN API
+- Supabase
+
+Usage of these services must comply with their respective terms of service. The author is not responsible for any violations or charges incurred through unauthorized use.
+
+## CONTACT
+
+For licensing inquiries or permissions, please contact: [your-email@example.com]
+
+---
+
+**By using this software, you agree to these terms.**

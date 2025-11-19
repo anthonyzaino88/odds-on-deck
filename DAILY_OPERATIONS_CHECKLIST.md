@@ -6,16 +6,27 @@ Complete guide for running all necessary scripts to keep the Odds on Deck app fu
 
 **Minimum Daily Run (Morning):**
 ```bash
-node scripts/fetch-team-performance-data.js
-node scripts/fetch-live-odds.js nfl
-node scripts/fetch-live-odds.js nhl
+node operations/fetch-team-performance-data.js
+node operations/fetch-live-odds.js nhl --cache-fresh
 node scripts/calculate-game-edges.js
 node scripts/save-top-props-for-validation.js
 ```
 
+**NFL Games (Weekly - Before NFL Games):**
+```bash
+# Fetch NFL games for upcoming week (run Monday/Tuesday)
+node operations/fetch-nfl-week-12.js  # Update week number as needed
+
+# Map NFL games to Odds API (run after games are fetched)
+node operations/map-nfl-week-12-to-odds-api.js  # Update week number as needed
+
+# Fetch NFL odds and props for specific game date
+node operations/fetch-live-odds.js nfl YYYY-MM-DD
+```
+
 **During Games (Every 15-30 min):**
 ```bash
-node scripts/update-scores-safely.js
+node operations/update-scores-safely.js
 ```
 
 ---
@@ -40,13 +51,32 @@ node scripts/fetch-team-performance-data.js
 
 ---
 
+#### 1.1 Fetch NFL Games (Weekly)
+**When:** Monday/Tuesday before NFL games
+**Why:** ESPN only provides current week games, Odds API provides 1-2 weeks ahead
+
+```bash
+# Step 1: Fetch NFL games from ESPN (update week number)
+node scripts/fetch-nfl-week-12.js
+
+# Step 2: Map games to Odds API event IDs
+node scripts/map-nfl-week-12-to-odds-api.js
+
+# Step 3: Fetch odds and props for game date
+node scripts/fetch-live-odds.js nfl 2025-11-23  # Use actual game date
+```
+
+**Expected output:** "✅ Stored X NFL games" and "✅ Matched X games"
+
+---
+
 #### 1.2 Fetch Live Odds & Player Props
 ```bash
-# NFL (run on Thu-Mon during season)
-node scripts/fetch-live-odds.js nfl
+# NFL (run on game day or day before)
+node scripts/fetch-live-odds.js nfl YYYY-MM-DD
 
-# NHL (run daily during season)
-node scripts/fetch-live-odds.js nhl
+# NHL (run daily during season - use cache-fresh to avoid 404 errors)
+node scripts/fetch-live-odds.js nhl --cache-fresh
 
 # MLB (run daily during season)
 node scripts/fetch-live-odds.js mlb
@@ -64,10 +94,11 @@ node scripts/fetch-live-odds.js mlb
 - Shows which games have odds coverage
 
 **⚠️ Important:** Uses The Odds API (20,000 calls/month on $30 plan)
+**⚠️ NHL Tip:** Always use `--cache-fresh` to avoid expired event ID errors
 
 ---
 
-#### 1.3 Calculate Game Edges
+#### 1.4 Calculate Game Edges
 ```bash
 node scripts/calculate-game-edges.js
 ```
@@ -89,7 +120,7 @@ Over: X% edge | Under: X% edge
 
 ---
 
-#### 1.4 Save Top Props for Validation
+#### 1.5 Save Top Props for Validation
 ```bash
 node scripts/save-top-props-for-validation.js
 ```
@@ -249,8 +280,30 @@ node s week calculation issue
 **Solution:** Already fixed - refresh app at `/games`
 
 ### Props won't save (duplicate error)
-**Problem:** Using Date.now() in propId  
+**Problem:** Using Date.now() in propId
 **Solution:** Already fixed - now uses stable propId
+
+### NFL games not showing on game slate
+**Problem:** NFL games appear after Monday night game automatically
+**Solution:** App now auto-detects when MNF ends and shows upcoming week
+**Alternative:** Run NFL fetch scripts manually if needed
+
+### NHL props failing with 404 errors
+**Problem:** Odds API event IDs expired or invalid
+**Solution:** Use `--cache-fresh` flag: `node scripts/fetch-live-odds.js nhl --cache-fresh`
+
+### NFL props not fetching for upcoming weeks
+**Problem:** Odds API provides games 1-2 weeks ahead, ESPN only current week
+**Solution:** Run NFL game fetch scripts weekly:
+```bash
+node scripts/fetch-nfl-week-12.js
+node scripts/map-nfl-week-12-to-odds-api.js
+node scripts/fetch-live-odds.js nfl YYYY-MM-DD
+```
+
+### Vercel not showing latest data
+**Problem:** Database sync issues between local and production
+**Solution:** Push code changes to trigger redeploy, or wait for auto-sync
 
 ---
 
@@ -325,8 +378,12 @@ Already configured in `vercel.json` for score updates. Can add more cron jobs:
 
 | Script | Frequency | When | Required For | API Calls |
 |--------|-----------|------|-------------|-----------|
+| `fetch-nfl-week-XX.js` | Weekly | Mon/Tue | NFL games for upcoming week | ESPN (free) |
+| `map-nfl-week-XX-to-odds-api.js` | Weekly | After NFL fetch | Map NFL games to Odds API | None |
 | `fetch-team-performance-data.js` | Daily | Morning | Edge calculation, prop enrichment | ESPN (free) |
-| `fetch-live-odds.js [sport]` | Daily | Morning | All odds/props | The Odds API (~500/run) |
+| `fetch-live-odds.js nfl YYYY-MM-DD` | Game days | Before games | NFL odds/props | The Odds API (~500/run) |
+| `fetch-live-odds.js nhl --cache-fresh` | Daily | Morning | NHL odds/props | The Odds API (~600/run) |
+| `fetch-live-odds.js mlb` | Daily | Morning | MLB odds/props | The Odds API (~900/run) |
 | `calculate-game-edges.js` | Daily | After odds | Editor's Picks game picks | None (uses DB) |
 | `update-scores-safely.js` | Every 15-30m | During games | Live scores | ESPN (free) |
 | `save-top-props-for-validation.js` | Daily | Morning | Validation system | None (uses DB) |
@@ -344,11 +401,12 @@ Approximate usage per run:
 
 **Daily totals** (during season):
 - NHL only: ~600 calls/day = 18,000/month ✅
-- NFL only: ~1,500 calls/week (Thu/Sun/Mon) = 6,000/month ✅
-- NHL + NFL: ~20,000/month (tight but OK) ⚠️
+- NFL only: ~500 calls/game-day (Thu/Sun/Mon) = 2,000/month ✅
+- NHL + NFL: ~20,000/month (fits within limit) ✅
 - Add MLB: Would exceed limit ❌
 
-**Recommendation:** Run NHL + NFL during overlap season, skip MLB or use different API key.
+**New NFL Process:** Weekly game fetch (~100 calls) + game-day odds (~500 calls) = more efficient usage
+**NHL Cache-Fresh:** Use `--cache-fresh` daily to avoid 404 errors (same call volume)
 
 ---
 
@@ -379,7 +437,7 @@ Show them this checklist and have them run:
 ```bash
 # 1. Morning setup (takes ~2 minutes)
 node scripts/fetch-team-performance-data.js
-node scripts/fetch-live-odds.js nhl
+node scripts/fetch-live-odds.js nhl --cache-fresh
 node scripts/calculate-game-edges.js
 
 # 2. Check the app
@@ -388,7 +446,12 @@ node scripts/calculate-game-edges.js
 # - Visit http://localhost:3000/picks - Should see ML/O-U + props
 # - Visit http://localhost:3000/parlays - Should generate parlays
 
-# 3. During a live game
+# 3. For NFL weeks (run Monday/Tuesday)
+node scripts/fetch-nfl-week-12.js  # Update week number
+node scripts/map-nfl-week-12-to-odds-api.js
+node scripts/fetch-live-odds.js nfl YYYY-MM-DD
+
+# 4. During a live game
 node scripts/update-scores-safely.js
 # Check /games page - should see live scores
 ```
@@ -403,9 +466,11 @@ If you encounter issues:
 3. Check database connectivity
 4. Review recent code changes
 5. Check API rate limits (The Odds API dashboard)
+6. For NHL 404 errors: Use `node scripts/fetch-live-odds.js nhl --cache-fresh`
+7. For NFL games not showing: Check if MNF has ended, or run NFL fetch scripts
 
 ---
 
-**Last Updated:** November 10, 2025  
-**Version:** 2.0
+**Last Updated:** November 18, 2025
+**Version:** 3.0
 

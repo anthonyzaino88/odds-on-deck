@@ -16,7 +16,7 @@ The `scripts/fetch-live-odds.js` script is now **fully functional** and successf
 ### 1. API Key Issue ✅
 **Problem:** API key was not being recognized  
 **Fix:** Key is now correctly loaded from `.env.local`  
-**Key:** `c35f7ecbd7c0fe0649582ffc2951ef01` (paid tier)
+**Key:** Configured in .env.local (paid tier)
 
 ### 2. URL Format Issue ✅
 **Problem:** API URL had `&` instead of `?` for first query parameter  
@@ -252,7 +252,7 @@ The script silently skips these to avoid noise in the logs.
 ### Common Issues
 
 **Q: API key not working?**  
-A: Check `.env.local` file has `ODDS_API_KEY=c35f7ecbd7c0fe0649582ffc2951ef01`
+A: Check `.env.local` file has `ODDS_API_KEY=[your-api-key]`
 
 **Q: Getting 404 errors for props?**  
 A: Make sure you're using The Odds API event IDs, not our database game IDs

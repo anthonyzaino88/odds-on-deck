@@ -58,3 +58,9 @@ manual-*.js
 # Documentation Archive
 /docs/archive/
 
+# Private Operational Scripts (contain API keys)
+/operations/
+
+# Demo environment files
+env.demo
+
