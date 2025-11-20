@@ -14,11 +14,13 @@ export const dynamic = 'force-dynamic'
 export default async function ValidationDashboard() {
   const stats = await getValidationStats()
   const recentRecords = await getValidationRecords({ limit: 50 })
-  
+
   // Fetch ALL completed records (no limit to ensure we get everything)
   const allCompletedRecords = await getValidationRecords({ status: 'completed' })
+  // Fetch ALL pending records to ensure we show all pending validations
+  const allPendingRecords = await getValidationRecords({ status: 'pending' })
 
-  const pendingRecords = recentRecords.filter(r => r.status === 'pending')
+  const pendingRecords = allPendingRecords // Use all pending records, not just recent ones
   const completedRecords = allCompletedRecords // Use the dedicated completed query
   const needsReviewRecords = recentRecords.filter(r => r.status === 'needs_review')
 
