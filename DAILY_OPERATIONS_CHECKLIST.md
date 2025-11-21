@@ -258,6 +258,19 @@ node scripts/save-top-props-for-validation.js
 
 ## 🚨 Troubleshooting
 
+### Validation Page vs Insights Page Accuracy Discrepancy
+**Issue:** Validation page and insights page showed different success rates.
+
+**Root Cause:** Both pages were limited to 1000 records by Supabase's default limit, but used different ordering:
+- Validation page: Most recent 1000 completed validations
+- Insights page: First 1000 completed validations (different order)
+
+**Solution:** Updated queries to use consistent ordering and higher limits (5000) to avoid Supabase's 1000-row default.
+
+**Files Fixed:**
+- `lib/validation.js`: Added `.limit(5000)` and consistent ordering
+- `lib/performance-analyzer.js`: Added proper ordering and limit
+
 ### No game picks in Editor's Picks (only props)
 **Problem:** EdgeSnapshot table is empty  
 **Solution:** Run `node scripts/calculate-game-edges.js`
