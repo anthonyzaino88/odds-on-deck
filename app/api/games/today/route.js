@@ -9,14 +9,28 @@ import { NextResponse } from 'next/server'
 import { supabase } from '../../../../lib/supabase.js'
 
 // Helper to get NFL week boundaries (Thursday to Monday)
+// Shows UPCOMING games: Thu-Mon of current NFL week
 function getNFLWeekBounds(now) {
   const estDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
   const dayOfWeek = estDate.getDay() // 0=Sun, 1=Mon, ..., 4=Thu, 5=Fri, 6=Sat
   
-  // Find the most recent Thursday (or today if Thursday)
-  let thursdayOffset = dayOfWeek >= 4 ? dayOfWeek - 4 : dayOfWeek + 3
-  const thursday = new Date(estDate)
-  thursday.setDate(estDate.getDate() - thursdayOffset)
+  // Calculate days until next Thursday
+  // If today is Tue(2) or Wed(3), show upcoming Thu-Mon
+  // If today is Thu(4)-Mon(1), show current Thu-Mon
+  let thursday = new Date(estDate)
+  
+  if (dayOfWeek === 2 || dayOfWeek === 3) {
+    // Tuesday or Wednesday - show upcoming Thursday
+    const daysUntilThursday = (4 - dayOfWeek + 7) % 7 || 7
+    thursday.setDate(estDate.getDate() + daysUntilThursday)
+  } else if (dayOfWeek >= 4) {
+    // Thursday, Friday, Saturday - find this week's Thursday
+    thursday.setDate(estDate.getDate() - (dayOfWeek - 4))
+  } else {
+    // Sunday (0) or Monday (1) - find last Thursday
+    thursday.setDate(estDate.getDate() - (dayOfWeek + 3))
+  }
+  
   thursday.setHours(0, 0, 0, 0)
   
   // Monday is 4 days after Thursday
