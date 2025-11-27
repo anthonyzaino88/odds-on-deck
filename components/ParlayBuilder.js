@@ -6,25 +6,16 @@ export default function ParlayBuilder({ onGenerate }) {
   const [sport, setSport] = useState('nhl') // Changed default from 'mlb' to 'nhl'
   const [type, setType] = useState('multi_game')
   const [legCount, setLegCount] = useState(3)
-  const [minEdge, setMinEdge] = useState(0.05)
   const [maxParlays, setMaxParlays] = useState(10)
-  const [minConfidence, setMinConfidence] = useState('low') // Always use 'low' since we're filtering by edge only
-  const [filterMode, setFilterMode] = useState('safe') // New: safe, balanced, value, homerun
+  const [minConfidence, setMinConfidence] = useState('low') // Allow all confidence levels
+  const [filterMode, setFilterMode] = useState('safe') // safe, balanced, value, homerun
   const [isGenerating, setIsGenerating] = useState(false)
   const [selectedGameId, setSelectedGameId] = useState('')
   const [availableGames, setAvailableGames] = useState([])
   const [isLoadingGames, setIsLoadingGames] = useState(false)
 
-  // Auto-adjust minEdge based on filterMode
-  useEffect(() => {
-    const filterModeSettings = {
-      safe: 0.02,      // 2% edge minimum - include most props
-      balanced: 0.05,  // 5% edge - balanced approach
-      value: 0.15,     // 15% edge - value hunters
-      homerun: 0.10    // 10% edge - home run parlays
-    }
-    setMinEdge(filterModeSettings[filterMode] || 0.05)
-  }, [filterMode])
+  // HONEST EDGE SYSTEM: No fake minEdge adjustments needed
+  // Props are ranked by real probability (Safe) or expected value (Value)
 
   // ✅ Cache all games data in frontend to avoid repeated API calls
   const [allGamesCache, setAllGamesCache] = useState(null)
@@ -121,14 +112,14 @@ export default function ParlayBuilder({ onGenerate }) {
     setIsGenerating(true)
     
     try {
+      // HONEST EDGE SYSTEM: No minEdge needed - system uses probability ranking
       const requestData = {
         sport,
         type,
         legCount,
-        minEdge,
         maxParlays,
         minConfidence,
-        filterMode, // New: pass filter mode to backend
+        filterMode, // Controls ranking: safe=probability, value=EV, etc.
         saveToDatabase: false,
         gameId: type === 'single_game' ? selectedGameId : undefined
       }
@@ -319,27 +310,12 @@ export default function ParlayBuilder({ onGenerate }) {
           </select>
         </div>
 
-        {/* Risk Level (via Minimum Edge) */}
-        <div>
-          <label className="block text-sm font-medium text-white mb-2">
-            Risk Level: {(minEdge * 100).toFixed(0)}% Edge
-          </label>
-          <input
-            type="range"
-            min="0.01"
-            max="0.25"
-            step="0.01"
-            value={minEdge}
-            onChange={(e) => setMinEdge(parseFloat(e.target.value))}
-            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
-          />
-          <div className="flex justify-between text-xs text-gray-400 mt-1">
-            <span>🛡️ Safer (1%)</span>
-            <span>🎲 Riskier (25%)</span>
-          </div>
-          <p className="mt-1 text-xs text-gray-400">
-            💡 <strong>For safest bets:</strong> Set to 1-5% to include all props. System will pick highest win probability.<br/>
-            🎲 <strong>For value bets:</strong> Set to 15%+ to only include high-edge props (home runs, etc.)
+        {/* Honest System Info */}
+        <div className="p-3 bg-slate-800/50 border border-slate-700 rounded-lg">
+          <p className="text-xs text-gray-400">
+            <span className="text-green-400 font-medium">✓ Honest Edge System:</span> Props use real vig-adjusted probabilities. 
+            Parlays are ranked by <strong className="text-white">win probability</strong> (Safe mode) or 
+            <strong className="text-white"> expected value</strong> (Value mode), not fake edges.
           </p>
         </div>
 
@@ -391,7 +367,7 @@ export default function ParlayBuilder({ onGenerate }) {
           <div>Sport: <span className="font-medium text-white">{sport.toUpperCase()}</span></div>
           <div>Type: <span className="font-medium text-white">{type.replace('_', ' ')}</span></div>
           <div>Legs: <span className="font-medium text-white">{legCount}</span></div>
-          <div>Min Edge: <span className="font-medium text-white">{minEdge * 100}%</span></div>
+          <div>Strategy: <span className="font-medium text-white">{filterMode}</span></div>
         </div>
       </div>
     </div>
