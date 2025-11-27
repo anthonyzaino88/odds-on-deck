@@ -1,0 +1,91 @@
+[33mcommit 3505ca9bdfcf6548733ed58475ca62147b121cb1[m
+Author: Anthony Zaino <anthonyzaino88@gmail.com>
+Date:   Thu Nov 27 12:50:39 2025 -0500
+
+    Implement pagination to fetch ALL validation records (1808 not 1000)
+    
+    - Supabase has hard 1000 row API limit per query
+    - Added pagination loop to fetch in batches of 1000
+    - Applied to: getValidationStats, getValidationRecords, analyzePerformance
+    - Now shows correct win rate: 48.17% (871/1808) instead of 45% (450/1000)
+    - Also includes: documentation cleanup (deleted 104 outdated files)
+
+[33mcommit c04cc8c5a3c661c0714bd6dac9f63b67ccef7a4b[m
+Author: Anthony Zaino <anthonyzaino88@gmail.com>
+Date:   Sun Nov 2 16:47:50 2025 -0500
+
+    CLEANUP: Remove console.warn from lib/db.js
+    
+    Removed warning message that was cluttering terminal output.
+    Everything works - no need for warning anymore.
+    
+    The warning was: 'lib/db.js is using Supabase! Direct prisma usage will fail'
+    
+    All API calls are working correctly (200 OK responses):
+    - /api/nfl/roster âœ…
+    - /api/nfl/matchups âœ…
+    - /api/games/today âœ…
+
+[33mcommit def0a5303078868a77404b33b18486ab54bb35f2[m
+Author: Anthony Zaino <anthonyzaino88@gmail.com>
+Date:   Sun Nov 2 16:44:25 2025 -0500
+
+    FIX: Remove duplicate export in lib/db.js
+    
+    Fixed error: checkDatabaseConnection exported twice
+    Now only exported once from db-supabase.js
+
+[33mcommit d370f6590dda22a2453026a8f9eaacf30ea1dbf5[m
+Author: Anthony Zaino <anthonyzaino88@gmail.com>
+Date:   Sun Nov 2 16:29:37 2025 -0500
+
+    MIGRATE: lib/db.js now uses Supabase (backward compatible)
+    
+    lib/db.js now re-exports everything from lib/db-supabase.js
+    
+    ALL 52 files that import from lib/db.js now automatically use Supabase!
+    âœ… No need to update individual imports
+    âœ… Backward compatible
+    âœ… Functions work the same way
+    
+    Temporary prisma export for legacy code that directly uses prisma.*
+    Will be removed after final cleanup.
+    
+    This single change migrates the entire database layer!
+
+[33mcommit 808b998009e8e3b62cf140528ef6d58001e3344a[m
+Author: Anthony Zaino <anthonyzaino88@gmail.com>
+Date:   Sun Nov 2 16:17:08 2025 -0500
+
+    FIX: Filter invalid fields in createOdds (lib/db.js)
+    
+    The Prisma errors were caused by lib/db.js passing invalid fields:
+    - 'sport' (not in Odds table schema)
+    - 'selection' (not in Odds table schema)
+    - 'odds' (not in Odds table schema)
+    
+    These fields are now filtered out before creating records.
+    
+    Also fixed:
+    - app/api/import/all-data/route.js (already committed)
+    - components/PlayerPropsFilter.js (hide empty sport boxes)
+    
+    This should eliminate all the 'Unknown argument' Prisma errors.
+
+[33mcommit 81d3f5d9f48801c22bab453d09ee6fc91d838930[m
+Author: Anthony Zaino <anthonyzaino88@gmail.com>
+Date:   Sat Nov 1 16:25:28 2025 -0400
+
+    CRITICAL FIX: Remove dotenv loading that was overriding Vercel env vars - Removed env.local from git
+
+[33mcommit 4d905263f2156ff3a1a8bf3f6bdbb456dbbf2e05[m
+Author: Anthony Zaino <anthonyzaino88@gmail.com>
+Date:   Wed Oct 29 20:44:32 2025 -0400
+
+    Initial commit: Sports betting analytics platform with AI-powered parlay generation
+
+[33mcommit 74bda083e94e6866601bb0ea493456138e9a0d10[m
+Author: Anthony Zaino <anthonyzaino88@gmail.com>
+Date:   Sat Oct 4 16:27:38 2025 -0400
+
+    Initial commit: Odds on Deck - MLB/NFL betting platform with live data, player props, and editor picks
