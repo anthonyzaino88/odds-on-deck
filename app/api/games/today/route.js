@@ -8,6 +8,25 @@ export const maxDuration = 30
 import { NextResponse } from 'next/server'
 import { supabase } from '../../../../lib/supabase.js'
 
+// Helper to get NFL week boundaries (Thursday to Monday)
+function getNFLWeekBounds(now) {
+  const estDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+  const dayOfWeek = estDate.getDay() // 0=Sun, 1=Mon, ..., 4=Thu, 5=Fri, 6=Sat
+  
+  // Find the most recent Thursday (or today if Thursday)
+  let thursdayOffset = dayOfWeek >= 4 ? dayOfWeek - 4 : dayOfWeek + 3
+  const thursday = new Date(estDate)
+  thursday.setDate(estDate.getDate() - thursdayOffset)
+  thursday.setHours(0, 0, 0, 0)
+  
+  // Monday is 4 days after Thursday
+  const monday = new Date(thursday)
+  monday.setDate(thursday.getDate() + 4)
+  monday.setHours(23, 59, 59, 999)
+  
+  return { thursday, monday }
+}
+
 export async function GET(req) {
   try {
     console.log('📅 API: Fetching today\'s games...')
@@ -26,15 +45,16 @@ export async function GET(req) {
 
     console.log(`📅 Today (EST): ${estDateStr}`)
 
-    // Query games within a 48-hour window to catch all timezone edge cases
-    // This ensures we don't miss games due to server timezone issues
-    const windowStart = new Date(now)
-    windowStart.setDate(now.getDate() - 1)
-    windowStart.setHours(0, 0, 0, 0)
+    // Get NFL week bounds (Thursday-Monday)
+    const nflWeek = getNFLWeekBounds(now)
+    console.log(`🏈 NFL week: ${nflWeek.thursday.toISOString()} to ${nflWeek.monday.toISOString()}`)
+
+    // Query games within a wider window to catch NHL daily + NFL weekly
+    const windowStart = new Date(nflWeek.thursday)
+    windowStart.setDate(windowStart.getDate() - 1) // Buffer for timezone
     
-    const windowEnd = new Date(now)
-    windowEnd.setDate(now.getDate() + 2)
-    windowEnd.setHours(23, 59, 59, 999)
+    const windowEnd = new Date(nflWeek.monday)
+    windowEnd.setDate(windowEnd.getDate() + 1) // Buffer for timezone
 
     const { data: allGames, error } = await supabase
       .from('Game')
@@ -48,7 +68,26 @@ export async function GET(req) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 })
     }
 
-    // Filter games by EST date to show only today's games
+    // Get all unique team IDs from games
+    const teamIds = new Set()
+    allGames?.forEach(game => {
+      if (game.homeId) teamIds.add(game.homeId)
+      if (game.awayId) teamIds.add(game.awayId)
+    })
+
+    // Fetch team data
+    const { data: teams } = await supabase
+      .from('Team')
+      .select('id, name, abbr')
+      .in('id', Array.from(teamIds))
+
+    // Create team lookup map
+    const teamMap = {}
+    teams?.forEach(team => {
+      teamMap[team.id] = team
+    })
+
+    // Filter and enrich games
     const mlbGames = []
     const nflGames = []
     const nhlGames = []
@@ -61,18 +100,34 @@ export async function GET(req) {
       // Get game's EST date
       const gameEstDate = estFormatter.format(gameDate) // Format: YYYY-MM-DD
 
-      // Match games for today's EST date
-      if (gameEstDate === estDateStr) {
-        const fixedGame = { ...game, date: dateStr }
-        if (game.sport === 'mlb') mlbGames.push(fixedGame)
-        else if (game.sport === 'nfl') nflGames.push(fixedGame)
-        else if (game.sport === 'nhl') nhlGames.push(fixedGame)
+      // Enrich game with team names
+      const homeTeam = teamMap[game.homeId] || { name: 'Unknown', abbr: '?' }
+      const awayTeam = teamMap[game.awayId] || { name: 'Unknown', abbr: '?' }
+      
+      const enrichedGame = {
+        ...game,
+        date: dateStr,
+        homeName: homeTeam.name,
+        homeAbbr: homeTeam.abbr,
+        awayName: awayTeam.name,
+        awayAbbr: awayTeam.abbr
+      }
+
+      if (game.sport === 'nfl') {
+        // NFL: Show entire week (Thursday-Monday)
+        if (gameDate >= nflWeek.thursday && gameDate <= nflWeek.monday) {
+          nflGames.push(enrichedGame)
+        }
+      } else if (gameEstDate === estDateStr) {
+        // MLB/NHL: Show today only
+        if (game.sport === 'mlb') mlbGames.push(enrichedGame)
+        else if (game.sport === 'nhl') nhlGames.push(enrichedGame)
       }
     }
 
-    console.log(`📊 Today's games: MLB=${mlbGames.length}, NFL=${nflGames.length}, NHL=${nhlGames.length}`)
+    console.log(`📊 Games: MLB=${mlbGames.length}, NFL=${nflGames.length} (week), NHL=${nhlGames.length}`)
 
-    // Return response with CORS headers
+    // Return response
     return NextResponse.json({
       success: true,
       data: {
@@ -84,6 +139,8 @@ export async function GET(req) {
       debug: {
         estDate: estDateStr,
         serverTime: now.toISOString(),
+        nflWeekStart: nflWeek.thursday.toISOString(),
+        nflWeekEnd: nflWeek.monday.toISOString(),
         totalGames: allGames?.length || 0
       }
     })

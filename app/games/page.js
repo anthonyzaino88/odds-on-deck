@@ -281,7 +281,7 @@ function GameCard({ game }) {
           <div className="flex-1">
             <div className="flex items-center gap-3 mb-2">
               <h3 className="text-xl font-bold text-slate-100">
-                {game.away?.abbr || '?'} @ {game.home?.abbr || '?'}
+                {game.awayAbbr || game.away?.abbr || '?'} @ {game.homeAbbr || game.home?.abbr || '?'}
               </h3>
               
               {/* Live Indicator - Red Dot + LIVE Text */}
@@ -308,7 +308,7 @@ function GameCard({ game }) {
               )}
             </div>
             <p className="text-slate-400 text-sm">
-              {game.away?.name} vs {game.home?.name}
+              {game.awayName || game.away?.name || 'Away'} vs {game.homeName || game.home?.name || 'Home'}
             </p>
             {/* Show inning for MLB games or period for NHL */}
             {isLive && (
