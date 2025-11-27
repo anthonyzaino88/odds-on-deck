@@ -88,7 +88,7 @@ export default function PropsPage() {
           ))}
           </div>
           
-          {/* Quick Stats Bar */}
+          {/* Quick Stats Bar - HONEST: Show probability-based stats, not fake edge */}
           {!loading && !error && props.length > 0 && (
             <div className="flex flex-wrap justify-center items-center gap-3 sm:gap-6 text-xs sm:text-sm text-gray-400">
               <div className="flex items-center gap-1 sm:gap-2">
@@ -101,15 +101,15 @@ export default function PropsPage() {
                 <span className="text-green-400 font-bold">
                   {props.filter(p => (p.probability || 0) >= 0.55).length}
                 </span>
-                <span className="hidden sm:inline">High Confidence</span>
+                <span className="hidden sm:inline">High Confidence (55%+)</span>
                 <span className="sm:hidden">High</span>
               </div>
               <div className="hidden sm:block h-4 w-px bg-slate-700"></div>
               <div className="flex items-center gap-1 sm:gap-2">
                 <span className="text-blue-400 font-bold">
-                  {props.filter(p => (p.edge || 0) >= 0.10).length}
+                  {props.filter(p => (p.probability || 0) >= 0.52).length}
                 </span>
-                <span>10%+ Edge</span>
+                <span>Safe Picks (52%+)</span>
               </div>
             </div>
           )}

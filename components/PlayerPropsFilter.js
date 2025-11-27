@@ -8,22 +8,33 @@ export default function PlayerPropsFilter({ props }) {
   const [filterMode, setFilterMode] = useState('safe')
 
   // Filter and sort props based on selected mode
+  // HONEST EDGE SYSTEM: Most props have edge=0 (honest - no fake edges)
+  // We filter by PROBABILITY and QUALITY SCORE instead
   const filteredProps = useMemo(() => {
     let filtered = [...props]
 
-    // Apply filters based on mode
+    // Apply filters based on mode - NO EDGE REQUIREMENTS (honest system)
     if (filterMode === 'safe') {
+      // Safe: Highest win probability (52%+)
       filtered = filtered.filter(p => (p.probability || 0) >= 0.52)
       filtered.sort((a, b) => (b.probability || 0) - (a.probability || 0))
     } else if (filterMode === 'balanced') {
-      filtered = filtered.filter(p => (p.probability || 0) >= 0.45 && (p.edge || 0) >= 0.05)
+      // Balanced: Good quality score and probability (no fake edge requirement)
+      filtered = filtered.filter(p => (p.probability || 0) >= 0.45 && (p.qualityScore || 0) >= 25)
       filtered.sort((a, b) => (b.qualityScore || 0) - (a.qualityScore || 0))
     } else if (filterMode === 'value') {
-      filtered = filtered.filter(p => (p.edge || 0) >= 0.15)
-      filtered.sort((a, b) => (b.edge || 0) - (a.edge || 0))
+      // Value: Best expected value (EV = probability * odds - 1)
+      // HONEST: Sort by EV instead of fake edge
+      filtered = filtered.filter(p => (p.probability || 0) >= 0.40)
+      filtered.sort((a, b) => {
+        const evA = (a.probability || 0.5) * (a.odds || 2) - 1
+        const evB = (b.probability || 0.5) * (b.odds || 2) - 1
+        return evB - evA
+      })
     } else if (filterMode === 'homerun') {
-      // High variance props
-      filtered.sort((a, b) => (b.edge || 0) - (a.edge || 0))
+      // Home run: Higher payout props with reasonable probability
+      filtered = filtered.filter(p => (p.probability || 0) >= 0.30)
+      filtered.sort((a, b) => (b.odds || 0) - (a.odds || 0))
     }
 
     return filtered
@@ -90,7 +101,7 @@ export default function PlayerPropsFilter({ props }) {
               }`}
             >
               <div className="font-semibold text-xs sm:text-sm">💰 Value</div>
-              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">15%+ edge</div>
+              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Best EV</div>
               {filterMode === 'value' && (
                 <div className="text-[10px] sm:text-xs text-yellow-400 mt-1 sm:mt-2 font-medium">
                   {filteredProps.length} props
@@ -107,7 +118,7 @@ export default function PlayerPropsFilter({ props }) {
               }`}
             >
               <div className="font-semibold text-xs sm:text-sm">🎰 Home Run</div>
-              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Big edges</div>
+              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Big payouts</div>
               {filterMode === 'homerun' && (
                 <div className="text-[10px] sm:text-xs text-purple-400 mt-1 sm:mt-2 font-medium">
                   {filteredProps.length} props
@@ -120,9 +131,9 @@ export default function PlayerPropsFilter({ props }) {
           <div className="mt-3 sm:mt-4 p-2 sm:p-3 bg-slate-800 rounded-lg border border-slate-700">
             <p className="text-xs sm:text-sm text-gray-300 leading-relaxed">
               {filterMode === 'safe' && '🛡️ Showing props with 52%+ win probability. These are the safest, most consistent picks.'}
-              {filterMode === 'balanced' && '⚖️ Showing props with optimal quality scores (45%+ probability, 5%+ edge). Best overall picks.'}
-              {filterMode === 'value' && '💰 Showing props with 15%+ edge. These are market inefficiencies with higher potential value.'}
-              {filterMode === 'homerun' && '🎰 Showing all props sorted by edge. Includes higher-variance opportunities.'}
+              {filterMode === 'balanced' && '⚖️ Showing props with best quality scores (45%+ probability). Best overall picks.'}
+              {filterMode === 'value' && '💰 Showing props sorted by Expected Value (EV). Smart money opportunities.'}
+              {filterMode === 'homerun' && '🎰 Showing props with higher payouts. Includes higher-variance opportunities.'}
             </p>
           </div>
         </div>
@@ -246,7 +257,7 @@ export default function PlayerPropsFilter({ props }) {
                 </div>
               </div>
               <div className="text-sm text-gray-400">
-                {nhlProps.filter(p => (p.edge || 0) >= 0.10).length} with 10%+ edge
+                {nhlProps.filter(p => (p.probability || 0) >= 0.55).length} high confidence
               </div>
             </div>
           </div>
@@ -275,7 +286,7 @@ export default function PlayerPropsFilter({ props }) {
                 </div>
               </div>
               <div className="text-sm text-gray-400">
-                {nflProps.filter(p => (p.edge || 0) >= 0.10).length} with 10%+ edge
+                {nflProps.filter(p => (p.probability || 0) >= 0.55).length} high confidence
               </div>
             </div>
           </div>
@@ -393,7 +404,7 @@ function PlayerPropCard({ prop, rank }) {
 
         {/* Stats and Button */}
         <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 pl-10 sm:pl-0">
-          {/* Stats */}
+          {/* Stats - HONEST: Show probability and EV, not fake edge */}
           <div className="flex flex-col items-end gap-0.5">
             <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${tierColors[qualityTier.tier]}`}>
               {qualityTier.emoji} {qualityTier.label}
@@ -402,10 +413,10 @@ function PlayerPropCard({ prop, rank }) {
               Q: <span className="font-semibold text-white">{prop.qualityScore?.toFixed(1) || 'N/A'}</span>
             </div>
             <div className="text-sm sm:text-base font-bold text-green-400">
-              {((prop.probability || 0) * 100).toFixed(0)}%
+              {((prop.probability || 0) * 100).toFixed(0)}% win
             </div>
-            <div className="text-xs sm:text-sm font-semibold text-blue-400">
-              +{((prop.edge || 0) * 100).toFixed(1)}%
+            <div className="text-xs sm:text-sm text-amber-400">
+              {prop.odds?.toFixed(2) || '—'} odds
             </div>
           </div>
 
@@ -466,15 +477,16 @@ function PropRow({ prop }) {
             )}
           </div>
         </div>
+        {/* HONEST: Show probability and odds, not fake edge */}
         <div className="text-right ml-2">
           <div className="text-[10px] sm:text-xs text-gray-500 mb-0.5">
             Q: {prop.qualityScore?.toFixed(1) || 'N/A'}
           </div>
           <div className="font-semibold text-sm sm:text-base text-green-400">
-            {((prop.probability || 0) * 100).toFixed(0)}%
+            {((prop.probability || 0) * 100).toFixed(0)}% win
           </div>
-          <div className="text-[10px] sm:text-xs text-blue-400">
-            +{((prop.edge || 0) * 100).toFixed(1)}%
+          <div className="text-[10px] sm:text-xs text-amber-400">
+            {prop.odds?.toFixed(2) || '—'}
           </div>
         </div>
       </div>
