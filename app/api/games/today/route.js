@@ -127,17 +127,15 @@ export async function GET(req) {
       // Get game's EST date
       const gameEstDate = estFormatter.format(gameDate) // Format: YYYY-MM-DD
 
-      // Enrich game with team names
+      // Enrich game with team names (nested format for frontend compatibility)
       const homeTeam = teamMap[game.homeId] || { name: 'Unknown', abbr: '?' }
       const awayTeam = teamMap[game.awayId] || { name: 'Unknown', abbr: '?' }
       
       const enrichedGame = {
         ...game,
         date: dateStr,
-        homeName: homeTeam.name,
-        homeAbbr: homeTeam.abbr,
-        awayName: awayTeam.name,
-        awayAbbr: awayTeam.abbr
+        home: homeTeam,  // Nested object: { abbr, name }
+        away: awayTeam   // Nested object: { abbr, name }
       }
 
       if (game.sport === 'nfl') {
