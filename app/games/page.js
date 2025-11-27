@@ -1,13 +1,15 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
+import ScoreRefreshButton from '../../components/ScoreRefreshButton'
 
 export default function GamesPage() {
   const [games, setGames] = useState({ mlb: [], nfl: [], nhl: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     const fetchGames = async () => {
@@ -40,6 +42,11 @@ export default function GamesPage() {
     }
 
     fetchGames()
+  }, [refreshKey])
+  
+  // Callback for score refresh button
+  const handleScoreRefresh = useCallback(() => {
+    setRefreshKey(k => k + 1)
   }, [])
 
   // Handle scroll to sport section on mount or URL change
@@ -139,6 +146,11 @@ export default function GamesPage() {
           <p className="text-slate-500 text-sm mt-2">
             {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
           </p>
+          
+          {/* Score Refresh Button */}
+          <div className="mt-4">
+            <ScoreRefreshButton onRefreshComplete={handleScoreRefresh} />
+          </div>
           
           {/* Live Games Indicator */}
           {(() => {
