@@ -47,7 +47,10 @@ export async function GET(req) {
     const nhlGames = []
 
     for (const game of allGames || []) {
-      const gameDate = new Date(game.date)
+      // IMPORTANT: Add 'Z' suffix if missing to ensure UTC parsing
+      // Supabase returns timestamps without Z, causing local time interpretation
+      const dateStr = game.date?.endsWith('Z') ? game.date : game.date + 'Z'
+      const gameDate = new Date(dateStr)
       const gameEstDateStr = gameDate.toLocaleDateString('en-US', {
         timeZone: 'America/New_York',
         year: 'numeric',
@@ -56,9 +59,11 @@ export async function GET(req) {
       })
 
       if (gameEstDateStr === estDateStr) {
-        if (game.sport === 'mlb') mlbGames.push(game)
-        else if (game.sport === 'nfl') nflGames.push(game)
-        else if (game.sport === 'nhl') nhlGames.push(game)
+        // Fix the date to include Z suffix for proper UTC handling on frontend
+        const fixedGame = { ...game, date: dateStr }
+        if (game.sport === 'mlb') mlbGames.push(fixedGame)
+        else if (game.sport === 'nfl') nflGames.push(fixedGame)
+        else if (game.sport === 'nhl') nhlGames.push(fixedGame)
       }
     }
 

@@ -132,21 +132,22 @@ export async function GET() {
       const totalOdds = game.odds.find(o => o.market === 'totals')
       
       if (h2hOdds || totalOdds) {
-        const mockEdges = {
-          edgeMlHome: Math.random() * 0.08 - 0.04,
-          edgeMlAway: Math.random() * 0.08 - 0.04,
-          edgeTotalO: Math.random() * 0.06 - 0.03,
-          edgeTotalU: Math.random() * 0.06 - 0.03,
-          ourTotal: (totalOdds?.total || 7.0) + (Math.random() * 2 - 1)
+        // HONEST: No fake edges - use 0 when we don't have real analysis
+        const honestEdges = {
+          edgeMlHome: 0,
+          edgeMlAway: 0,
+          edgeTotalO: 0,
+          edgeTotalU: 0,
+          ourTotal: totalOdds?.total || 7.0 // Use market total, no fake variation
         }
         
         await createEdgeSnapshot({
           gameId: game.id,
-          edgeMlHome: mockEdges.edgeMlHome,
-          edgeMlAway: mockEdges.edgeMlAway,
-          edgeTotalO: mockEdges.edgeTotalO,
-          edgeTotalU: mockEdges.edgeTotalU,
-          ourTotal: mockEdges.ourTotal,
+          edgeMlHome: honestEdges.edgeMlHome,
+          edgeMlAway: honestEdges.edgeMlAway,
+          edgeTotalO: honestEdges.edgeTotalO,
+          edgeTotalU: honestEdges.edgeTotalU,
+          ourTotal: honestEdges.ourTotal,
           modelRun: 'mlb_playoff_v1'
         })
         results.stats.edgesCalculated++

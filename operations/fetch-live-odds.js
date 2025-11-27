@@ -357,6 +357,7 @@ function parseArguments() {
   const today = new Date()
   const localDate = new Date(today.getFullYear(), today.getMonth(), today.getDate())
   let date = localDate.toISOString().split('T')[0]
+
   let dryRun = false
   let cacheFresh = false
   
@@ -378,7 +379,16 @@ function parseArguments() {
       sport = arg.toLowerCase()
     }
   }
-  
+
+  // For NHL, provide helpful tip about Odds API timing
+  if (sport === 'nhl') {
+    const tomorrow = new Date(localDate)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const tomorrowStr = tomorrow.toISOString().split('T')[0]
+    console.log(`  💡 NHL Tip: Odds API data is usually available 2-3 days before games.`)
+    console.log(`     Try: node scripts/fetch-live-odds.js nhl ${tomorrowStr}`)
+  }
+
   return { sport, date, dryRun, cacheFresh }
 }
 
@@ -477,11 +487,20 @@ async function fetchGameOdds(sport, date, ignoreCache = false) {
     
     if (isCached) {
       console.log(`  ✅ Cache hit for moneyline odds`)
-      // Even if cached, we need games for props - query database for games with oddsApiEventId
-      const dateStart = new Date(date)
-      dateStart.setHours(0, 0, 0, 0)
-      const dateEnd = new Date(date)
-      dateEnd.setHours(23, 59, 59, 999)
+    // Even if cached, we need games for props - query database for games with oddsApiEventId
+    // Use UTC dates to avoid timezone issues
+    const dateStart = new Date(Date.UTC(
+      parseInt(date.split('-')[0]),  // year
+      parseInt(date.split('-')[1]) - 1,  // month (0-based)
+      parseInt(date.split('-')[2]),  // day
+      0, 0, 0, 0  // 00:00:00.000 UTC
+    ))
+    const dateEnd = new Date(Date.UTC(
+      parseInt(date.split('-')[0]),  // year
+      parseInt(date.split('-')[1]) - 1,  // month (0-based)
+      parseInt(date.split('-')[2]),  // day
+      23, 59, 59, 999  // 23:59:59.999 UTC
+    ))
       
       // First check if there are ANY games for this date
       const { data: allGames, error: allGamesError } = await supabase
@@ -894,14 +913,30 @@ async function saveGameOdds(games, sport, date) {
           let priceAway = null, priceHome = null, spread = null, total = null
           
           if (market.key === 'h2h' && outcomes.length >= 2) {
-            priceAway = outcomes[0].price
-            priceHome = outcomes[1].price
+            // Match outcomes to teams by name
+            const awayOutcome = outcomes.find(o => 
+              o.name === game.away_team || 
+              o.name?.toLowerCase().includes(game.away_team?.toLowerCase())
+            )
+            const homeOutcome = outcomes.find(o => 
+              o.name === game.home_team || 
+              o.name?.toLowerCase().includes(game.home_team?.toLowerCase())
+            )
+            priceAway = awayOutcome?.price || outcomes[0].price
+            priceHome = homeOutcome?.price || outcomes[1].price
           } else if (market.key === 'spreads' && outcomes.length >= 2) {
-            const away = outcomes.find(o => o.name === 'Away' || o.name.includes('Away'))
-            const home = outcomes.find(o => o.name === 'Home' || o.name.includes('Home'))
-            spread = market.description ? parseFloat(market.description) : null
-            priceAway = away?.price
-            priceHome = home?.price
+            // Match outcomes to teams by name for spreads
+            const awayOutcome = outcomes.find(o => 
+              o.name === game.away_team || 
+              o.name?.toLowerCase().includes(game.away_team?.toLowerCase())
+            )
+            const homeOutcome = outcomes.find(o => 
+              o.name === game.home_team || 
+              o.name?.toLowerCase().includes(game.home_team?.toLowerCase())
+            )
+            spread = awayOutcome?.point || homeOutcome?.point || (market.description ? parseFloat(market.description) : null)
+            priceAway = awayOutcome?.price || outcomes[0]?.price
+            priceHome = homeOutcome?.price || outcomes[1]?.price
           } else if (market.key === 'totals' && outcomes.length >= 2) {
             // Try multiple fields for total value
             total = market.description ? parseFloat(market.description) : null
@@ -1140,14 +1175,10 @@ async function savePlayerProps(gameProps, sport) {
   
   console.log(`  💾 Saving player props to database (${Object.keys(eventIdToGameId).length} games mapped out of ${eventIds.length} props)...`)
   
-  let saved = 0
-  let skipped = 0
-  let errors = 0
+  // OPTIMIZED: Collect all props first, then batch insert
+  const propsToSave = []
   
-  // BATCH INSERT: Collect all props first, then insert in batches
-  const allPropsToInsert = []
-  
-  for (const { gameId, props } of gameProps) {
+  for (const { gameId, homeTeam, awayTeam, props } of gameProps) {
     // Look up our database game ID
     const ourGameId = eventIdToGameId[gameId]
     
@@ -1155,6 +1186,10 @@ async function savePlayerProps(gameProps, sport) {
       console.warn(`    ⚠️  No database game found for Odds API event ${gameId}`)
       continue
     }
+    
+    // Note: Odds API doesn't provide team info for each player
+    // We have homeTeam/awayTeam for the game, but can't match players to teams
+    // without additional data sources. Setting team=null for now.
     
     try {
       for (const bookmaker of props.bookmakers || []) {
@@ -1169,16 +1204,10 @@ async function savePlayerProps(gameProps, sport) {
             const price = outcome.price
             const pick = (outcome.name || '').toLowerCase()
             
-            if (!playerName || line === null || line === undefined || !price) {
-              skipped++
-              continue
-            }
-            if (!['over', 'under'].includes(pick)) {
-              skipped++
-              continue
-            }
+            if (!playerName || line === null || line === undefined || !price) continue
+            if (!['over', 'under'].includes(pick)) continue
             
-            const propId = `${ourGameId}-${playerName}-${market.key}-${line}-${pick}`
+            const propId = `${ourGameId}-${playerName}-${market.key}-${line}`
             
             // Calculate edge and probability
             const impliedProb = oddsToImpliedProbability(price)
@@ -1188,10 +1217,7 @@ async function savePlayerProps(gameProps, sport) {
             // Note: Edge will be ~0% until we build a real model
             // We're using bookmaker probabilities directly for now
             // Skip only if edge is suspiciously high (data error)
-            if (edge > 0.50) {
-              skipped++
-              continue
-            }
+            if (edge > 0.50) continue // Only filter obvious errors
             
             const confidence = getConfidence(ourProb)
             const qualityScore = calculateQualityScore({
@@ -1200,15 +1226,17 @@ async function savePlayerProps(gameProps, sport) {
               confidence: confidence
             })
             
-            allPropsToInsert.push({
+            // Collect prop data
+            propsToSave.push({
               id: generateId(),
               propId,
-              gameId: ourGameId,
+              gameId: ourGameId,  // Use our database game ID
               playerName,
+              team: null,  // Odds API doesn't provide player-team mapping
               type: market.key,
               pick,
               threshold: line,
-              odds: price,  // Store decimal odds (e.g., 1.91, 2.50)
+              odds: price,
               probability: ourProb,
               edge: edge,
               confidence: confidence,
@@ -1225,56 +1253,52 @@ async function savePlayerProps(gameProps, sport) {
       }
     } catch (error) {
       console.error(`    ❌ Processing error: ${error.message}`)
-      errors++
     }
   }
   
-  console.log(`    📊 Prepared ${allPropsToInsert.length} props for insertion (${skipped} skipped)`)
+  // DEDUPLICATE: Keep best odds for each unique propId
+  const propMap = {}
+  for (const prop of propsToSave) {
+    if (!propMap[prop.propId] || prop.odds > propMap[prop.propId].odds) {
+      propMap[prop.propId] = prop
+    }
+  }
+  const uniqueProps = Object.values(propMap)
   
-  // BATCH INSERT in chunks of 500 (Supabase limit)
-  const BATCH_SIZE = 500
-  for (let i = 0; i < allPropsToInsert.length; i += BATCH_SIZE) {
-    const batch = allPropsToInsert.slice(i, i + BATCH_SIZE)
+  console.log(`  📦 Batch saving ${uniqueProps.length} unique props (${propsToSave.length} total with duplicates)...`)
+  let saved = 0
+  const BATCH_SIZE = 50
+  
+  for (let i = 0; i < uniqueProps.length; i += BATCH_SIZE) {
+    const batch = uniqueProps.slice(i, i + BATCH_SIZE)
     
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('PlayerPropCache')
-        .upsert(batch, { 
+        .upsert(batch, {
           onConflict: 'propId',
-          ignoreDuplicates: true 
+          ignoreDuplicates: false
         })
       
       if (error) {
-        // Try individual inserts for this batch if upsert fails
-        console.log(`    ⚠️  Batch upsert failed, trying individual inserts...`)
-        for (const prop of batch) {
-          const { error: insertError } = await supabase
-            .from('PlayerPropCache')
-            .insert(prop)
-          
-          if (insertError) {
-            if (!insertError.code?.includes('23505')) {
-              errors++
-            }
-          } else {
-            saved++
-          }
+        // Ignore duplicate key errors
+        if (!error.code?.includes('23505')) {
+          console.error(`    ❌ Batch save error: ${error.message}`)
         }
       } else {
         saved += batch.length
       }
       
       // Progress indicator
-      const progress = Math.min(i + BATCH_SIZE, allPropsToInsert.length)
-      console.log(`    💾 Saved ${progress}/${allPropsToInsert.length} props...`)
-      
-    } catch (batchError) {
-      console.error(`    ❌ Batch error: ${batchError.message}`)
-      errors++
+      if ((i + BATCH_SIZE) % 200 === 0 || i + BATCH_SIZE >= uniqueProps.length) {
+        console.log(`    ✓ Saved ${Math.min(i + BATCH_SIZE, uniqueProps.length)}/${uniqueProps.length} props`)
+      }
+    } catch (error) {
+      console.error(`    ❌ Batch error: ${error.message}`)
     }
   }
   
-  console.log(`  ✅ Saved ${saved} prop records (${errors} errors)`)
+  console.log(`  ✅ Saved ${saved} prop records`)
 }
 
 // ============================================================================

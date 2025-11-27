@@ -1,16 +1,19 @@
 #!/usr/bin/env node
 
 /**
- * CALCULATE PROP EDGES
+ * CALCULATE PROP EDGES - HONEST VERSION
  * 
  * Takes raw props from PlayerPropCache and calculates:
- * - Implied probability from odds
- * - Our projected probability
- * - Edge calculation
- * - Confidence level
- * - Quality score
+ * - Implied probability from odds (REAL - from bookmaker)
+ * - Vig-adjusted probability (HONEST - accounts for bookmaker margin)
+ * - Quality score based on odds value
  * 
- * This updates props that were saved with placeholder values.
+ * IMPORTANT: This script does NOT claim fake edges.
+ * Real edge requires either:
+ *   1. Line shopping (comparing multiple bookmakers) - use find-real-value-props.js
+ *   2. Player projections (requires stats data we don't have)
+ * 
+ * Without real data, we HONESTLY show 0% edge.
  */
 
 import { createClient } from '@supabase/supabase-js'
@@ -25,9 +28,17 @@ const supabase = createClient(
 )
 
 /**
+ * Convert decimal odds to implied probability
+ */
+function decimalToImpliedProbability(decimalOdds) {
+  if (!decimalOdds || decimalOdds <= 1) return 0.5
+  return 1 / decimalOdds
+}
+
+/**
  * Convert American odds to implied probability
  */
-function oddsToImpliedProbability(americanOdds) {
+function americanToImpliedProbability(americanOdds) {
   if (americanOdds >= 0) {
     return 100 / (americanOdds + 100)
   } else {
@@ -36,41 +47,39 @@ function oddsToImpliedProbability(americanOdds) {
 }
 
 /**
- * Calculate our probability estimate
- * For now, we adjust based on pick direction and add variance
+ * Remove vig from probability to get fair probability
+ * Standard sportsbook vig is ~4.5% (implied probs sum to ~104.5%)
  */
-function calculateOurProbability(pick, threshold, impliedProb) {
-  // Start with a base that's slightly better than the market (our "edge")
-  // This is a simplified model - in reality you'd use player stats, matchups, etc.
-  
-  // For props, typical win rate is 52-55% for good picks
-  // We'll add a small random variance to simulate different confidence levels
-  const baseAdjustment = 0.02 + (Math.random() * 0.03) // 2-5% better than market
-  
-  return Math.min(0.65, impliedProb + baseAdjustment) // Cap at 65% to be realistic
+function removeVig(impliedProb) {
+  // Assume ~4.5% vig, so fair prob = implied / 1.045
+  return impliedProb / 1.045
 }
 
 /**
- * Get confidence level based on edge
+ * Get confidence level based on probability
+ * HONEST: Based on actual win probability, not fake edge
  */
-function getConfidence(edge) {
-  if (edge >= 0.15) return 'high'
-  if (edge >= 0.08) return 'medium'
-  if (edge >= 0.03) return 'low'
-  return 'very_low'
+function getConfidence(probability) {
+  if (probability >= 0.60) return 'high'      // 60%+ win chance
+  if (probability >= 0.52) return 'medium'    // 52%+ (above break-even)
+  if (probability >= 0.45) return 'low'       // 45%+ 
+  return 'very_low'                           // Below 45%
 }
 
 async function main() {
-  console.log('\n🧮 CALCULATING PROP EDGES')
+  console.log('\n🧮 CALCULATING PROP VALUES (HONEST MODE)')
+  console.log('='.repeat(80))
+  console.log('⚠️  NOTE: This script does NOT claim fake edges.')
+  console.log('   Edge = 0 unless we have real line shopping data.')
+  console.log('   Use find-real-value-props.js to find REAL value.')
   console.log('='.repeat(80))
   
-  // Fetch all props that need calculation (edge = 0)
+  // Fetch all props that need calculation
   console.log('\n📊 Fetching props from cache...')
   
   const { data: props, error } = await supabase
     .from('PlayerPropCache')
     .select('*')
-    .eq('edge', 0)  // Only props with placeholder values
     .eq('isStale', false)
   
   if (error) {
@@ -79,42 +88,38 @@ async function main() {
   }
   
   if (!props || props.length === 0) {
-    console.log('✅ No props need calculation (all are already analyzed)')
+    console.log('✅ No props found in cache')
     return
   }
   
-  console.log(`Found ${props.length} props to analyze\n`)
+  console.log(`Found ${props.length} props to process\n`)
   
   let updated = 0
   let failed = 0
   
   for (const prop of props) {
     try {
-      // Calculate implied probability from odds
-      const impliedProb = oddsToImpliedProbability(prop.odds)
+      // Odds are stored as decimal in PlayerPropCache
+      const decimalOdds = prop.odds
       
-      // Calculate our probability estimate
-      const ourProb = calculateOurProbability(prop.pick, prop.threshold, impliedProb)
+      // Calculate implied probability from odds (HONEST)
+      const impliedProb = decimalToImpliedProbability(decimalOdds)
       
-      // Calculate edge
-      const edge = (ourProb - impliedProb) / impliedProb
+      // Remove vig to get fair probability
+      const fairProb = removeVig(impliedProb)
       
-      // Skip if edge is unrealistic
-      if (edge < 0.01 || edge > 0.50) {
-        // Delete unrealistic props
-        await supabase
-          .from('PlayerPropCache')
-          .delete()
-          .eq('id', prop.id)
-        continue
-      }
+      // HONEST: We have NO edge without real data
+      // Edge would only come from:
+      // 1. Line shopping (we have better odds than average)
+      // 2. Our projection differs from line (we don't have projections)
+      const edge = 0 // HONEST - no fake edges
       
-      // Get confidence
-      const confidence = getConfidence(edge)
+      // Confidence based on win probability
+      const confidence = getConfidence(fairProb)
       
-      // Calculate quality score
+      // Quality score based on fair probability (not fake edge)
       const qualityScore = calculateQualityScore({
-        probability: ourProb,
+        probability: fairProb,
         edge: edge,
         confidence: confidence
       })
@@ -123,7 +128,7 @@ async function main() {
       const { error: updateError } = await supabase
         .from('PlayerPropCache')
         .update({
-          probability: ourProb,
+          probability: fairProb,
           edge: edge,
           confidence: confidence,
           qualityScore: qualityScore
@@ -131,11 +136,10 @@ async function main() {
         .eq('id', prop.id)
       
       if (updateError) {
-        console.error(`❌ Error updating prop ${prop.id}:`, updateError.message)
         failed++
       } else {
         updated++
-        if (updated % 100 === 0) {
+        if (updated % 500 === 0) {
           console.log(`   Processed ${updated}/${props.length}...`)
         }
       }
@@ -147,30 +151,31 @@ async function main() {
   }
   
   console.log('\n' + '='.repeat(80))
-  console.log(`✅ Updated ${updated} props with calculated edges`)
+  console.log(`✅ Updated ${updated} props with HONEST values`)
   if (failed > 0) {
     console.log(`⚠️  Failed to update ${failed} props`)
   }
   
-  // Show sample of updated props
-  console.log('\n📊 Sample of top props (by edge):')
+  // Show sample of props
+  console.log('\n📊 Sample props (sorted by probability):')
   const { data: topProps } = await supabase
     .from('PlayerPropCache')
     .select('playerName, type, pick, threshold, odds, probability, edge, confidence, qualityScore')
-    .gt('edge', 0)
-    .order('edge', { ascending: false })
+    .eq('isStale', false)
+    .order('probability', { ascending: false })
     .limit(5)
   
   if (topProps && topProps.length > 0) {
     topProps.forEach((p, i) => {
       console.log(`  ${i + 1}. ${p.playerName} - ${p.type} ${p.pick} ${p.threshold}`)
-      console.log(`     Edge: ${(p.edge * 100).toFixed(1)}% | Confidence: ${p.confidence} | Quality: ${p.qualityScore}`)
+      console.log(`     Win Prob: ${(p.probability * 100).toFixed(1)}% | Edge: ${(p.edge * 100).toFixed(1)}% | Confidence: ${p.confidence}`)
     })
   }
   
-  console.log('\n='.repeat(80))
-  console.log('✅ Props are now ready for betting strategy!')
-  console.log('   Visit: http://localhost:3000/props')
+  console.log('\n' + '='.repeat(80))
+  console.log('💡 HOW TO FIND REAL EDGES:')
+  console.log('   Run: node scripts/find-real-value-props.js nhl')
+  console.log('   This compares odds across bookmakers to find REAL value.')
   console.log('='.repeat(80) + '\n')
 }
 
@@ -178,4 +183,3 @@ main().catch(error => {
   console.error('❌ Fatal error:', error)
   process.exit(1)
 })
-

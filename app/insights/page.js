@@ -8,7 +8,11 @@ export const dynamic = 'force-dynamic'
 
 export default async function InsightsDashboard() {
   const analysis = await analyzePerformance()
-  const { insights, propTypeStats, playerStats, overallAccuracy } = analysis
+  const { insights, propTypeStats, playerStats } = analysis
+  
+  // Get overall stats from validation (consistent with Validation page)
+  const overallStats = await getValidationStats()
+  const overallAccuracy = overallStats.accuracy // Use same source as Validation page
   
   // Get stats by sport
   const nflStats = await getValidationStats({ sport: 'nfl' })
@@ -53,27 +57,41 @@ export default async function InsightsDashboard() {
         {/* Overall Performance */}
         <div className="card p-4 sm:p-6 mb-6 sm:mb-8">
           <h3 className="text-lg font-semibold text-white mb-4">📊 Overall Performance</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 sm:gap-6">
             <div className="text-center p-4 bg-slate-900/50 rounded-lg">
               <div className={`text-3xl sm:text-4xl font-bold ${overallAccuracy >= 0.524 ? 'text-green-400' : 'text-red-400'}`}>
                 {(overallAccuracy * 100).toFixed(1)}%
               </div>
-              <div className="text-sm text-gray-400 mt-1">Overall Accuracy</div>
+              <div className="text-sm text-gray-400 mt-1">Overall Win Rate</div>
               <div className="text-xs text-gray-500 mt-1">
-                Break-even: 52.4%
+                Break-even: 52.4% (standard -110 odds)
+              </div>
+            </div>
+            <div className="text-center p-4 bg-slate-900/50 rounded-lg">
+              <div className="text-3xl sm:text-4xl font-bold text-white">
+                {overallStats.correct}-{overallStats.incorrect}
+              </div>
+              <div className="text-sm text-gray-400 mt-1">Record</div>
+              <div className="text-xs text-gray-500 mt-1">
+                {overallStats.total} total props
               </div>
             </div>
             <div className="text-center p-4 bg-slate-900/50 rounded-lg">
               <div className={`text-2xl sm:text-4xl font-bold ${overallAccuracy >= 0.524 ? 'text-green-400' : 'text-red-400'}`}>
-                {overallAccuracy >= 0.524 ? '📈 Profitable' : '📉 Needs Work'}
+                {overallAccuracy >= 0.524 ? '📈 Profitable' : '🔧 Needs Work'}
               </div>
-              <div className="text-sm text-gray-400 mt-1">Status</div>
+              <div className="text-sm text-gray-400 mt-1">
+                {overallAccuracy >= 0.524 ? 'Above break-even!' : 'Focus on improvement'}
+              </div>
             </div>
             <div className="text-center p-4 bg-slate-900/50 rounded-lg">
               <div className="text-3xl sm:text-4xl font-bold text-blue-400">
                 {insights.length}
               </div>
-              <div className="text-sm text-gray-400 mt-1">Insights Generated</div>
+              <div className="text-sm text-gray-400 mt-1">Actionable Insights</div>
+              <div className="text-xs text-gray-500 mt-1">
+                {successInsights.length} strengths • {warningInsights.length} improvements
+              </div>
             </div>
           </div>
         </div>

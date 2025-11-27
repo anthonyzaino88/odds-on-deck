@@ -29,13 +29,34 @@ const SPORT_MAP = {
   'nhl': { sportType: 'hockey', league: 'nhl' }
 }
 
-const TEAM_MAP = {
-  // MLB teams
-  'LAD': 25, 'TOR': 141, 'NYM': 121, 'WSH': 145,
-  // NFL teams  
-  'KC': 12, 'BUF': 25, 'DEN': 25, 'HOU': 25,
-  // NHL teams
-  'BOS': 1, 'CAR': 25
+// Team resolution function to prevent sport conflicts
+async function resolveTeamId(espnTeamId, sport) {
+  if (!espnTeamId || !sport) return null
+
+  try {
+    // First try exact match by ESPN ID and sport
+    const { data: team } = await supabase
+      .from('Team')
+      .select('id')
+      .eq('espnId', espnTeamId.toString())
+      .eq('sport', sport)
+      .maybeSingle()
+
+    if (team) {
+      return team.id
+    }
+
+    // Fallback: Try by abbreviation if we can determine it
+    // For now, create a sport-prefixed ID as fallback
+    const prefix = sport.toUpperCase() + '_'
+    return `${prefix}${espnTeamId}`
+
+  } catch (error) {
+    console.warn(`⚠️ Error resolving team ${espnTeamId} for ${sport}:`, error.message)
+    // Fallback to simple prefixing
+    const prefix = sport.toUpperCase() + '_'
+    return `${prefix}${espnTeamId}`
+  }
 }
 
 async function fetchGamesFromESPN(sport, date) {
@@ -117,23 +138,59 @@ async function fetchGamesFromESPN(sport, date) {
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     
     if (sport === 'nfl') {
-      // NFL: Current WEEK's games (Thursday to Monday)
+      // NFL: Smart week detection - prioritize current week games when available
       // NFL week runs Thursday Night Football → Sunday slate → Monday Night Football
-      // If we're on Tuesday/Wednesday, fetch the upcoming week (next Thu-Mon)
       const dayOfWeek = now.getDay()
       let weekStart, weekEnd
-      
+
       if (dayOfWeek === 2 || dayOfWeek === 3) {
-        // Tuesday or Wednesday - fetch upcoming week (next Thursday to next Monday)
-        const daysUntilThursday = dayOfWeek === 2 ? 2 : 1
-        weekStart = new Date(today)
-        weekStart.setDate(today.getDate() + daysUntilThursday)
-        weekEnd = new Date(weekStart)
-        weekEnd.setDate(weekStart.getDate() + 5)
-        weekEnd.setDate(weekEnd.getDate() - 1) // Go back to Monday
-        weekEnd.setHours(23, 59, 59)
+        // Tuesday or Wednesday - check for current week games first, then upcoming week
+        // Calculate current week (most recent Thursday)
+        const currentWeekThursday = new Date(today)
+        if (dayOfWeek === 2) {
+          // Tuesday: Thursday was 5 days ago
+          currentWeekThursday.setDate(today.getDate() - 5)
+        } else {
+          // Wednesday: Thursday was 6 days ago
+          currentWeekThursday.setDate(today.getDate() - 6)
+        }
+
+        // Filter for current week games
+        const currentWeekStart = new Date(currentWeekThursday)
+        const currentWeekEnd = new Date(currentWeekThursday)
+        currentWeekEnd.setDate(currentWeekThursday.getDate() + 4) // Thursday + 4 days = Monday
+        currentWeekEnd.setHours(23, 59, 59)
+
+        const currentWeekGames = allEvents.filter(event => {
+          const gameDate = new Date(event.date)
+          return gameDate >= currentWeekStart && gameDate <= currentWeekEnd
+        })
+
+        if (currentWeekGames.length > 0) {
+          // Current week has games - use it
+          allEvents = currentWeekGames
+          weekStart = currentWeekStart
+          weekEnd = currentWeekEnd
+          console.log(`📅 Filtered to CURRENT WEEK's games (${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}): ${allEvents.length}`)
+        } else {
+          // No current week games - use upcoming week
+          const daysUntilThursday = dayOfWeek === 2 ? 2 : 1
+          weekStart = new Date(today)
+          weekStart.setDate(today.getDate() + daysUntilThursday)
+          weekEnd = new Date(weekStart)
+          weekEnd.setDate(weekStart.getDate() + 4) // Thursday + 4 days = Monday
+          weekEnd.setHours(23, 59, 59)
+
+          // Filter for upcoming week games
+          allEvents = allEvents.filter(event => {
+            const gameDate = new Date(event.date)
+            return gameDate >= weekStart && gameDate <= weekEnd
+          })
+
+          console.log(`📅 Filtered to UPCOMING WEEK's games (${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}): ${allEvents.length}`)
+        }
       } else {
-        // Thursday through Monday - fetch current week
+        // Thursday through Monday - use current week
         if (dayOfWeek === 4) {
           weekStart = new Date(today)
         } else if (dayOfWeek === 0) {
@@ -149,31 +206,33 @@ async function fetchGamesFromESPN(sport, date) {
           weekStart = new Date(today)
           weekStart.setDate(today.getDate() - 2) // Go back to Thursday
         }
-        
+
         weekEnd = new Date(weekStart)
-        weekEnd.setDate(weekStart.getDate() + 5)
-        weekEnd.setDate(weekEnd.getDate() - 1) // Go back to Monday
+        weekEnd.setDate(weekStart.getDate() + 4) // Thursday + 4 days = Monday
         weekEnd.setHours(23, 59, 59)
+
+        console.log(`📅 Filtered to CURRENT WEEK's games (${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}): ${allEvents.length}`)
+
+        // Filter events to only include games within this week's date range
+        allEvents = allEvents.filter(event => {
+          const gameDate = new Date(event.date)
+          return gameDate >= weekStart && gameDate <= weekEnd
+        })
+
+        console.log(`✅ Filtered to ${allEvents.length} games within date range`)
       }
-      
-      allEvents = allEvents.filter(event => {
-        const gameDate = new Date(event.date)
-        return gameDate >= weekStart && gameDate <= weekEnd
-      })
-      console.log(`📅 Filtered to THIS WEEK's games (Thu-Mon: ${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}): ${allEvents.length}`)
     }
     
     console.log(`✅ Found ${allEvents.length} ${sport.toUpperCase()} games`)
     
-    return allEvents.map(event => {
+    return Promise.all(allEvents.map(async event => {
       const competition = event.competitions?.[0]
       const home = competition?.competitors?.[0]
       const away = competition?.competitors?.[1]
-      
-      // Map ESPN team IDs to our format: "NFL_3" or "NHL_25"
-      const prefix = sport.toUpperCase() + '_'
-      const homeId = home?.team?.id ? `${prefix}${home.team.id}` : null
-      const awayId = away?.team?.id ? `${prefix}${away.team.id}` : null
+
+      // Resolve team IDs properly by ESPN ID and sport to avoid conflicts
+      const homeId = await resolveTeamId(home?.team?.id, sport)
+      const awayId = await resolveTeamId(away?.team?.id, sport)
       
       // Get team abbreviations for consistent game ID
       const homeAbbr = home?.team?.abbreviation || home?.team?.abbr || null
@@ -188,13 +247,17 @@ async function fetchGamesFromESPN(sport, date) {
         // Use the queried date for the game ID (ensures consistent IDs)
         dateStr = event._queriedDate
         
-        // FIXED: Always use ESPN's actual date/time
-        // Midnight UTC (00:00:00Z) is NOT a placeholder - it's 7 PM EST!
-        // Example: 7 PM EST Nov 26 = 00:00:00Z Nov 27
+        // For NHL: ESPN's event.date is often midnight UTC (00:00:00Z) which is a placeholder
+        // We need to check if it's actually midnight UTC, and if so, use the queried date with a reasonable time
+        // Otherwise, use ESPN's actual time but ensure the date matches the queried date
         const espnDate = new Date(event.date)
-        gameDate = new Date(espnDate)
+        const [queriedYear, queriedMonth, queriedDay] = dateStr.split('-')
         
-        // Calculate the EST date for this game to use in the game ID
+        // For NHL, ESPN provides actual UTC times. Midnight UTC is typically 7 PM EST (during standard time)
+        // Don't treat midnight UTC as a placeholder for NHL games
+        gameDate = new Date(espnDate)
+
+        // Verify the EST date matches the queried date
         const estDateStr = gameDate.toLocaleDateString('en-US', {
           timeZone: 'America/New_York',
           year: 'numeric',
@@ -203,18 +266,12 @@ async function fetchGamesFromESPN(sport, date) {
         })
         const [estMonth, estDay, estYear] = estDateStr.split('/')
         const estDateForId = `${estYear}-${estMonth.padStart(2, '0')}-${estDay.padStart(2, '0')}`
-        
-        // Use the EST date for the game ID (not the queried date or UTC date)
-        dateStr = estDateForId
-        
-        // Debug logging
-        const estTime = gameDate.toLocaleString('en-US', {
-          timeZone: 'America/New_York',
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true
-        })
-        console.log(`  📅 ${awayAbbr} @ ${homeAbbr}: ${estDateForId} at ${estTime} EST`)
+
+        if (estDateForId !== dateStr) {
+          console.warn(`⚠️  Date mismatch for ${awayAbbr} @ ${homeAbbr}: queried ${dateStr}, but EST date is ${estDateForId}`)
+          // Use ESPN's date as it's the source of truth for the actual game time
+          // But keep the queried date for the game ID to maintain consistency
+        }
       } else {
         // For other sports (NFL), use event.date directly (which has actual times)
         gameDate = new Date(event.date)
@@ -279,7 +336,7 @@ async function fetchGamesFromESPN(sport, date) {
       return {
         id: gameId,
         sport: sport.toLowerCase(),
-        date: gameDate, // Use normalized date
+        date: gameDate.toISOString(), // Convert to UTC ISO string to preserve timezone
         status: gameStatus,
         homeId: homeId,
         awayId: awayId,
@@ -287,7 +344,7 @@ async function fetchGamesFromESPN(sport, date) {
         awayScore: away?.score ? parseInt(away.score) : null,
         espnGameId: event.id // Store original ESPN ID separately
       }
-    })
+    }))
   } catch (error) {
     console.error(`❌ Error fetching ${sport}:`, error.message)
     return []
@@ -475,7 +532,7 @@ async function saveToSupabase(sport, games) {
       .map(g => ({
         id: g.id,
         sport: g.sport,
-        date: g.date.toISOString(),
+        date: g.date, // Already an ISO string from database
         status: g.status,
         homeId: g.homeId,
         awayId: g.awayId,
