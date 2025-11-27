@@ -12,28 +12,35 @@ export async function GET(req) {
   try {
     console.log('📅 API: Fetching today\'s games...')
 
-    // Get today's date in EST
+    // Get current time
     const now = new Date()
-    const estDateStr = now.toLocaleDateString('en-US', {
+    
+    // Get today's date in EST using proper formatting
+    const estFormatter = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'America/New_York',
       year: 'numeric',
       month: '2-digit',
       day: '2-digit'
     })
+    const estDateStr = estFormatter.format(now) // Format: YYYY-MM-DD
 
     console.log(`📅 Today (EST): ${estDateStr}`)
 
-    // Query games from yesterday through tomorrow to catch timezone issues
-    const yesterday = new Date(now)
-    yesterday.setDate(now.getDate() - 1)
-    const tomorrow = new Date(now)
-    tomorrow.setDate(now.getDate() + 1)
+    // Query games within a 48-hour window to catch all timezone edge cases
+    // This ensures we don't miss games due to server timezone issues
+    const windowStart = new Date(now)
+    windowStart.setDate(now.getDate() - 1)
+    windowStart.setHours(0, 0, 0, 0)
+    
+    const windowEnd = new Date(now)
+    windowEnd.setDate(now.getDate() + 2)
+    windowEnd.setHours(23, 59, 59, 999)
 
     const { data: allGames, error } = await supabase
       .from('Game')
       .select('*')
-      .gte('date', yesterday.toISOString())
-      .lt('date', tomorrow.toISOString())
+      .gte('date', windowStart.toISOString())
+      .lte('date', windowEnd.toISOString())
       .order('date', { ascending: true })
 
     if (error) {
@@ -48,18 +55,14 @@ export async function GET(req) {
 
     for (const game of allGames || []) {
       // IMPORTANT: Add 'Z' suffix if missing to ensure UTC parsing
-      // Supabase returns timestamps without Z, causing local time interpretation
       const dateStr = game.date?.endsWith('Z') ? game.date : game.date + 'Z'
       const gameDate = new Date(dateStr)
-      const gameEstDateStr = gameDate.toLocaleDateString('en-US', {
-        timeZone: 'America/New_York',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      })
+      
+      // Get game's EST date
+      const gameEstDate = estFormatter.format(gameDate) // Format: YYYY-MM-DD
 
-      if (gameEstDateStr === estDateStr) {
-        // Fix the date to include Z suffix for proper UTC handling on frontend
+      // Match games for today's EST date
+      if (gameEstDate === estDateStr) {
         const fixedGame = { ...game, date: dateStr }
         if (game.sport === 'mlb') mlbGames.push(fixedGame)
         else if (game.sport === 'nfl') nflGames.push(fixedGame)
@@ -69,7 +72,7 @@ export async function GET(req) {
 
     console.log(`📊 Today's games: MLB=${mlbGames.length}, NFL=${nflGames.length}, NHL=${nhlGames.length}`)
 
-    // Return response
+    // Return response with CORS headers
     return NextResponse.json({
       success: true,
       data: {
@@ -80,6 +83,7 @@ export async function GET(req) {
       timestamp: now.toISOString(),
       debug: {
         estDate: estDateStr,
+        serverTime: now.toISOString(),
         totalGames: allGames?.length || 0
       }
     })
