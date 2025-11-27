@@ -63,12 +63,25 @@ export async function GET(req) {
     const nflWeek = getNFLWeekBounds(now)
     console.log(`🏈 NFL week: ${nflWeek.thursday.toISOString()} to ${nflWeek.monday.toISOString()}`)
 
-    // Query games within a wider window to catch NHL daily + NFL weekly
-    const windowStart = new Date(nflWeek.thursday)
-    windowStart.setDate(windowStart.getDate() - 1) // Buffer for timezone
+    // Query games - combine today's games (NHL/MLB) + NFL week (Thu-Mon)
+    // windowStart = min of (today - 1 day, NFL Thursday - 1 day)
+    // windowEnd = max of (today + 2 days, NFL Monday + 1 day)
+    const todayStart = new Date(now)
+    todayStart.setDate(now.getDate() - 1)
+    todayStart.setHours(0, 0, 0, 0)
     
-    const windowEnd = new Date(nflWeek.monday)
-    windowEnd.setDate(windowEnd.getDate() + 1) // Buffer for timezone
+    const todayEnd = new Date(now)
+    todayEnd.setDate(now.getDate() + 2)
+    todayEnd.setHours(23, 59, 59, 999)
+    
+    const nflStart = new Date(nflWeek.thursday)
+    nflStart.setDate(nflStart.getDate() - 1)
+    
+    const nflEnd = new Date(nflWeek.monday)
+    nflEnd.setDate(nflEnd.getDate() + 1)
+    
+    const windowStart = new Date(Math.min(todayStart.getTime(), nflStart.getTime()))
+    const windowEnd = new Date(Math.max(todayEnd.getTime(), nflEnd.getTime()))
 
     const { data: allGames, error } = await supabase
       .from('Game')
