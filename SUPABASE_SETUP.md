@@ -22,7 +22,7 @@ Go to: https://app.supabase.com
 2. Click **Settings** (gear icon)
 3. Click **API** in the left sidebar
 4. Copy these values:
-   - **Project URL** (e.g., `https://przixigqxtdbunfsaped.supabase.co`)
+   - **Project URL** (e.g., `https://your-project-id.supabase.co`)
    - **Anon public** key (the one WITHOUT "service_role")
 
 ---
@@ -37,7 +37,7 @@ Go to: https://app.supabase.com
 
 | Variable Name | Value | Notes |
 |---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | `https://przixigqxtdbunfsaped.supabase.co` | Your project URL |
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://your-project-id.supabase.co` | Your project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | (your anon key) | Copy from Supabase API settings |
 
 **IMPORTANT:** Use the **anon public** key, NOT the service_role key!
@@ -49,7 +49,7 @@ Go to: https://app.supabase.com
 Create `.env.local` with:
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://przixigqxtdbunfsaped.supabase.co
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
 ```
 

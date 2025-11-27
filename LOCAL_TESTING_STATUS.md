@@ -3,7 +3,7 @@
 ## ✅ What's Working
 
 ### 1. API Connection ✅
-- Paid API key working (`c35f7ecbd7c0fe0649582ffc2951ef01`)
+- Paid API key working (stored in `.env.local`)
 - Successfully fetching odds and props
 - **API calls used:** 25
 - **Remaining quota:** 19,975 calls

@@ -72,7 +72,7 @@ Returns: Player props for that game ✅
 
 Your paid API key is working correctly:
 ```
-API Key: c35f7ecbd7c0fe0649582ffc2951ef01 ✅
+API Key: [STORED IN .env.local] ✅
 Status: Active (paid tier)
 ```
 
