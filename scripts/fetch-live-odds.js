@@ -353,10 +353,10 @@ function parseArguments() {
   const args = process.argv.slice(2)
   
   let sport = 'all'
-  // Use local date, not UTC (fixes timezone issue)
-  const today = new Date()
-  const localDate = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-  let date = localDate.toISOString().split('T')[0]
+  // Use EST date to avoid timezone issues
+  const estDate = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })
+  const today = new Date(estDate)
+  let date = today.toISOString().split('T')[0]
   let dryRun = false
   let cacheFresh = false
   
@@ -478,12 +478,15 @@ async function fetchGameOdds(sport, date, ignoreCache = false) {
     if (isCached) {
       console.log(`  ✅ Cache hit for moneyline odds`)
       // Even if cached, we need games for props - query database for games with oddsApiEventId
+      // Build date range (today ± 1 day to catch games regardless of timezone)
       const dateStart = new Date(date)
+      dateStart.setDate(dateStart.getDate() - 1)  // Look back 1 day
       dateStart.setHours(0, 0, 0, 0)
       const dateEnd = new Date(date)
+      dateEnd.setDate(dateEnd.getDate() + 1)  // Look ahead 1 day
       dateEnd.setHours(23, 59, 59, 999)
       
-      // First check if there are ANY games for this date
+      // First check if there are ANY games for this date range
       const { data: allGames, error: allGamesError } = await supabase
         .from('Game')
         .select('id')
@@ -497,9 +500,11 @@ async function fetchGameOdds(sport, date, ignoreCache = false) {
       }
       
       if (!allGames || allGames.length === 0) {
-        console.log(`  ℹ️  No ${sport.toUpperCase()} games found in database for ${date}`)
+        console.log(`  ℹ️  No ${sport.toUpperCase()} games found in database for ${date} (±1 day)`)
         return []
       }
+      
+      console.log(`  📅 Found ${allGames.length} ${sport.toUpperCase()} games in date range`)
       
       // Now get games with event IDs
       const { data: games, error } = await supabase
