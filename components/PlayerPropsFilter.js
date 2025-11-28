@@ -1,8 +1,32 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { getQualityTier } from '../lib/quality-score.js'
+
+// Helper to get/set saved props in localStorage
+const SAVED_PROPS_KEY = 'odds_on_deck_saved_props'
+
+function getSavedProps() {
+  if (typeof window === 'undefined') return new Set()
+  try {
+    const saved = localStorage.getItem(SAVED_PROPS_KEY)
+    return saved ? new Set(JSON.parse(saved)) : new Set()
+  } catch {
+    return new Set()
+  }
+}
+
+function addSavedProp(propId) {
+  if (typeof window === 'undefined') return
+  try {
+    const saved = getSavedProps()
+    saved.add(propId)
+    localStorage.setItem(SAVED_PROPS_KEY, JSON.stringify([...saved]))
+  } catch (e) {
+    console.error('Failed to save to localStorage:', e)
+  }
+}
 
 export default function PlayerPropsFilter({ props }) {
   const [filterMode, setFilterMode] = useState('safe')
@@ -317,6 +341,17 @@ function PlayerPropCard({ prop, rank }) {
   const [isSaving, setIsSaving] = useState(false)
   const [isSaved, setIsSaved] = useState(false)
   const qualityTier = getQualityTier(prop.qualityScore || 0)
+  
+  // Generate a unique key for this prop
+  const propKey = prop.propId || `${prop.playerName}-${prop.type}-${prop.gameId}`
+  
+  // Check localStorage on mount
+  useEffect(() => {
+    const saved = getSavedProps()
+    if (saved.has(propKey)) {
+      setIsSaved(true)
+    }
+  }, [propKey])
 
   const tierColors = {
     elite: 'bg-green-900/30 text-green-400 border-green-500/50',
@@ -330,6 +365,9 @@ function PlayerPropCard({ prop, rank }) {
     e.preventDefault() // Prevent navigation
     e.stopPropagation()
     
+    // Don't save if already saved
+    if (isSaved) return
+    
     setIsSaving(true)
     try {
       const response = await fetch('/api/props/save', {
@@ -341,8 +379,8 @@ function PlayerPropCard({ prop, rank }) {
       const data = await response.json()
       
       if (data.success) {
-        setIsSaved(true)
-        setTimeout(() => setIsSaved(false), 2000) // Reset after 2 seconds
+        setIsSaved(true) // Stay saved permanently
+        addSavedProp(propKey) // Save to localStorage
       } else {
         alert('Failed to save prop: ' + (data.error || 'Unknown error'))
       }
@@ -439,7 +477,51 @@ function PlayerPropCard({ prop, rank }) {
 }
 
 function PropRow({ prop }) {
+  const [isSaving, setIsSaving] = useState(false)
+  const [isSaved, setIsSaved] = useState(false)
   const qualityTier = getQualityTier(prop.qualityScore || 0)
+  
+  // Generate a unique key for this prop
+  const propKey = prop.propId || `${prop.playerName}-${prop.type}-${prop.gameId}`
+  
+  // Check localStorage on mount
+  useEffect(() => {
+    const saved = getSavedProps()
+    if (saved.has(propKey)) {
+      setIsSaved(true)
+    }
+  }, [propKey])
+
+  const handleSaveProp = async (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    // Don't save if already saved
+    if (isSaved) return
+    
+    setIsSaving(true)
+    try {
+      const response = await fetch('/api/props/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prop })
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        setIsSaved(true) // Stay saved permanently
+        addSavedProp(propKey) // Save to localStorage
+      } else {
+        alert('Failed to save prop: ' + (data.error || 'Unknown error'))
+      }
+    } catch (error) {
+      console.error('Error saving prop:', error)
+      alert('Failed to save prop')
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   // Format odds for display
   const formatOdds = (odds) => {
@@ -452,33 +534,33 @@ function PropRow({ prop }) {
   const displayOdds = formatOdds(prop.odds)
 
   return (
-    <Link href={`/game/${prop.gameId}`}>
-      <div className="flex items-center justify-between p-2 sm:p-3 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors cursor-pointer border border-slate-700">
-        <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-          <div className="text-base sm:text-lg">{qualityTier.emoji}</div>
-          <div className="flex-1 min-w-0">
-            <div className="font-medium text-sm sm:text-base text-white truncate">
-              {prop.playerName}
-            </div>
-            <div className="text-xs sm:text-sm text-gray-400 truncate">
-              {prop.pick?.toUpperCase()} {prop.threshold} {(prop.type || '').replace(/_/g, ' ')}
-            </div>
-            {displayOdds && (
-              <div className="flex items-center gap-1 sm:gap-2 mt-0.5">
-                <span className="text-[10px] sm:text-xs text-amber-400 font-semibold">
-                  {displayOdds}
-                </span>
-                {prop.bookmaker && (
-                  <span className="text-[10px] text-gray-500">
-                    via {prop.bookmaker}
-                  </span>
-                )}
-              </div>
-            )}
+    <div className="flex items-center justify-between p-2 sm:p-3 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors border border-slate-700">
+      <Link href={`/game/${prop.gameId}`} className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0 cursor-pointer">
+        <div className="text-base sm:text-lg">{qualityTier.emoji}</div>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-sm sm:text-base text-white truncate">
+            {prop.playerName}
           </div>
+          <div className="text-xs sm:text-sm text-gray-400 truncate">
+            {prop.pick?.toUpperCase()} {prop.threshold} {(prop.type || '').replace(/_/g, ' ')}
+          </div>
+          {displayOdds && (
+            <div className="flex items-center gap-1 sm:gap-2 mt-0.5">
+              <span className="text-[10px] sm:text-xs text-amber-400 font-semibold">
+                {displayOdds}
+              </span>
+              {prop.bookmaker && (
+                <span className="text-[10px] text-gray-500">
+                  via {prop.bookmaker}
+                </span>
+              )}
+            </div>
+          )}
         </div>
-        {/* HONEST: Show probability and odds, not fake edge */}
-        <div className="text-right ml-2">
+      </Link>
+      {/* Stats and Save Button */}
+      <div className="flex items-center gap-2 sm:gap-3 ml-2">
+        <div className="text-right">
           <div className="text-[10px] sm:text-xs text-gray-500 mb-0.5">
             Q: {prop.qualityScore?.toFixed(1) || 'N/A'}
           </div>
@@ -489,8 +571,20 @@ function PropRow({ prop }) {
             {prop.odds?.toFixed(2) || '—'}
           </div>
         </div>
+        {/* Save Button */}
+        <button
+          onClick={handleSaveProp}
+          disabled={isSaving || isSaved}
+          className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg font-medium transition-all text-[10px] sm:text-xs whitespace-nowrap ${
+            isSaved 
+              ? 'bg-green-600 text-white' 
+              : 'bg-blue-600 hover:bg-blue-700 text-white'
+          } disabled:opacity-50`}
+        >
+          {isSaved ? '✓' : isSaving ? '...' : '💾'}
+        </button>
       </div>
-    </Link>
+    </div>
   )
 }
 
