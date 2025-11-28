@@ -145,6 +145,10 @@ async function saveTopPropsForValidation() {
           continue
         }
         
+        // Determine which tier this prop belongs to
+        const tier = eliteProps?.some(p => p.propId === prop.propId) ? 'elite' :
+                     highProps?.some(p => p.propId === prop.propId) ? 'high' : 'good'
+        
         // Save to validation system directly
         const validationData = {
           id: generateId(),
@@ -168,7 +172,8 @@ async function saveTopPropsForValidation() {
           parlayId: null,
           status: 'pending',
           sport: prop.sport,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          notes: `tier:${tier}` // Track which tier for analysis
         }
         
         const { data: validation, error: saveError } = await supabase

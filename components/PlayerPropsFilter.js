@@ -7,6 +7,70 @@ import { getQualityTier } from '../lib/quality-score.js'
 // Helper to get/set saved props in localStorage
 const SAVED_PROPS_KEY = 'odds_on_deck_saved_props'
 
+// Learned adjustments from validation analysis
+// These prop types have been identified as underperforming (<45% accuracy)
+const UNDERPERFORMING_PROP_TYPES = {
+  receptions: { accuracy: 38.0, sport: 'nfl', multiplier: 0.85 },
+  rushing_yards: { accuracy: 34.4, sport: 'nfl', multiplier: 0.8 },
+  receiving_yards: { accuracy: 42.4, sport: 'nfl', multiplier: 0.88 },
+  rushing_attempts: { accuracy: 41.7, sport: 'nfl', multiplier: 0.85 },
+  player_assists: { accuracy: 41.2, sport: 'nhl', multiplier: 0.85 },
+  player_shots_on_goal: { accuracy: 41.2, sport: 'nhl', multiplier: 0.85 }
+}
+
+// High performing prop types (>52.4% accuracy)
+const HIGH_PERFORMING_PROP_TYPES = {
+  pass_attempts: { accuracy: 62.5, sport: 'nfl', multiplier: 1.1 },
+  player_blocked_shots: { accuracy: 56.5, sport: 'nhl', multiplier: 1.08 },
+  player_pass_yds: { accuracy: 56.4, sport: 'nfl', multiplier: 1.08 },
+  player_points: { accuracy: 53.3, sport: 'nhl', multiplier: 1.05 }
+}
+
+// Check if prop type is underperforming
+function getPropTypePerformance(propType, sport) {
+  const key = propType?.toLowerCase()
+  
+  // Check underperforming
+  if (UNDERPERFORMING_PROP_TYPES[key] && 
+      (!UNDERPERFORMING_PROP_TYPES[key].sport || UNDERPERFORMING_PROP_TYPES[key].sport === sport)) {
+    return { 
+      status: 'warning', 
+      accuracy: UNDERPERFORMING_PROP_TYPES[key].accuracy,
+      message: `⚠️ Low accuracy: ${UNDERPERFORMING_PROP_TYPES[key].accuracy}%`,
+      multiplier: UNDERPERFORMING_PROP_TYPES[key].multiplier || 0.85
+    }
+  }
+  
+  // Check high performing
+  if (HIGH_PERFORMING_PROP_TYPES[key] && 
+      (!HIGH_PERFORMING_PROP_TYPES[key].sport || HIGH_PERFORMING_PROP_TYPES[key].sport === sport)) {
+    return { 
+      status: 'boost', 
+      accuracy: HIGH_PERFORMING_PROP_TYPES[key].accuracy,
+      message: `🔥 High accuracy: ${HIGH_PERFORMING_PROP_TYPES[key].accuracy}%`,
+      multiplier: HIGH_PERFORMING_PROP_TYPES[key].multiplier || 1.05
+    }
+  }
+  
+  return null
+}
+
+function applyPerformanceAdjustments(props) {
+  return props.map(prop => {
+    const perf = getPropTypePerformance(prop.type, prop.sport)
+    if (!perf?.multiplier) return prop
+    
+    const multiplier = perf.multiplier
+    return {
+      ...prop,
+      qualityScore: typeof prop.qualityScore === 'number' ? Math.max(0, prop.qualityScore * multiplier) : prop.qualityScore,
+      probability: typeof prop.probability === 'number' 
+        ? Math.min(1, Math.max(0, prop.probability * multiplier))
+        : prop.probability
+    }
+  })
+}
+
 function getSavedProps() {
   if (typeof window === 'undefined') return new Set()
   try {
@@ -31,11 +95,13 @@ function addSavedProp(propId) {
 export default function PlayerPropsFilter({ props }) {
   const [filterMode, setFilterMode] = useState('safe')
 
+  const adjustedProps = useMemo(() => applyPerformanceAdjustments(props), [props])
+
   // Filter and sort props based on selected mode
   // HONEST EDGE SYSTEM: Most props have edge=0 (honest - no fake edges)
   // We filter by PROBABILITY and QUALITY SCORE instead
   const filteredProps = useMemo(() => {
-    let filtered = [...props]
+    let filtered = [...adjustedProps]
 
     // Apply filters based on mode - NO EDGE REQUIREMENTS (honest system)
     if (filterMode === 'safe') {
@@ -62,7 +128,7 @@ export default function PlayerPropsFilter({ props }) {
     }
 
     return filtered
-  }, [props, filterMode])
+  }, [adjustedProps, filterMode])
 
   // Group props by sport
   const mlbProps = filteredProps.filter(p => p.sport === 'mlb')
@@ -444,6 +510,19 @@ function PlayerPropCard({ prop, rank }) {
         <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 pl-10 sm:pl-0">
           {/* Stats - HONEST: Show probability and EV, not fake edge */}
           <div className="flex flex-col items-end gap-0.5">
+            {(() => {
+              const perf = getPropTypePerformance(prop.type, prop.sport)
+              if (!perf) return null
+              return (
+                <div
+                  className={`text-[10px] font-medium ${
+                    perf.status === 'warning' ? 'text-amber-400' : 'text-green-400'
+                  }`}
+                >
+                  {perf.message}
+                </div>
+              )
+            })()}
             <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${tierColors[qualityTier.tier]}`}>
               {qualityTier.emoji} {qualityTier.label}
             </div>
@@ -561,6 +640,19 @@ function PropRow({ prop }) {
       {/* Stats and Save Button */}
       <div className="flex items-center gap-2 sm:gap-3 ml-2">
         <div className="text-right">
+          {(() => {
+            const perf = getPropTypePerformance(prop.type, prop.sport)
+            if (!perf) return null
+            return (
+              <div
+                className={`text-[10px] sm:text-xs font-medium mb-0.5 ${
+                  perf.status === 'warning' ? 'text-amber-400' : 'text-green-400'
+                }`}
+              >
+                {perf.message}
+              </div>
+            )
+          })()}
           <div className="text-[10px] sm:text-xs text-gray-500 mb-0.5">
             Q: {prop.qualityScore?.toFixed(1) || 'N/A'}
           </div>
