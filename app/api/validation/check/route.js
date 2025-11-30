@@ -209,7 +209,8 @@ export async function POST(request) {
           }
           
           console.log(`📊 Fetching NHL stats for ${validation.playerName} (${validation.propType}) from game ${game.espnGameId}`)
-          actualValue = await getNHLStat(game.espnGameId, validation.playerName, validation.propType)
+          // Pass gameIdRef to help find NHL game ID
+          actualValue = await getNHLStat(game.espnGameId, validation.playerName, validation.propType, validation.gameIdRef)
         }
         
         // If we couldn't get the stat, mark for manual review
