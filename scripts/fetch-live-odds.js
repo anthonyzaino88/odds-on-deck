@@ -1283,6 +1283,110 @@ async function savePlayerProps(gameProps, sport) {
 }
 
 // ============================================================================
+// AUTO-SAVE TOP PROPS FOR VALIDATION
+// ============================================================================
+
+async function autoSaveTopPropsForValidation(sport) {
+  console.log(`\n📊 Auto-saving top ${sport.toUpperCase()} props for validation...`)
+  
+  const now = new Date().toISOString()
+  
+  // Fetch top quality props from cache
+  const { data: topProps, error } = await supabase
+    .from('PlayerPropCache')
+    .select('*')
+    .eq('sport', sport)
+    .eq('isStale', false)
+    .gte('expiresAt', now)
+    .gte('qualityScore', 35)  // Only high quality
+    .gte('probability', 0.55) // Only 55%+ probability
+    .order('qualityScore', { ascending: false })
+    .limit(50)  // Top 50 per sport
+  
+  if (error) {
+    console.log(`  ⚠️ Error fetching top props: ${error.message}`)
+    return
+  }
+  
+  if (!topProps || topProps.length === 0) {
+    console.log(`  ℹ️ No high-quality props found to save for validation`)
+    return
+  }
+  
+  console.log(`  🎯 Found ${topProps.length} top props to save for validation`)
+  
+  let saved = 0
+  let skipped = 0
+  
+  for (const prop of topProps) {
+    try {
+      // Check if already saved
+      const { data: existing } = await supabase
+        .from('PropValidation')
+        .select('id')
+        .eq('propId', prop.propId)
+        .maybeSingle()
+      
+      if (existing) {
+        skipped++
+        continue
+      }
+      
+      // Verify game exists
+      const { data: game } = await supabase
+        .from('Game')
+        .select('id, sport')
+        .eq('id', prop.gameId)
+        .maybeSingle()
+      
+      if (!game) {
+        continue
+      }
+      
+      // Determine tier based on quality score
+      const tier = prop.qualityScore >= 40 ? 'elite' : 
+                   prop.qualityScore >= 35 ? 'high' : 'good'
+      
+      // Save to validation
+      const validationData = {
+        id: generateId(),
+        propId: prop.propId,
+        gameIdRef: prop.gameId,
+        playerName: prop.playerName,
+        propType: prop.type,
+        threshold: prop.threshold,
+        prediction: prop.pick,
+        projectedValue: prop.projection || 0,
+        confidence: prop.confidence || 'medium',
+        edge: prop.edge || 0,
+        odds: prop.odds || null,
+        probability: prop.probability || null,
+        qualityScore: prop.qualityScore,
+        source: 'system_generated',
+        parlayId: null,
+        status: 'pending',
+        sport: prop.sport,
+        timestamp: new Date().toISOString(),
+        notes: `tier:${tier},auto-saved`
+      }
+      
+      const { error: saveError } = await supabase
+        .from('PropValidation')
+        .insert(validationData)
+      
+      if (!saveError) {
+        saved++
+      }
+      
+    } catch (err) {
+      // Skip on error
+    }
+  }
+  
+  console.log(`  ✅ Saved ${saved} props for validation (${skipped} already tracked)`)
+}
+
+// ============================================================================
 // MAIN
 // ============================================================================
 
@@ -1318,6 +1422,9 @@ async function main() {
       const gameProps = await fetchPlayerProps(s, date, games)
       if (!dryRun && gameProps.length > 0) {
         await savePlayerProps(gameProps, s)
+        
+        // 3. Auto-save top props for validation tracking
+        await autoSaveTopPropsForValidation(s)
       }
     }
     

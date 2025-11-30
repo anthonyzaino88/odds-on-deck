@@ -11,18 +11,20 @@ export default async function ValidationDashboard() {
   const stats = await getValidationStats()
   const recentRecords = await getValidationRecords({ limit: 50 })
   
-  // Fetch ALL completed records (no limit to ensure we get everything)
-  const allCompletedRecords = await getValidationRecords({ status: 'completed' })
+  // Fetch ALL records for accurate counts (no limit)
+  const allRecords = await getValidationRecords({})
+  const allCompletedRecords = allRecords.filter(r => r.status === 'completed')
 
-  const pendingRecords = recentRecords.filter(r => r.status === 'pending')
-  const completedRecords = allCompletedRecords // Use the dedicated completed query
-  const needsReviewRecords = recentRecords.filter(r => r.status === 'needs_review')
+  // Use ALL records for accurate status counts
+  const pendingRecords = allRecords.filter(r => r.status === 'pending')
+  const completedRecords = allCompletedRecords
+  const needsReviewRecords = allRecords.filter(r => r.status === 'needs_review')
 
-  // Group by source
+  // Group by source using ALL records for accurate tracking
   const bySource = {
-    user_saved: recentRecords.filter(r => r.source === 'user_saved'),
-    parlay_leg: recentRecords.filter(r => r.source === 'parlay_leg'),
-    system_generated: recentRecords.filter(r => r.source === 'system_generated')
+    user_saved: allRecords.filter(r => r.source === 'user_saved'),
+    parlay_leg: allRecords.filter(r => r.source === 'parlay_leg'),
+    system_generated: allRecords.filter(r => r.source === 'system_generated')
   }
 
   // Get stats by sport
@@ -120,7 +122,7 @@ export default async function ValidationDashboard() {
               </div>
               <div className="flex justify-between items-center pt-3 border-t border-slate-700">
                 <span className="font-semibold text-white">Total Tracked</span>
-                <span className="font-bold text-white">{recentRecords.length}</span>
+                <span className="font-bold text-white">{allRecords.length}</span>
               </div>
             </div>
           </div>
