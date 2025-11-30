@@ -207,21 +207,90 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
               {/* Parlay Legs */}
               {parlay.legs && parlay.legs.length > 0 && (
                 <div className="space-y-2">
-                  {parlay.legs.map((leg, idx) => (
-                    <div key={leg.id} className="bg-slate-900/50 rounded p-2 text-sm">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <span className="text-white font-medium">{leg.playerName || 'Unknown'}</span>
-                          <span className="text-gray-400 ml-2">
-                            {leg.propType?.replace(/_/g, ' ')}
-                          </span>
-                        </div>
-                        <div className="text-gray-400">
-                          {leg.selection?.toUpperCase()} {leg.threshold}
+                  {parlay.legs.map((leg, idx) => {
+                    // Determine bet type and display text
+                    const betType = leg.betType || leg.propType || 'prop'
+                    const isMoneyline = betType === 'moneyline' || betType === 'ml' || 
+                      (leg.notes && leg.notes.toLowerCase().includes('ml'))
+                    const isTotal = betType === 'total' || betType === 'over_under' ||
+                      (leg.selection && ['over', 'under'].includes(leg.selection.toLowerCase()) && !leg.playerName)
+                    
+                    // Build display name
+                    let displayName = ''
+                    let displayType = ''
+                    
+                    if (leg.playerName) {
+                      // Player prop
+                      displayName = leg.playerName
+                      displayType = leg.propType?.replace(/_/g, ' ') || ''
+                    } else if (isMoneyline) {
+                      // Moneyline bet
+                      displayName = leg.selection || leg.notes?.split(' ')[0] || 'Team'
+                      displayType = 'Moneyline'
+                    } else if (isTotal) {
+                      // Over/Under bet
+                      displayName = 'Game Total'
+                      displayType = `${leg.selection?.toUpperCase() || ''} ${leg.threshold || ''}`
+                    } else {
+                      // Fallback - try to extract from notes
+                      displayName = leg.selection || leg.notes?.split(' ')[0] || 'Bet'
+                      displayType = leg.notes || leg.betType || ''
+                    }
+                    
+                    return (
+                      <div key={leg.id || idx} className={`rounded p-2 text-sm ${
+                        leg.validationResult === 'correct' ? 'bg-green-900/30 border border-green-500/30' :
+                        leg.validationResult === 'incorrect' ? 'bg-red-900/30 border border-red-500/30' :
+                        'bg-slate-900/50'
+                      }`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 flex-1">
+                            {/* Result indicator */}
+                            {leg.validationResult === 'correct' && (
+                              <span className="text-green-400 text-lg">✅</span>
+                            )}
+                            {leg.validationResult === 'incorrect' && (
+                              <span className="text-red-400 text-lg">❌</span>
+                            )}
+                            {leg.validationResult === 'push' && (
+                              <span className="text-yellow-400 text-lg">🟰</span>
+                            )}
+                            {!leg.validationResult && leg.validationStatus !== 'completed' && (
+                              <span className="text-gray-500 text-lg">⏳</span>
+                            )}
+                            
+                            <div>
+                              <span className="text-white font-medium">{displayName}</span>
+                              <span className="text-gray-400 ml-2">{displayType}</span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            {leg.playerName ? (
+                              // Player prop - show selection and threshold
+                              <div className="text-gray-400">
+                                {leg.selection?.toUpperCase()} {leg.threshold}
+                              </div>
+                            ) : isMoneyline ? (
+                              // Moneyline - show ML badge
+                              <div className="px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded text-xs font-medium">
+                                ML
+                              </div>
+                            ) : (
+                              // Other bets
+                              <div className="text-gray-400">
+                                {leg.selection?.toUpperCase()} {leg.threshold}
+                              </div>
+                            )}
+                            {leg.actualValue !== null && leg.actualValue !== undefined && (
+                              <div className="text-xs text-gray-500">
+                                Actual: {leg.actualValue}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
 

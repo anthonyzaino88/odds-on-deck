@@ -45,6 +45,30 @@ export async function GET(request) {
     
     console.log(`✅ Found ${parlays?.length || 0} parlays in database`)
 
+    // Fetch validation results for each parlay's legs
+    for (const parlay of parlays || []) {
+      const { data: validations } = await supabase
+        .from('PropValidation')
+        .select('playerName, propType, prediction, threshold, actualValue, result, status')
+        .eq('parlayId', parlay.id)
+      
+      // Map validations to legs
+      if (parlay.legs && validations) {
+        parlay.legs = parlay.legs.map(leg => {
+          const validation = validations.find(v => 
+            v.playerName === leg.playerName && 
+            v.propType === leg.propType
+          )
+          return {
+            ...leg,
+            validationResult: validation?.result || null,
+            validationStatus: validation?.status || null,
+            actualValue: validation?.actualValue || null
+          }
+        })
+      }
+    }
+
     // Calculate performance metrics
     const performance = calculatePerformanceMetrics(parlays || [])
 
