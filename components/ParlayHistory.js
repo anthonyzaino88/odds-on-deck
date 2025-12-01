@@ -209,11 +209,17 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
                 <div className="space-y-2">
                   {parlay.legs.map((leg, idx) => {
                     // Determine bet type and display text
-                    const betType = leg.betType || leg.propType || 'prop'
+                    const betType = (leg.betType || leg.propType || 'prop').toLowerCase()
+                    const selectionLower = (leg.selection || '').toLowerCase()
+                    
+                    // Detect moneyline: betType contains 'moneyline' or 'ml', or notes mention ML
                     const isMoneyline = betType === 'moneyline' || betType === 'ml' || 
-                      (leg.notes && leg.notes.toLowerCase().includes('ml'))
-                    const isTotal = betType === 'total' || betType === 'over_under' ||
-                      (leg.selection && ['over', 'under'].includes(leg.selection.toLowerCase()) && !leg.playerName)
+                      betType.includes('moneyline') ||
+                      (leg.notes && leg.notes.toLowerCase().includes(' ml'))
+                    
+                    // Detect game total: betType is 'total' OR selection is over/under without a player
+                    const isTotal = betType === 'total' || betType === 'over_under' || betType === 'totals' ||
+                      (!leg.playerName && (selectionLower === 'over' || selectionLower === 'under'))
                     
                     // Build display name
                     let displayName = ''
@@ -224,17 +230,27 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
                       displayName = leg.playerName
                       displayType = leg.propType?.replace(/_/g, ' ') || ''
                     } else if (isMoneyline) {
-                      // Moneyline bet
-                      displayName = leg.selection || leg.notes?.split(' ')[0] || 'Team'
+                      // Moneyline bet - extract team from selection or notes
+                      const teamName = leg.selection || 
+                        (leg.notes && leg.notes.split(' ')[0]) || 
+                        'Team'
+                      displayName = teamName
                       displayType = 'Moneyline'
                     } else if (isTotal) {
-                      // Over/Under bet
+                      // Over/Under game total bet
                       displayName = 'Game Total'
-                      displayType = `${leg.selection?.toUpperCase() || ''} ${leg.threshold || ''}`
+                      const threshold = leg.threshold || 
+                        (leg.notes && leg.notes.match(/[\d.]+/)?.[0]) || ''
+                      displayType = `${(leg.selection || '').toUpperCase()} ${threshold}`.trim()
                     } else {
-                      // Fallback - try to extract from notes
-                      displayName = leg.selection || leg.notes?.split(' ')[0] || 'Bet'
-                      displayType = leg.notes || leg.betType || ''
+                      // Fallback - use whatever info we have
+                      displayName = leg.selection || 
+                        (leg.notes && leg.notes.split(' ')[0]) || 
+                        'Bet'
+                      // Try to make betType readable
+                      displayType = (leg.propType || leg.betType || leg.notes || '')
+                        .replace(/_/g, ' ')
+                        .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase to spaces
                     }
                     
                     return (
