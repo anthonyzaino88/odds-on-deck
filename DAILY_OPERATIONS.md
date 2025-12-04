@@ -110,22 +110,52 @@ node scripts/refresh-nhl-scores.js
 
 ## ✅ After Games Complete (Validation)
 
-### Check Validation Status
+### Step 1: Validate Parlays (Run 2-3 hours after games end)
+```bash
+# Validate ALL pending parlays (moneylines, totals, player props)
+npm run validate:all
+
+# Or just parlays (moneylines + game totals)
+npm run validate:parlays
+
+# Or just individual props (player stats)
+node scripts/run-validation-check.js
+```
+
+**What it does:**
+- ✅ **Moneyline validation** - Checks if teams won/lost via ESPN API
+- ✅ **Game total validation** - Compares total scores to over/under lines
+- ✅ **Player prop validation** - Fetches actual player stats
+- ✅ **Updates parlay status** - Marks parlays as WON or LOST
+
+### Step 2: Check Validation Status
 ```bash
 # Check validation system status
 node scripts/check-validation-status.js
+
+# Check pending parlays
+node scripts/check-pending-parlays.js
 ```
 
 **What it does:**
 - Shows validation system statistics
 - Displays win rates by prop type
 - Lists pending and completed validations
-- Validation happens automatically via the system
 
-**Note:** Validation is handled automatically by `lib/validation.js` when:
-- Props are saved to parlays
-- Games complete and results are available
-- The validation dashboard is accessed
+### ⚡ Quick Evening Validation (After ALL games finish)
+```bash
+npm run validate:all
+```
+
+### 🕐 When to Run Validation
+- **NFL**: Run at 11pm ET (after Sunday Night Football)
+- **NHL**: Run at 11pm ET (after west coast games)
+- **MLB**: Run at 1am ET (after west coast games)
+
+### ⚠️ Known Limitations
+- Some player stats may not be available via ESPN API
+- Power play points, blocked shots may need manual review
+- Game totals require knowing which game to validate
 
 ---
 
