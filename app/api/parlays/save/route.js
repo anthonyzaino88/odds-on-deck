@@ -2,14 +2,11 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin } from '../../../../lib/supabase-admin.js'
 import { recordPropPrediction } from '../../../../lib/validation.js'
 
-// Initialize Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+// Use admin client for writes (bypasses RLS)
+const supabase = supabaseAdmin
 
 // Generate unique ID (same format as other parts of the app)
 function generateId() {
