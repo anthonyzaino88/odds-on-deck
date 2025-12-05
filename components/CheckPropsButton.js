@@ -70,7 +70,8 @@ export default function CheckPropsButton() {
             `📊 Batches processed: ${batch}\n` +
             `✅ Updated: ${totalUpdated}\n` +
             `❌ Errors: ${totalErrors}`)
-      window.location.reload()
+      // Force hard refresh to bypass any caching
+      window.location.href = window.location.href + '?t=' + Date.now()
       
     } catch (error) {
       console.error('Error checking props:', error)

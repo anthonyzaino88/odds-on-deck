@@ -5,7 +5,10 @@ import { getValidationStats, getValidationRecords } from '../../lib/validation.j
 import CheckPropsButton from '../../components/CheckPropsButton.js'
 import CompletedPropsTable from '../../components/CompletedPropsTable.js'
 
+// Force dynamic rendering - no caching
 export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
 
 export default async function ValidationDashboard() {
   const stats = await getValidationStats()
