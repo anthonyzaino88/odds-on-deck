@@ -5,7 +5,7 @@ import { config } from 'dotenv'
 config({ path: '.env.local' })
 
 // Validate environment variables are loaded
-if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
   console.error('❌ Missing Supabase credentials in environment variables')
   console.error('Please ensure .env.local contains NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY')
   process.exit(1)
@@ -21,3 +21,4 @@ if (!process.env.ODDS_API_KEY) {
 process.argv = ['node', 'fetch-live-odds.js', 'nhl', '2025-11-18']
 
 import('./scripts/fetch-live-odds.js')
+

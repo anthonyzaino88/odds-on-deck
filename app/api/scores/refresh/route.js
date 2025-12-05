@@ -6,7 +6,8 @@ export const runtime = 'nodejs'
 export const maxDuration = 30
 
 import { NextResponse } from 'next/server'
-import { supabase } from '../../../../lib/supabase.js'
+// Use admin client to bypass RLS for updates
+import { supabaseAdmin as supabase } from '../../../../lib/supabase-admin.js'
 
 // ESPN API endpoints
 const ESPN_ENDPOINTS = {

@@ -18,9 +18,10 @@ import { createGameId } from '../lib/team-mapping.js'
 
 config({ path: '.env.local' })
 
+// Use secret key to bypass RLS (with fallback to anon for read-only)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
 // ESPN sport IDs - CORRECTED

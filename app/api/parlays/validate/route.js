@@ -5,12 +5,8 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+// Use admin client to bypass RLS for updates
+import { supabaseAdmin as supabase } from '../../../../lib/supabase-admin.js'
 
 export async function POST(request) {
   try {
