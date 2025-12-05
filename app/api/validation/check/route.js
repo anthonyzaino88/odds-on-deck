@@ -4,6 +4,8 @@
 // Force dynamic rendering (required for Vercel deployment)
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
+// Increase max duration for Vercel (Pro plan: 60s, Hobby: 10s)
+export const maxDuration = 60
 
 import { NextResponse } from 'next/server'
 import { supabase } from '../../../../lib/supabase.js'
@@ -11,24 +13,54 @@ import { getPlayerGameStat as getMLBStat } from '../../../../lib/vendors/mlb-gam
 import { getPlayerGameStat as getNFLStat } from '../../../../lib/vendors/nfl-game-stats.js'
 import { getPlayerGameStat as getNHLStat } from '../../../../lib/vendors/nhl-game-stats.js'
 
+// Batch size to prevent Vercel timeout (process this many per request)
+const BATCH_SIZE = 15
+
 export async function POST(request) {
+  const startTime = Date.now()
+  const MAX_RUNTIME_MS = 8000 // Stop after 8 seconds to leave time for response
+  
   try {
     console.log('🔍 Checking completed prop validations...')
     
-    // Get all pending validations
+    // Parse request body for batch parameter
+    let batchNumber = 0
+    try {
+      const body = await request.json()
+      batchNumber = body?.batch || 0
+    } catch {
+      // No body or invalid JSON, use default
+    }
+    
+    // Get pending validations with limit for batching
     const { data: pendingValidations, error: fetchError } = await supabase
       .from('PropValidation')
       .select('*')
       .eq('status', 'pending')
+      .order('timestamp', { ascending: true })
+      .range(batchNumber * BATCH_SIZE, (batchNumber + 1) * BATCH_SIZE - 1)
     
     if (fetchError) throw fetchError
     
-    console.log(`📊 Found ${pendingValidations?.length || 0} pending validations`)
+    // Also get total count
+    const { count: totalPending } = await supabase
+      .from('PropValidation')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending')
+    
+    console.log(`📊 Processing batch ${batchNumber + 1}: ${pendingValidations?.length || 0} validations (${totalPending} total pending)`)
     
     let updated = 0
     let errors = 0
+    let skipped = 0
     
     for (const validation of pendingValidations || []) {
+      // Check if we're running out of time
+      if (Date.now() - startTime > MAX_RUNTIME_MS) {
+        console.log('⏱️ Time limit approaching, stopping early')
+        skipped = (pendingValidations?.length || 0) - updated - errors
+        break
+      }
       try {
         // Get the game to check if it's finished
         // Try multiple lookup strategies to find the game
@@ -266,14 +298,22 @@ export async function POST(request) {
       }
     }
     
-    console.log(`🎯 Validation check complete: ${updated} updated, ${errors} errors`)
+    const hasMoreBatches = totalPending > (batchNumber + 1) * BATCH_SIZE
+    console.log(`🎯 Validation check complete: ${updated} updated, ${errors} errors, ${skipped} skipped`)
     
     return NextResponse.json({
       success: true,
-      message: `Checked ${pendingValidations?.length || 0} validations`,
+      message: `Checked ${pendingValidations?.length || 0} validations (batch ${batchNumber + 1})`,
       updated,
       errors,
-      remaining: (pendingValidations?.length || 0) - updated - errors
+      skipped,
+      remaining: totalPending - updated,
+      totalPending,
+      batchSize: BATCH_SIZE,
+      currentBatch: batchNumber,
+      hasMoreBatches,
+      nextBatch: hasMoreBatches ? batchNumber + 1 : null,
+      runtimeMs: Date.now() - startTime
     })
     
   } catch (error) {

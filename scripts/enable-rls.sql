@@ -122,3 +122,5 @@ CREATE POLICY "Allow public read on NFLGameData" ON "NFLGameData"
 -- To verify, go to: Dashboard > Security Advisor
 -- All 17 "RLS Disabled" errors should be gone!
 -- ============================================
+
+
