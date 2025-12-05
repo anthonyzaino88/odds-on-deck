@@ -8,7 +8,8 @@ export const runtime = 'nodejs'
 export const maxDuration = 60
 
 import { NextResponse } from 'next/server'
-import { supabase } from '../../../../lib/supabase.js'
+// Use admin client to bypass RLS for updates
+import { supabaseAdmin as supabase } from '../../../../lib/supabase-admin.js'
 import { getPlayerGameStat as getMLBStat } from '../../../../lib/vendors/mlb-game-stats.js'
 import { getPlayerGameStat as getNFLStat } from '../../../../lib/vendors/nfl-game-stats.js'
 import { getPlayerGameStat as getNHLStat } from '../../../../lib/vendors/nhl-game-stats.js'
