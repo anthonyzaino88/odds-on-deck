@@ -253,25 +253,47 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
                         .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase to spaces
                     }
                     
+                    // Determine leg result - check multiple fields
+                    // Priority: validationResult > outcome > status > inferred from parlay
+                    const legResult = leg.validationResult || 
+                      (leg.outcome === 'won' ? 'correct' : leg.outcome === 'lost' ? 'incorrect' : null) ||
+                      (leg.status === 'won' ? 'correct' : leg.status === 'lost' ? 'incorrect' : null)
+                    
+                    // INFERENCE LOGIC:
+                    // - If parlay WON → ALL legs must have won (we can infer this for any leg type)
+                    // - If parlay LOST → at least one leg lost, but we don't know which
+                    //   - For ML/Total without individual data, assume this leg lost (often the case)
+                    //   - For player props without data, leave as pending (we genuinely don't know)
+                    const parlayCompleted = parlay.status === 'won' || parlay.status === 'lost'
+                    const canInferWon = !legResult && parlayCompleted && parlay.status === 'won'
+                    const canInferLost = !legResult && parlayCompleted && parlay.status === 'lost' && 
+                      (isMoneyline || isTotal) // Only infer lost for ML/Total (not player props)
+                    
+                    const isWon = legResult === 'correct' || leg.outcome === 'won' || leg.status === 'won' || canInferWon
+                    const isLost = legResult === 'incorrect' || leg.outcome === 'lost' || leg.status === 'lost' || canInferLost
+                    const isPush = legResult === 'push' || leg.outcome === 'push' || leg.status === 'push'
+                    const isPending = !isWon && !isLost && !isPush
+                    
                     return (
                       <div key={leg.id || idx} className={`rounded p-2 text-sm ${
-                        leg.validationResult === 'correct' ? 'bg-green-900/30 border border-green-500/30' :
-                        leg.validationResult === 'incorrect' ? 'bg-red-900/30 border border-red-500/30' :
+                        isWon ? 'bg-green-900/30 border border-green-500/30' :
+                        isLost ? 'bg-red-900/30 border border-red-500/30' :
+                        isPush ? 'bg-yellow-900/30 border border-yellow-500/30' :
                         'bg-slate-900/50'
                       }`}>
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2 flex-1">
                             {/* Result indicator */}
-                            {leg.validationResult === 'correct' && (
+                            {isWon && (
                               <span className="text-green-400 text-lg">✅</span>
                             )}
-                            {leg.validationResult === 'incorrect' && (
+                            {isLost && (
                               <span className="text-red-400 text-lg">❌</span>
                             )}
-                            {leg.validationResult === 'push' && (
+                            {isPush && (
                               <span className="text-yellow-400 text-lg">🟰</span>
                             )}
-                            {!leg.validationResult && leg.validationStatus !== 'completed' && (
+                            {isPending && (
                               <span className="text-gray-500 text-lg">⏳</span>
                             )}
                             

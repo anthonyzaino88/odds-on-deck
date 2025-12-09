@@ -205,25 +205,13 @@ export default function ParlayBuilder({ onGenerate }) {
               }`}
             >
               <div className="font-semibold text-sm">💰 Value Hunter</div>
-              <div className="text-xs text-gray-400 mt-1">15%+ edge</div>
-            </button>
-            <button
-              onClick={() => setFilterMode('homerun')}
-              className={`p-3 rounded-lg border-2 text-left transition-all ${
-                filterMode === 'homerun'
-                  ? 'border-purple-500 bg-purple-900/30 text-white'
-                  : 'border-slate-700 bg-slate-800 hover:border-purple-500/50 text-gray-300'
-              }`}
-            >
-              <div className="font-semibold text-sm">🎰 Home Run</div>
-              <div className="text-xs text-gray-400 mt-1">Big payouts</div>
+              <div className="text-xs text-gray-400 mt-1">+EV plays</div>
             </button>
           </div>
           <p className="mt-2 text-xs text-gray-400">
             {filterMode === 'safe' && '🛡️ Highest probability picks (52%+). Consistent wins, lower variance.'}
             {filterMode === 'balanced' && '⚖️ Optimized quality score. Best overall risk/reward balance.'}
-            {filterMode === 'value' && '💰 High edge opportunities (15%+). Medium risk, good value.'}
-            {filterMode === 'homerun' && '🎰 High payout parlays. Higher risk, exciting upside!'}
+            {filterMode === 'value' && '💰 Positive expected value plays. Best long-term profitability.'}
           </p>
         </div>
 
