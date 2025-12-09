@@ -118,8 +118,68 @@ async function fetchGamesFromESPN(sport, date) {
       console.log(`📅 Total games across next 7 days: ${uniqueEvents.length}`)
       allEvents = uniqueEvents
       
+    } else if (sport === 'nfl') {
+      // NFL: Fetch games for the requested date or upcoming week
+      // ESPN scoreboard with dates parameter returns games for that specific date/week
+      const now = new Date()
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      
+      if (date) {
+        // Specific date requested - fetch that date
+        const dateStr = date.replace(/-/g, '')
+        const url = `https://site.api.espn.com/apis/site/v2/sports/${sportInfo.sportType}/${sportInfo.league}/scoreboard?dates=${dateStr}`
+        console.log(`📡 URL: ${url}`)
+        
+        const response = await fetch(url)
+        if (!response.ok) {
+          const text = await response.text()
+          throw new Error(`ESPN API error: ${response.status} - ${text}`)
+        }
+        
+        const data = await response.json()
+        allEvents = data.events || []
+        console.log(`📅 Found ${allEvents.length} games for ${date}`)
+      } else {
+        // No date specified - fetch next 7 days to get upcoming NFL week
+        console.log(`📡 Fetching NFL games for next 7 days...`)
+        
+        for (let i = 0; i < 7; i++) {
+          const targetDate = new Date(today)
+          targetDate.setDate(today.getDate() + i)
+          const dateStr = targetDate.toISOString().split('T')[0].replace(/-/g, '')
+          
+          const url = `https://site.api.espn.com/apis/site/v2/sports/${sportInfo.sportType}/${sportInfo.league}/scoreboard?dates=${dateStr}`
+          
+          try {
+            const response = await fetch(url, {
+              headers: { 'User-Agent': 'OddsOnDeck/1.0' }
+            })
+            
+            if (response.ok) {
+              const data = await response.json()
+              const events = data.events || []
+              if (events.length > 0) {
+                allEvents = [...allEvents, ...events]
+                console.log(`  📅 ${targetDate.toLocaleDateString()}: ${events.length} games`)
+              }
+            }
+            
+            // Small delay to avoid rate limiting
+            await new Promise(r => setTimeout(r, 200))
+          } catch (error) {
+            console.warn(`  ⚠️  Error fetching ${targetDate.toLocaleDateString()}: ${error.message}`)
+          }
+        }
+        
+        // Remove duplicates by event ID
+        const uniqueEvents = Array.from(
+          new Map(allEvents.map(event => [event.id, event])).values()
+        )
+        allEvents = uniqueEvents
+        console.log(`📅 Total unique games found: ${allEvents.length}`)
+      }
     } else {
-      // NFL and other sports: Use scoreboard endpoint
+      // Other sports: Use scoreboard endpoint without date
       const url = `https://site.api.espn.com/apis/site/v2/sports/${sportInfo.sportType}/${sportInfo.league}/scoreboard`
       
       console.log(`📡 URL: ${url}`)
@@ -134,95 +194,8 @@ async function fetchGamesFromESPN(sport, date) {
       allEvents = data.events || []
     }
     
-    // Filter by date for NFL
-    const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    
-    if (sport === 'nfl') {
-      // NFL: Smart week detection - prioritize current week games when available
-      // NFL week runs Thursday Night Football → Sunday slate → Monday Night Football
-      const dayOfWeek = now.getDay()
-      let weekStart, weekEnd
-
-      if (dayOfWeek === 2 || dayOfWeek === 3) {
-        // Tuesday or Wednesday - check for current week games first, then upcoming week
-        // Calculate current week (most recent Thursday)
-        const currentWeekThursday = new Date(today)
-        if (dayOfWeek === 2) {
-          // Tuesday: Thursday was 5 days ago
-          currentWeekThursday.setDate(today.getDate() - 5)
-        } else {
-          // Wednesday: Thursday was 6 days ago
-          currentWeekThursday.setDate(today.getDate() - 6)
-        }
-
-        // Filter for current week games
-        const currentWeekStart = new Date(currentWeekThursday)
-        const currentWeekEnd = new Date(currentWeekThursday)
-        currentWeekEnd.setDate(currentWeekThursday.getDate() + 4) // Thursday + 4 days = Monday
-        currentWeekEnd.setHours(23, 59, 59)
-
-        const currentWeekGames = allEvents.filter(event => {
-          const gameDate = new Date(event.date)
-          return gameDate >= currentWeekStart && gameDate <= currentWeekEnd
-        })
-
-        if (currentWeekGames.length > 0) {
-          // Current week has games - use it
-          allEvents = currentWeekGames
-          weekStart = currentWeekStart
-          weekEnd = currentWeekEnd
-          console.log(`📅 Filtered to CURRENT WEEK's games (${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}): ${allEvents.length}`)
-        } else {
-          // No current week games - use upcoming week
-          const daysUntilThursday = dayOfWeek === 2 ? 2 : 1
-          weekStart = new Date(today)
-          weekStart.setDate(today.getDate() + daysUntilThursday)
-          weekEnd = new Date(weekStart)
-          weekEnd.setDate(weekStart.getDate() + 4) // Thursday + 4 days = Monday
-          weekEnd.setHours(23, 59, 59)
-
-          // Filter for upcoming week games
-          allEvents = allEvents.filter(event => {
-            const gameDate = new Date(event.date)
-            return gameDate >= weekStart && gameDate <= weekEnd
-          })
-
-          console.log(`📅 Filtered to UPCOMING WEEK's games (${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}): ${allEvents.length}`)
-        }
-      } else {
-        // Thursday through Monday - use current week
-        if (dayOfWeek === 4) {
-          weekStart = new Date(today)
-        } else if (dayOfWeek === 0) {
-          weekStart = new Date(today)
-          weekStart.setDate(today.getDate() - 3) // Go back to Thursday
-        } else if (dayOfWeek === 1) {
-          weekStart = new Date(today)
-          weekStart.setDate(today.getDate() - 4) // Go back to Thursday
-        } else if (dayOfWeek === 5) {
-          weekStart = new Date(today)
-          weekStart.setDate(today.getDate() - 1) // Go back to Thursday
-        } else if (dayOfWeek === 6) {
-          weekStart = new Date(today)
-          weekStart.setDate(today.getDate() - 2) // Go back to Thursday
-        }
-
-        weekEnd = new Date(weekStart)
-        weekEnd.setDate(weekStart.getDate() + 4) // Thursday + 4 days = Monday
-        weekEnd.setHours(23, 59, 59)
-
-        console.log(`📅 Filtered to CURRENT WEEK's games (${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}): ${allEvents.length}`)
-
-        // Filter events to only include games within this week's date range
-        allEvents = allEvents.filter(event => {
-          const gameDate = new Date(event.date)
-          return gameDate >= weekStart && gameDate <= weekEnd
-        })
-
-        console.log(`✅ Filtered to ${allEvents.length} games within date range`)
-      }
-    }
+    // NFL games are now filtered by date in the fetch itself
+    // No additional filtering needed
     
     console.log(`✅ Found ${allEvents.length} ${sport.toUpperCase()} games`)
     
