@@ -134,13 +134,23 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
     }
   }
 
-  const getBetTypeIcon = (betType) => {
+  const getSportIcon = (sport) => {
+    switch ((sport || '').toLowerCase()) {
+      case 'nfl': return '🏈'
+      case 'nhl': return '🏒'
+      case 'mlb': return '⚾'
+      case 'nba': return '🏀'
+      default: return '🎯'
+    }
+  }
+
+  const getBetTypeIcon = (betType, sport) => {
     switch (betType) {
       case 'moneyline': return '🏆'
       case 'spread': return '📊'
       case 'total': return '📈'
-      case 'prop': return '⚾'
-      default: return '🎯'
+      case 'prop': return getSportIcon(sport)
+      default: return getSportIcon(sport)
     }
   }
 
@@ -329,7 +339,7 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
                 {parlay.legs.map((leg, legIndex) => (
                   <div key={legIndex} className="flex items-center justify-between py-2 px-3 bg-slate-800 rounded border border-slate-700">
                     <div className="flex items-center space-x-3">
-                      <span className="text-lg">{getBetTypeIcon(leg.betType)}</span>
+                      <span className="text-lg">{getBetTypeIcon(leg.betType, leg.sport || parlay.sport)}</span>
                       <div>
                         <div className="text-sm font-medium text-white">
                           {leg.betType === 'prop' 

@@ -157,6 +157,18 @@ npm run validate:all
 - Power play points, blocked shots may need manual review
 - Game totals require knowing which game to validate
 
+### 🛠️ Manual Cleanup for Stuck Validations
+- Inspect what’s stuck: `node scripts/list-pending-validations.js`  
+  - Filters via env: `STATUSES` (e.g., `pending,needs_review`), `AFTER_DATE`, `BEFORE_DATE`, `LIMIT`, `SPORT`
+- Requeue final games stuck in `needs_review`:  
+  - `ACTION=requeue node scripts/requeue-or-close-validations.js`  
+  - Optional env: `SPORT`, `AFTER_DATE`, `BEFORE_DATE`, `STATUSES`, `LIMIT` (default 200)
+- Close rows whose game record is missing (e.g., deleted backfill game):  
+  - `ACTION=close_missing node scripts/requeue-or-close-validations.js`
+- Backfill/retry stats & auto-close repeat failures (final games):  
+  - `node scripts/backfill-validations.js`  
+  - Env: `STATUSES` (default `pending,needs_review`), `LIMIT` (default 300), `MAX_FAILS` (default 3), `GRACE_HOURS` (default 72), `BEFORE_DATE/AFTER_DATE`, `SPORT`
+
 ---
 
 ## 🧹 Weekly Maintenance (Sunday Night)

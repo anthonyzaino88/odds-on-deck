@@ -281,7 +281,7 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
                         isPush ? 'bg-yellow-900/30 border border-yellow-500/30' :
                         'bg-slate-900/50'
                       }`}>
-                        <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2 flex-1">
                             {/* Result indicator */}
                             {isWon && (
@@ -312,11 +312,11 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
                               // Moneyline - show ML badge
                               <div className="px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded text-xs font-medium">
                                 ML
-                              </div>
+                        </div>
                             ) : (
                               // Other bets
-                              <div className="text-gray-400">
-                                {leg.selection?.toUpperCase()} {leg.threshold}
+                        <div className="text-gray-400">
+                          {leg.selection?.toUpperCase()} {leg.threshold}
                               </div>
                             )}
                             {leg.actualValue !== null && leg.actualValue !== undefined && (
@@ -324,9 +324,9 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
                                 Actual: {leg.actualValue}
                               </div>
                             )}
-                          </div>
                         </div>
                       </div>
+                    </div>
                     )
                   })}
                 </div>
