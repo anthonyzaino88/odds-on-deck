@@ -412,15 +412,18 @@ export default function PicksPage() {
   )
 }
 
+function decimalToAmerican(decimalOdds) {
+  if (!decimalOdds || decimalOdds === 1) return '+100'
+  const d = parseFloat(decimalOdds)
+  if (isNaN(d)) return null
+  if (d >= 2.0) return `+${Math.round((d - 1) * 100)}`
+  return `${Math.round(-100 / (d - 1))}`
+}
+
 function PickCard({ pick, rank }) {
   const qualityTier = getQualityTier(pick.qualityScore || 0)
-  
-  const formatOdds = (odds) => {
-    if (!odds) return null
-    const numOdds = parseFloat(odds)
-    if (isNaN(numOdds)) return null
-    return numOdds > 0 ? `+${numOdds}` : numOdds.toString()
-  }
+
+  const formatOdds = (odds) => decimalToAmerican(odds)
 
   const displayOdds = formatOdds(pick.odds)
   const isPlayerProp = pick.type === 'player_prop'
@@ -503,13 +506,8 @@ function PickCard({ pick, rank }) {
 function PickRow({ pick }) {
   const qualityTier = getQualityTier(pick.qualityScore || 0)
   const isPlayerProp = pick.type === 'player_prop'
-  
-  const formatOdds = (odds) => {
-    if (!odds) return null
-    const numOdds = parseFloat(odds)
-    if (isNaN(numOdds)) return null
-    return numOdds > 0 ? `+${numOdds}` : numOdds.toString()
-  }
+
+  const formatOdds = (odds) => decimalToAmerican(odds)
 
   const displayOdds = formatOdds(pick.odds)
 

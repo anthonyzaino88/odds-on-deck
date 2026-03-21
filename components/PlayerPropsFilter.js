@@ -4,6 +4,14 @@ import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { getQualityTier } from '../lib/quality-score.js'
 
+function decimalToAmerican(decimalOdds) {
+  if (!decimalOdds || decimalOdds === 1) return '+100'
+  const d = parseFloat(decimalOdds)
+  if (isNaN(d)) return null
+  if (d >= 2.0) return `+${Math.round((d - 1) * 100)}`
+  return `${Math.round(-100 / (d - 1))}`
+}
+
 // Helper to get/set saved props in localStorage
 const SAVED_PROPS_KEY = 'odds_on_deck_saved_props'
 
@@ -458,15 +466,7 @@ function PlayerPropCard({ prop, rank }) {
     }
   }
 
-  // Format odds for display
-  const formatOdds = (odds) => {
-    if (!odds) return null
-    const numOdds = parseFloat(odds)
-    if (isNaN(numOdds)) return null
-    return numOdds > 0 ? `+${numOdds}` : numOdds.toString()
-  }
-
-  const displayOdds = formatOdds(prop.odds)
+  const displayOdds = decimalToAmerican(prop.odds)
 
   return (
     <div className="border border-slate-700 rounded-lg p-3 sm:p-4 hover:border-blue-500 hover:shadow-md transition-all bg-slate-800/50">
@@ -602,15 +602,7 @@ function PropRow({ prop }) {
     }
   }
 
-  // Format odds for display
-  const formatOdds = (odds) => {
-    if (!odds) return null
-    const numOdds = parseFloat(odds)
-    if (isNaN(numOdds)) return null
-    return numOdds > 0 ? `+${numOdds}` : numOdds.toString()
-  }
-
-  const displayOdds = formatOdds(prop.odds)
+  const displayOdds = decimalToAmerican(prop.odds)
 
   return (
     <div className="flex items-center justify-between p-2 sm:p-3 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors border border-slate-700">
