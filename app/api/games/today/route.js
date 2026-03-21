@@ -43,6 +43,13 @@ function getNFLWeekBounds(now) {
 
 export async function GET(req) {
   try {
+    if (!supabase) {
+      return NextResponse.json({
+        success: false,
+        error: 'Database not configured. Check your Supabase environment variables.'
+      }, { status: 500 })
+    }
+
     console.log('📅 API: Fetching today\'s games...')
 
     // Get current time
@@ -172,6 +179,10 @@ export async function GET(req) {
 
   } catch (error) {
     console.error('❌ API Error:', error.message)
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+    const isSupabaseError = error.message?.includes('Supabase') || error.message?.includes('fetch failed') || error.message?.includes('ECONNREFUSED')
+    const userMessage = isSupabaseError
+      ? 'Database connection failed. Your Supabase project may be paused — check https://supabase.com/dashboard'
+      : error.message
+    return NextResponse.json({ success: false, error: userMessage }, { status: 500 })
   }
 }

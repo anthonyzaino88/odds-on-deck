@@ -7,6 +7,10 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(request) {
   try {
+    if (!supabase) {
+      return NextResponse.json({ success: false, error: 'Database not configured. Check Supabase environment variables.' }, { status: 500 })
+    }
+
     const { searchParams } = new URL(request.url)
     const sport = searchParams.get('sport') // 'mlb', 'nfl', 'nhl', or null for all
     const gameId = searchParams.get('gameId') // Optional: filter by specific game
@@ -30,11 +34,12 @@ export async function GET(request) {
       query = query.eq('gameId', gameId)
     }
     
-    // Only get non-stale props that haven't expired
+    // Only get non-stale props that haven't expired and whose games are still in the future
     const now = new Date().toISOString()
     query = query
       .eq('isStale', false)
       .gte('expiresAt', now)
+      .gt('gameTime', now)
     
     const { data, error } = await query
     

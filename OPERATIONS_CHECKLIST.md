@@ -1,5 +1,7 @@
 # 🎯 Odds on Deck - Complete Operations Checklist
 
+## 📅 Updated: Dec 17, 2025
+
 ## 📋 Table of Contents
 1. [Daily Operations Workflow](#daily-operations-workflow)
 2. [Core Node Scripts](#core-node-scripts)
@@ -13,19 +15,33 @@
 
 ## 🌅 Daily Operations Workflow
 
+### ⚠️ CRITICAL: Run Steps In Order!
+
 ### Morning Routine (Before Games)
 ```bash
+# STEP 0: Clear stale props (CRITICAL - Run First!)
+# Removes yesterday's props and prevents old data from showing
+node scripts/clear-stale-props.js
+
 # STEP 1: Fetch all games from ESPN (FREE API)
 node scripts/fetch-fresh-games.js all
 
 # STEP 2: Fetch odds and props from The Odds API
-node scripts/fetch-live-odds.js all
+# Use --cache-fresh to ensure proper gameTime mapping!
+node scripts/fetch-live-odds.js all --cache-fresh
 
 # STEP 3: Calculate betting edges (OPTIONAL - for edge analysis)
 node scripts/calculate-game-edges.js
+```
 
-# OR: One-liner (all 3 steps)
-node scripts/fetch-fresh-games.js all && node scripts/fetch-live-odds.js all && node scripts/calculate-game-edges.js
+### ⚡ One-Liner (PowerShell)
+```powershell
+node scripts/clear-stale-props.js; node scripts/fetch-fresh-games.js all; node scripts/fetch-live-odds.js all --cache-fresh
+```
+
+### ⚡ One-Liner (Bash/CMD)
+```bash
+node scripts/clear-stale-props.js && node scripts/fetch-fresh-games.js all && node scripts/fetch-live-odds.js all --cache-fresh
 ```
 
 ### During Games (Every 15-30 min)
@@ -41,15 +57,37 @@ node scripts/refresh-nhl-scores.js  # NHL-specific alternative
 ### After Games Complete
 ```bash
 # Validate completed prop predictions
-node scripts/validate-pending-props.js
+npm run validate:all
 
 # Check validation status
 node scripts/check-validation-status.js
 ```
 
+### End of Day / Before Bed
+```bash
+# Clear stale props to prep for tomorrow
+node scripts/clear-stale-props.js
+```
+
 ---
 
 ## 📜 Core Node Scripts
+
+### 🧹 Daily Cleanup (`scripts/`) - RUN FIRST!
+
+| Script | Purpose | Usage |
+|--------|---------|-------|
+| `clear-stale-props.js` | **CRITICAL:** Clear past/expired props | `node scripts/clear-stale-props.js` |
+| `clear-stale-props.js --dry-run` | Preview what will be deleted | `node scripts/clear-stale-props.js --dry-run` |
+
+**What it clears:**
+- Props where `gameTime <= now` (past games)
+- Props where `expiresAt <= now` (expired)
+- Props where `isStale = true`
+
+⚠️ **Requires `SUPABASE_SECRET_KEY` in `.env.local`**
+
+---
 
 ### 🎮 Game Fetching (`scripts/`)
 
@@ -59,6 +97,12 @@ node scripts/check-validation-status.js
 | `fetch-live-odds.js` | Fetch odds/props from Odds API | `node scripts/fetch-live-odds.js [nfl\|nhl\|all] --cache-fresh` |
 | `list-nhl-games.js` | List all NHL games in DB | `node scripts/list-nhl-games.js` |
 
+**Important Flags:**
+- `--cache-fresh` - Forces fresh fetch, ensures proper `gameTime` mapping from `Game.date`
+- `--dry-run` - Preview without saving to database
+
+---
+
 ### 📊 Score Updates (`scripts/`)
 
 | Script | Purpose | Usage |
@@ -66,28 +110,39 @@ node scripts/check-validation-status.js
 | `update-scores-safely.js` | Update live scores (all sports) | `node scripts/update-scores-safely.js [nhl\|nfl\|all]` |
 | `refresh-nhl-scores.js` | NHL live score refresh | `node scripts/refresh-nhl-scores.js` |
 
+---
+
 ### ✅ Validation Scripts (`scripts/`)
 
 | Script | Purpose | Usage |
 |--------|---------|-------|
-| `validate-pending-props.js` | Auto-validate completed props | `node scripts/validate-pending-props.js` |
+| `run-validation-check.js` | Run validation checks | `node scripts/run-validation-check.js` |
 | `check-validation-status.js` | View validation summary | `node scripts/check-validation-status.js` |
-| `check-pending-validations.js` | List pending validations | `node scripts/check-pending-validations.js` |
-| `check-completed-validations.js` | List completed validations | `node scripts/check-completed-validations.js` |
+| `check-pending-parlays.js` | List pending parlays | `node scripts/check-pending-parlays.js` |
 | `manual-validate-nhl-props.js` | Manually validate NHL props | `node scripts/manual-validate-nhl-props.js` |
 | `force-validate-old-props.js` | Force validate old props | `node scripts/force-validate-old-props.js` |
-| `backfill-old-validations.js` | Backfill historical validations | `node scripts/backfill-old-validations.js` |
+| `backfill-validations.js` | Backfill historical validations | `node scripts/backfill-validations.js` |
+
+**NPM Scripts:**
+```bash
+npm run validate:all       # Validate everything
+npm run validate:parlays   # Validate parlays only
+```
+
+---
 
 ### 🔧 Data Maintenance (`scripts/`)
 
 | Script | Purpose | Usage |
 |--------|---------|-------|
+| `clear-stale-props.js` | **DAILY:** Clear expired props | `node scripts/clear-stale-props.js` |
 | `cleanup-old-games.js` | Remove old game records | `node scripts/cleanup-old-games.js` |
-| `cleanup-stale-props.js` | Clear expired props cache | `node scripts/clear-stale-props.js` |
 | `delete-old-games.js` | Delete old games | `node scripts/delete-old-games.js` |
 | `remove-duplicate-games-by-espn-id.js` | Remove duplicate games | `node scripts/remove-duplicate-games-by-espn-id.js` |
 | `export-all-data.js` | Export all data from DB | `node scripts/export-all-data.js` |
 | `backup-data.js` | Backup database data | `node scripts/backup-data.js` |
+
+---
 
 ### 📈 Edge Calculation (`scripts/`)
 
@@ -96,55 +151,30 @@ node scripts/check-validation-status.js
 | `calculate-game-edges.js` | Calculate game betting edges (ML, totals) | `node scripts/calculate-game-edges.js` |
 | `calculate-prop-edges.js` | Calculate player prop edges | `node scripts/calculate-prop-edges.js` |
 | `clear-edge-snapshots.js` | Clear old edge data | `node scripts/clear-edge-snapshots.js` |
+| `find-real-value-props.js` | Line shopping for real edges | `node scripts/find-real-value-props.js` |
 
-#### 🧮 Edge Calculation System Details
+⚠️ **Requires `SUPABASE_SECRET_KEY` in `.env.local`**
 
-**What `calculate-game-edges.js` Does:**
-1. Fetches today's scheduled games from database
-2. Gets latest odds for each game (h2h, spreads, totals)
-3. Calculates edges using sport-specific models:
-   - **MLB**: Uses pitcher stats, park factors, team offense/defense
-   - **NFL/NHL**: Uses team records, recent form, home/away splits
-4. Saves results to `EdgeSnapshot` table
+---
 
-**Edge Types Calculated:**
-- `edgeMlHome` - Home team moneyline edge
-- `edgeMlAway` - Away team moneyline edge
-- `edgeTotalO` - Over total edge
-- `edgeTotalU` - Under total edge
-
-**Threshold:** Edges below 2% (ML) or 1% (totals) are not saved
-
-**Key Libraries:**
-- `lib/edge.js` - MLB edge model (uses Pythagorean expectation, park factors)
-- `lib/edge-nfl-nhl.js` - NFL/NHL model (team strength, recent form, venue)
-- `lib/implied.js` - Odds conversion utilities
-
-**When to Run:**
-```bash
-# After fetching odds in the morning
-node scripts/fetch-fresh-games.js all
-node scripts/fetch-live-odds.js all
-node scripts/calculate-game-edges.js   # <-- After odds are fetched
-```
-
-### 🏈 NFL-Specific (`scripts/`)
+### 🏒 PPP (Power Play Points) Analysis (`scripts/`)
 
 | Script | Purpose | Usage |
 |--------|---------|-------|
-| `populate-nfl-rosters.js` | Fetch NFL rosters | `node scripts/populate-nfl-rosters.js` |
-| `populate-nfl-rosters-now.js` | Immediate roster fetch | `node scripts/populate-nfl-rosters-now.js` |
-| `map-nfl-week-11-to-odds-api.js` | Map NFL games to Odds API | `node scripts/map-nfl-week-11-to-odds-api.js` |
+| `analyze-ppp-performance.js` | Full PPP analysis with ROI calculations | `node scripts/analyze-ppp-performance.js` |
+| `deep-ppp-analysis.js` | Detailed risk analysis for PPP | `node scripts/deep-ppp-analysis.js` |
+| `test-ppp-monitor.js` | Test PPP health monitoring | `node scripts/test-ppp-monitor.js` |
 
-### 🏒 NHL-Specific (`scripts/`)
+**PPP Key Metrics (Dec 2025):**
+- Win Rate: 95.8%
+- ROI: +10.5%
+- Breakeven Threshold: 89%
+- ⚠️ High variance: 1 loss = 9 wins to recover
 
-| Script | Purpose | Usage |
-|--------|---------|-------|
-| `fix-nhl-game-times-from-espn.js` | Fix NHL times from ESPN | `node scripts/fix-nhl-game-times-from-espn.js` |
-| `fix-nhl-dates-and-cleanup.js` | Fix dates and cleanup | `node scripts/fix-nhl-dates-and-cleanup.js` |
-| `nhl-time-fix-master.js` | Master NHL time fixer | `node scripts/nhl-time-fix-master.js` |
-| `quick-nhl-status.js` | Quick NHL status check | `node scripts/quick-nhl-status.js` |
-| `revalidate-nhl-props.js` | Revalidate NHL props | `node scripts/revalidate-nhl-props.js` |
+**PPP Filters Applied:**
+- Parlays: ALL PPP Unders excluded (only Overs allowed)
+- Editor's Picks: Under 0.5 PPP and heavily juiced (>85% implied) excluded
+- UI: Warning labels shown for PPP props
 
 ---
 
@@ -160,34 +190,6 @@ Located in `operations/` - NOT pushed to GitHub (contains API keys)
 | `fetch-team-performance-data.js` | Team stats from ESPN | `node operations/fetch-team-performance-data.js` |
 | `update-scores-safely.js` | Live score updates | `node operations/update-scores-safely.js` |
 | `sync-today-games.js` | Sync today's games | `node operations/sync-today-games.js` |
-
-### Weekly NFL Operations
-
-| Script | Purpose | Usage |
-|--------|---------|-------|
-| `fetch-nfl-week-12.js` | Fetch NFL week games | `node operations/fetch-nfl-week-12.js` |
-| `map-nfl-week-12-to-odds-api.js` | Map NFL to Odds API | `node operations/map-nfl-week-12-to-odds-api.js` |
-
-### NHL Operations
-
-| Script | Purpose | Usage |
-|--------|---------|-------|
-| `run-nhl-fetch.js` | NHL fetch wrapper | `node operations/run-nhl-fetch.js` |
-| `run-nhl-remap.js` | NHL remap wrapper | `node operations/run-nhl-remap.js` |
-| `remap-nhl-event-ids.js` | Remap NHL event IDs | `node operations/remap-nhl-event-ids.js` |
-| `fix-det-nyr-time.js` | Fix specific game time | `node operations/fix-det-nyr-time.js` |
-| `fix-nhl-games-11-17.js` | Fix Nov 17 NHL games | `node operations/fix-nhl-games-11-17.js` |
-| `fix-today-nhl-times.js` | Fix today's NHL times | `node operations/fix-today-nhl-times.js` |
-
-### Verification & Debugging
-
-| Script | Purpose | Usage |
-|--------|---------|-------|
-| `check-all-mismatches.js` | Check for data mismatches | `node operations/check-all-mismatches.js` |
-| `check-validation-status.js` | Validation status check | `node operations/check-validation-status.js` |
-| `check-game-data.js` | Check game data | `node operations/check-game-data.js` |
-| `check-team-data.js` | Check team data | `node operations/check-team-data.js` |
-| `investigate-odds-api.js` | Debug Odds API issues | `node operations/investigate-odds-api.js` |
 
 ---
 
@@ -212,81 +214,11 @@ Located in `operations/` - NOT pushed to GitHub (contains API keys)
 | `lib/vendors/nfl-game-stats.js` | NFL stat fetching from ESPN |
 | `lib/vendors/mlb-game-stats.js` | MLB stat fetching |
 
-### Validation API Endpoints
-
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/validation` | GET | Get validation records |
-| `/api/validation/check` | GET | Check validation status |
-| `/api/validation/update-result` | POST | Update validation result |
-| `/api/training/validate` | POST | Validate training props |
-
 ### Validation Statuses
 
 - `pending` - Awaiting game completion
 - `completed` - Result determined (correct/incorrect/push)
 - `needs_review` - Requires manual review
-
----
-
-## 🌐 API Endpoints
-
-### Game Data
-
-| Endpoint | Purpose |
-|----------|---------|
-| `/api/games/today` | Get today's games |
-| `/api/games/[id]` | Get specific game details |
-| `/api/games/live-scores` | Get live scores |
-| `/api/live-scoring` | WebSocket-style live updates |
-
-### NHL
-
-| Endpoint | Purpose |
-|----------|---------|
-| `/api/nhl/fetch-games` | Fetch NHL games |
-| `/api/nhl/matchups` | Get NHL matchups |
-| `/api/nhl/diagnose` | Debug NHL data issues |
-| `/api/nhl/fix-and-fetch` | Fix and refetch NHL data |
-
-### NFL
-
-| Endpoint | Purpose |
-|----------|---------|
-| `/api/nfl/games` | Get NFL games |
-| `/api/nfl/matchups` | Get NFL matchups |
-| `/api/nfl/roster` | Get NFL rosters |
-| `/api/nfl/props-advanced` | Advanced NFL props |
-| `/api/nfl/refresh-current-week` | Refresh current week |
-
-### Props & Parlays
-
-| Endpoint | Purpose |
-|----------|---------|
-| `/api/props` | Get player props |
-| `/api/props/save` | Save prop picks |
-| `/api/parlays/generate` | Generate parlays |
-| `/api/parlays/save` | Save parlay |
-| `/api/parlays/history` | Get parlay history |
-| `/api/parlays/validate` | Validate parlay |
-
-### Data Management
-
-| Endpoint | Purpose |
-|----------|---------|
-| `/api/data/refresh` | Refresh all data |
-| `/api/data/background-refresh` | Background data refresh |
-| `/api/cron/refresh-slate` | Cron job: refresh slate |
-| `/api/cron/live-refresh` | Cron job: live updates |
-
-### Export/Import
-
-| Endpoint | Purpose |
-|----------|---------|
-| `/api/export/parlays` | Export parlays |
-| `/api/export/stats` | Export stats |
-| `/api/import/all-data` | Import all data |
-| `/api/import/validation-data` | Import validation data |
 
 ---
 
@@ -310,8 +242,9 @@ Located in `operations/` - NOT pushed to GitHub (contains API keys)
            ┌──────────────┐        ┌──────────────────┐
            │  Odds Table  │        │ PlayerPropCache  │
            │  (h2h/spread │        │ (Player props)   │
-           │   /totals)   │        └──────────────────┘
-           └──────────────┘
+           │   /totals)   │        │ gameTime from    │
+           └──────────────┘        │ Game.date!       │
+                                   └──────────────────┘
 ```
 
 ### Key Database Tables
@@ -321,44 +254,87 @@ Located in `operations/` - NOT pushed to GitHub (contains API keys)
 | `Game` | All games (NFL, NHL, MLB) |
 | `Team` | Team information |
 | `Odds` | Game odds (moneyline, spreads, totals) |
-| `PlayerPropCache` | Cached player props |
+| `PlayerPropCache` | Cached player props (with `gameTime` field!) |
 | `PropValidation` | Prop prediction tracking |
 | `Parlay` | Saved parlays |
+| `EdgeSnapshot` | Calculated betting edges |
 
-### Important ID Fields
+### Important PlayerPropCache Fields
 
 | Field | Purpose |
 |-------|---------|
-| `id` | Our internal game ID (format: `AWAY_at_HOME_YYYY-MM-DD`) |
-| `espnGameId` | ESPN's game identifier |
-| `oddsApiEventId` | The Odds API event identifier |
-| `mlbGameId` | MLB-specific game ID |
+| `gameId` | Links to Game.id |
+| `gameTime` | **CRITICAL:** Used for filtering future props |
+| `expiresAt` | When the cache expires |
+| `isStale` | Manually marked as stale |
 
 ---
 
-## 🔍 Troubleshooting Scripts
+## 🔍 Troubleshooting
 
-### Root Directory Check Scripts
+### Yesterday's Props Still Showing?
+```bash
+# This is the most common issue - run this first!
+node scripts/clear-stale-props.js
 
-| Script | Purpose | Usage |
-|--------|---------|-------|
-| `check-games.js` | Check game data | `node check-games.js` |
-| `check-props-db.js` | Check props in DB | `node check-props-db.js` |
-| `check-props-count.js` | Count props | `node check-props-count.js` |
-| `check-odds-api-today.js` | Check today's odds API data | `node check-odds-api-today.js` |
-| `check-today-mapping.js` | Check today's game mapping | `node check-today-mapping.js` |
-| `check-espn-nhl.js` | Check ESPN NHL data | `node check-espn-nhl.js` |
-| `check-nhl-18-games.js` | Check NHL games for 18th | `node check-nhl-18-games.js` |
-| `check-validation-discrepancy.js` | Check validation issues | `node check-validation-discrepancy.js` |
-| `check-production-parlays.js` | Check production parlays | `node check-production-parlays.js` |
-| `check-remaining-parlays.js` | Check remaining parlays | `node check-remaining-parlays.js` |
+# Check what's still in cache with past gameTime
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+require('dotenv').config({ path: '.env.local' });
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
+async function check() {
+  const now = new Date().toISOString();
+  const { data } = await supabase.from('PlayerPropCache').select('playerName, gameTime, sport').lt('gameTime', now).limit(5);
+  console.log('Props with past gameTime:', data?.length || 0);
+  data?.forEach(p => console.log('-', p.playerName, p.sport, p.gameTime));
+}
+check();
+"
+```
 
-### Debug Scripts
+### NHL Props Not Showing on Picks Page?
+```bash
+# Clear and re-fetch with --cache-fresh
+node scripts/clear-stale-props.js
+node scripts/fetch-live-odds.js nhl --cache-fresh
+```
 
-| Script | Purpose |
-|--------|---------|
-| `debug-fetch-query.js` | Debug fetch queries |
-| `debug-parlay-validation.js` | Debug parlay validation |
+### Props Have Wrong gameTime?
+The `gameTime` is set from `Game.date` when props are fetched. If it's wrong:
+1. Check that `Game.date` is correct in the database
+2. Re-fetch with `--cache-fresh` flag
+
+### No Games Showing?
+```bash
+node scripts/list-nhl-games.js
+node scripts/fetch-fresh-games.js all
+```
+
+---
+
+## 🔑 Environment Variables Required
+
+```env
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+SUPABASE_SECRET_KEY=your_service_role_key  # REQUIRED for write operations!
+
+# The Odds API
+ODDS_API_KEY=your_odds_api_key
+ODDS_API_QUOTA=20000  # Monthly quota
+```
+
+---
+
+## 📝 Important Notes
+
+1. **Order Matters**: Clear stale → Fetch games → Fetch odds
+2. **Clear Stale Props DAILY**: Run before fetching new odds
+3. **Use --cache-fresh in Morning**: Ensures proper gameTime mapping
+4. **SUPABASE_SECRET_KEY Required**: For clear-stale-props, fetch-live-odds, calculate-game-edges
+5. **Rate Limiting**: Odds API has limits - don't run too frequently
+6. **Timezone**: All times stored in UTC, displayed in EST
 
 ---
 
@@ -371,72 +347,23 @@ npm run dev  # Start Next.js dev server
 
 ### Full Daily Refresh (Copy & Paste)
 ```bash
-# Morning - before games
-node scripts/fetch-fresh-games.js all
-node scripts/fetch-live-odds.js all
-node scripts/calculate-game-edges.js    # Calculate betting edges
+# Morning - before games (RUN IN ORDER!)
+node scripts/clear-stale-props.js           # Step 0: Clear stale
+node scripts/fetch-fresh-games.js all       # Step 1: Fetch games
+node scripts/fetch-live-odds.js all --cache-fresh  # Step 2: Fetch odds
+node scripts/calculate-game-edges.js        # Step 3: Calculate edges
 
 # During games (run every 15-30 min)
 node scripts/update-scores-safely.js all
 
 # After games complete
-node scripts/validate-pending-props.js
-```
+npm run validate:all
 
-### Check System Status
-```bash
-# Check games
-node scripts/list-nhl-games.js
-
-# Check validation
-node scripts/check-validation-status.js
-
-# Check props
-node check-props-count.js
-```
-
-### Fix Common Issues
-```bash
-# Fix NHL times
-node scripts/fix-nhl-game-times-from-espn.js
-
-# Remove duplicates
-node scripts/remove-duplicate-games-by-espn-id.js
-
-# Force fresh odds fetch
-node scripts/fetch-live-odds.js nhl --cache-fresh
+# End of day
+node scripts/clear-stale-props.js
 ```
 
 ---
 
-## 📝 Important Notes
-
-1. **Order Matters**: Always fetch games BEFORE odds
-2. **Wait Between Steps**: Don't run odds script until games script finishes
-3. **Rate Limiting**: Odds API has limits - don't run too frequently
-4. **Cache**: Props cache for 24h, odds cache for 1h
-5. **Duplicates**: Scripts handle duplicates automatically
-6. **Timezone**: All times stored in UTC, displayed in EST
-
----
-
-## 🔑 Environment Variables Required
-
-```env
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_key
-
-# The Odds API
-ODDS_API_KEY=your_odds_api_key
-ODDS_API_QUOTA=20000  # Monthly quota
-
-# Optional
-DATABASE_URL=your_database_url
-```
-
----
-
-*Last Updated: November 2025*
-
+*Last Updated: December 17, 2025*
+*Key Fix: Added daily clear-stale-props.js and fixed gameTime mapping*

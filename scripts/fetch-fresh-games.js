@@ -24,19 +24,80 @@ const supabase = createClient(
   process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
-// ESPN sport IDs - CORRECTED
+// ESPN sport IDs
 const SPORT_MAP = {
+  'mlb': { sportType: 'baseball', league: 'mlb' },
   'nfl': { sportType: 'football', league: 'nfl' },
   'nhl': { sportType: 'hockey', league: 'nhl' }
 }
 
-const TEAM_MAP = {
-  // MLB teams
-  'LAD': 25, 'TOR': 141, 'NYM': 121, 'WSH': 145,
-  // NFL teams  
-  'KC': 12, 'BUF': 25, 'DEN': 25, 'HOU': 25,
-  // NHL teams
-  'BOS': 1, 'CAR': 25
+const ESPN_HEADERS = {
+  'User-Agent': 'OddsOnDeck/1.0'
+}
+
+function formatDateForESPN(date) {
+  return date.toISOString().split('T')[0].replace(/-/g, '')
+}
+
+function getNFLWeekBounds(referenceDate = new Date()) {
+  const today = new Date(
+    referenceDate.getFullYear(),
+    referenceDate.getMonth(),
+    referenceDate.getDate()
+  )
+  const dayOfWeek = today.getDay()
+  const weekStart = new Date(today)
+
+  if (dayOfWeek === 2) {
+    // Tuesday -> upcoming Thursday
+    weekStart.setDate(today.getDate() + 2)
+  } else if (dayOfWeek === 3) {
+    // Wednesday -> upcoming Thursday
+    weekStart.setDate(today.getDate() + 1)
+  } else if (dayOfWeek === 4) {
+    // Thursday -> current week
+    weekStart.setDate(today.getDate())
+  } else if (dayOfWeek === 5) {
+    weekStart.setDate(today.getDate() - 1)
+  } else if (dayOfWeek === 6) {
+    weekStart.setDate(today.getDate() - 2)
+  } else if (dayOfWeek === 0) {
+    weekStart.setDate(today.getDate() - 3)
+  } else if (dayOfWeek === 1) {
+    weekStart.setDate(today.getDate() - 4)
+  }
+
+  weekStart.setHours(0, 0, 0, 0)
+  const weekEnd = new Date(weekStart)
+  weekEnd.setDate(weekStart.getDate() + 4) // Thursday -> Monday
+  weekEnd.setHours(23, 59, 59, 999)
+
+  return { weekStart, weekEnd }
+}
+
+function getDatesBetween(start, end) {
+  const dates = []
+  const current = new Date(start)
+
+  while (current <= end) {
+    dates.push(new Date(current))
+    current.setDate(current.getDate() + 1)
+  }
+
+  return dates
+}
+
+async function fetchScoreboardJson(url) {
+  const response = await fetch(url, {
+    headers: ESPN_HEADERS
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`ESPN API error: ${response.status} - ${text}`)
+  }
+
+  return response.json()
 }
 
 async function fetchGamesFromESPN(sport, date) {
@@ -57,36 +118,26 @@ async function fetchGamesFromESPN(sport, date) {
       for (let i = 0; i < 7; i++) {
         const targetDate = new Date(today)
         targetDate.setDate(today.getDate() + i)
-        const dateStr = targetDate.toISOString().split('T')[0].replace(/-/g, '')
-        // Store the queried date (YYYY-MM-DD) for use when creating game records
+        const dateStr = formatDateForESPN(targetDate)
         const queriedDateStr = targetDate.toISOString().split('T')[0]
-        
         const url = `https://site.api.espn.com/apis/site/v2/sports/${sportInfo.sportType}/${sportInfo.league}/scoreboard?dates=${dateStr}`
         
         try {
-          const response = await fetch(url, {
-            headers: { 'User-Agent': 'OddsOnDeck/1.0' }
-          })
-          
-          if (response.ok) {
-            const data = await response.json()
-            const events = data.events || []
-            if (events.length > 0) {
-              // Attach the queried date to each event so we can use it later
-              const eventsWithDate = events.map(event => ({
-                ...event,
-                _queriedDate: queriedDateStr // Store the date we queried for
-              }))
-              allEvents = [...allEvents, ...eventsWithDate]
-              console.log(`  📅 ${targetDate.toLocaleDateString()}: ${events.length} games`)
-            }
+          const data = await fetchScoreboardJson(url)
+          const events = data.events || []
+          if (events.length > 0) {
+            const eventsWithDate = events.map(event => ({
+              ...event,
+              _queriedDate: queriedDateStr
+            }))
+            allEvents = [...allEvents, ...eventsWithDate]
+            console.log(`  📅 ${targetDate.toLocaleDateString()}: ${events.length} games`)
           }
-          
-          // Small delay to avoid rate limiting
-          await new Promise(r => setTimeout(r, 200))
         } catch (error) {
           console.warn(`  ⚠️  Error fetching ${targetDate.toLocaleDateString()}: ${error.message}`)
         }
+        
+        await new Promise(r => setTimeout(r, 200))
       }
       
       // Remove duplicates by event ID
@@ -97,71 +148,88 @@ async function fetchGamesFromESPN(sport, date) {
       console.log(`📅 Total games across next 7 days: ${uniqueEvents.length}`)
       allEvents = uniqueEvents
       
+    } else if (sport === 'nfl') {
+      let eventsForWeek = []
+      if (date) {
+        const requestedDate = new Date(date)
+        if (Number.isNaN(requestedDate.getTime())) {
+          throw new Error(`Invalid date: ${date}`)
+        }
+        const dateStr = formatDateForESPN(requestedDate)
+        const url = `https://site.api.espn.com/apis/site/v2/sports/${sportInfo.sportType}/${sportInfo.league}/scoreboard?dates=${dateStr}`
+        
+        console.log(`📡 URL: ${url}`)
+        const data = await fetchScoreboardJson(url)
+        const events = data.events || []
+        console.log(`📅 Found ${events.length} games for ${requestedDate.toLocaleDateString()}`)
+        eventsForWeek.push(...events)
+      } else {
+        const { weekStart, weekEnd } = getNFLWeekBounds(new Date())
+        console.log(`📅 Fetching NFL week: ${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}`)
+        const datesToFetch = getDatesBetween(weekStart, weekEnd)
+
+        for (const targetDate of datesToFetch) {
+          const dateStr = formatDateForESPN(targetDate)
+          const url = `https://site.api.espn.com/apis/site/v2/sports/${sportInfo.sportType}/${sportInfo.league}/scoreboard?dates=${dateStr}`
+          
+          try {
+            const data = await fetchScoreboardJson(url)
+            const events = data.events || []
+            if (events.length > 0) {
+              eventsForWeek.push(...events)
+              console.log(`  📅 ${targetDate.toLocaleDateString()}: ${events.length} games`)
+            }
+          } catch (error) {
+            console.warn(`  ⚠️  Error fetching ${targetDate.toLocaleDateString()}: ${error.message}`)
+          }
+
+          await new Promise(r => setTimeout(r, 200))
+        }
+
+        const uniqueEvents = Array.from(
+          new Map(eventsForWeek.map(event => [event.id, event])).values()
+        )
+        eventsForWeek = uniqueEvents
+        console.log(`📅 Total unique games found: ${eventsForWeek.length}`)
+      }
+
+      allEvents = eventsForWeek
+    } else if (sport === 'mlb') {
+      const now = new Date()
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      
+      for (let i = 0; i < 3; i++) {
+        const targetDate = new Date(today)
+        targetDate.setDate(today.getDate() + i)
+        const dateStr = formatDateForESPN(targetDate)
+        const url = `https://site.api.espn.com/apis/site/v2/sports/${sportInfo.sportType}/${sportInfo.league}/scoreboard?dates=${dateStr}`
+        
+        try {
+          const data = await fetchScoreboardJson(url)
+          const events = data.events || []
+          if (events.length > 0) {
+            allEvents = [...allEvents, ...events]
+            console.log(`  📅 ${targetDate.toLocaleDateString()}: ${events.length} games`)
+          }
+        } catch (error) {
+          console.warn(`  ⚠️  Error fetching ${targetDate.toLocaleDateString()}: ${error.message}`)
+        }
+        
+        await new Promise(r => setTimeout(r, 200))
+      }
+      
+      const uniqueEvents = Array.from(
+        new Map(allEvents.map(event => [event.id, event])).values()
+      )
+      console.log(`📅 Total MLB games across next 3 days: ${uniqueEvents.length}`)
+      allEvents = uniqueEvents
     } else {
-      // NFL and other sports: Use scoreboard endpoint
       const url = `https://site.api.espn.com/apis/site/v2/sports/${sportInfo.sportType}/${sportInfo.league}/scoreboard`
       
       console.log(`📡 URL: ${url}`)
       
-      const response = await fetch(url)
-      if (!response.ok) {
-        const text = await response.text()
-        throw new Error(`ESPN API error: ${response.status} - ${text}`)
-      }
-      
-      const data = await response.json()
+      const data = await fetchScoreboardJson(url)
       allEvents = data.events || []
-    }
-    
-    // Filter by date for NFL
-    const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    
-    if (sport === 'nfl') {
-      // NFL: Current WEEK's games (Thursday to Monday)
-      // NFL week runs Thursday Night Football → Sunday slate → Monday Night Football
-      // If we're on Tuesday/Wednesday, fetch the upcoming week (next Thu-Mon)
-      const dayOfWeek = now.getDay()
-      let weekStart, weekEnd
-      
-      if (dayOfWeek === 2 || dayOfWeek === 3) {
-        // Tuesday or Wednesday - fetch upcoming week (next Thursday to next Monday)
-        const daysUntilThursday = dayOfWeek === 2 ? 2 : 1
-        weekStart = new Date(today)
-        weekStart.setDate(today.getDate() + daysUntilThursday)
-        weekEnd = new Date(weekStart)
-        weekEnd.setDate(weekStart.getDate() + 5)
-        weekEnd.setDate(weekEnd.getDate() - 1) // Go back to Monday
-        weekEnd.setHours(23, 59, 59)
-      } else {
-        // Thursday through Monday - fetch current week
-        if (dayOfWeek === 4) {
-          weekStart = new Date(today)
-        } else if (dayOfWeek === 0) {
-          weekStart = new Date(today)
-          weekStart.setDate(today.getDate() - 3) // Go back to Thursday
-        } else if (dayOfWeek === 1) {
-          weekStart = new Date(today)
-          weekStart.setDate(today.getDate() - 4) // Go back to Thursday
-        } else if (dayOfWeek === 5) {
-          weekStart = new Date(today)
-          weekStart.setDate(today.getDate() - 1) // Go back to Thursday
-        } else if (dayOfWeek === 6) {
-          weekStart = new Date(today)
-          weekStart.setDate(today.getDate() - 2) // Go back to Thursday
-        }
-        
-        weekEnd = new Date(weekStart)
-        weekEnd.setDate(weekStart.getDate() + 5)
-        weekEnd.setDate(weekEnd.getDate() - 1) // Go back to Monday
-        weekEnd.setHours(23, 59, 59)
-      }
-      
-      allEvents = allEvents.filter(event => {
-        const gameDate = new Date(event.date)
-        return gameDate >= weekStart && gameDate <= weekEnd
-      })
-      console.log(`📅 Filtered to THIS WEEK's games (Thu-Mon: ${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}): ${allEvents.length}`)
     }
     
     console.log(`✅ Found ${allEvents.length} ${sport.toUpperCase()} games`)
@@ -272,6 +340,21 @@ async function fetchGamesFromESPN(sport, date) {
         const typeId = event.status?.type?.id?.toString()
         const typeName = event.status?.type?.name
         gameStatus = statusMap[typeId] || statusMap[typeName] || 'scheduled'
+      } else if (sport === 'mlb') {
+        const statusMap = {
+          '1': 'scheduled',
+          '2': 'in_progress',
+          '3': 'final',
+          'STATUS_SCHEDULED': 'scheduled',
+          'STATUS_IN_PROGRESS': 'in_progress',
+          'STATUS_FINAL': 'final',
+          'STATUS_RAIN_DELAY': 'delayed',
+          'STATUS_POSTPONED': 'postponed',
+          'STATUS_WARMUP': 'scheduled'
+        }
+        const typeId = event.status?.type?.id?.toString()
+        const typeName = event.status?.type?.name
+        gameStatus = statusMap[typeId] || statusMap[typeName] || 'scheduled'
       } else {
         // For other sports, just normalize
         gameStatus = gameStatus.toLowerCase().replace(/^status_/i, '')
@@ -286,13 +369,67 @@ async function fetchGamesFromESPN(sport, date) {
         awayId: awayId,
         homeScore: home?.score ? parseInt(home.score) : null,
         awayScore: away?.score ? parseInt(away.score) : null,
-        espnGameId: event.id // Store original ESPN ID separately
+        espnGameId: event.id, // Store original ESPN ID separately
+        _homeTeam: home?.team,
+        _awayTeam: away?.team
       }
     })
   } catch (error) {
     console.error(`❌ Error fetching ${sport}:`, error.message)
     return []
   }
+}
+
+async function ensureTeamsExist(sport, games) {
+  const prefix = sport.toUpperCase() + '_'
+
+  const { data: existingTeams } = await supabase
+    .from('Team')
+    .select('id, abbr')
+    .eq('sport', sport.toLowerCase())
+
+  const abbrToId = {}
+  if (existingTeams) {
+    existingTeams.forEach(t => { abbrToId[t.abbr] = t.id })
+  }
+
+  const teamsToCreate = []
+  const espnIdMap = {}
+
+  for (const game of games) {
+    for (const team of [game._homeTeam, game._awayTeam]) {
+      if (!team) continue
+      const abbr = team.abbreviation || team.abbr
+      const espnId = `${prefix}${team.id}`
+      if (!abbr) continue
+
+      if (abbrToId[abbr]) {
+        espnIdMap[espnId] = abbrToId[abbr]
+      } else if (!teamsToCreate.find(t => t.abbr === abbr)) {
+        teamsToCreate.push({
+          id: espnId,
+          name: team.displayName || team.name || team.shortDisplayName || 'Unknown',
+          abbr,
+          sport: sport.toLowerCase()
+        })
+        abbrToId[abbr] = espnId
+        espnIdMap[espnId] = espnId
+      }
+    }
+  }
+
+  if (teamsToCreate.length > 0) {
+    console.log(`  👥 Creating ${teamsToCreate.length} new ${sport.toUpperCase()} teams...`)
+    const { error } = await supabase.from('Team').upsert(teamsToCreate, { onConflict: 'id' })
+    if (error) console.error(`  ❌ Error creating teams: ${error.message}`)
+  }
+
+  for (const game of games) {
+    if (game.homeId && espnIdMap[game.homeId]) game.homeId = espnIdMap[game.homeId]
+    if (game.awayId && espnIdMap[game.awayId]) game.awayId = espnIdMap[game.awayId]
+  }
+
+  console.log(`  ✅ ${Object.keys(abbrToId).length} ${sport.toUpperCase()} teams mapped`)
 }
 
 async function saveToSupabase(sport, games) {
@@ -302,6 +439,9 @@ async function saveToSupabase(sport, games) {
   }
 
   try {
+    await ensureTeamsExist(sport, games)
+    games = games.map(({ _homeTeam, _awayTeam, ...g }) => g)
+
     console.log(`💾 Saving ${games.length} ${sport.toUpperCase()} games to Supabase...`)
     
     // Use UPSERT to update existing games or create new ones

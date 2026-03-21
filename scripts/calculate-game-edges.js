@@ -14,10 +14,23 @@ function generateId() {
   return crypto.randomBytes(12).toString('base64url')
 }
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY
+
+if (!supabaseUrl) {
+  throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL environment variable')
+}
+
+if (!supabaseSecretKey) {
+  throw new Error('Missing SUPABASE_SECRET_KEY environment variable needed to bypass EdgeSnapshot RLS')
+}
+
+const supabase = createClient(supabaseUrl, supabaseSecretKey, {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false
+  }
+})
 
 console.log('\n🎲 Calculating Game Edges for Today\'s Games...\n')
 

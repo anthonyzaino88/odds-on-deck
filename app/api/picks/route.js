@@ -9,6 +9,10 @@ export const revalidate = 0
 
 export async function GET(request) {
   try {
+    if (!supabase) {
+      return NextResponse.json({ success: false, error: 'Database not configured. Check Supabase environment variables.' }, { status: 500 })
+    }
+
     const { searchParams } = new URL(request.url)
     const mode = searchParams.get('mode') || 'safe'
     const includeInsights = searchParams.get('insights') !== 'false' // Default to true

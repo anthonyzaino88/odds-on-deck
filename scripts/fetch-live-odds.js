@@ -64,12 +64,15 @@ const NFL_PROP_MARKETS = [
 
 const MLB_PROP_MARKETS = [
   'batter_hits', 'batter_home_runs', 'pitcher_strikeouts',
-  'pitcher_walks', 'batter_rbi', 'batter_singles', 'batter_doubles'
+  'pitcher_walks', 'batter_singles', 'batter_doubles',
+  'batter_total_bases', 'batter_runs_scored', 'batter_stolen_bases',
+  'pitcher_outs'
 ]
 
 const NHL_PROP_MARKETS = [
-  'player_points', 'player_assists', 'player_shots_on_goal',
-  'player_power_play_points', 'player_blocked_shots'
+  'player_goals', 'player_goal_scorer_anytime',
+  'player_points', 'player_assists',
+  'player_shots_on_goal', 'player_blocked_shots'
 ]
 
 // ============================================================================
@@ -125,6 +128,19 @@ const FULL_NAME_TO_ABBR = {
     'st. louis blues': 'STL', 'tampa bay lightning': 'TB', 'toronto maple leafs': 'TOR',
     'utah mammoth': 'UTA', 'utah': 'UTA', 'vancouver canucks': 'VAN',
     'vegas golden knights': 'VGK', 'washington capitals': 'WSH', 'winnipeg jets': 'WPG'
+  },
+  mlb: {
+    'arizona diamondbacks': 'ARI', 'atlanta braves': 'ATL', 'baltimore orioles': 'BAL',
+    'boston red sox': 'BOS', 'chicago cubs': 'CHC', 'chicago white sox': 'CHW',
+    'cincinnati reds': 'CIN', 'cleveland guardians': 'CLE', 'colorado rockies': 'COL',
+    'detroit tigers': 'DET', 'houston astros': 'HOU', 'kansas city royals': 'KC',
+    'los angeles angels': 'LAA', 'los angeles dodgers': 'LAD', 'miami marlins': 'MIA',
+    'milwaukee brewers': 'MIL', 'minnesota twins': 'MIN', 'new york mets': 'NYM',
+    'new york yankees': 'NYY', 'athletics': 'ATH', 'oakland athletics': 'ATH',
+    'philadelphia phillies': 'PHI', 'pittsburgh pirates': 'PIT', 'san diego padres': 'SD',
+    'san francisco giants': 'SF', 'seattle mariners': 'SEA', 'st louis cardinals': 'STL',
+    'st. louis cardinals': 'STL', 'tampa bay rays': 'TB', 'texas rangers': 'TEX',
+    'toronto blue jays': 'TOR', 'washington nationals': 'WSH'
   }
 }
 
@@ -152,6 +168,18 @@ const TEAM_ABBREVIATIONS = {
     'san jose': 'SJS', 'seattle': 'SEA', 'st louis': 'STL', 'st. louis': 'STL',
     'tampa bay': 'TB', 'toronto': 'TOR', 'utah': 'UTA', 'vancouver': 'VAN',
     'vegas': 'VGK', 'washington': 'WSH', 'winnipeg': 'WPG'
+  },
+  mlb: {
+    'arizona': 'ARI', 'atlanta': 'ATL', 'baltimore': 'BAL', 'boston': 'BOS',
+    'chicago cubs': 'CHC', 'chicago white sox': 'CHW', 'cincinnati': 'CIN',
+    'cleveland': 'CLE', 'colorado': 'COL', 'detroit': 'DET', 'houston': 'HOU',
+    'kansas city': 'KC', 'los angeles angels': 'LAA', 'la angels': 'LAA',
+    'los angeles dodgers': 'LAD', 'la dodgers': 'LAD', 'miami': 'MIA',
+    'milwaukee': 'MIL', 'minnesota': 'MIN', 'new york mets': 'NYM', 'ny mets': 'NYM',
+    'new york yankees': 'NYY', 'ny yankees': 'NYY', 'oakland': 'ATH', 'athletics': 'ATH',
+    'philadelphia': 'PHI', 'pittsburgh': 'PIT', 'san diego': 'SD',
+    'san francisco': 'SF', 'seattle': 'SEA', 'st louis': 'STL', 'st. louis': 'STL',
+    'tampa bay': 'TB', 'texas': 'TEX', 'toronto': 'TOR', 'washington': 'WSH'
   }
 }
 
@@ -1070,15 +1098,93 @@ function oddsToImpliedProbability(decimalOdds) {
  * - Recent form (last 5-10 games)
  */
 function calculateOurProbability(pick, threshold, impliedProb) {
-  // For now, use bookmaker's probability directly (no fake edges)
-  // This is the honest approach until we have real data to back up adjustments
   return impliedProb
-  
-  // FUTURE: When we have historical data, use something like:
-  // const playerHitRate = getHistoricalHitRate(playerName, propType, threshold)
-  // const opponentFactor = getOpponentAdjustment(opponent, propType)
-  // const formFactor = getRecentForm(playerName, propType, last5Games)
-  // return weightedAverage([impliedProb, playerHitRate, opponentFactor, formFactor])
+}
+
+/**
+ * Build a real edge calculation using cross-bookmaker line shopping.
+ *
+ * For each unique prop (player/market/threshold/pick) we:
+ *   1. Collect decimal odds from every bookmaker
+ *   2. Remove vig by pairing Over/Under from the same book
+ *   3. Compute the market consensus (average vig-free probability)
+ *   4. Pick the best available price (highest decimal odds)
+ *   5. Edge = how much better the best price is vs. market consensus
+ *
+ * Returns a Map keyed by "playerName|market|threshold|pick" with the
+ * best-odds entry enriched with real edge and vig-free probability.
+ */
+function buildLineShoppingEdges(gameProps) {
+  // Accumulate every bookmaker's price for each unique prop
+  // key: "playerName|market.key|threshold|pick"
+  const propMap = new Map()
+
+  for (const { gameId, props } of gameProps) {
+    for (const bookmaker of props.bookmakers || []) {
+      for (const market of bookmaker.markets || []) {
+        for (const outcome of market.outcomes || []) {
+          const playerName = outcome.description || outcome.name
+          const line = outcome.point ?? (market.description ? parseFloat(market.description) : null)
+          const price = outcome.price
+          const pick = (outcome.name || '').toLowerCase()
+          if (!playerName || line == null || !price || !['over', 'under'].includes(pick)) continue
+
+          const baseKey = `${gameId}|${playerName}|${market.key}|${line}`
+          const fullKey = `${baseKey}|${pick}`
+
+          if (!propMap.has(fullKey)) {
+            propMap.set(fullKey, { baseKey, pick, prices: [], playerName, market: market.key, threshold: line })
+          }
+          propMap.get(fullKey).prices.push({ price, book: bookmaker.title })
+        }
+      }
+    }
+  }
+
+  // For vig removal we need Over/Under pairs from the same book
+  const edgeMap = new Map()
+
+  for (const [key, entry] of propMap) {
+    const oppositeKey = `${entry.baseKey}|${entry.pick === 'over' ? 'under' : 'over'}`
+    const opposite = propMap.get(oppositeKey)
+
+    // Vig-free probability: pair Over/Under from each book
+    const vigFreeProbabilities = []
+    for (const { price, book } of entry.prices) {
+      const counterpart = opposite?.prices.find(p => p.book === book)
+      if (counterpart) {
+        const totalImplied = (1 / price) + (1 / counterpart.price)
+        const vigFree = (1 / price) / totalImplied
+        vigFreeProbabilities.push(vigFree)
+      } else {
+        // No pair from same book — use raw implied with a small vig adjustment (~4.5%)
+        vigFreeProbabilities.push((1 / price) * 0.955)
+      }
+    }
+
+    if (vigFreeProbabilities.length === 0) continue
+
+    const consensusProb = vigFreeProbabilities.reduce((a, b) => a + b, 0) / vigFreeProbabilities.length
+
+    // Best available price = highest decimal odds (best payout)
+    const bestEntry = entry.prices.reduce((best, cur) => cur.price > best.price ? cur : best)
+    const bestImplied = 1 / bestEntry.price
+
+    // Edge: how much better the best price is compared to market consensus
+    // If consensus says 55% chance but the best book prices it as 50% → 10% edge
+    const edge = consensusProb > 0 ? (consensusProb - bestImplied) / consensusProb : 0
+
+    edgeMap.set(key, {
+      bestPrice: bestEntry.price,
+      bestBook: bestEntry.book,
+      consensusProb,
+      vigFreeProb: consensusProb,
+      edge: Math.max(0, edge),
+      numBooks: entry.prices.length
+    })
+  }
+
+  return edgeMap
 }
 
 /**
@@ -1090,10 +1196,16 @@ function calculateOurProbability(pick, threshold, impliedProb) {
  * Low confidence = Lower probability (but still might have value!)
  */
 function getConfidence(probability) {
-  if (probability >= 0.65) return 'high'      // 65%+ chance to hit
-  if (probability >= 0.50) return 'medium'    // 50-65% chance
-  if (probability >= 0.35) return 'low'       // 35-50% chance
-  return 'very_low'                            // <35% chance
+  if (probability >= 0.65) return 'high'
+  if (probability >= 0.50) return 'medium'
+  if (probability >= 0.35) return 'low'
+  return 'very_low'
+}
+
+function upgradeConfidence(current) {
+  const levels = ['very_low', 'low', 'medium', 'high', 'very_high']
+  const idx = levels.indexOf(current)
+  return idx < levels.length - 1 ? levels[idx + 1] : current
 }
 
 // ============================================================================
@@ -1108,7 +1220,7 @@ async function savePlayerProps(gameProps, sport) {
   const eventIds = gameProps.map(gp => gp.gameId)
   const { data: dbGames, error } = await supabase
     .from('Game')
-    .select('id, oddsApiEventId')
+    .select('id, oddsApiEventId, date')
     .eq('sport', sport)
     .in('oddsApiEventId', eventIds)
   
@@ -1117,45 +1229,65 @@ async function savePlayerProps(gameProps, sport) {
   }
   
   // Create lookup map
-  const eventIdToGameId = {}
+  const eventIdToGameData = {}
   if (dbGames) {
     dbGames.forEach(g => {
       if (g.oddsApiEventId) {
-        eventIdToGameId[g.oddsApiEventId] = g.id
+        eventIdToGameData[g.oddsApiEventId] = {
+          id: g.id,
+          date: g.date
+        }
       }
     })
   }
   
   // If direct lookup didn't find all, try broader query
-  if (Object.keys(eventIdToGameId).length < eventIds.length) {
+  if (Object.keys(eventIdToGameData).length < eventIds.length) {
     console.log(`  🔍 Direct lookup incomplete, trying broader query...`)
     const { data: allMappedGames } = await supabase
       .from('Game')
-      .select('id, oddsApiEventId')
+      .select('id, oddsApiEventId, date')  // Include date!
       .eq('sport', sport)
       .not('oddsApiEventId', 'is', null)
     
-    if (allMappedGames) {
-      allMappedGames.forEach(g => {
-        if (g.oddsApiEventId && eventIds.includes(g.oddsApiEventId) && !eventIdToGameId[g.oddsApiEventId]) {
-          eventIdToGameId[g.oddsApiEventId] = g.id
-        }
-      })
-    }
+      if (allMappedGames) {
+        allMappedGames.forEach(g => {
+          if (g.oddsApiEventId && eventIds.includes(g.oddsApiEventId) && !eventIdToGameData[g.oddsApiEventId]) {
+            eventIdToGameData[g.oddsApiEventId] = {
+              id: g.id,
+              date: g.date
+            }
+          }
+        })
+      }
   }
   
-  console.log(`  💾 Saving player props to database (${Object.keys(eventIdToGameId).length} games mapped out of ${eventIds.length} props)...`)
+  console.log(`  💾 Saving player props to database (${Object.keys(eventIdToGameData).length} games mapped out of ${eventIds.length} props)...`)
   
   let saved = 0
   let skipped = 0
   let errors = 0
   
-  // BATCH INSERT: Collect all props first, then insert in batches
+  // Build cross-bookmaker edge data BEFORE iterating
+  const edgeMap = buildLineShoppingEdges(gameProps)
+  const edgesWithValue = [...edgeMap.entries()].filter(([, e]) => e.edge > 0.01)
+  console.log(`    📈 Line shopping: ${edgeMap.size} props analyzed, ${edgesWithValue.length} with edge > 1%`)
+  if (edgesWithValue.length > 0) {
+    console.log(`    🔍 Top edges found:`)
+    edgesWithValue.sort((a, b) => b[1].edge - a[1].edge).slice(0, 10).forEach(([key, e]) => {
+      const parts = key.split('|')
+      const player = parts[1], mkt = parts[2], line = parts[3], pick = parts[4]
+      console.log(`      ${player.padEnd(22)} ${mkt.padEnd(20)} ${pick} ${line} → edge: ${(e.edge*100).toFixed(2)}% (${e.numBooks} books, best@${e.bestBook} at ${e.bestPrice})`)
+    })
+  }
+  
+  // BATCH INSERT: Collect best-odds version of each prop (deduplicated)
   const allPropsToInsert = []
+  const seenProps = new Set()
   
   for (const { gameId, props } of gameProps) {
-    // Look up our database game ID
-    const ourGameId = eventIdToGameId[gameId]
+    const mappedGame = eventIdToGameData[gameId]
+    const ourGameId = mappedGame?.id
     
     if (!ourGameId) {
       console.warn(`    ⚠️  No database game found for Odds API event ${gameId}`)
@@ -1166,10 +1298,6 @@ async function savePlayerProps(gameProps, sport) {
       for (const bookmaker of props.bookmakers || []) {
         for (const market of bookmaker.markets || []) {
           for (const outcome of market.outcomes || []) {
-            // NHL/MLB props structure:
-            // - outcome.description = player name (e.g., "Adam Fox")
-            // - outcome.name = "Over" or "Under"
-            // - outcome.point = threshold (e.g., 0.5 assists)
             const playerName = outcome.description || outcome.name
             const line = outcome.point || (market.description ? parseFloat(market.description) : null)
             const price = outcome.price
@@ -1186,26 +1314,54 @@ async function savePlayerProps(gameProps, sport) {
             
             const propId = `${ourGameId}-${playerName}-${market.key}-${line}-${pick}`
             
-            // Calculate edge and probability
-            const impliedProb = oddsToImpliedProbability(price)
-            const ourProb = calculateOurProbability(pick, line, impliedProb)
-            const edge = (ourProb - impliedProb) / impliedProb
+            // Only store the best-odds version of each prop (skip if already seen)
+            const edgeLookup = `${gameId}|${playerName}|${market.key}|${line}|${pick}`
+            const lineShop = edgeMap.get(edgeLookup)
             
-            // Note: Edge will be ~0% until we build a real model
-            // We're using bookmaker probabilities directly for now
-            // Skip only if edge is suspiciously high (data error)
+            if (seenProps.has(propId)) {
+              skipped++
+              continue
+            }
+            
+            const bestPrice = lineShop?.bestPrice || price
+            const bestBook = lineShop?.bestBook || bookmaker.title
+            const vigFreeProb = lineShop?.vigFreeProb || (1 / bestPrice) * 0.955
+            const edge = lineShop?.edge || 0
+            const numBooks = lineShop?.numBooks || 1
+            
             if (edge > 0.50) {
               skipped++
               continue
             }
             
-            const confidence = getConfidence(ourProb)
-            const qualityScore = calculateQualityScore({
-              probability: ourProb,
+            let confidence = getConfidence(vigFreeProb)
+            if (numBooks >= 5) confidence = 'high'
+            else if (numBooks >= 4 && edge > 0.01) confidence = 'high'
+            else if (numBooks >= 3) confidence = upgradeConfidence(confidence)
+            
+            let qualityScore = calculateQualityScore({
+              probability: vigFreeProb,
               edge: edge,
               confidence: confidence
             })
             
+            // "Under 0.5" on binary stats is trivially high probability with
+            // terrible juice (-250 to -900). No bettor takes these — heavily penalize.
+            if (pick === 'under' && line <= 0.5) {
+              qualityScore = qualityScore * 0.25
+            }
+            
+            // Boost commonly-bet, actionable prop types
+            if (market.key === 'player_goals' || market.key === 'player_goal_scorer_anytime') {
+              qualityScore = qualityScore * 1.15
+            }
+            // SOG at 2.5+ and points/assists over are the bread-and-butter NHL props
+            if (market.key === 'player_shots_on_goal' && line >= 2.5) {
+              qualityScore = qualityScore * 1.1
+            }
+            
+            seenProps.add(propId)
+            const gameTime = mappedGame?.date || new Date().toISOString()
             allPropsToInsert.push({
               id: generateId(),
               propId,
@@ -1214,14 +1370,14 @@ async function savePlayerProps(gameProps, sport) {
               type: market.key,
               pick,
               threshold: line,
-              odds: price,  // Store decimal odds (e.g., 1.91, 2.50)
-              probability: ourProb,
+              odds: bestPrice,
+              probability: vigFreeProb,
               edge: edge,
               confidence: confidence,
               qualityScore: qualityScore,
               sport,
-              bookmaker: bookmaker.title,
-              gameTime: new Date().toISOString(),
+              bookmaker: bestBook,
+              gameTime,
               fetchedAt: new Date().toISOString(),
               expiresAt: new Date(Date.now() + CACHE_DURATION.PROPS).toISOString(),
               isStale: false
@@ -1247,7 +1403,7 @@ async function savePlayerProps(gameProps, sport) {
         .from('PlayerPropCache')
         .upsert(batch, { 
           onConflict: 'propId',
-          ignoreDuplicates: true 
+          ignoreDuplicates: false 
         })
       
       if (error) {

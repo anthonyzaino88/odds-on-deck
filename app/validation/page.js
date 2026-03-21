@@ -101,7 +101,10 @@ export default async function ValidationDashboard() {
               {stats.total > 0 ? `${(stats.roi * 100).toFixed(1)}%` : 'N/A'}
             </div>
             <div className="text-xs text-purple-300 mt-1 hidden sm:block">
-              Est. return on investment
+              Uses recorded odds (1u per bet)
+              {typeof stats.units === 'number' && (
+                <> • Units: {stats.units >= 0 ? '+' : ''}{stats.units.toFixed(2)}</>
+              )}
             </div>
           </div>
         </div>
@@ -177,13 +180,19 @@ export default async function ValidationDashboard() {
                       Win Rate
                     </th>
                     <th className="px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
+                      Avg Implied
+                    </th>
+                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
                       ROI
+                    </th>
+                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
+                      Units
                     </th>
                   </tr>
                 </thead>
                 <tbody className="bg-slate-800 divide-y divide-slate-700">
                   {Object.entries(stats.byPropType)
-                    .sort((a, b) => b[1].accuracy - a[1].accuracy)
+                    .sort((a, b) => (b[1].roi ?? 0) - (a[1].roi ?? 0))
                     .map(([propType, propStats]) => (
                       <tr key={propType} className="hover:bg-slate-700/50">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
@@ -200,9 +209,19 @@ export default async function ValidationDashboard() {
                             {(propStats.accuracy * 100).toFixed(1)}%
                           </span>
                         </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-center text-gray-400">
+                          {typeof propStats.avgImplied === 'number'
+                            ? `${(propStats.avgImplied * 100).toFixed(1)}%`
+                            : '—'}
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
                           <span className={`font-semibold ${propStats.roi >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                             {(propStats.roi * 100).toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
+                          <span className={`font-semibold ${propStats.units >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {propStats.units >= 0 ? '+' : ''}{(propStats.units || 0).toFixed(2)}
                           </span>
                         </td>
                       </tr>
@@ -384,7 +403,8 @@ export default async function ValidationDashboard() {
             <li>• <strong>Parlay Legs:</strong> When you save a parlay, each leg is tracked</li>
             <li>• <strong>User Saved:</strong> Individual props you explicitly save</li>
             <li>• <strong>Win Rate:</strong> Percentage of correct predictions</li>
-            <li>• <strong>ROI:</strong> Estimated return assuming -110 odds (break-even: 52.4%)</li>
+            <li>• <strong>ROI:</strong> Return using recorded odds, assuming 1 unit per bet</li>
+            <li>• <strong>Avg Implied:</strong> Average break-even probability from the odds (high = heavy favorites/chalk)</li>
           </ul>
         </div>
       </div>

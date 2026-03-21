@@ -1,14 +1,30 @@
 # 🎯 Daily Operations Guide - Odds on Deck
 
-## 📅 Updated: Nov 27, 2025
+## 📅 Updated: Dec 17, 2025
 
-This guide reflects the **honest edge calculation system** with line-shopping and removal of fake edges.
+This guide reflects the **honest edge calculation system** with proper stale data cleanup.
 
 ---
 
 ## 🌅 Morning Routine (Before Games Start)
 
-### Step 1: Fetch Fresh Games (ESPN - FREE)
+### Step 1: Clear Stale Props (CRITICAL - Run First!)
+```bash
+# Clear yesterday's props and any with past game times
+node scripts/clear-stale-props.js
+```
+
+**What it does:**
+- Removes props where `gameTime` has passed (yesterday's games)
+- Removes expired props and stale data
+- **REQUIRED** before fetching new odds to prevent old data from persisting
+- Uses `SUPABASE_SECRET_KEY` from `.env.local` for database writes
+
+⚠️ **Without this step, yesterday's props will continue showing on the Props and Picks pages!**
+
+---
+
+### Step 2: Fetch Fresh Games (ESPN - FREE)
 ```bash
 # Fetch all sports
 node scripts/fetch-fresh-games.js all
@@ -26,33 +42,34 @@ node scripts/fetch-fresh-games.js nhl
 
 ---
 
-### Step 2: Fetch Live Odds & Props (The Odds API - PAID)
+### Step 3: Fetch Live Odds & Props (The Odds API - PAID)
 ```bash
-# Fetch all sports (costs ~$0.50-2.00 per run depending on games)
-node scripts/fetch-live-odds.js all
+# IMPORTANT: Use --cache-fresh for proper game time mapping!
+node scripts/fetch-live-odds.js all --cache-fresh
 
 # Or individual sports
-node scripts/fetch-live-odds.js nfl
-node scripts/fetch-live-odds.js nhl
+node scripts/fetch-live-odds.js nfl --cache-fresh
+node scripts/fetch-live-odds.js nhl --cache-fresh
 
-# Force fresh cache (ignores rate limits)
-node scripts/fetch-live-odds.js all --cache-fresh
+# Without --cache-fresh (uses cached odds if recent)
+node scripts/fetch-live-odds.js all
 ```
 
 **What it does:**
 - Fetches odds from The Odds API (h2h, totals, spreads)
 - Fetches player props (points, assists, etc.)
 - Saves to `PlayerPropCache` table
+- Sets `gameTime` from `Game.date` (ensures future filtering works)
 - **COSTS MONEY** - ~$0.25 per API call, ~2-8 calls per sport
 
 **Cost Control:**
-- Built-in rate limiting (5 seconds between calls)
-- Caches data for 30 minutes
-- Use `--cache-fresh` only when needed
+- Built-in rate limiting (1 second between calls)
+- Caches data for 24 hours for props
+- Use `--cache-fresh` in the morning to ensure proper game mapping
 
 ---
 
-### Step 3: Find Real Value Props (Line Shopping - OPTIONAL)
+### Step 4: Find Real Value Props (Line Shopping - OPTIONAL)
 ```bash
 # Find props with real edges via line shopping
 node scripts/find-real-value-props.js
@@ -67,20 +84,16 @@ node scripts/find-real-value-props.js --min-edge 0.10
 - Identifies props where one book is significantly off
 - Saves props with genuine +EV opportunities
 
-**Example Output:**
-```
-🎯 REAL VALUE FOUND:
-Connor McDavid Over 1.5 Points
-  Best: +150 (DraftKings)
-  Avg: +120 (Market)
-  Edge: +8.5% (Real edge via line shopping)
-```
-
 ---
 
-### ⚡ Quick One-Liner (All Morning Steps)
+### ⚡ Quick Morning One-Liner (All Steps)
 ```bash
-node scripts/fetch-fresh-games.js all && node scripts/fetch-live-odds.js all
+node scripts/clear-stale-props.js && node scripts/fetch-fresh-games.js all && node scripts/fetch-live-odds.js all --cache-fresh
+```
+
+**PowerShell version:**
+```powershell
+node scripts/clear-stale-props.js; node scripts/fetch-fresh-games.js all; node scripts/fetch-live-odds.js all --cache-fresh
 ```
 
 ---
@@ -95,9 +108,6 @@ node scripts/update-scores-safely.js all
 # Update specific sport
 node scripts/update-scores-safely.js nhl
 node scripts/update-scores-safely.js nfl
-
-# NHL-specific alternative
-node scripts/refresh-nhl-scores.js
 ```
 
 **What it does:**
@@ -137,16 +147,6 @@ node scripts/check-validation-status.js
 node scripts/check-pending-parlays.js
 ```
 
-**What it does:**
-- Shows validation system statistics
-- Displays win rates by prop type
-- Lists pending and completed validations
-
-### ⚡ Quick Evening Validation (After ALL games finish)
-```bash
-npm run validate:all
-```
-
 ### 🕐 When to Run Validation
 - **NFL**: Run at 11pm ET (after Sunday Night Football)
 - **NHL**: Run at 11pm ET (after west coast games)
@@ -154,32 +154,38 @@ npm run validate:all
 
 ### ⚠️ Known Limitations
 - Some player stats may not be available via ESPN API
-- Power play points, blocked shots may need manual review
+- Power play points (PPP) can require play-by-play (NHL API) to validate exactly; if play-by-play fetch fails, it may need manual review
 - Game totals require knowing which game to validate
-
-### 🛠️ Manual Cleanup for Stuck Validations
-- Inspect what’s stuck: `node scripts/list-pending-validations.js`  
-  - Filters via env: `STATUSES` (e.g., `pending,needs_review`), `AFTER_DATE`, `BEFORE_DATE`, `LIMIT`, `SPORT`
-- Requeue final games stuck in `needs_review`:  
-  - `ACTION=requeue node scripts/requeue-or-close-validations.js`  
-  - Optional env: `SPORT`, `AFTER_DATE`, `BEFORE_DATE`, `STATUSES`, `LIMIT` (default 200)
-- Close rows whose game record is missing (e.g., deleted backfill game):  
-  - `ACTION=close_missing node scripts/requeue-or-close-validations.js`
-- Backfill/retry stats & auto-close repeat failures (final games):  
-  - `node scripts/backfill-validations.js`  
-  - Env: `STATUSES` (default `pending,needs_review`), `LIMIT` (default 300), `MAX_FAILS` (default 3), `GRACE_HOURS` (default 72), `BEFORE_DATE/AFTER_DATE`, `SPORT`
 
 ---
 
-## 🧹 Weekly Maintenance (Sunday Night)
+## 🧹 Daily Cleanup (End of Day or Before Morning)
+
+### Clear Stale Props (REQUIRED DAILY)
+```bash
+# Remove props with past game times, expired, or marked stale
+node scripts/clear-stale-props.js
+
+# Preview what will be deleted (dry run)
+node scripts/clear-stale-props.js --dry-run
+```
+
+**What it does:**
+- Removes props where `gameTime <= now` (past games)
+- Removes props where `expiresAt <= now` (expired)
+- Removes props where `isStale = true`
+- Prevents yesterday's picks from showing on Props/Picks pages
+
+⚠️ **This is now a DAILY requirement, not just weekly!**
+
+---
+
+## 📅 Weekly Maintenance (Sunday Night)
 
 ### Cleanup Old Data
 ```bash
 # Remove games older than 7 days
 node scripts/cleanup-old-games.js
-
-# Clear expired props cache
-node scripts/clear-stale-props.js
 
 # Clear old edge snapshots
 node scripts/clear-edge-snapshots.js
@@ -190,79 +196,20 @@ node scripts/remove-duplicate-games-by-espn-id.js
 
 ---
 
-## 📊 Edge Calculation System (POST-CHANGES)
-
-### ⚠️ IMPORTANT CHANGES (Nov 27, 2025)
-
-**What Changed:**
-- ✅ Removed fake random edge generation
-- ✅ `calculate-prop-edges.js` now sets `edge = 0` (honest, no model)
-- ✅ `find-real-value-props.js` finds **real value** via line shopping
-- ✅ Removed random probability generators from all scripts
-
-### Current Edge Scripts
-
-#### 1. Game Edges (ML, Totals, Spreads)
-```bash
-node scripts/calculate-game-edges.js
-```
-**Status:** Sets `edge = 0` (no projection model)
-**Use:** Database structure only, not for actual betting
-
-#### 2. Player Prop Edges
-```bash
-node scripts/calculate-prop-edges.js
-```
-**Status:** Sets `edge = 0` (no projection model)
-**Use:** Database structure only, not for actual betting
-
-#### 3. Real Value Props (LINE SHOPPING)
-```bash
-node scripts/find-real-value-props.js
-```
-**Status:** ✅ **THIS IS THE REAL ONE**
-**Use:** Finds actual +EV by comparing bookmakers
-
----
-
-## 🎯 What To Use for Betting
-
-### ✅ DO USE:
-1. **Line Shopping Results** (`find-real-value-props.js`)
-   - Real edges found by comparing bookmakers
-   - Actual value opportunities
-
-2. **Win Rate Analysis** (Validation Dashboard)
-   - Historical performance by prop type
-   - 44.9% overall accuracy (as of Nov 27)
-   - NHL blocked shots: 56.9% win rate
-   - NFL pass yards: 56.8% win rate
-
-3. **Manual Analysis**
-   - Player matchups
-   - Team trends
-   - Injury reports
-
-### ❌ DON'T USE:
-1. **Calculated Edges** (`EdgeSnapshot` table)
-   - Set to 0 (no real model)
-   - Database structure only
-
-2. **Player Prop Edges** (`PlayerPropCache.edge` field)
-   - Not from real projections
-   - Display purposes only
-
----
-
 ## 📈 Recommended Daily Workflow
 
-### Morning (9:00 AM EST)
+### Morning (9:00 AM EST) - CRITICAL ORDER
 ```bash
-# 1. Fetch games and odds
-node scripts/fetch-fresh-games.js all
-node scripts/fetch-live-odds.js all
+# 1. FIRST: Clear stale props (prevents yesterday's data from showing)
+node scripts/clear-stale-props.js
 
-# 2. Find real value (optional)
+# 2. Fetch fresh games from ESPN
+node scripts/fetch-fresh-games.js all
+
+# 3. Fetch odds with --cache-fresh for proper gameTime mapping
+node scripts/fetch-live-odds.js all --cache-fresh
+
+# 4. (Optional) Find real value
 node scripts/find-real-value-props.js
 ```
 
@@ -280,16 +227,35 @@ node scripts/update-scores-safely.js all
 
 ### After Games (11:00 PM EST)
 ```bash
-# Check validation results (validation happens automatically)
+# Validate results
+npm run validate:all
+
+# Check validation results
 node scripts/check-validation-status.js
 ```
 
-### Weekly (Sunday Night)
+### Before Bed / End of Day
 ```bash
-# Cleanup old data
-node scripts/cleanup-old-games.js
+# Clear stale props for tomorrow
 node scripts/clear-stale-props.js
-node scripts/clear-edge-snapshots.js
+```
+
+---
+
+## 🔧 Required Environment Variables
+
+Your `.env.local` file must have:
+
+```env
+# Required for all operations
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+
+# Required for write operations (clear-stale-props, fetch-live-odds, etc.)
+SUPABASE_SECRET_KEY=your_service_role_key
+
+# Required for odds fetching
+ODDS_API_KEY=your_odds_api_key
 ```
 
 ---
@@ -302,9 +268,9 @@ node scripts/clear-edge-snapshots.js
 - **Average Daily Cost:** $2-5 (depending on sports fetched)
 
 ### Cost Optimization Tips:
-1. **Use caching:** Built-in 30-minute cache
+1. **Use caching:** Built-in cache system
 2. **Fetch selectively:** Use `nfl` or `nhl` instead of `all`
-3. **Time it right:** Fetch once in morning, once pre-game
+3. **Time it right:** Fetch once in morning with `--cache-fresh`, once pre-game without
 4. **Avoid over-fetching:** Don't run every 5 minutes
 
 ### ESPN API (FREE)
@@ -314,90 +280,81 @@ node scripts/clear-edge-snapshots.js
 
 ---
 
-## 🔍 Troubleshooting Scripts
+## 🔍 Troubleshooting
 
-### Check What's in Database
+### Yesterday's Props Still Showing?
 ```bash
-# List all NHL games
+# Clear stale props (most common fix)
+node scripts/clear-stale-props.js
+
+# If still showing, check what's in cache
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+require('dotenv').config({ path: '.env.local' });
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
+async function check() {
+  const now = new Date().toISOString();
+  const { data } = await supabase.from('PlayerPropCache').select('playerName, gameTime, sport').lt('gameTime', now).limit(5);
+  console.log('Props with past gameTime:', data?.length || 0);
+  data?.forEach(p => console.log('-', p.playerName, p.sport, p.gameTime));
+}
+check();
+"
+```
+
+### NHL Props Not Showing on Editor's Picks?
+This usually means `gameTime` wasn't set correctly. Run:
+```bash
+# Re-fetch with --cache-fresh to fix gameTime
+node scripts/clear-stale-props.js
+node scripts/fetch-live-odds.js nhl --cache-fresh
+```
+
+### No Games Showing?
+```bash
 node scripts/list-nhl-games.js
-
-# List games with odds
-node scripts/list-games-with-odds.js
-
-# Quick NHL status
-node scripts/quick-nhl-status.js
+node scripts/fetch-fresh-games.js all
 ```
 
-### Validation Issues
+### Props Not Validating?
 ```bash
-# Check validation system status
-node scripts/check-validation-status.js
-
-# Analyze NHL-specific issues
-node scripts/analyze-nhl-validation-issues.js
-
-# Force validate old props
-node scripts/force-validate-old-props.js
+node scripts/check-pending-parlays.js
+npm run validate:all
 ```
-
-**Note:** Validation is automatic. Manual scripts are only for troubleshooting.
-
-### Data Backup
-```bash
-# Backup database (if needed)
-node scripts/backup-data.js
-```
-
-**Note:** Supabase has automatic backups. Manual exports are rarely needed.
-
----
-
-## 🎮 Frontend URLs
-
-### Production (Vercel)
-- **Home:** https://odds-on-deck.vercel.app/
-- **Game Slate:** https://odds-on-deck.vercel.app/games
-- **Player Props:** https://odds-on-deck.vercel.app/props
-- **Parlays:** https://odds-on-deck.vercel.app/parlays
-- **Validation:** https://odds-on-deck.vercel.app/validation
-
-### API Endpoints
-- **Today's Games:** `/api/games/today`
-- **Refresh Scores:** `/api/scores/refresh`
-- **Generate Parlays:** `/api/parlays/generate`
 
 ---
 
 ## ✅ Daily Checklist
 
-### Morning ☀️
+### Morning ☀️ (CRITICAL ORDER)
+- [ ] Run `clear-stale-props.js` **FIRST**
 - [ ] Run `fetch-fresh-games.js all`
-- [ ] Run `fetch-live-odds.js all`
+- [ ] Run `fetch-live-odds.js all --cache-fresh`
 - [ ] (Optional) Run `find-real-value-props.js`
-- [ ] Check validation dashboard for win rates
+- [ ] Verify Props page shows today's games only
 
 ### During Games 🏒
 - [ ] Update scores every 30 min
 - [ ] Monitor live games on frontend
 
 ### After Games 🌙
-- [ ] Check validation dashboard (auto-updated)
+- [ ] Run `npm run validate:all`
 - [ ] Run `check-validation-status.js` for summary
-- [ ] Review performance insights
+- [ ] Run `clear-stale-props.js` to prep for tomorrow
 
 ### Weekly 📅
 - [ ] Cleanup old games
-- [ ] Clear stale props
-- [ ] Export/backup data
+- [ ] Clear edge snapshots
+- [ ] Review validation performance
 
 ---
 
 ## 🚨 Important Notes
 
-1. **No Fake Edges:** All random edge generation has been removed
-2. **Line Shopping Only:** Real value comes from comparing bookmakers
-3. **Validation is Truth:** Use win rate data, not calculated edges
-4. **Cost Awareness:** Monitor API usage to control costs
+1. **Clear Stale Props DAILY:** Run before fetching new odds to prevent yesterday's data
+2. **Use --cache-fresh in Morning:** Ensures proper gameTime mapping from Game.date
+3. **SUPABASE_SECRET_KEY Required:** For `clear-stale-props.js` and `fetch-live-odds.js`
+4. **Order Matters:** Clear → Fetch Games → Fetch Odds
 5. **ESPN is Free:** Use it liberally for games and scores
 
 ---
@@ -405,13 +362,13 @@ node scripts/backup-data.js
 ## 📞 Support
 
 For issues:
-1. Check `OPERATIONS_CHECKLIST.md` for detailed script info
-2. Review `HONEST_SYSTEM_ANALYSIS.md` for edge calculation changes
+1. Check this guide's Troubleshooting section
+2. Review `OPERATIONS_CHECKLIST.md` for detailed script info
 3. See `VALIDATION_SYSTEM_GUIDE.md` for validation details
 
 ---
 
-**Last Updated:** Nov 27, 2025  
-**System Status:** ✅ Honest edges, no fake generation  
-**Win Rate:** 44.9% overall, 56.9% NHL blocked shots, 56.8% NFL pass yds
+**Last Updated:** Dec 17, 2025  
+**System Status:** ✅ Proper stale data cleanup, correct gameTime mapping  
+**Key Fix:** Added daily `clear-stale-props.js` and fixed `gameTime` in fetch script
 

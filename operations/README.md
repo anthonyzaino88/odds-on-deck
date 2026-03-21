@@ -2,30 +2,63 @@
 
 This directory contains operational scripts that are **NOT** pushed to GitHub. These scripts contain API keys and are used for daily data operations.
 
+## 📅 Updated: Dec 17, 2025
+
 ## 📋 What These Scripts Do
 
 - **Data Fetching**: Pull live odds, scores, and team data from APIs
 - **Database Updates**: Update Supabase with fresh data for the website
 - **Live Operations**: Handle real-time score updates during games
-- **Weekly Maintenance**: NFL game fetching and mapping
+- **Cleanup**: Remove stale data to keep the app functioning properly
 
-## 🚀 How to Use
+## 🚀 Daily Operations (Critical Order!)
 
-These scripts are run locally to update the database that powers your Vercel-deployed website:
-
+### Morning Routine
 ```bash
-# Morning data refresh
-node operations/fetch-team-performance-data.js
-node operations/fetch-live-odds.js nhl --cache-fresh
-node scripts/calculate-game-edges.js   # Note: This is in scripts/ folder
+# 1. FIRST: Clear stale props (prevents yesterday's data from showing)
+node scripts/clear-stale-props.js
 
-# During games (every 15-30 min)
-node operations/update-scores-safely.js
+# 2. Fetch fresh games from ESPN
+node scripts/fetch-fresh-games.js all
 
-# Weekly NFL operations
-node operations/fetch-nfl-week-12.js
-node operations/map-nfl-week-12-to-odds-api.js
+# 3. Fetch odds with proper gameTime mapping
+node scripts/fetch-live-odds.js all --cache-fresh
+
+# 4. (Optional) Calculate game edges
+node scripts/calculate-game-edges.js   # Requires SUPABASE_SECRET_KEY
 ```
+
+### During Games (Every 15-30 min)
+```bash
+node scripts/update-scores-safely.js all
+```
+
+### After Games
+```bash
+npm run validate:all
+node scripts/check-validation-status.js
+```
+
+### End of Day
+```bash
+node scripts/clear-stale-props.js  # Prep for tomorrow
+```
+
+## 🔑 Required Environment Variables
+
+Your `.env.local` must have:
+```env
+NEXT_PUBLIC_SUPABASE_URL=your_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+SUPABASE_SECRET_KEY=your_service_role_key  # Required for write operations!
+ODDS_API_KEY=your_odds_api_key
+```
+
+## ⚠️ Key Points
+
+1. **Run `clear-stale-props.js` FIRST every day** - prevents yesterday's props from showing
+2. **Use `--cache-fresh` flag** - ensures proper gameTime mapping from Game.date
+3. **SUPABASE_SECRET_KEY is required** - for `clear-stale-props.js`, `fetch-live-odds.js`, `calculate-game-edges.js`
 
 ## 🔐 Security
 
@@ -33,16 +66,21 @@ node operations/map-nfl-week-12-to-odds-api.js
 - Never commit this directory to version control
 - Keep local only for operational use
 
-## 📁 Directory Structure
+## 📁 Key Scripts
 
 ```
-operations/
-├── fetch-live-odds.js          # Main odds/props fetcher
-├── fetch-team-performance-data.js  # Team stats from ESPN
-├── update-scores-safely.js      # Live score updates
-├── fetch-nfl-week-12.js         # Weekly NFL game fetch
-├── map-nfl-week-12-to-odds-api.js # NFL game mapping
-├── run-nhl-fetch.js             # NHL fetch wrapper
-├── run-nhl-remap.js             # NHL remap wrapper
-└── [other operational scripts]
+scripts/
+├── clear-stale-props.js        # Remove past/expired props (RUN DAILY!)
+├── fetch-fresh-games.js        # Fetch games from ESPN (FREE)
+├── fetch-live-odds.js          # Fetch odds/props from Odds API (PAID)
+├── update-scores-safely.js     # Live score updates (FREE)
+├── calculate-game-edges.js     # Calculate edges (requires secret key)
+├── check-validation-status.js  # Check validation results
+└── find-real-value-props.js    # Line shopping for real edges
 ```
+
+## 🔗 Related Docs
+
+- `DAILY_OPERATIONS.md` - Full daily workflow guide
+- `DAILY_QUICK_START.md` - Quick copy-paste commands
+- `VALIDATION_SYSTEM_GUIDE.md` - Validation details

@@ -10,8 +10,10 @@ export default function GamesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [todayStr, setTodayStr] = useState('')
 
   useEffect(() => {
+    setTodayStr(new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }))
     const fetchGames = async () => {
       try {
         console.log('📋 GamesPage: Fetching games...')
@@ -144,7 +146,7 @@ export default function GamesPage() {
             {totalGames} games • ⚾ {games.mlb.length} MLB • 🏈 {games.nfl.length} NFL • 🏒 {games.nhl.length} NHL
           </p>
           <p className="text-slate-500 text-sm mt-2">
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+            {todayStr}
           </p>
           
           {/* Score Refresh Button */}

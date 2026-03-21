@@ -7,8 +7,11 @@ export default function HomePage() {
   const [games, setGames] = useState({ mlb: [], nfl: [], nhl: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [todayStr, setTodayStr] = useState('')
 
   useEffect(() => {
+    setTodayStr(new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }))
+
     const fetchGames = async () => {
       try {
         console.log('🏠 HomePage: Fetching games from API...')
@@ -55,7 +58,7 @@ export default function HomePage() {
             AI-powered sports analytics for MLB, NFL & NHL
           </p>
           <p className="text-slate-500 text-sm mt-3">
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+            {todayStr}
           </p>
         </div>
 

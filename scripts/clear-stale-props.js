@@ -12,9 +12,10 @@ import { config } from 'dotenv'
 
 config({ path: '.env.local' })
 
+// Use secret key for write operations (bypasses RLS)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
 async function main() {
@@ -26,23 +27,31 @@ async function main() {
   console.log('='.repeat(80))
   
   const now = new Date()
+  const nowIso = now.toISOString()
   
-  // Find stale/expired props
+  // Find stale/expired props - also include props where gameTime is in the past
   const { data: staleProps, error: queryError } = await supabase
     .from('PlayerPropCache')
-    .select('id, sport, playerName, type, expiresAt, isStale')
+    .select('id, sport, playerName, type, expiresAt, isStale, gameTime')
   
   if (queryError) {
     console.error('❌ Error querying props:', queryError)
     process.exit(1)
   }
   
-  // Filter to stale/expired
-  const toDelete = staleProps.filter(p => 
-    p.isStale || new Date(p.expiresAt) <= now
-  )
+  // Filter to stale/expired OR gameTime in the past (yesterday's games)
+  const toDelete = staleProps.filter(p => {
+    const isStale = p.isStale
+    const isExpired = new Date(p.expiresAt) <= now
+    const gameTimePassed = p.gameTime && new Date(p.gameTime) <= now
+    return isStale || isExpired || gameTimePassed
+  })
+  
+  // Count past games separately for reporting
+  const pastGameCount = staleProps.filter(p => p.gameTime && new Date(p.gameTime) <= now).length
   
   console.log(`\n📊 Found ${toDelete.length} stale/expired props to clean up`)
+  console.log(`   (${pastGameCount} with past game times)`)
   
   if (toDelete.length === 0) {
     console.log('✅ Database is already clean!')
@@ -59,6 +68,16 @@ async function main() {
   Object.entries(bySport).forEach(([sport, count]) => {
     console.log(`  ${sport.toUpperCase()}: ${count} stale props`)
   })
+  
+  // Show some sample props that will be deleted (to help debug)
+  const samples = toDelete.slice(0, 5)
+  if (samples.length > 0) {
+    console.log('\nSample props to delete:')
+    samples.forEach(p => {
+      const gameTimeStr = p.gameTime ? new Date(p.gameTime).toLocaleString() : 'unknown'
+      console.log(`  - ${p.playerName} (${p.sport}) - gameTime: ${gameTimeStr}`)
+    })
+  }
   
   if (dryRun) {
     console.log('\n💡 This is a dry run. Run without --dry-run to delete.')
