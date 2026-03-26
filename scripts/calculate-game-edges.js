@@ -56,7 +56,7 @@ async function calculateEdgesForToday() {
         probableHomePitcher:Player!Game_probableHomePitcherId_fkey(*),
         probableAwayPitcher:Player!Game_probableAwayPitcherId_fkey(*)
       `)
-      .in('status', ['scheduled', 'pre-game', 'pre_game', 'warmup', 'in_progress'])
+      .in('status', ['scheduled', 'pre-game', 'pre_game', 'warmup'])
       .gte('date', today.toISOString())
       .lt('date', tomorrow.toISOString())
       .order('date')

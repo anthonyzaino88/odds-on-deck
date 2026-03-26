@@ -928,11 +928,18 @@ async function saveGameOdds(games, sport, date) {
           let priceAway = null, priceHome = null, spread = null, total = null
           
           if (market.key === 'h2h' && outcomes.length >= 2) {
-            priceAway = outcomes[0].price
-            priceHome = outcomes[1].price
+            const homeOutcome = outcomes.find(o => o.name === game.home_team)
+            const awayOutcome = outcomes.find(o => o.name === game.away_team)
+            if (homeOutcome && awayOutcome) {
+              priceHome = homeOutcome.price
+              priceAway = awayOutcome.price
+            } else {
+              priceHome = outcomes[1].price
+              priceAway = outcomes[0].price
+            }
           } else if (market.key === 'spreads' && outcomes.length >= 2) {
-            const away = outcomes.find(o => o.name === 'Away' || o.name.includes('Away'))
-            const home = outcomes.find(o => o.name === 'Home' || o.name.includes('Home'))
+            const home = outcomes.find(o => o.name === game.home_team) || outcomes.find(o => o.name === 'Home' || o.name?.includes('Home'))
+            const away = outcomes.find(o => o.name === game.away_team) || outcomes.find(o => o.name === 'Away' || o.name?.includes('Away'))
             spread = market.description ? parseFloat(market.description) : null
             priceAway = away?.price
             priceHome = home?.price
