@@ -51,16 +51,11 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
   }
 
   const formatOdds = (decimalOdds) => {
-    // Convert decimal odds to American odds
-    // Decimal odds < 2.0 = negative American odds
-    // Decimal odds >= 2.0 = positive American odds
+    if (!decimalOdds || decimalOdds <= 1) return '+100'
     if (decimalOdds >= 2.0) {
-      const americanOdds = Math.round((decimalOdds - 1) * 100)
-      return `+${americanOdds}`
-    } else {
-      const americanOdds = Math.round(-100 / (decimalOdds - 1))
-      return americanOdds.toString()
+      return `+${Math.round((decimalOdds - 1) * 100)}`
     }
+    return `${Math.round(-100 / (decimalOdds - 1))}`
   }
 
   const saveParlay = async (parlay) => {
@@ -320,7 +315,7 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
                   </div>
                   <div className="text-xs text-gray-400">Win Chance</div>
                   <div className="text-xs text-gray-500 mt-1">
-                    1 in {Math.round(1 / parlay.probability)} chance
+                    1 in {parlay.probability > 0 ? Math.round(1 / parlay.probability) : '?'} chance
                   </div>
                 </div>
                 <div>

@@ -26,6 +26,8 @@ node scripts/clear-stale-props.js
 # STEP 1: Fetch all games from ESPN (FREE API)
 node scripts/fetch-fresh-games.js all
 
+node scripts/fetch-fresh-games.js mlb
+
 # STEP 2: Fetch odds and props from The Odds API
 # Use --cache-fresh to ensure proper gameTime mapping!
 node scripts/fetch-live-odds.js all --cache-fresh

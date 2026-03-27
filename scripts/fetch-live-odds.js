@@ -934,8 +934,8 @@ async function saveGameOdds(games, sport, date) {
               priceHome = homeOutcome.price
               priceAway = awayOutcome.price
             } else {
-              priceHome = outcomes[1].price
-              priceAway = outcomes[0].price
+              // Can't determine home/away — skip rather than guess
+              continue
             }
           } else if (market.key === 'spreads' && outcomes.length >= 2) {
             const home = outcomes.find(o => o.name === game.home_team) || outcomes.find(o => o.name === 'Home' || o.name?.includes('Home'))
@@ -962,8 +962,9 @@ async function saveGameOdds(games, sport, date) {
             // But we need to check which is which
             const overOutcome = outcomes.find(o => o.name === 'Over' || o.name?.toLowerCase().includes('over'))
             const underOutcome = outcomes.find(o => o.name === 'Under' || o.name?.toLowerCase().includes('under'))
-            priceAway = overOutcome?.price || outcomes[0]?.price
-            priceHome = underOutcome?.price || outcomes[1]?.price
+            if (!overOutcome || !underOutcome) continue
+            priceAway = overOutcome.price
+            priceHome = underOutcome.price
           }
           
           if (!priceAway || !priceHome) continue
@@ -1306,7 +1307,7 @@ async function savePlayerProps(gameProps, sport) {
         for (const market of bookmaker.markets || []) {
           for (const outcome of market.outcomes || []) {
             const playerName = outcome.description || outcome.name
-            const line = outcome.point || (market.description ? parseFloat(market.description) : null)
+            const line = outcome.point ?? (market.description ? parseFloat(market.description) : null)
             const price = outcome.price
             const pick = (outcome.name || '').toLowerCase()
             
