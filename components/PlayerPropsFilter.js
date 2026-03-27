@@ -290,7 +290,7 @@ export default function PlayerPropsFilter({ props }) {
           <div className="p-3 sm:p-6">
             <div className="space-y-2 sm:space-y-3 max-h-[500px] sm:max-h-[600px] overflow-y-auto">
               {filteredProps.slice(0, 20).map((prop, index) => (
-                <PlayerPropCard key={`${prop.gameId}-${prop.playerName}-${prop.type}`} prop={prop} rank={index + 1} />
+                <PlayerPropCard key={prop.propId || `${prop.gameId}-${prop.playerName}-${prop.type}-${prop.pick}-${prop.threshold}`} prop={prop} rank={index + 1} />
               ))}
             </div>
           </div>
@@ -312,7 +312,7 @@ export default function PlayerPropsFilter({ props }) {
               <div className="p-6">
                 <div className="space-y-3 max-h-96 overflow-y-auto">
                   {battingProps.map((prop) => (
-                    <PropRow key={`${prop.gameId}-${prop.playerName}-${prop.type}`} prop={prop} />
+                    <PropRow key={prop.propId || `${prop.gameId}-${prop.playerName}-${prop.type}-${prop.pick}-${prop.threshold}`} prop={prop} />
                   ))}
                 </div>
               </div>
@@ -331,7 +331,7 @@ export default function PlayerPropsFilter({ props }) {
               <div className="p-6">
                 <div className="space-y-3 max-h-96 overflow-y-auto">
                   {pitchingProps.map((prop) => (
-                    <PropRow key={`${prop.gameId}-${prop.playerName}-${prop.type}`} prop={prop} />
+                    <PropRow key={prop.propId || `${prop.gameId}-${prop.playerName}-${prop.type}-${prop.pick}-${prop.threshold}`} prop={prop} />
                   ))}
                 </div>
               </div>
@@ -362,7 +362,7 @@ export default function PlayerPropsFilter({ props }) {
           <div className="p-6">
             <div className="space-y-3 max-h-96 overflow-y-auto">
               {nhlProps.map((prop) => (
-                <PropRow key={`${prop.gameId}-${prop.playerName}-${prop.type}`} prop={prop} />
+                <PropRow key={prop.propId || `${prop.gameId}-${prop.playerName}-${prop.type}-${prop.pick}-${prop.threshold}`} prop={prop} />
               ))}
             </div>
           </div>
@@ -391,7 +391,7 @@ export default function PlayerPropsFilter({ props }) {
           <div className="p-6">
             <div className="space-y-3 max-h-[600px] overflow-y-auto">
               {nflProps.map((prop) => (
-                <PropRow key={`${prop.gameId}-${prop.playerName}-${prop.type}`} prop={prop} />
+                <PropRow key={prop.propId || `${prop.gameId}-${prop.playerName}-${prop.type}-${prop.pick}-${prop.threshold}`} prop={prop} />
               ))}
             </div>
           </div>
