@@ -1370,6 +1370,12 @@ async function savePlayerProps(gameProps, sport) {
             
             seenProps.add(propId)
             const gameTime = mappedGame?.date || new Date().toISOString()
+
+            let category = null
+            if (sport === 'mlb') {
+              category = market.key.startsWith('pitcher_') ? 'pitching' : 'batting'
+            }
+
             allPropsToInsert.push({
               id: generateId(),
               propId,
@@ -1384,6 +1390,7 @@ async function savePlayerProps(gameProps, sport) {
               confidence: confidence,
               qualityScore: qualityScore,
               sport,
+              category,
               bookmaker: bestBook,
               gameTime,
               fetchedAt: new Date().toISOString(),

@@ -613,17 +613,21 @@ async function saveToSupabase(sport, games) {
     // Create upsert array AFTER duplicate check (filter out removed games)
     const gamesToUpsert = games
       .filter(g => !gamesToRemove.includes(g.id))
-      .map(g => ({
-        id: g.id,
-        sport: g.sport,
-        date: g.date.toISOString(),
-        status: g.status,
-        homeId: g.homeId,
-        awayId: g.awayId,
-        homeScore: g.homeScore,
-        awayScore: g.awayScore,
-        espnGameId: g.espnGameId
-      }))
+      .map(g => {
+        const obj = {
+          id: g.id,
+          sport: g.sport,
+          date: g.date.toISOString(),
+          status: g.status,
+          homeId: g.homeId,
+          awayId: g.awayId,
+          homeScore: g.homeScore,
+          awayScore: g.awayScore,
+          espnGameId: g.espnGameId
+        }
+        if (g.mlbGameId) obj.mlbGameId = g.mlbGameId
+        return obj
+      })
     
     if (gamesToRemove.length > 0) {
       console.log(`  🗑️  Removed ${gamesToRemove.length} duplicate games from batch`)
@@ -694,6 +698,76 @@ async function saveToSupabase(sport, games) {
   }
 }
 
+/**
+ * Fetch MLB Stats API schedule and cross-reference with ESPN games
+ * to populate mlbGameId (gamePk) needed for box score validation
+ */
+async function populateMLBGameIds(games) {
+  if (!games.length) return
+
+  const dates = [...new Set(games.map(g => {
+    const d = new Date(g.date)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }))]
+
+  console.log(`\n🔗 Cross-referencing ${games.length} ESPN games with MLB Stats API...`)
+
+  const MLB_ABBR_MAP = {
+    'AZ': 'ARI', 'ARI': 'ARI', 'WSH': 'WSH', 'WAS': 'WSH',
+    'CWS': 'CWS', 'CHW': 'CWS', 'SF': 'SF', 'SFG': 'SF',
+    'SD': 'SD', 'SDP': 'SD', 'KC': 'KC', 'KCR': 'KC',
+    'TB': 'TB', 'TBR': 'TB'
+  }
+  function normalizeAbbr(abbr) {
+    return MLB_ABBR_MAP[abbr?.toUpperCase()] || abbr?.toUpperCase()
+  }
+
+  let matched = 0
+
+  for (const dateStr of dates) {
+    try {
+      const url = `https://statsapi.mlb.com/api/v1/schedule?date=${dateStr}&sportId=1&hydrate=team`
+      const response = await fetch(url)
+      if (!response.ok) {
+        console.warn(`  ⚠️ MLB Stats API error for ${dateStr}: ${response.status}`)
+        continue
+      }
+
+      const data = await response.json()
+      const mlbGames = data.dates?.[0]?.games || []
+
+      for (const espnGame of games) {
+        const espnDate = new Date(espnGame.date).toISOString().split('T')[0]
+        if (espnDate !== dateStr) continue
+        if (espnGame.mlbGameId) continue
+
+        const homeAbbr = normalizeAbbr(espnGame._homeTeam?.abbreviation || espnGame._homeTeam?.abbr)
+        const awayAbbr = normalizeAbbr(espnGame._awayTeam?.abbreviation || espnGame._awayTeam?.abbr)
+
+        const mlbMatch = mlbGames.find(mg => {
+          const mlbHome = normalizeAbbr(mg.teams?.home?.team?.abbreviation)
+          const mlbAway = normalizeAbbr(mg.teams?.away?.team?.abbreviation)
+          return mlbHome === homeAbbr && mlbAway === awayAbbr
+        })
+
+        if (mlbMatch) {
+          espnGame.mlbGameId = String(mlbMatch.gamePk)
+          matched++
+          console.log(`  ✅ ${awayAbbr} @ ${homeAbbr} → gamePk ${mlbMatch.gamePk}`)
+        } else {
+          console.log(`  ⚠️ No MLB Stats API match for ${awayAbbr} @ ${homeAbbr} on ${dateStr}`)
+        }
+      }
+
+      await new Promise(r => setTimeout(r, 300))
+    } catch (err) {
+      console.warn(`  ❌ Error fetching MLB schedule for ${dateStr}:`, err.message)
+    }
+  }
+
+  console.log(`  🔗 Matched ${matched}/${games.length} games with MLB gamePk IDs`)
+}
+
 async function main() {
   const allArgs = process.argv.slice(2)
   const sport = allArgs[0]?.toLowerCase() || 'all'
@@ -706,19 +780,18 @@ async function main() {
   let totalSaved = 0
   
   if (sport === 'all') {
-    // Fetch all sports
-    for (const s of ['nfl', 'nhl']) {
+    for (const s of ['mlb', 'nfl', 'nhl']) {
       const games = await fetchGamesFromESPN(s, date)
+      if (s === 'mlb') await populateMLBGameIds(games)
       totalSaved += await saveToSupabase(s, games)
-      // Rate limit
       await new Promise(r => setTimeout(r, 1000))
     }
   } else if (SPORT_MAP[sport]) {
-    // Fetch specific sport
     const games = await fetchGamesFromESPN(sport, date)
+    if (sport === 'mlb') await populateMLBGameIds(games)
     totalSaved += await saveToSupabase(sport, games)
   } else {
-    console.error(`❌ Invalid sport: ${sport}. Use: nfl, nhl, or all`)
+    console.error(`❌ Invalid sport: ${sport}. Use: mlb, nfl, nhl, or all`)
     process.exit(1)
   }
   

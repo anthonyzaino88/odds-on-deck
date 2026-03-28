@@ -322,17 +322,32 @@ export default async function GameDetailPage({ params }) {
       {/* Probable Pitchers - Only for MLB */}
       {!isNFL && !isNHL && game.sport === 'mlb' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <PitcherCard
+          <MLBPitcherCard
             team={game.away}
             pitcher={game.probableAwayPitcher}
             title="Away Starter"
           />
-          <PitcherCard
+          <MLBPitcherCard
             team={game.home}
             pitcher={game.probableHomePitcher}
             title="Home Starter"
           />
         </div>
+      )}
+
+      {/* MLB Betting Insights */}
+      {game.sport === 'mlb' && (edge || (game.odds && game.odds.length > 0) || (game.playerProps && game.playerProps.length > 0)) && (
+        <MLBInsightsSection game={game} edge={edge} />
+      )}
+
+      {/* Player Props for this game */}
+      {game.playerProps && game.playerProps.length > 0 && (
+        <MLBPlayerPropsSection props={game.playerProps} />
+      )}
+
+      {/* MLB Box Score for completed games */}
+      {game.sport === 'mlb' && game.status === 'final' && game.mlbBoxScore && (
+        <MLBBoxScoreSection boxScore={game.mlbBoxScore} game={game} />
       )}
 
       {/* NFL Specific Data */}
@@ -972,6 +987,311 @@ function PitcherCard({ team, pitcher, title }) {
         ) : (
           <div className="text-sm text-gray-400">Probable pitcher TBD</div>
         )}
+      </div>
+    </div>
+  )
+}
+
+function MLBPitcherCard({ team, pitcher, title }) {
+  return (
+    <div className="card p-6">
+      <h3 className="text-lg font-semibold text-white mb-4">{title}</h3>
+      <div className="flex items-start gap-4">
+        {pitcher?.headshot && (
+          <img src={pitcher.headshot} alt={pitcher.fullName} className="w-16 h-16 rounded-full bg-slate-700 object-cover" />
+        )}
+        <div className="flex-1 space-y-2">
+          <div>
+            <span className="text-sm font-medium text-gray-400">Team:</span>
+            <span className="ml-2 text-sm text-white">{team.name} ({team.abbr})</span>
+          </div>
+          {pitcher ? (
+            <>
+              <div>
+                <span className="text-sm font-medium text-gray-400">Pitcher:</span>
+                <span className="ml-2 text-sm font-semibold text-white">{pitcher.fullName}</span>
+                <span className="ml-2 text-xs text-gray-400">({pitcher.throws}HP)</span>
+              </div>
+              {pitcher.record && (
+                <div>
+                  <span className="text-sm font-medium text-gray-400">Record:</span>
+                  <span className="ml-2 text-sm text-white">{pitcher.record}</span>
+                </div>
+              )}
+              {pitcher.era && (
+                <div>
+                  <span className="text-sm font-medium text-gray-400">ERA:</span>
+                  <span className="ml-2 text-sm text-white">{pitcher.era}</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="text-sm text-gray-400">Probable pitcher TBD</div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MLBInsightsSection({ game, edge }) {
+  const h2hOdds = game.odds?.filter(o => o.market === 'h2h') || []
+  const totalOdds = game.odds?.filter(o => o.market === 'totals') || []
+  const topProps = (game.playerProps || []).slice(0, 3)
+
+  const bestH2H = h2hOdds[0]
+  const bestTotal = totalOdds[0]
+
+  const insights = []
+
+  if (edge) {
+    const homeEdge = edge.edgeMlHome || 0
+    const awayEdge = edge.edgeMlAway || 0
+    if (Math.abs(homeEdge) > 0.03 || Math.abs(awayEdge) > 0.03) {
+      const favoredSide = Math.abs(homeEdge) > Math.abs(awayEdge) ? 'home' : 'away'
+      const favoredEdge = favoredSide === 'home' ? homeEdge : awayEdge
+      const favoredTeam = favoredSide === 'home' ? game.home.abbr : game.away.abbr
+      insights.push({
+        type: 'moneyline',
+        icon: '💰',
+        text: `${favoredTeam} ML has a ${(Math.abs(favoredEdge) * 100).toFixed(1)}% edge — the market may be undervaluing them.`
+      })
+    }
+    const overEdge = edge.edgeTotalO || 0
+    const underEdge = edge.edgeTotalU || 0
+    if (Math.abs(overEdge) > 0.03 || Math.abs(underEdge) > 0.03) {
+      const side = Math.abs(overEdge) > Math.abs(underEdge) ? 'Over' : 'Under'
+      const sideEdge = side === 'Over' ? overEdge : underEdge
+      insights.push({
+        type: 'total',
+        icon: '📊',
+        text: `The ${side} has a ${(Math.abs(sideEdge) * 100).toFixed(1)}% edge. ${edge.ourTotal ? `Our projected total: ${edge.ourTotal.toFixed(1)} runs.` : ''}`
+      })
+    }
+  }
+
+  if (topProps.length > 0) {
+    const best = topProps[0]
+    insights.push({
+      type: 'prop',
+      icon: '🎯',
+      text: `Top prop: ${best.playerName} ${best.pick?.toUpperCase()} ${best.threshold} ${(best.type || '').replace(/_/g, ' ')} (${((best.probability || 0) * 100).toFixed(0)}% win prob).`
+    })
+  }
+
+  if (game.probableHomePitcher && game.probableAwayPitcher) {
+    insights.push({
+      type: 'pitching',
+      icon: '⚾',
+      text: `Pitching matchup: ${game.probableAwayPitcher.fullName}${game.probableAwayPitcher.era ? ` (${game.probableAwayPitcher.era} ERA)` : ''} vs ${game.probableHomePitcher.fullName}${game.probableHomePitcher.era ? ` (${game.probableHomePitcher.era} ERA)` : ''}.`
+    })
+  }
+
+  if (insights.length === 0) return null
+
+  return (
+    <div className="card">
+      <div className="px-6 py-4 border-b border-slate-700 bg-gradient-to-r from-amber-900/20 to-transparent">
+        <h2 className="text-lg font-semibold text-amber-400">💡 Betting Insights</h2>
+        <p className="text-sm text-gray-400 mt-1">Key takeaways for this matchup</p>
+      </div>
+      <div className="p-6 space-y-4">
+        {insights.map((insight, idx) => (
+          <div key={idx} className="flex items-start gap-3 p-3 bg-slate-800/50 rounded-lg border border-slate-700">
+            <span className="text-xl mt-0.5">{insight.icon}</span>
+            <p className="text-sm text-gray-200 leading-relaxed">{insight.text}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function MLBPlayerPropsSection({ props }) {
+  function decimalToAmerican(d) {
+    if (!d || d === 1) return '+100'
+    d = parseFloat(d)
+    if (isNaN(d)) return null
+    if (d >= 2.0) return `+${Math.round((d - 1) * 100)}`
+    return `${Math.round(-100 / (d - 1))}`
+  }
+
+  const battingProps = props.filter(p => !p.type?.startsWith('pitcher_'))
+  const pitchingProps = props.filter(p => p.type?.startsWith('pitcher_'))
+
+  return (
+    <div className="card">
+      <div className="px-6 py-4 border-b border-slate-700 bg-gradient-to-r from-blue-900/20 to-transparent">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-blue-400">📋 Player Props</h2>
+            <p className="text-sm text-gray-400 mt-1">{props.length} props available for this game</p>
+          </div>
+        </div>
+      </div>
+      <div className="p-6 space-y-6">
+        {battingProps.length > 0 && (
+          <div>
+            <h3 className="text-md font-semibold text-white mb-3 flex items-center gap-2">⚾ Batting Props <span className="text-xs text-gray-400 font-normal">({battingProps.length})</span></h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left py-2 text-gray-400 font-medium">Player</th>
+                    <th className="text-left py-2 text-gray-400 font-medium">Prop</th>
+                    <th className="text-center py-2 text-gray-400 font-medium">Line</th>
+                    <th className="text-center py-2 text-gray-400 font-medium">Odds</th>
+                    <th className="text-center py-2 text-gray-400 font-medium">Win %</th>
+                    <th className="text-center py-2 text-gray-400 font-medium">Quality</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {battingProps.slice(0, 15).map((prop, idx) => (
+                    <tr key={prop.propId || idx} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                      <td className="py-2 text-white font-medium">{prop.playerName}</td>
+                      <td className="py-2 text-gray-300">{prop.pick?.toUpperCase()} {(prop.type || '').replace(/_/g, ' ').replace('batter ', '')}</td>
+                      <td className="py-2 text-center text-white">{prop.threshold}</td>
+                      <td className="py-2 text-center text-amber-400 font-semibold">{decimalToAmerican(prop.odds) || '—'}</td>
+                      <td className="py-2 text-center">
+                        <span className={`font-semibold ${(prop.probability || 0) >= 0.55 ? 'text-green-400' : (prop.probability || 0) >= 0.50 ? 'text-blue-400' : 'text-gray-400'}`}>
+                          {((prop.probability || 0) * 100).toFixed(0)}%
+                        </span>
+                      </td>
+                      <td className="py-2 text-center text-gray-400">{prop.qualityScore?.toFixed(1) || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+        {pitchingProps.length > 0 && (
+          <div>
+            <h3 className="text-md font-semibold text-white mb-3 flex items-center gap-2">🎯 Pitching Props <span className="text-xs text-gray-400 font-normal">({pitchingProps.length})</span></h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left py-2 text-gray-400 font-medium">Player</th>
+                    <th className="text-left py-2 text-gray-400 font-medium">Prop</th>
+                    <th className="text-center py-2 text-gray-400 font-medium">Line</th>
+                    <th className="text-center py-2 text-gray-400 font-medium">Odds</th>
+                    <th className="text-center py-2 text-gray-400 font-medium">Win %</th>
+                    <th className="text-center py-2 text-gray-400 font-medium">Quality</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pitchingProps.slice(0, 10).map((prop, idx) => (
+                    <tr key={prop.propId || idx} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                      <td className="py-2 text-white font-medium">{prop.playerName}</td>
+                      <td className="py-2 text-gray-300">{prop.pick?.toUpperCase()} {(prop.type || '').replace(/_/g, ' ').replace('pitcher ', '')}</td>
+                      <td className="py-2 text-center text-white">{prop.threshold}</td>
+                      <td className="py-2 text-center text-amber-400 font-semibold">{decimalToAmerican(prop.odds) || '—'}</td>
+                      <td className="py-2 text-center">
+                        <span className={`font-semibold ${(prop.probability || 0) >= 0.55 ? 'text-green-400' : (prop.probability || 0) >= 0.50 ? 'text-blue-400' : 'text-gray-400'}`}>
+                          {((prop.probability || 0) * 100).toFixed(0)}%
+                        </span>
+                      </td>
+                      <td className="py-2 text-center text-gray-400">{prop.qualityScore?.toFixed(1) || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function MLBBoxScoreSection({ boxScore, game }) {
+  function TeamBoxScore({ teamData, teamName, teamAbbr }) {
+    if (!teamData) return null
+    return (
+      <div className="space-y-4">
+        <h3 className="text-md font-semibold text-white border-b border-slate-700 pb-2">{teamName} ({teamAbbr})</h3>
+        {teamData.batters.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-700">
+                  <th className="text-left py-1.5 text-gray-400 font-medium">Batter</th>
+                  <th className="text-center py-1.5 text-gray-400 font-medium w-10">AB</th>
+                  <th className="text-center py-1.5 text-gray-400 font-medium w-10">R</th>
+                  <th className="text-center py-1.5 text-gray-400 font-medium w-10">H</th>
+                  <th className="text-center py-1.5 text-gray-400 font-medium w-10">RBI</th>
+                  <th className="text-center py-1.5 text-gray-400 font-medium w-10">BB</th>
+                  <th className="text-center py-1.5 text-gray-400 font-medium w-10">SO</th>
+                  <th className="text-center py-1.5 text-gray-400 font-medium w-10">HR</th>
+                </tr>
+              </thead>
+              <tbody>
+                {teamData.batters.map((b, idx) => (
+                  <tr key={idx} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                    <td className="py-1.5">
+                      <span className="text-white font-medium">{b.name}</span>
+                      <span className="text-gray-500 text-xs ml-1">{b.position}</span>
+                    </td>
+                    <td className="py-1.5 text-center text-gray-300">{b.ab}</td>
+                    <td className="py-1.5 text-center text-gray-300">{b.r}</td>
+                    <td className="py-1.5 text-center text-white font-semibold">{b.h}</td>
+                    <td className="py-1.5 text-center text-gray-300">{b.rbi}</td>
+                    <td className="py-1.5 text-center text-gray-300">{b.bb}</td>
+                    <td className="py-1.5 text-center text-gray-300">{b.so}</td>
+                    <td className="py-1.5 text-center font-semibold">{b.hr > 0 ? <span className="text-amber-400">{b.hr}</span> : <span className="text-gray-500">0</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {teamData.pitchers.length > 0 && (
+          <div className="overflow-x-auto mt-3">
+            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Pitching</div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-700">
+                  <th className="text-left py-1.5 text-gray-400 font-medium">Pitcher</th>
+                  <th className="text-center py-1.5 text-gray-400 font-medium w-10">IP</th>
+                  <th className="text-center py-1.5 text-gray-400 font-medium w-10">H</th>
+                  <th className="text-center py-1.5 text-gray-400 font-medium w-10">R</th>
+                  <th className="text-center py-1.5 text-gray-400 font-medium w-10">ER</th>
+                  <th className="text-center py-1.5 text-gray-400 font-medium w-10">BB</th>
+                  <th className="text-center py-1.5 text-gray-400 font-medium w-10">SO</th>
+                  <th className="text-center py-1.5 text-gray-400 font-medium w-10">PC</th>
+                </tr>
+              </thead>
+              <tbody>
+                {teamData.pitchers.map((p, idx) => (
+                  <tr key={idx} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                    <td className="py-1.5 text-white font-medium">{p.name}</td>
+                    <td className="py-1.5 text-center text-gray-300">{p.ip}</td>
+                    <td className="py-1.5 text-center text-gray-300">{p.h}</td>
+                    <td className="py-1.5 text-center text-gray-300">{p.r}</td>
+                    <td className="py-1.5 text-center text-gray-300">{p.er}</td>
+                    <td className="py-1.5 text-center text-gray-300">{p.bb}</td>
+                    <td className="py-1.5 text-center text-white font-semibold">{p.so}</td>
+                    <td className="py-1.5 text-center text-gray-400">{p.pitches}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="card">
+      <div className="px-6 py-4 border-b border-slate-700 bg-gradient-to-r from-green-900/20 to-transparent">
+        <h2 className="text-lg font-semibold text-green-400">📊 Box Score</h2>
+        <p className="text-sm text-gray-400 mt-1">Final game statistics</p>
+      </div>
+      <div className="p-6 space-y-8">
+        <TeamBoxScore teamData={boxScore.away} teamName={game.away.name} teamAbbr={game.away.abbr} />
+        <TeamBoxScore teamData={boxScore.home} teamName={game.home.name} teamAbbr={game.home.abbr} />
       </div>
     </div>
   )
