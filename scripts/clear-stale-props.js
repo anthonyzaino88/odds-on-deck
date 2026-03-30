@@ -29,83 +29,83 @@ async function main() {
   const now = new Date()
   const nowIso = now.toISOString()
   
-  // Find stale/expired props - also include props where gameTime is in the past
-  const { data: staleProps, error: queryError } = await supabase
+  // Count what we're about to delete using server-side filters
+  const { count: expiredCount } = await supabase
     .from('PlayerPropCache')
-    .select('id, sport, playerName, type, expiresAt, isStale, gameTime')
-  
-  if (queryError) {
-    console.error('❌ Error querying props:', queryError)
-    process.exit(1)
-  }
-  
-  // Filter to stale/expired OR gameTime in the past (yesterday's games)
-  const toDelete = staleProps.filter(p => {
-    const isStale = p.isStale
-    const isExpired = new Date(p.expiresAt) <= now
-    const gameTimePassed = p.gameTime && new Date(p.gameTime) <= now
-    return isStale || isExpired || gameTimePassed
-  })
-  
-  // Count past games separately for reporting
-  const pastGameCount = staleProps.filter(p => p.gameTime && new Date(p.gameTime) <= now).length
-  
-  console.log(`\n📊 Found ${toDelete.length} stale/expired props to clean up`)
-  console.log(`   (${pastGameCount} with past game times)`)
-  
-  if (toDelete.length === 0) {
+    .select('*', { count: 'exact', head: true })
+    .lt('expiresAt', nowIso)
+
+  const { count: staleCount } = await supabase
+    .from('PlayerPropCache')
+    .select('*', { count: 'exact', head: true })
+    .eq('isStale', true)
+
+  const { count: pastGameCount } = await supabase
+    .from('PlayerPropCache')
+    .select('*', { count: 'exact', head: true })
+    .lt('gameTime', nowIso)
+
+  const { count: totalCount } = await supabase
+    .from('PlayerPropCache')
+    .select('*', { count: 'exact', head: true })
+
+  console.log(`\n📊 Props in database: ${totalCount}`)
+  console.log(`   Expired (expiresAt < now): ${expiredCount}`)
+  console.log(`   Stale (isStale = true): ${staleCount}`)
+  console.log(`   Past game time: ${pastGameCount}`)
+
+  if (expiredCount === 0 && staleCount === 0 && pastGameCount === 0) {
     console.log('✅ Database is already clean!')
     process.exit(0)
   }
-  
-  // Group by sport
-  const bySport = {}
-  toDelete.forEach(p => {
-    bySport[p.sport] = (bySport[p.sport] || 0) + 1
-  })
-  
-  console.log('\nBreakdown by sport:')
-  Object.entries(bySport).forEach(([sport, count]) => {
-    console.log(`  ${sport.toUpperCase()}: ${count} stale props`)
-  })
-  
-  // Show some sample props that will be deleted (to help debug)
-  const samples = toDelete.slice(0, 5)
-  if (samples.length > 0) {
-    console.log('\nSample props to delete:')
-    samples.forEach(p => {
-      const gameTimeStr = p.gameTime ? new Date(p.gameTime).toLocaleString() : 'unknown'
-      console.log(`  - ${p.playerName} (${p.sport}) - gameTime: ${gameTimeStr}`)
-    })
-  }
-  
+
   if (dryRun) {
     console.log('\n💡 This is a dry run. Run without --dry-run to delete.')
-  } else {
-    console.log('\n🗑️  Deleting stale props...')
-    
-    const idsToDelete = toDelete.map(p => p.id)
-    
-    const { error: deleteError } = await supabase
-      .from('PlayerPropCache')
-      .delete()
-      .in('id', idsToDelete)
-    
-    if (deleteError) {
-      console.error('❌ Error deleting props:', deleteError)
-      process.exit(1)
-    }
-    
-    console.log(`✅ Deleted ${toDelete.length} stale props`)
+    process.exit(0)
   }
-  
+
+  console.log('\n🗑️  Deleting stale props using server-side filters...')
+  let totalDeleted = 0
+
+  // Delete expired props in batches (server-side filter, no 1000-row limit issue)
+  const { error: err1, count: del1 } = await supabase
+    .from('PlayerPropCache')
+    .delete({ count: 'exact' })
+    .lt('expiresAt', nowIso)
+  if (err1) console.error('❌ Error deleting expired:', err1.message)
+  else { totalDeleted += (del1 || 0); console.log(`  ✅ Deleted ${del1 || 0} expired props`) }
+
+  // Delete stale props
+  const { error: err2, count: del2 } = await supabase
+    .from('PlayerPropCache')
+    .delete({ count: 'exact' })
+    .eq('isStale', true)
+  if (err2) console.error('❌ Error deleting stale:', err2.message)
+  else { totalDeleted += (del2 || 0); console.log(`  ✅ Deleted ${del2 || 0} stale props`) }
+
+  // Delete props with past game time
+  const { error: err3, count: del3 } = await supabase
+    .from('PlayerPropCache')
+    .delete({ count: 'exact' })
+    .lt('gameTime', nowIso)
+  if (err3) console.error('❌ Error deleting past game props:', err3.message)
+  else { totalDeleted += (del3 || 0); console.log(`  ✅ Deleted ${del3 || 0} past-game props`) }
+
+  // Verify
+  const { count: remaining } = await supabase
+    .from('PlayerPropCache')
+    .select('*', { count: 'exact', head: true })
+
+  console.log(`\n📊 Total deleted: ${totalDeleted}`)
+  console.log(`📊 Remaining props: ${remaining}`)
+
   console.log('\n' + '='.repeat(80))
-  console.log(`${dryRun ? '💡 Dry run complete' : '✅ Cleanup complete'}`)
+  console.log('✅ Cleanup complete')
   console.log('='.repeat(80))
   console.log('\n📝 Next steps:')
-  console.log('  1. Wait for bookmakers to post props (12-24 hours)')
-  console.log('  2. Run: node scripts/fetch-live-odds.js all --cache-fresh')
-  console.log('  3. Check: http://localhost:3000/props\n')
+  console.log('  1. node scripts/fetch-fresh-games.js all')
+  console.log('  2. node scripts/fetch-live-odds.js all --cache-fresh')
+  console.log('  3. node scripts/update-scores-safely.js all\n')
 }
 
 main().catch(error => {

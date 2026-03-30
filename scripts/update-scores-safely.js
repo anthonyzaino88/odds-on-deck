@@ -27,8 +27,44 @@ config({ path: '.env.local' })
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
+
+/**
+ * Fetch MLB game status from ESPN as fallback when mlbGameId is missing
+ */
+async function fetchMLBFromESPN(espnGameId) {
+  try {
+    const url = `https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/summary?event=${espnGameId}`
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const data = await res.json()
+    
+    const competition = data.header?.competitions?.[0]
+    if (!competition) return null
+    
+    const competitors = competition.competitors || []
+    const home = competitors.find(c => c.homeAway === 'home')
+    const away = competitors.find(c => c.homeAway === 'away')
+    
+    const statusType = competition.status?.type?.name || ''
+    let status = 'scheduled'
+    if (statusType === 'STATUS_FINAL' || competition.status?.type?.completed) status = 'final'
+    else if (statusType === 'STATUS_IN_PROGRESS' || statusType === 'STATUS_RAIN_DELAY') status = 'in_progress'
+    
+    return {
+      homeScore: parseInt(home?.score) || 0,
+      awayScore: parseInt(away?.score) || 0,
+      status,
+      inning: competition.status?.period || null,
+      inningHalf: competition.status?.type?.shortDetail?.includes('Top') ? 'Top' : 
+                  competition.status?.type?.shortDetail?.includes('Bot') ? 'Bottom' : null
+    }
+  } catch (err) {
+    console.error(`  ❌ ESPN fallback error: ${err.message}`)
+    return null
+  }
+}
 
 /**
  * Map ESPN status to our clean format (removes status_ prefix)
@@ -61,12 +97,16 @@ function normalizeStatus(status) {
 async function updateScoresForSport(sport) {
   console.log(`\n🔄 Updating ${sport.toUpperCase()} scores...\n`)
   
-  // Get active games (scheduled or in_progress) for this sport
+  // Only look at games from the last 3 days (not ancient scheduled games)
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - 3)
+  
   const { data: games, error } = await supabase
     .from('Game')
     .select('id, espnGameId, mlbGameId, homeId, awayId, homeScore, awayScore, status, date, home:Team!Game_homeId_fkey(abbr), away:Team!Game_awayId_fkey(abbr)')
     .eq('sport', sport)
     .in('status', ['scheduled', 'in_progress', 'in-progress'])
+    .gte('date', cutoff.toISOString())
     .order('date', { ascending: true })
   
   if (error) {
@@ -75,7 +115,7 @@ async function updateScoresForSport(sport) {
   }
   
   if (!games || games.length === 0) {
-    console.log(`ℹ️  No active ${sport.toUpperCase()} games found`)
+    console.log(`ℹ️  No active ${sport.toUpperCase()} games found (last 3 days)`)
     return { updated: 0, errors: 0 }
   }
   
@@ -86,29 +126,52 @@ async function updateScoresForSport(sport) {
   
   for (const game of games) {
     try {
-      console.log(`🔄 Updating ${game.away.abbr} @ ${game.home.abbr}...`)
+      console.log(`🔄 Updating ${game.away?.abbr || '?'} @ ${game.home?.abbr || '?'}...`)
       
       let liveData = null
       
-      // Fetch live data based on sport
       if (sport === 'nhl' && game.espnGameId) {
         liveData = await fetchNHLGameDetail(game.espnGameId)
       } else if (sport === 'nfl' && game.espnGameId) {
         liveData = await fetchNFLGameDetail(game.espnGameId)
-      } else if (sport === 'mlb' && game.mlbGameId) {
-        liveData = await fetchLiveGameData(game.mlbGameId, true)
+      } else if (sport === 'mlb') {
+        // Try MLB Stats API first, fall back to ESPN
+        if (game.mlbGameId) {
+          liveData = await fetchLiveGameData(game.mlbGameId, true)
+        }
+        if (!liveData && game.espnGameId) {
+          liveData = await fetchMLBFromESPN(game.espnGameId)
+        }
       }
       
       if (!liveData) {
-        console.log(`  ⚠️  No live data available`)
+        // If game is >24h old and still scheduled, mark as final (game likely happened)
+        const gameAge = (Date.now() - new Date(game.date).getTime()) / (1000 * 60 * 60)
+        if (gameAge > 24 && game.status === 'scheduled') {
+          console.log(`  ⏰ Game is ${Math.round(gameAge)}h old with no data — marking as final`)
+          await supabase.from('Game').update({ status: 'final', lastUpdate: new Date().toISOString() }).eq('id', game.id)
+          updated++
+        } else {
+          console.log(`  ⚠️  No live data available`)
+        }
         continue
       }
       
-      // Prepare update data - only update scores and status
+      // Guard: don't mark future games as in_progress if score is still 0-0
+      let resolvedStatus = normalizeStatus(liveData.status)
+      const gameStart = new Date(game.date)
+      const minutesUntilStart = (gameStart - Date.now()) / (1000 * 60)
+      
+      if (resolvedStatus === 'in_progress' && minutesUntilStart > 10 &&
+          (liveData.homeScore || 0) === 0 && (liveData.awayScore || 0) === 0) {
+        console.log(`  ⏳ Game hasn't started yet (starts in ${Math.round(minutesUntilStart)} min) — keeping scheduled`)
+        resolvedStatus = 'scheduled'
+      }
+      
       const updateData = {
         homeScore: liveData.homeScore ?? game.homeScore,
         awayScore: liveData.awayScore ?? game.awayScore,
-        status: normalizeStatus(liveData.status),
+        status: resolvedStatus,
         lastUpdate: new Date().toISOString()
       }
       

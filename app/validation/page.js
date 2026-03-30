@@ -1,7 +1,7 @@
 // Validation Dashboard - Track prediction accuracy
 
 import Link from 'next/link'
-import { getValidationStats, getValidationRecords } from '../../lib/validation.js'
+import { getValidationStats, getValidationRecords, getValidationCounts } from '../../lib/validation.js'
 import CheckPropsButton from '../../components/CheckPropsButton.js'
 import CompletedPropsTable from '../../components/CompletedPropsTable.js'
 
@@ -11,34 +11,18 @@ export const revalidate = 0
 export const fetchCache = 'force-no-store'
 
 export default async function ValidationDashboard() {
-  const stats = await getValidationStats()
-  const recentRecords = await getValidationRecords({ limit: 50 })
-  
-  // Fetch ALL records for accurate counts (no limit)
-  const allRecords = await getValidationRecords({})
-  const allCompletedRecords = allRecords.filter(r => r.status === 'completed')
+  // Parallel fetch: stats, recent records, counts, and sport stats
+  const [stats, recentRecords, validationCounts, nflStats, nhlStats, mlbStats] = await Promise.all([
+    getValidationStats(),
+    getValidationRecords({ limit: 50 }),
+    getValidationCounts(),
+    getValidationStats({ sport: 'nfl' }),
+    getValidationStats({ sport: 'nhl' }),
+    getValidationStats({ sport: 'mlb' })
+  ])
 
-  // Use ALL records for accurate status counts
-  const pendingRecords = allRecords.filter(r => r.status === 'pending')
-  const completedRecords = allCompletedRecords
-  const needsReviewRecords = allRecords.filter(r => r.status === 'needs_review')
-
-  // Group by source using ALL records for accurate tracking
-  const bySource = {
-    user_saved: allRecords.filter(r => r.source === 'user_saved'),
-    parlay_leg: allRecords.filter(r => r.source === 'parlay_leg'),
-    system_generated: allRecords.filter(r => r.source === 'system_generated')
-  }
-
-  // Get stats by sport
-  const nflStats = await getValidationStats({ sport: 'nfl' })
-  const nhlStats = await getValidationStats({ sport: 'nhl' })
-  const mlbStats = await getValidationStats({ sport: 'mlb' })
-  
-  // Group records by sport
-  const nflRecords = completedRecords.filter(r => r.sport === 'nfl')
-  const nhlRecords = completedRecords.filter(r => r.sport === 'nhl')
-  const mlbRecords = completedRecords.filter(r => r.sport === 'mlb')
+  const { counts, pendingBySport, sourceCounts } = validationCounts
+  const completedRecords = recentRecords.filter(r => r.status === 'completed')
 
   return (
     <div className="min-h-screen bg-slate-950">
@@ -115,20 +99,37 @@ export default async function ValidationDashboard() {
             <h3 className="text-lg font-semibold text-white mb-4">⏳ Status</h3>
             <div className="space-y-3">
               <div className="flex justify-between items-center">
+                <span className="text-gray-400">Completed</span>
+                <span className="font-bold text-green-400">{counts.completed}</span>
+              </div>
+              <div className="flex justify-between items-center">
                 <span className="text-gray-400">Pending</span>
-                <span className="font-bold text-yellow-400">{pendingRecords.length}</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-yellow-400">{counts.pending}</span>
+                  {counts.pending > 0 && (
+                    <span className="text-xs text-gray-500">
+                      ({[
+                        pendingBySport.mlb > 0 && `${pendingBySport.mlb} MLB`,
+                        pendingBySport.nhl > 0 && `${pendingBySport.nhl} NHL`,
+                        pendingBySport.nfl > 0 && `${pendingBySport.nfl} NFL`
+                      ].filter(Boolean).join(', ')})
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-400">Needs Review</span>
-                <span className="font-bold text-blue-400">{needsReviewRecords.length}</span>
+                <span className="font-bold text-blue-400">{counts.needs_review}</span>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-400">Completed</span>
-                <span className="font-bold text-green-400">{completedRecords.length}</span>
-              </div>
+              {counts.manual_closed > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400">Manually Closed</span>
+                  <span className="font-bold text-gray-500">{counts.manual_closed}</span>
+                </div>
+              )}
               <div className="flex justify-between items-center pt-3 border-t border-slate-700">
                 <span className="font-semibold text-white">Total Tracked</span>
-                <span className="font-bold text-white">{allRecords.length}</span>
+                <span className="font-bold text-white">{counts.total}</span>
               </div>
             </div>
           </div>
@@ -138,19 +139,19 @@ export default async function ValidationDashboard() {
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-gray-400">👤 Individual Props</span>
-                <span className="font-bold text-blue-400">{bySource.user_saved.length}</span>
+                <span className="font-bold text-blue-400">{sourceCounts.user_saved}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-400">🎯 Saved Parlays</span>
-                <span className="font-bold text-purple-400">{bySource.parlay_leg.length}</span>
+                <span className="font-bold text-purple-400">{sourceCounts.parlay_leg}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-400">🤖 Auto-Generated</span>
-                <span className="font-bold text-gray-400">{bySource.system_generated.length}</span>
+                <span className="font-bold text-gray-400">{sourceCounts.system_generated}</span>
               </div>
               <div className="flex justify-between items-center pt-3 border-t border-slate-700">
                 <span className="font-semibold text-white">💾 Your Saved Picks</span>
-                <span className="font-bold text-green-400">{bySource.user_saved.length + bySource.parlay_leg.length}</span>
+                <span className="font-bold text-green-400">{sourceCounts.user_saved + sourceCounts.parlay_leg}</span>
               </div>
             </div>
             <div className="mt-4 pt-4 border-t border-slate-700 text-xs text-gray-400">
