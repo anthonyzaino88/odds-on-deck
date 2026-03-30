@@ -151,7 +151,7 @@ export default function AboutPage() {
             <ConceptCard
               term="Implied Probability"
               definition="The break-even win rate embedded in the odds. American odds of -110 imply ~52.4% — you need to win more than that to profit long-term."
-              example='Example: +150 odds imply 40% probability. If the true chance is 50%, that\'s a value bet.'
+              example="Example: +150 odds imply 40% probability. If the true chance is 50%, that&apos;s a value bet."
             />
             <ConceptCard
               term="Vig (Juice)"
