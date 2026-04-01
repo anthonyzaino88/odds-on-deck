@@ -36,9 +36,10 @@ console.log('\n🎲 Calculating Game Edges for Today\'s Games...\n')
 
 async function calculateEdgesForToday() {
   try {
-    // Get today's games
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
+    // Get today's games using Eastern Time boundaries
+    // Game dates are stored in UTC, but "today" should mean the ET calendar day
+    const nowET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+    const today = new Date(nowET + 'T04:00:00Z')   // midnight ET = 4 AM UTC (EDT)
     const tomorrow = new Date(today)
     tomorrow.setDate(tomorrow.getDate() + 1)
     
@@ -80,11 +81,33 @@ async function calculateEdgesForToday() {
       try {
         console.log(`\n🎯 Processing: ${game.away?.abbr} @ ${game.home?.abbr} (${game.sport.toUpperCase()})`)
         
-        // Get latest odds for this game
-        const { data: odds, error: oddsError } = await supabase
+        // Get latest odds for this game — also check sibling games that share
+        // the same oddsApiEventId (handles duplicate game entries across days)
+        let odds = []
+        const gameIdsToCheck = [game.id]
+
+        // Find sibling game IDs with the same oddsApiEventId
+        const { data: thisGame } = await supabase
+          .from('Game')
+          .select('oddsApiEventId')
+          .eq('id', game.id)
+          .maybeSingle()
+
+        if (thisGame?.oddsApiEventId) {
+          const { data: siblings } = await supabase
+            .from('Game')
+            .select('id')
+            .eq('oddsApiEventId', thisGame.oddsApiEventId)
+            .neq('id', game.id)
+          if (siblings?.length) {
+            gameIdsToCheck.push(...siblings.map(s => s.id))
+          }
+        }
+
+        const { data: oddsData, error: oddsError } = await supabase
           .from('Odds')
           .select('*')
-          .eq('gameId', game.id)
+          .in('gameId', gameIdsToCheck)
           .order('ts', { ascending: false })
           .limit(10)
         
@@ -94,7 +117,8 @@ async function calculateEdgesForToday() {
           continue
         }
         
-        if (!odds || odds.length === 0) {
+        odds = oddsData || []
+        if (odds.length === 0) {
           console.log(`  ⚠️  No odds data available - skipping`)
           continue
         }

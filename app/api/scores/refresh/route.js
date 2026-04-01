@@ -30,7 +30,7 @@ export async function POST(req) {
       timestamp: new Date().toISOString()
     }
     
-    const sportsToRefresh = sport === 'all' ? ['nhl', 'nfl'] : [sport]
+    const sportsToRefresh = sport === 'all' ? ['mlb', 'nhl', 'nfl'] : [sport]
     
     for (const sportType of sportsToRefresh) {
       const sportResult = await refreshSportScores(sportType)
@@ -99,37 +99,89 @@ async function refreshSportScores(sport) {
         const gameDate = new Date(event.date)
         const estDate = gameDate.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
         
-        // Try to find game in DB by pattern matching
+        // Try to find game in DB — first by exact ID match, then by espnGameId
         const gameIdPattern = `${awayAbbr}_at_${homeAbbr}_${estDate}`
+        const espnId = event.id
         
-        const { data: game, error: findError } = await supabase
+        let { data: game } = await supabase
           .from('Game')
           .select('id, homeScore, awayScore, status')
           .eq('id', gameIdPattern)
           .single()
         
+        // Fallback: match by ESPN game ID if exact ID didn't work
+        if (!game && espnId) {
+          const { data: espnMatch } = await supabase
+            .from('Game')
+            .select('id, homeScore, awayScore, status')
+            .eq('espnGameId', espnId)
+            .single()
+          if (espnMatch) game = espnMatch
+        }
+        
         if (game) {
-          // Update scores if changed
-          if (game.homeScore !== homeScore || game.awayScore !== awayScore || game.status !== dbStatus) {
+          const updateData = {
+            homeScore,
+            awayScore,
+            status: dbStatus,
+            lastUpdate: new Date().toISOString()
+          }
+          
+          // MLB-specific live state
+          if (sport === 'mlb') {
+            if (dbStatus === 'final') {
+              // Clear live-state fields when game is over
+              updateData.inning = null
+              updateData.inningHalf = null
+              updateData.outs = null
+              updateData.balls = null
+              updateData.strikes = null
+              updateData.lastPlay = null
+              updateData.runnerOn1st = null
+              updateData.runnerOn2nd = null
+              updateData.runnerOn3rd = null
+            } else if (dbStatus === 'in_progress') {
+              const period = event.status?.period
+              const detail = event.status?.type?.detail || ''
+              if (period) updateData.inning = period
+              if (detail.toLowerCase().includes('top')) updateData.inningHalf = 'Top'
+              else if (detail.toLowerCase().includes('bot')) updateData.inningHalf = 'Bottom'
+              else if (detail.toLowerCase().includes('mid')) updateData.inningHalf = 'Middle'
+              else if (detail.toLowerCase().includes('end')) updateData.inningHalf = 'End'
+              
+              const situation = competition.situation
+              if (situation) {
+                if (situation.outs != null) updateData.outs = situation.outs
+                if (situation.balls != null) updateData.balls = situation.balls
+                if (situation.strikes != null) updateData.strikes = situation.strikes
+                if (situation.lastPlay?.text) updateData.lastPlay = situation.lastPlay.text
+                updateData.runnerOn1st = situation.onFirst ? 'on' : null
+                updateData.runnerOn2nd = situation.onSecond ? 'on' : null
+                updateData.runnerOn3rd = situation.onThird ? 'on' : null
+              }
+            }
+          }
+          
+          // Check if anything actually changed
+          const hasChanges = game.homeScore !== homeScore || game.awayScore !== awayScore || game.status !== dbStatus
+          
+          if (hasChanges || dbStatus === 'in_progress') {
             const { error: updateError } = await supabase
               .from('Game')
-              .update({
-                homeScore,
-                awayScore,
-                status: dbStatus
-              })
+              .update(updateData)
               .eq('id', game.id)
             
             if (updateError) {
               result.errors.push({ game: gameIdPattern, error: updateError.message })
             } else {
               result.updated++
+              const inningStr = updateData.inning ? ` ${updateData.inningHalf === 'top' ? '▲' : '▼'}${updateData.inning}` : ''
               result.games.push({
                 id: game.id,
-                score: `${awayAbbr} ${awayScore} - ${homeAbbr} ${homeScore}`,
+                score: `${awayAbbr} ${awayScore} - ${homeAbbr} ${homeScore}${inningStr}`,
                 status: dbStatus
               })
-              console.log(`  ✅ ${awayAbbr} ${awayScore} - ${homeAbbr} ${homeScore} (${dbStatus})`)
+              console.log(`  ✅ ${awayAbbr} ${awayScore} - ${homeAbbr} ${homeScore}${inningStr} (${dbStatus})`)
             }
           }
         }

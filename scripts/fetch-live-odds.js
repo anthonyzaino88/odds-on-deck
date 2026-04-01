@@ -507,13 +507,10 @@ async function fetchGameOdds(sport, date, ignoreCache = false) {
     if (isCached) {
       console.log(`  ✅ Cache hit for moneyline odds`)
       // Even if cached, we need games for props - query database for games with oddsApiEventId
-      // Build date range (today ± 1 day to catch games regardless of timezone)
-      const dateStart = new Date(date)
-      dateStart.setDate(dateStart.getDate() - 1)  // Look back 1 day
-      dateStart.setHours(0, 0, 0, 0)
-      const dateEnd = new Date(date)
-      dateEnd.setDate(dateEnd.getDate() + 1)  // Look ahead 1 day
-      dateEnd.setHours(23, 59, 59, 999)
+      // Use ET-aware date boundaries: midnight ET = 4 AM UTC (EDT) or 5 AM UTC (EST)
+      const dateStart = new Date(date + 'T04:00:00Z')
+      const dateEnd = new Date(dateStart)
+      dateEnd.setDate(dateEnd.getDate() + 1)
       
       // First check if there are ANY games for this date range
       const { data: allGames, error: allGamesError } = await supabase
@@ -535,11 +532,12 @@ async function fetchGameOdds(sport, date, ignoreCache = false) {
       
       console.log(`  📅 Found ${allGames.length} ${sport.toUpperCase()} games in date range`)
       
-      // Now get games with event IDs
+      // Now get games with event IDs (only scheduled/upcoming — skip final games)
       const { data: games, error } = await supabase
         .from('Game')
         .select('oddsApiEventId, homeId, awayId, id')
         .eq('sport', sport)
+        .in('status', ['scheduled', 'pre-game', 'pre_game', 'warmup', 'in_progress'])
         .gte('date', dateStart.toISOString())
         .lte('date', dateEnd.toISOString())
         .not('oddsApiEventId', 'is', null)
@@ -678,51 +676,30 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
       })
     }
     
-    // Try to find matching ESPN game (check ALL games, not just unmapped)
-    // This allows remapping if a game was mapped to wrong event ID
-    // But skip games that already have this exact event ID mapped
-    const dbGame = dbGames.find(g => {
-      // Skip if this game is already mapped to this exact event ID (correct mapping)
-      if (g.oddsApiEventId === oddsGame.id) {
-        return false
-      }
-      
-      // Use abbreviation if available (more reliable), otherwise use name
+    // Match by team names, then pick the DB game closest to the EVENT's commence_time
+    const oddsHome = (oddsGame.home_team || '').trim()
+    const oddsAway = (oddsGame.away_team || '').trim()
+    const eventTime = new Date(oddsGame.commence_time || date + 'T12:00:00Z').getTime()
+
+    const teamMatches = dbGames.filter(g => {
+      if (g.oddsApiEventId === oddsGame.id) return false
       const homeName = (g.home?.abbr || g.home?.name || '').trim()
       const awayName = (g.away?.abbr || g.away?.name || '').trim()
-      const oddsHome = (oddsGame.home_team || '').trim()
-      const oddsAway = (oddsGame.away_team || '').trim()
-      
-      // Try matching - don't filter by date here, let the date range query handle that
-      const matches = matchTeams(homeName, awayName, oddsHome, oddsAway, sport)
-      
-      // Debug: Log matching attempts for UTA/TOR specifically
-      if (oddsGame.away_team.includes('Utah') && oddsGame.home_team.includes('Toronto')) {
-        const isUtaTor = (g.away?.abbr === 'UTA' || g.away?.name?.includes('Utah')) &&
-                         (g.home?.abbr === 'TOR' || g.home?.name?.includes('Toronto'))
-        if (isUtaTor) {
-          console.log(`     Testing match for ${g.id}:`)
-          console.log(`       ESPN home: "${homeName}" (abbr: ${g.home?.abbr}, name: ${g.home?.name})`)
-          console.log(`       ESPN away: "${awayName}" (abbr: ${g.away?.abbr}, name: ${g.away?.name})`)
-          console.log(`       Odds home: "${oddsHome}"`)
-          console.log(`       Odds away: "${oddsAway}"`)
-          console.log(`       Match result: ${matches}`)
-          if (!matches) {
-            // Test the match manually
-            const testMatch = matchTeams(homeName, awayName, oddsHome, oddsAway, sport)
-            console.log(`       ⚠️  Manual test match: ${testMatch}`)
-          }
-        }
-      }
-      
-      // Debug: Log matching attempts for unmapped games
-      if (matches && !g.oddsApiEventId) {
-        const gameDate = new Date(g.date).toISOString().split('T')[0]
-        console.log(`  ✅ Match found: ${g.away.abbr} @ ${g.home.abbr} (${gameDate}) ↔ Odds "${oddsAway} @ ${oddsHome}"`)
-      }
-      
-      return matches
+      return matchTeams(homeName, awayName, oddsHome, oddsAway, sport)
     })
+
+    // Prefer unmapped games; if all are mapped, fall back to closest-date mapped game
+    const unmappedMatches = teamMatches.filter(g => !g.oddsApiEventId)
+    const candidates = unmappedMatches.length > 0 ? unmappedMatches : teamMatches
+
+    // Sort by closest date to the EVENT's actual commence time (not the script target date)
+    candidates.sort((a, b) => {
+      const distA = Math.abs(new Date(a.date).getTime() - eventTime)
+      const distB = Math.abs(new Date(b.date).getTime() - eventTime)
+      return distA - distB
+    })
+
+    const dbGame = candidates[0] || null
     
     if (dbGame) {
       // Save mapping
@@ -1224,11 +1201,11 @@ async function savePlayerProps(gameProps, sport) {
   if (gameProps.length === 0) return
   
   // Get mapping of Odds API event ID → our database game ID
-  // Use direct lookup by event IDs (most reliable)
+  // Include status so we can redirect props away from final games
   const eventIds = gameProps.map(gp => gp.gameId)
   const { data: dbGames, error } = await supabase
     .from('Game')
-    .select('id, oddsApiEventId, date')
+    .select('id, oddsApiEventId, date, status, homeId, awayId')
     .eq('sport', sport)
     .in('oddsApiEventId', eventIds)
   
@@ -1236,14 +1213,40 @@ async function savePlayerProps(gameProps, sport) {
     console.warn(`  ⚠️  Error querying games for props: ${error.message}`)
   }
   
-  // Create lookup map
+  // For any final games, find the next scheduled game with same teams
+  const finalGames = (dbGames || []).filter(g => g.status === 'final')
+  let siblingLookup = {}
+  if (finalGames.length > 0) {
+    console.log(`  ⚠️  ${finalGames.length} mapped games are final — looking for next scheduled sibling...`)
+    for (const fg of finalGames) {
+      const { data: nextGame } = await supabase
+        .from('Game')
+        .select('id, date, status')
+        .eq('sport', sport)
+        .eq('homeId', fg.homeId)
+        .eq('awayId', fg.awayId)
+        .in('status', ['scheduled', 'pre-game', 'pre_game', 'warmup'])
+        .gt('date', fg.date)
+        .order('date', { ascending: true })
+        .limit(1)
+        .single()
+      if (nextGame) {
+        siblingLookup[fg.id] = nextGame.id
+        console.log(`    🔄 Redirecting ${fg.id} → ${nextGame.id}`)
+      }
+    }
+  }
+  
+  // Create lookup map (redirect final games to their sibling)
   const eventIdToGameData = {}
   if (dbGames) {
     dbGames.forEach(g => {
       if (g.oddsApiEventId) {
+        const redirectId = siblingLookup[g.id]
         eventIdToGameData[g.oddsApiEventId] = {
-          id: g.id,
-          date: g.date
+          id: redirectId || g.id,
+          date: g.date,
+          redirected: !!redirectId
         }
       }
     })
@@ -1254,7 +1257,7 @@ async function savePlayerProps(gameProps, sport) {
     console.log(`  🔍 Direct lookup incomplete, trying broader query...`)
     const { data: allMappedGames } = await supabase
       .from('Game')
-      .select('id, oddsApiEventId, date')  // Include date!
+      .select('id, oddsApiEventId, date, status, homeId, awayId')
       .eq('sport', sport)
       .not('oddsApiEventId', 'is', null)
     

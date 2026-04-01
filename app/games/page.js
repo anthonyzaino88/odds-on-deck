@@ -255,110 +255,160 @@ export default function GamesPage() {
   )
 }
 
+function BasesDiamond({ runner1st, runner2nd, runner3rd }) {
+  const baseSize = 8
+  const activeColor = '#fbbf24'
+  const emptyColor = '#334155'
+  return (
+    <svg width="28" height="28" viewBox="0 0 32 32" className="inline-block">
+      {/* 2nd base (top) */}
+      <rect x={16 - baseSize/2} y={2} width={baseSize} height={baseSize} rx={1}
+        transform={`rotate(45 16 ${2 + baseSize/2})`}
+        fill={runner2nd ? activeColor : emptyColor} />
+      {/* 3rd base (left) */}
+      <rect x={4} y={14} width={baseSize} height={baseSize} rx={1}
+        transform={`rotate(45 ${4 + baseSize/2} ${14 + baseSize/2})`}
+        fill={runner3rd ? activeColor : emptyColor} />
+      {/* 1st base (right) */}
+      <rect x={20} y={14} width={baseSize} height={baseSize} rx={1}
+        transform={`rotate(45 ${20 + baseSize/2} ${14 + baseSize/2})`}
+        fill={runner1st ? activeColor : emptyColor} />
+    </svg>
+  )
+}
+
+function OutsDots({ outs }) {
+  return (
+    <div className="flex gap-1 items-center">
+      {[0, 1, 2].map(i => (
+        <div key={i} className={`w-2 h-2 rounded-full ${i < (outs || 0) ? 'bg-yellow-400' : 'bg-slate-600'}`} />
+      ))}
+    </div>
+  )
+}
+
 function GameCard({ game }) {
-  // Database stores times as UTC without the Z marker
-  // Add Z to tell JavaScript to treat as UTC, then convert to local timezone
-  // Parse date - handle both with and without 'Z' (dates from API may be normalized)
   const dateStr = game.date || ''
   const gameTime = new Date(dateStr.includes('Z') || dateStr.includes('+') || dateStr.match(/[+-]\d{2}:\d{2}$/) 
     ? dateStr 
     : dateStr + 'Z')
-  const now = new Date()
   
-  // Format time - convert UTC to Eastern Time
   const timeString = gameTime.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
-    timeZone: 'America/New_York'  // Eastern Time (EST/EDT)
+    timeZone: 'America/New_York'
   })
   
-  // Check if game is live - ONLY if status is explicitly 'in_progress'
-  // Don't infer live status from times/scores to avoid false positives
-  // Normalize status: remove "status_" prefix if present, handle hyphens
   let statusNormalized = (game.status || '').toLowerCase()
-  statusNormalized = statusNormalized.replace(/^status_/i, '') // Remove "status_" prefix
-  statusNormalized = statusNormalized.replace(/-/g, '_') // Convert hyphens to underscores
+  statusNormalized = statusNormalized.replace(/^status_/i, '')
+  statusNormalized = statusNormalized.replace(/-/g, '_')
   
-  // Only mark as live if status is explicitly 'in_progress'
-  // Games with midnight UTC times can appear as "started" even if they haven't
   const isLive = statusNormalized === 'in_progress'
+  const isFinal = statusNormalized === 'final'
+  const isScheduled = !isLive && !isFinal
+  const isMLB = game.sport === 'mlb'
+  
+  const awayAbbr = game.awayAbbr || game.away?.abbr || '?'
+  const homeAbbr = game.homeAbbr || game.home?.abbr || '?'
+  const awayName = game.awayName || game.away?.name || 'Away'
+  const homeName = game.homeName || game.home?.name || 'Home'
   
   return (
     <Link href={`/game/${game.id}`}>
-      <div className={`bg-gradient-to-br from-slate-800 to-slate-900 border rounded-lg p-6 hover:border-blue-500 hover:shadow-lg hover:shadow-blue-500/20 transition cursor-pointer ${
-        isLive ? 'border-red-500/50 shadow-red-500/20' : 'border-slate-700'
+      <div className={`bg-gradient-to-br from-slate-800 to-slate-900 border rounded-lg p-4 sm:p-5 hover:border-blue-500 hover:shadow-lg hover:shadow-blue-500/20 transition cursor-pointer ${
+        isLive ? 'border-red-500/50 shadow-red-500/20 shadow-lg' : 'border-slate-700'
       }`}>
         
-        {/* Game Header */}
-        <div className="flex justify-between items-start mb-4">
-          <div className="flex-1">
-            <div className="flex items-center gap-3 mb-2">
-              <h3 className="text-xl font-bold text-slate-100">
-                {game.awayAbbr || game.away?.abbr || '?'} @ {game.homeAbbr || game.home?.abbr || '?'}
-              </h3>
-              
-              {/* Live Indicator - Red Dot + LIVE Text */}
-              {isLive && (
-                <div className="flex items-center gap-2">
-                  <span className="relative flex h-3 w-3">
+        <div className="flex items-center justify-between gap-4">
+          {/* Left: Status column */}
+          <div className="flex-shrink-0 w-16 text-center">
+            {isLive ? (
+              <div>
+                <div className="flex items-center justify-center gap-1.5 mb-1">
+                  <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
                   </span>
-                  <span className="px-2 py-0.5 bg-red-900/50 border border-red-500/50 rounded text-xs font-bold text-red-400 uppercase tracking-wide">
-                    LIVE
-                  </span>
+                  <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider">LIVE</span>
                 </div>
-              )}
-              
-              {/* Status Badge */}
-              {!isLive && (
-                <span className={`px-3 py-1 rounded text-xs font-semibold ${
-                  game.status === 'final' ? 'bg-slate-700 text-slate-300' :
-                  'bg-blue-900/50 text-blue-300'
+                {isMLB && game.inning ? (
+                  <div className="text-xs text-red-300 font-semibold">
+                    {game.inningHalf === 'top' ? '▲' : game.inningHalf === 'bottom' ? '▼' : '●'} {game.inning}
+                  </div>
+                ) : game.sport === 'nhl' && game.lastPlay ? (
+                  <div className="text-[10px] text-red-300">{game.lastPlay}</div>
+                ) : game.sport === 'nfl' && game.nflData?.quarter ? (
+                  <div className="text-xs text-red-300">Q{game.nflData.quarter}</div>
+                ) : null}
+              </div>
+            ) : isFinal ? (
+              <span className="text-xs font-semibold text-slate-400 uppercase">Final</span>
+            ) : (
+              <span className="text-xs font-medium text-blue-400">{timeString}</span>
+            )}
+          </div>
+
+          {/* Center: Teams & scores */}
+          <div className="flex-1 min-w-0">
+            {/* Away team row */}
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className={`text-sm font-bold ${isLive ? 'text-white' : 'text-slate-200'}`}>{awayAbbr}</span>
+                <span className="text-xs text-slate-500 truncate hidden sm:inline">{awayName}</span>
+              </div>
+              {(isLive || isFinal) && (
+                <span className={`text-lg font-bold tabular-nums ml-3 ${
+                  isLive ? 'text-red-400' : 
+                  (game.awayScore || 0) > (game.homeScore || 0) ? 'text-white' : 'text-slate-400'
                 }`}>
-                  {game.status === 'final' ? 'FINAL' : timeString}
+                  {game.awayScore ?? 0}
                 </span>
               )}
             </div>
-            <p className="text-slate-400 text-sm">
-              {game.awayName || game.away?.name || 'Away'} vs {game.homeName || game.home?.name || 'Home'}
-            </p>
-            {/* Show inning for MLB games or period for NHL */}
-            {isLive && (
-              <p className="text-red-400 text-xs mt-1 font-medium">
-                {game.sport === 'mlb' && game.inning ? (
-                  <>{game.inningHalf === 'top' ? '▲' : '▼'} {game.inning}</>
-                ) : game.sport === 'nhl' && game.lastPlay ? (
-                  <>{game.lastPlay}</>
-                ) : game.sport === 'nfl' && game.nflData?.quarter ? (
-                  <>Q{game.nflData.quarter} {game.nflData.timeLeft || ''}</>
-                ) : (
-                  <>Game in progress</>
-                )}
-              </p>
-            )}
-          </div>
-          
-          {/* Score Display - Highlight if live */}
-          <div className="text-right">
-            <div className={`text-2xl font-bold ${isLive ? 'text-red-400' : 'text-blue-400'}`}>
-              <div>{game.awayScore ?? 0}</div>
-              <div className="text-xs text-slate-500 my-1">-</div>
-              <div>{game.homeScore ?? 0}</div>
+            {/* Home team row */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className={`text-sm font-bold ${isLive ? 'text-white' : 'text-slate-200'}`}>{homeAbbr}</span>
+                <span className="text-xs text-slate-500 truncate hidden sm:inline">{homeName}</span>
+              </div>
+              {(isLive || isFinal) && (
+                <span className={`text-lg font-bold tabular-nums ml-3 ${
+                  isLive ? 'text-red-400' : 
+                  (game.homeScore || 0) > (game.awayScore || 0) ? 'text-white' : 'text-slate-400'
+                }`}>
+                  {game.homeScore ?? 0}
+                </span>
+              )}
             </div>
-            {isLive && (
-              <p className="text-xs text-red-400/80 mt-1 font-medium">Live</p>
+          </div>
+
+          {/* Right: MLB live state (diamond + count) or arrow */}
+          <div className="flex-shrink-0 w-16 flex flex-col items-center">
+            {isLive && isMLB && game.inning ? (
+              <div className="flex flex-col items-center gap-1">
+                <BasesDiamond 
+                  runner1st={game.runnerOn1st} 
+                  runner2nd={game.runnerOn2nd} 
+                  runner3rd={game.runnerOn3rd} 
+                />
+                <OutsDots outs={game.outs} />
+                {game.balls != null && game.strikes != null && (
+                  <div className="text-[10px] text-slate-400 font-mono">{game.balls}-{game.strikes}</div>
+                )}
+              </div>
+            ) : (
+              <span className="text-slate-500 text-sm">→</span>
             )}
           </div>
         </div>
 
-        {/* View Details */}
-        <div className="pt-4 border-t border-slate-700">
-          <p className="text-blue-400 text-sm font-medium hover:text-blue-300">
-            View Details →
-          </p>
-        </div>
+        {/* Last play for live MLB games */}
+        {isLive && isMLB && game.lastPlay && (
+          <div className="mt-2 pt-2 border-t border-slate-700/50">
+            <p className="text-[11px] text-slate-400 truncate">{game.lastPlay}</p>
+          </div>
+        )}
       </div>
     </Link>
   )

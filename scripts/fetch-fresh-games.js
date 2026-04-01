@@ -705,9 +705,11 @@ async function saveToSupabase(sport, games) {
 async function populateMLBGameIds(games) {
   if (!games.length) return
 
+  // MLB schedule API uses US Eastern dates, so convert UTC game times to ET
+  // to avoid off-by-one on late-night games (e.g. 8 PM ET = next day UTC)
   const dates = [...new Set(games.map(g => {
     const d = new Date(g.date)
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    return d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
   }))]
 
   console.log(`\n🔗 Cross-referencing ${games.length} ESPN games with MLB Stats API...`)
@@ -737,7 +739,7 @@ async function populateMLBGameIds(games) {
       const mlbGames = data.dates?.[0]?.games || []
 
       for (const espnGame of games) {
-        const espnDate = new Date(espnGame.date).toISOString().split('T')[0]
+        const espnDate = new Date(espnGame.date).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
         if (espnDate !== dateStr) continue
         if (espnGame.mlbGameId) continue
 

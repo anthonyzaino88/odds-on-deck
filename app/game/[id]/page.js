@@ -131,29 +131,21 @@ export default async function GameDetailPage({ params }) {
           {game.away.abbr} @ {game.home.abbr}
         </p>
         
-        {/* Live Score Display */}
-        {(() => {
-          // Check if game has actually started (current time >= scheduled time)
-          const gameTime = new Date(game.date)
-          const now = new Date()
-          const hasStarted = now >= gameTime
-          
-          // Only show live data if game has started AND has live score
-          return hasStarted && (game.status === 'in_progress' || game.homeScore !== null) && game.homeScore !== undefined
-        })() ? (
+        {/* Score Display */}
+        {game.status === 'in_progress' ? (
           <div className="mt-4 p-4 bg-green-900/20 border border-green-500/50 rounded-lg">
             <div className="flex items-center justify-center space-x-6">
               <div className="text-center">
                 <div className="text-2xl font-bold text-white">{game.away.abbr}</div>
-                <div className="text-3xl font-bold text-blue-400">{game.awayScore}</div>
+                <div className="text-3xl font-bold text-blue-400">{game.awayScore ?? 0}</div>
               </div>
               <div className="text-xl text-gray-400">-</div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-white">{game.home.abbr}</div>
-                <div className="text-3xl font-bold text-green-400">{game.homeScore}</div>
+                <div className="text-3xl font-bold text-green-400">{game.homeScore ?? 0}</div>
               </div>
             </div>
-            {isNHL && game.status === 'in_progress' && (
+            {isNHL && (
               <div className="text-center mt-2">
                 <span className="text-sm font-medium text-gray-300">
                   Game in progress
@@ -177,21 +169,21 @@ export default async function GameDetailPage({ params }) {
               </div>
             )}
           </div>
-        ) : game.status === 'final' && game.homeScore !== null ? (
+        ) : game.status === 'final' && game.homeScore != null ? (
           <div className="mt-4 p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
-            <div className="flex items-center justify-center space-x-6">
+            <div className="flex items-center justify-center space-x-8">
               <div className="text-center">
                 <div className="text-lg font-bold text-white">{game.away.abbr}</div>
-                <div className="text-2xl font-bold text-gray-300">{game.awayScore}</div>
+                <div className={`text-3xl font-bold ${(game.awayScore || 0) > (game.homeScore || 0) ? 'text-white' : 'text-slate-400'}`}>{game.awayScore}</div>
               </div>
-              <div className="text-lg text-gray-400">-</div>
+              <div className="text-lg text-gray-500">—</div>
               <div className="text-center">
                 <div className="text-lg font-bold text-white">{game.home.abbr}</div>
-                <div className="text-2xl font-bold text-gray-300">{game.homeScore}</div>
+                <div className={`text-3xl font-bold ${(game.homeScore || 0) > (game.awayScore || 0) ? 'text-white' : 'text-slate-400'}`}>{game.homeScore}</div>
               </div>
             </div>
             <div className="text-center mt-2">
-              <span className="text-sm font-medium text-gray-400">Final</span>
+              <span className="text-sm font-semibold text-slate-400 uppercase tracking-wide">Final</span>
             </div>
           </div>
         ) : (
@@ -215,11 +207,16 @@ export default async function GameDetailPage({ params }) {
         const hasSpread = spreadOdds?.spread != null
         const hasTotal = totalOdds?.total != null
         const hasH2H = h2hOdds && h2hOdds.priceHome != null && h2hOdds.priceAway != null
-        const hasData = hasSpread || hasTotal || hasH2H || hasNflData || game.status === 'in_progress'
+        const isMlbGame = !isNFL && !isNHL && game.sport === 'mlb'
+        const hasData = hasSpread || hasTotal || hasH2H || hasNflData || game.status === 'in_progress' || isMlbGame
         
         if (!hasData) return null
         
-        return (
+        return isMlbGame ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <MLBTeamStatsBar game={game} edge={edge} />
+          </div>
+        ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {isNFL ? (
               <>
@@ -281,40 +278,7 @@ export default async function GameDetailPage({ params }) {
                   subtitle={game.status === 'in_progress' ? 'Game in progress' : formatGameStatusSubtitle(game.status)}
                 />
               </>
-            ) : (
-              <>
-                {edge?.ourTotal && (
-                  <StatCard
-                    title="Our Total"
-                    value={edge.ourTotal.toFixed(1)}
-                    subtitle="Projected runs"
-                  />
-                )}
-                {edge && (
-                  <>
-                    <StatCard
-                      title="ML Edge"
-                      value={getBestMlEdge(edge)}
-                      subtitle="Moneyline value"
-                      className={getBestMlEdgeClass(edge)}
-                    />
-                    <StatCard
-                      title="Total Edge"
-                      value={getBestTotalEdge(edge)}
-                      subtitle="Over/Under value"
-                      className={getBestTotalEdgeClass(edge)}
-                    />
-                  </>
-                )}
-                {game.home?.parkFactor && (
-                  <StatCard
-                    title="Park Factor"
-                    value={game.home.parkFactor.toFixed(2)}
-                    subtitle="Run environment"
-                  />
-                )}
-              </>
-            )}
+            ) : null}
           </div>
         )
       })()}
@@ -341,8 +305,8 @@ export default async function GameDetailPage({ params }) {
       )}
 
       {/* Player Props for this game */}
-      {game.playerProps && game.playerProps.length > 0 && (
-        <MLBPlayerPropsSection props={game.playerProps} />
+      {game.sport === 'mlb' && (
+        <MLBPlayerPropsSection props={game.playerProps || []} />
       )}
 
       {/* MLB Box Score for completed games */}
@@ -781,19 +745,19 @@ export default async function GameDetailPage({ params }) {
         </div>
       )}
       
-      {/* Batter vs Pitcher Analysis - Only for MLB */}
-      {!isNFL && !isNHL && game.sport === 'mlb' && (game.probableHomePitcher || game.probableAwayPitcher) && (
+      {/* Pitcher Matchup Analysis - Only for MLB */}
+      {!isNFL && !isNHL && game.sport === 'mlb' && game.matchupAnalysis && (
         <div className="card">
           <div className="px-6 py-4 border-b border-slate-700">
             <h2 className="text-lg font-semibold text-white">
-              Batter vs Pitcher Matchups
+              Pitcher Matchup Analysis
             </h2>
             <p className="text-sm text-gray-400 mt-1">
-              Projected performance based on handedness and historical patterns
+              Platoon splits, recent form, and times through the order
             </p>
           </div>
           <div className="p-6">
-            <BatterVsPitcherTable game={game} />
+            <PitcherMatchupSection analysis={game.matchupAnalysis} game={game} />
           </div>
         </div>
       )}
@@ -957,6 +921,186 @@ function StatCard({ title, value, subtitle, className = 'text-white' }) {
       <p className={`text-2xl font-bold mt-2 ${className}`}>{value}</p>
       <p className="text-sm text-gray-400 mt-1">{subtitle}</p>
     </div>
+  )
+}
+
+function MLBTeamStatsBar({ game, edge }) {
+  const h2hOdds = game.odds?.find(o => o.market === 'h2h')
+  const totalOdds = game.odds?.find(o => o.market === 'totals')
+
+  function decimalToImplied(decOdds) {
+    if (!decOdds) return null
+    const d = parseFloat(decOdds)
+    if (isNaN(d) || d <= 1) return null
+    return 1 / d
+  }
+
+  const homeML = h2hOdds?.priceHome
+  const awayML = h2hOdds?.priceAway
+  const rawHomeProb = decimalToImplied(homeML)
+  const rawAwayProb = decimalToImplied(awayML)
+  const totalProb = (rawHomeProb || 0) + (rawAwayProb || 0)
+  const homeProb = totalProb > 0 && rawHomeProb ? rawHomeProb / totalProb : null
+  const awayProb = totalProb > 0 && rawAwayProb ? rawAwayProb / totalProb : null
+
+  const homeEdge = edge?.edgeMlHome || 0
+  const awayEdge = edge?.edgeMlAway || 0
+  const overEdge = edge?.edgeTotalO || 0
+  const underEdge = edge?.edgeTotalU || 0
+
+  function edgeColor(val) {
+    if (val > 0.05) return 'text-green-400'
+    if (val > 0.02) return 'text-emerald-400'
+    if (val < -0.05) return 'text-red-400'
+    if (val < -0.02) return 'text-orange-400'
+    return 'text-gray-300'
+  }
+
+  function edgeBg(val) {
+    if (val > 0.05) return 'bg-green-500'
+    if (val > 0.02) return 'bg-emerald-500'
+    if (val < -0.05) return 'bg-red-500'
+    if (val < -0.02) return 'bg-orange-500'
+    return 'bg-gray-500'
+  }
+
+  return (
+    <>
+      {/* Moneyline Comparison */}
+      <div className="card p-5 lg:col-span-2">
+        <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Moneyline</h3>
+        <div className="flex items-center gap-3 mb-2">
+          <span className="text-sm font-semibold text-white w-10">{game.away?.abbr}</span>
+          <div className="flex-1 bg-slate-700 rounded-full h-5 overflow-hidden flex">
+            <div
+              className="bg-blue-500 h-full rounded-l-full flex items-center justify-center text-[10px] font-bold text-white transition-all"
+              style={{ width: `${awayProb ? (awayProb * 100) : 50}%`, minWidth: '30px' }}
+            >
+              {awayProb ? `${(awayProb * 100).toFixed(0)}%` : '—'}
+            </div>
+            <div
+              className="bg-amber-500 h-full rounded-r-full flex items-center justify-center text-[10px] font-bold text-white transition-all"
+              style={{ width: `${homeProb ? (homeProb * 100) : 50}%`, minWidth: '30px' }}
+            >
+              {homeProb ? `${(homeProb * 100).toFixed(0)}%` : '—'}
+            </div>
+          </div>
+          <span className="text-sm font-semibold text-white w-10 text-right">{game.home?.abbr}</span>
+        </div>
+        <div className="flex justify-between text-xs text-gray-400 px-12">
+          <span>{formatOdds(awayML)}</span>
+          <span>{formatOdds(homeML)}</span>
+        </div>
+      </div>
+
+      {/* ML Edge */}
+      <div className="card p-5">
+        <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">ML Edge</h3>
+        {edge ? (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-400">{game.away?.abbr}</span>
+              <span className={`text-sm font-bold ${edgeColor(awayEdge)}`}>
+                {awayEdge > 0 ? '+' : ''}{(awayEdge * 100).toFixed(1)}%
+              </span>
+            </div>
+            <div className="w-full bg-slate-700 rounded-full h-1.5">
+              <div
+                className={`h-1.5 rounded-full ${edgeBg(awayEdge)} transition-all`}
+                style={{ width: `${Math.min(Math.abs(awayEdge * 100) * 2, 100)}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-400">{game.home?.abbr}</span>
+              <span className={`text-sm font-bold ${edgeColor(homeEdge)}`}>
+                {homeEdge > 0 ? '+' : ''}{(homeEdge * 100).toFixed(1)}%
+              </span>
+            </div>
+            <div className="w-full bg-slate-700 rounded-full h-1.5">
+              <div
+                className={`h-1.5 rounded-full ${edgeBg(homeEdge)} transition-all`}
+                style={{ width: `${Math.min(Math.abs(homeEdge * 100) * 2, 100)}%` }}
+              />
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500 mt-1">No edge data</p>
+        )}
+      </div>
+
+      {/* Total / O/U */}
+      <div className="card p-5">
+        <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Total (O/U)</h3>
+        {totalOdds?.total ? (
+          <div className="text-center">
+            <p className="text-2xl font-bold text-white">{totalOdds.total.toFixed(1)}</p>
+            <p className="text-xs text-gray-400 mt-1">{totalOdds.book || 'Latest'}</p>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500 mt-1">No line</p>
+        )}
+        {edge ? (
+          <div className="mt-3 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-400">Over</span>
+              <span className={`text-xs font-bold ${edgeColor(overEdge)}`}>
+                {overEdge > 0 ? '+' : ''}{(overEdge * 100).toFixed(1)}%
+              </span>
+            </div>
+            <div className="w-full bg-slate-700 rounded-full h-1.5">
+              <div
+                className={`h-1.5 rounded-full ${edgeBg(overEdge)} transition-all`}
+                style={{ width: `${Math.min(Math.abs(overEdge * 100) * 2, 100)}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-400">Under</span>
+              <span className={`text-xs font-bold ${edgeColor(underEdge)}`}>
+                {underEdge > 0 ? '+' : ''}{(underEdge * 100).toFixed(1)}%
+              </span>
+            </div>
+            <div className="w-full bg-slate-700 rounded-full h-1.5">
+              <div
+                className={`h-1.5 rounded-full ${edgeBg(underEdge)} transition-all`}
+                style={{ width: `${Math.min(Math.abs(underEdge * 100) * 2, 100)}%` }}
+              />
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-gray-500 mt-2">No edge data</p>
+        )}
+      </div>
+
+      {/* Park Factor + Projected Total */}
+      <div className="card p-5">
+        <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Venue</h3>
+        <div className="space-y-3">
+          <div>
+            <span className="text-xs text-gray-400">Park Factor</span>
+            <p className="text-lg font-bold text-white">
+              {game.home?.parkFactor ? game.home.parkFactor.toFixed(2) : '—'}
+            </p>
+            {game.home?.parkFactor && (
+              <div className="w-full bg-slate-700 rounded-full h-1.5 mt-1">
+                <div
+                  className={`h-1.5 rounded-full transition-all ${game.home.parkFactor > 1.05 ? 'bg-red-400' : game.home.parkFactor < 0.95 ? 'bg-blue-400' : 'bg-gray-400'}`}
+                  style={{ width: `${Math.min(Math.abs(game.home.parkFactor - 1) * 500 + 10, 100)}%` }}
+                />
+              </div>
+            )}
+            <p className="text-[10px] text-gray-500 mt-0.5">
+              {game.home?.parkFactor > 1.05 ? 'Hitter-friendly' : game.home?.parkFactor < 0.95 ? 'Pitcher-friendly' : 'Neutral'}
+            </p>
+          </div>
+          {edge?.ourTotal && (
+            <div>
+              <span className="text-xs text-gray-400">Projected Total</span>
+              <p className="text-lg font-bold text-white">{edge.ourTotal.toFixed(1)}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -1124,12 +1268,20 @@ function MLBPlayerPropsSection({ props }) {
       <div className="px-6 py-4 border-b border-slate-700 bg-gradient-to-r from-blue-900/20 to-transparent">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-blue-400">📋 Player Props</h2>
-            <p className="text-sm text-gray-400 mt-1">{props.length} props available for this game</p>
+            <h2 className="text-lg font-semibold text-blue-400">Player Props</h2>
+            <p className="text-sm text-gray-400 mt-1">
+              {props.length > 0 ? `${props.length} props available for this game` : 'Player props for this game'}
+            </p>
           </div>
         </div>
       </div>
-      <div className="p-6 space-y-6">
+      {props.length === 0 ? (
+        <div className="p-6 text-center">
+          <p className="text-gray-400 text-sm">No player props available yet</p>
+          <p className="text-gray-500 text-xs mt-1">Props are typically available 12-24 hours before game time</p>
+        </div>
+      ) : null}
+      <div className="p-6 space-y-6" style={props.length === 0 ? {display: 'none'} : undefined}>
         {battingProps.length > 0 && (
           <div>
             <h3 className="text-md font-semibold text-white mb-3 flex items-center gap-2">⚾ Batting Props <span className="text-xs text-gray-400 font-normal">({battingProps.length})</span></h3>
@@ -1297,164 +1449,252 @@ function MLBBoxScoreSection({ boxScore, game }) {
   )
 }
 
-function BatterVsPitcherTable({ game }) {
-  return (
-    <div className="space-y-8">
-      {/* Home Batters vs Away Pitcher */}
-      {game.probableAwayPitcher && game.home.players && (
-        <div>
-          <h4 className="font-medium text-white mb-4">
-            {game.home.abbr} Batters vs {game.probableAwayPitcher.fullName} ({game.probableAwayPitcher.throws}HP)
-          </h4>
-          <MatchupTable 
-            batters={game.home.players.slice(0, 12)} 
-            pitcher={game.probableAwayPitcher}
-            teamAbbr={game.home.abbr}
-          />
-        </div>
-      )}
-      
-      {/* Away Batters vs Home Pitcher */}
-      {game.probableHomePitcher && game.away.players && (
-        <div>
-          <h4 className="font-medium text-white mb-4">
-            {game.away.abbr} Batters vs {game.probableHomePitcher.fullName} ({game.probableHomePitcher.throws}HP)
-          </h4>
-          <MatchupTable 
-            batters={game.away.players.slice(0, 12)} 
-            pitcher={game.probableHomePitcher}
-            teamAbbr={game.away.abbr}
-          />
-        </div>
-      )}
-    </div>
-  )
-}
+function PitcherMatchupSection({ analysis, game }) {
+  const { homePitcherSplits, awayPitcherSplits, predictor, last5, seasonSeries, weather } = analysis
 
-function MatchupTable({ batters, pitcher, teamAbbr }) {
-  const { getBatterVsPitcherMatchup } = require('../../../lib/edge.js')
-
-  if (!batters || batters.length === 0) {
+  function SplitStatRow({ label, data, statKeys }) {
+    if (!data) return null
     return (
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-        <div className="flex items-center">
-          <div className="text-yellow-600">
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <div className="ml-3">
-            <p className="text-sm text-yellow-800">
-              <strong>Limited Player Data:</strong> No roster information available for {teamAbbr}. 
-              This team wasn't included in our sample dataset.
-            </p>
-            <p className="text-xs text-yellow-700 mt-1">
-              Add more teams to the seed data to see detailed matchup analysis.
-            </p>
-          </div>
+      <tr className="hover:bg-slate-700/50">
+        <td className="px-3 py-2 text-sm font-medium text-gray-300">{label}</td>
+        {statKeys.map(key => (
+          <td key={key} className="px-3 py-2 text-sm text-center text-white">
+            {data[key] != null ? data[key] : '—'}
+          </td>
+        ))}
+      </tr>
+    )
+  }
+
+  function PitcherSplitsCard({ splits, pitcherName, teamAbbr, opponentName, opponentAbbr }) {
+    if (!splits?.overall) return (
+      <div className="text-center py-6 text-gray-500 text-sm">No split data available</div>
+    )
+    const pitchingKeys = ['ERA', 'WHIP', 'K/9', 'BB/9', 'AVG', 'IP']
+    const battingKeys = ['AVG', 'OBP', 'SLG', 'OPS', 'AB', 'K']
+
+    const vsOpponent = opponentName && splits.opponents?.find(o => {
+      const label = (o._label || '').toLowerCase()
+      const name = opponentName.toLowerCase()
+      if (label.includes(name) || name.includes(label)) return true
+      // Fallback: match by city (handles Guardians/Indians, Athletics/A's etc.)
+      const labelCity = label.split(' ').slice(0, -1).join(' ')
+      const nameCity = name.split(' ').slice(0, -1).join(' ')
+      return labelCity && nameCity && labelCity === nameCity
+    })
+
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="font-medium text-white">{pitcherName} ({teamAbbr})</h4>
+          {splits.season && <span className="text-xs text-gray-500">{splits.season} season</span>}
         </div>
+
+        {vsOpponent && (
+          <div className="mb-4 bg-gradient-to-r from-amber-900/30 to-transparent border border-amber-700/30 rounded-lg p-3">
+            <h5 className="text-xs font-medium text-amber-400 mb-2 uppercase tracking-wider">
+              vs {opponentAbbr || opponentName}
+            </h5>
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+              {[
+                { label: 'ERA', value: vsOpponent.ERA },
+                { label: 'IP', value: vsOpponent.IP },
+                { label: 'W-L', value: `${vsOpponent.W || 0}-${vsOpponent.L || 0}` },
+                { label: 'K', value: vsOpponent.K },
+                { label: 'WHIP', value: vsOpponent.WHIP },
+                { label: 'AVG', value: vsOpponent.AVG },
+              ].map(s => (
+                <div key={s.label} className="text-center">
+                  <div className="text-xs text-gray-400">{s.label}</div>
+                  <div className="text-sm font-semibold text-white">{s.value || '—'}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-700">
+            <thead className="bg-slate-900">
+              <tr>
+                <th className="table-header px-3 py-2 text-left">Split</th>
+                {pitchingKeys.map(k => (
+                  <th key={k} className="table-header px-3 py-2 text-center">{k}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="bg-slate-800 divide-y divide-slate-700">
+              <SplitStatRow label="Overall" data={splits.overall} statKeys={pitchingKeys} />
+              <SplitStatRow label="Home" data={splits.venue?.home} statKeys={pitchingKeys} />
+              <SplitStatRow label="Away" data={splits.venue?.away} statKeys={pitchingKeys} />
+              {splits.recentForm?.last7 && (
+                <SplitStatRow label="Last 7 Days" data={splits.recentForm.last7} statKeys={pitchingKeys} />
+              )}
+              {splits.recentForm?.last30 && (
+                <SplitStatRow label="Last 30 Days" data={splits.recentForm.last30} statKeys={pitchingKeys} />
+              )}
+            </tbody>
+          </table>
+        </div>
+        {(splits.platoon?.vsLeft || splits.platoon?.vsRight) && (
+          <div className="mt-4">
+            <h5 className="text-xs font-medium text-gray-400 mb-2 uppercase tracking-wider">Opponent Batting by Handedness</h5>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-700">
+                <thead className="bg-slate-900">
+                  <tr>
+                    <th className="table-header px-3 py-2 text-left">Split</th>
+                    {battingKeys.map(k => (
+                      <th key={k} className="table-header px-3 py-2 text-center">{k}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="bg-slate-800 divide-y divide-slate-700">
+                  <SplitStatRow label="vs LHB" data={splits.platoon?.vsLeft} statKeys={battingKeys} />
+                  <SplitStatRow label="vs RHB" data={splits.platoon?.vsRight} statKeys={battingKeys} />
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+        {splits.timesThrough?.firstTime && (
+          <div className="mt-4">
+            <h5 className="text-xs font-medium text-gray-400 mb-2 uppercase tracking-wider">Times Through Order</h5>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-700">
+                <thead className="bg-slate-900">
+                  <tr>
+                    <th className="table-header px-3 py-2 text-left">Time</th>
+                    {battingKeys.map(k => (
+                      <th key={k} className="table-header px-3 py-2 text-center">{k}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="bg-slate-800 divide-y divide-slate-700">
+                  <SplitStatRow label="1st Time" data={splits.timesThrough.firstTime} statKeys={battingKeys} />
+                  {splits.timesThrough.secondTime && (
+                    <SplitStatRow label="2nd Time" data={splits.timesThrough.secondTime} statKeys={battingKeys} />
+                  )}
+                  {splits.timesThrough.thirdTime && (
+                    <SplitStatRow label="3rd Time" data={splits.timesThrough.thirdTime} statKeys={battingKeys} />
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
-  
-  return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-slate-900">
-          <tr>
-            <th className="table-header px-3 py-2 text-left">#</th>
-            <th className="table-header px-3 py-2 text-left">Batter</th>
-            <th className="table-header px-3 py-2 text-left">Hand</th>
-            <th className="table-header px-3 py-2 text-left">vs {pitcher.throws}HP</th>
-            <th className="table-header px-3 py-2 text-left">Proj OPS</th>
-            <th className="table-header px-3 py-2 text-left">Advantage</th>
-            <th className="table-header px-3 py-2 text-left">Outlook</th>
-          </tr>
-        </thead>
-        <tbody className="bg-slate-800 divide-y divide-slate-700">
-          {batters.map((batter, index) => {
-            const matchup = getBatterVsPitcherMatchup(batter, pitcher)
-            return (
-              <BatterRow 
-                key={batter.id} 
-                position={index + 1}
-                batter={batter} 
-                matchup={matchup} 
-                pitcherHand={pitcher.throws}
-              />
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
-  )
-}
 
-function BatterRow({ position, batter, matchup, pitcherHand }) {
-  const getAdvantageColor = (advantage) => {
-    if (advantage > 0.05) return 'text-green-600 font-medium'
-    if (advantage < -0.05) return 'text-red-600 font-medium'
-    return 'text-gray-600'
-  }
-  
-  const getRecommendationIcon = (recommendation) => {
-    switch (recommendation) {
-      case 'strong_favorable': return '🔥'
-      case 'favorable': return '✅'
-      case 'unfavorable': return '❌'
-      default: return '➖'
-    }
-  }
-  
-  const getRecommendationText = (recommendation) => {
-    switch (recommendation) {
-      case 'strong_favorable': return 'Strong'
-      case 'favorable': return 'Favorable'
-      case 'unfavorable': return 'Tough'
-      default: return 'Neutral'
-    }
-  }
-  
   return (
-    <tr className="hover:bg-slate-700/50">
-      <td className="px-3 py-2 text-sm text-gray-400">{position}</td>
-      <td className="px-3 py-2">
-        <div className="text-sm font-medium text-white">
-          {batter.fullName}
-        </div>
-      </td>
-      <td className="px-3 py-2 text-sm text-gray-400">
-        {batter.bats || 'Unknown'}
-      </td>
-      <td className="px-3 py-2 text-sm">
-        {matchup.batterStats ? (
-          <div>
-            <div className="font-medium">
-              {matchup.batterStats.wOBA ? matchup.batterStats.wOBA.toFixed(3) : 'N/A'} wOBA
+    <div className="space-y-8">
+      {/* Win Probability */}
+      {predictor?.homeTeam && (
+        <div className="bg-slate-900 rounded-lg p-4">
+          <h4 className="text-xs font-medium text-gray-400 mb-3 uppercase tracking-wider">ESPN Win Probability</h4>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-300 w-12 text-right">{game.away?.abbr}</span>
+            <div className="flex-1 bg-slate-700 rounded-full h-4 overflow-hidden">
+              <div
+                className="bg-gradient-to-r from-blue-500 to-blue-400 h-full rounded-full"
+                style={{ width: `${((predictor.awayTeam?.gameProjection || 50))}%` }}
+              />
             </div>
-            <div className="text-xs text-gray-500">
-              {matchup.batterStats.samplePA} PA
-            </div>
+            <span className="text-sm text-gray-300 w-12">{game.home?.abbr}</span>
           </div>
-        ) : (
-          <span className="text-gray-400">No data</span>
-        )}
-      </td>
-      <td className="px-3 py-2 text-sm font-medium">
-        {matchup.projectedOPS.toFixed(3)}
-      </td>
-      <td className={`px-3 py-2 text-sm ${getAdvantageColor(matchup.platoonAdvantage)}`}>
-        {matchup.platoonAdvantage > 0 ? '+' : ''}{(matchup.platoonAdvantage * 100).toFixed(1)}%
-      </td>
-      <td className="px-3 py-2 text-sm">
-        <div className="flex items-center space-x-1">
-          <span>{getRecommendationIcon(matchup.recommendation)}</span>
-          <span className="text-xs">
-            {getRecommendationText(matchup.recommendation)}
-          </span>
+          <div className="flex justify-between text-xs text-gray-400 mt-1 px-12">
+            <span>{parseFloat(predictor.awayTeam?.gameProjection || 50).toFixed(1)}%</span>
+            <span>{parseFloat(predictor.homeTeam?.gameProjection || 50).toFixed(1)}%</span>
+          </div>
         </div>
-      </td>
-    </tr>
+      )}
+
+      {/* Pitcher Splits */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <PitcherSplitsCard
+          splits={awayPitcherSplits}
+          pitcherName={game.probableAwayPitcher?.fullName || 'Away Pitcher'}
+          teamAbbr={game.away?.abbr || 'AWAY'}
+          opponentName={game.home?.name}
+          opponentAbbr={game.home?.abbr}
+        />
+        <PitcherSplitsCard
+          splits={homePitcherSplits}
+          pitcherName={game.probableHomePitcher?.fullName || 'Home Pitcher'}
+          teamAbbr={game.home?.abbr || 'HOME'}
+          opponentName={game.away?.name}
+          opponentAbbr={game.away?.abbr}
+        />
+      </div>
+
+      {/* Context Row: Last 5 + Season Series + Weather */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Last 5 */}
+        <div className="bg-slate-900 rounded-lg p-4">
+          <h4 className="text-xs font-medium text-gray-400 mb-2 uppercase tracking-wider">Last 5 Games</h4>
+          {last5?.length > 0 ? last5.map((team, i) => (
+            <div key={i} className="mb-2">
+              <span className="text-sm font-medium text-white">{team.teamAbbr}: </span>
+              <span className="text-sm text-gray-300">
+                {team.events?.map((e, j) => (
+                  <span key={j} className={e.result === 'W' ? 'text-green-400' : 'text-red-400'}>
+                    {e.result}{' '}
+                  </span>
+                ))}
+              </span>
+            </div>
+          )) : (
+            <p className="text-sm text-gray-500">Not available yet</p>
+          )}
+        </div>
+
+        {/* Season Series */}
+        <div className="bg-slate-900 rounded-lg p-4">
+          <h4 className="text-xs font-medium text-gray-400 mb-2 uppercase tracking-wider">Season Series</h4>
+          {seasonSeries?.length > 0 ? (() => {
+            const current = seasonSeries.find(s => s.type === 'current')
+            const season = seasonSeries.find(s => s.type === 'season')
+            return (
+              <div className="space-y-2">
+                {current && (
+                  <div>
+                    <div className="text-xs text-gray-500">This Series ({current.totalGames || 3} games)</div>
+                    <div className="text-sm text-white font-medium">{current.summary}</div>
+                  </div>
+                )}
+                {season && season.summary !== current?.summary && (
+                  <div>
+                    <div className="text-xs text-gray-500">Season ({season.totalGames || '—'} games)</div>
+                    <div className="text-sm text-white font-medium">{season.summary}</div>
+                  </div>
+                )}
+                {!current && !season && seasonSeries.map((s, i) => (
+                  <div key={i} className="text-sm text-gray-300">{s.summary || s.title}</div>
+                ))}
+              </div>
+            )
+          })() : (
+            <p className="text-sm text-gray-500">No series history yet</p>
+          )}
+        </div>
+
+        {/* Weather */}
+        <div className="bg-slate-900 rounded-lg p-4">
+          <h4 className="text-xs font-medium text-gray-400 mb-2 uppercase tracking-wider">Weather</h4>
+          {weather ? (
+            <>
+              <div className="text-sm text-white">{weather.displayValue || weather.temperature + '°F'}</div>
+              {weather.conditionId && (
+                <div className="text-xs text-gray-400 mt-1">Condition: {weather.conditionId}</div>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-gray-500">Not available yet</p>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 

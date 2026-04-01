@@ -139,8 +139,18 @@ async function updateScoresForSport(sport) {
         if (game.mlbGameId) {
           liveData = await fetchLiveGameData(game.mlbGameId, true)
         }
-        if (!liveData && game.espnGameId) {
-          liveData = await fetchMLBFromESPN(game.espnGameId)
+        // Fall back to ESPN if MLB API returned no data, or if it says
+        // "scheduled" but the game should have already started (wrong gamePk)
+        const gameStarted = new Date(game.date) < Date.now()
+        const mlbStillScheduled = liveData && liveData.status === 'scheduled' && gameStarted
+        if ((!liveData || mlbStillScheduled) && game.espnGameId) {
+          const espnData = await fetchMLBFromESPN(game.espnGameId)
+          if (espnData && (espnData.status === 'final' || espnData.homeScore > 0 || espnData.awayScore > 0)) {
+            liveData = espnData
+            if (mlbStillScheduled) {
+              console.log(`  ℹ️  MLB API said scheduled but ESPN says ${espnData.status} — using ESPN`)
+            }
+          }
         }
       }
       
