@@ -68,12 +68,6 @@ export default function RootLayout({ children }) {
                   >
                     📊 Validation
                   </a>
-                  <a
-                    href="/about"
-                    className="text-slate-300 hover:text-white px-3 py-2 text-sm font-medium transition"
-                  >
-                    About
-                  </a>
                 </div>
               </div>
             </div>
