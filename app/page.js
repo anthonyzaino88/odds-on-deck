@@ -177,10 +177,10 @@ export default function HomePage() {
               Every prop we surface gets tracked. After the game ends, we pull the actual stats
               and record whether the prediction hit or missed. No hiding bad picks.
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 mb-8">
-              <div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6 mb-8">
+              <div className="min-w-0">
                 {statsLoading ? <StatSkeleton /> : (
-                  <div className="text-3xl font-bold text-green-400">
+                  <div className="text-2xl sm:text-3xl font-bold text-green-400 truncate">
                     {validationStats?.accuracy != null
                       ? `${(validationStats.accuracy * 100).toFixed(1)}%`
                       : '---'}
@@ -188,9 +188,9 @@ export default function HomePage() {
                 )}
                 <div className="text-xs text-gray-500 mt-1">Win Rate</div>
               </div>
-              <div>
+              <div className="min-w-0">
                 {statsLoading ? <StatSkeleton /> : (
-                  <div className="text-3xl font-bold text-blue-400">
+                  <div className="text-2xl sm:text-3xl font-bold text-blue-400 truncate">
                     {validationStats?.total != null
                       ? validationStats.total.toLocaleString()
                       : '---'}
@@ -198,21 +198,21 @@ export default function HomePage() {
                 )}
                 <div className="text-xs text-gray-500 mt-1">Props Tracked</div>
               </div>
-              <div>
+              <div className="min-w-0">
                 {statsLoading ? <StatSkeleton /> : (
-                  <div className="text-3xl font-bold text-purple-400">
+                  <div className="text-2xl sm:text-3xl font-bold text-purple-400 truncate">
                     {validationStats?.roi != null
-                      ? `${validationStats.roi > 0 ? '+' : ''}${(validationStats.roi * 100).toFixed(1)}%`
+                      ? `${validationStats.roi > 0 ? '+' : ''}${(validationStats.roi * 100).toFixed(0)}%`
                       : '---'}
                   </div>
                 )}
                 <div className="text-xs text-gray-500 mt-1">ROI</div>
               </div>
-              <div>
+              <div className="min-w-0">
                 {statsLoading ? <StatSkeleton /> : (
-                  <div className="text-3xl font-bold text-amber-400">
+                  <div className="text-2xl sm:text-3xl font-bold text-amber-400 truncate">
                     {validationStats?.units != null
-                      ? `${validationStats.units > 0 ? '+' : ''}${validationStats.units.toFixed(1)}u`
+                      ? `${validationStats.units > 0 ? '+' : ''}${validationStats.units.toFixed(0)}u`
                       : '---'}
                   </div>
                 )}
