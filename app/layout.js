@@ -88,6 +88,14 @@ const jsonLd = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
+      <head>
+        <script async src="https://www.googletagmanager.com/gtag/js?id=G-J6RZED32JY" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-J6RZED32JY');`,
+          }}
+        />
+      </head>
       <body className="bg-slate-950 text-white min-h-screen pb-20 sm:pb-0">
         <script
           type="application/ld+json"
