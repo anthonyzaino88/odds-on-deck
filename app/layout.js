@@ -1,23 +1,98 @@
 import './globals.css'
-import DemoBanner from '../components/DemoBanner'
 import MobileNav from '../components/MobileNav'
 
+const SITE_URL = 'https://oddsondeck.com'
+const SITE_NAME = 'Odds on Deck'
+const SITE_DESCRIPTION = 'Data-driven sports betting analytics for MLB, NFL & NHL. Real-time odds tracking, player prop rankings, edge detection, parlay generator, and transparent validation — all powered by math, not gut feelings.'
+
 export const metadata = {
-  title: 'Odds on Deck - AI Sports Analytics & Betting Insights',
-  description: 'AI-powered sports analytics for MLB, NFL & NHL. Player props, betting edges, parlay generator, and real-time odds tracking.',
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: `${SITE_NAME} — Sports Betting Analytics & Edge Detection`,
+    template: `%s | ${SITE_NAME}`,
+  },
+  description: SITE_DESCRIPTION,
+  keywords: [
+    'sports betting analytics', 'player props', 'MLB betting', 'NFL betting', 'NHL betting',
+    'betting edge', 'odds comparison', 'parlay generator', 'DFS optimizer',
+    'implied probability', 'sports betting tools', 'prop betting', 'betting validation',
+    'real-time odds', 'line shopping', 'sports analytics',
+  ],
+  authors: [{ name: SITE_NAME }],
+  creator: SITE_NAME,
+  publisher: SITE_NAME,
+  openGraph: {
+    type: 'website',
+    locale: 'en_US',
+    url: SITE_URL,
+    siteName: SITE_NAME,
+    title: `${SITE_NAME} — Sports Betting Analytics & Edge Detection`,
+    description: SITE_DESCRIPTION,
+    images: [
+      {
+        url: '/og-image.png',
+        width: 1200,
+        height: 630,
+        alt: `${SITE_NAME} — Data-driven sports betting analytics`,
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: `${SITE_NAME} — Sports Betting Analytics & Edge Detection`,
+    description: SITE_DESCRIPTION,
+    images: ['/og-image.png'],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-video-preview': -1,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
+  },
+  icons: {
+    icon: '/icon',
+    apple: '/apple-icon',
+  },
+  alternates: {
+    canonical: SITE_URL,
+  },
 }
 
 export const viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
+  themeColor: '#020617',
+}
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'WebApplication',
+  name: SITE_NAME,
+  url: SITE_URL,
+  description: SITE_DESCRIPTION,
+  applicationCategory: 'SportsApplication',
+  operatingSystem: 'Web',
+  offers: {
+    '@type': 'Offer',
+    price: '0',
+    priceCurrency: 'USD',
+  },
 }
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className="bg-slate-950 text-white min-h-screen pb-20 sm:pb-0">
-        <DemoBanner />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
         <nav className="bg-slate-900 shadow-lg border-b border-slate-800">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between items-center h-16">

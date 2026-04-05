@@ -6,8 +6,12 @@ export const dynamic = 'force-dynamic'
 import { getPlayersForDFS } from '../../lib/db.js'
 
 export const metadata = {
-  title: 'DFS - Odds on Deck',
-  description: 'Daily Fantasy Sports player value rankings and projections',
+  title: 'DFS Optimizer — Daily Fantasy Rankings',
+  description: 'Daily Fantasy Sports player value rankings and salary-based projections for MLB, NFL, and NHL. Find the best value plays for your DFS lineups.',
+  openGraph: {
+    title: 'DFS Optimizer — Daily Fantasy Rankings | Odds on Deck',
+    description: 'DFS player value rankings and salary-based projections. Find the best value plays.',
+  },
 }
 
 export default async function DFSPage() {

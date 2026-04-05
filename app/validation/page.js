@@ -1,5 +1,14 @@
 // Validation Dashboard - Track prediction accuracy
 
+export const metadata = {
+  title: 'Validation — Transparent Pick Tracking',
+  description: 'Full transparency on every pick we make. Track win rates, ROI, and units profit/loss across MLB, NFL, and NHL props — updated in real time.',
+  openGraph: {
+    title: 'Validation — Transparent Pick Tracking | Odds on Deck',
+    description: 'Full transparency on every pick. Track win rates, ROI, and units P/L in real time.',
+  },
+}
+
 import Link from 'next/link'
 import { getValidationStats, getValidationRecords, getValidationCounts } from '../../lib/validation.js'
 import CheckPropsButton from '../../components/CheckPropsButton.js'

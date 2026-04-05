@@ -1,5 +1,14 @@
 // Insights Dashboard - Learn what's working and what's not
 
+export const metadata = {
+  title: 'Insights — Performance Breakdown',
+  description: 'Deep analysis of what is working and what is not. Performance breakdowns by sport, prop type, and player to refine your betting strategy.',
+  openGraph: {
+    title: 'Insights — Performance Breakdown | Odds on Deck',
+    description: 'Deep performance analysis by sport, prop type, and player.',
+  },
+}
+
 import Link from 'next/link'
 import { analyzePerformance } from '../../lib/performance-analyzer.js'
 import { getValidationStats } from '../../lib/validation.js'

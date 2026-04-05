@@ -33,23 +33,54 @@ export async function POST(request) {
       // No body or invalid JSON, use default
     }
     
-    // Get pending validations with limit for batching
-    const { data: pendingValidations, error: fetchError } = await supabase
-      .from('PropValidation')
-      .select('*')
-      .eq('status', 'pending')
-      .order('timestamp', { ascending: true })
-      .range(batchNumber * BATCH_SIZE, (batchNumber + 1) * BATCH_SIZE - 1)
-    
-    if (fetchError) throw fetchError
-    
-    // Also get total count
+    // Get total pending count
     const { count: totalPending } = await supabase
       .from('PropValidation')
       .select('*', { count: 'exact', head: true })
       .eq('status', 'pending')
     
-    console.log(`📊 Processing batch ${batchNumber + 1}: ${pendingValidations?.length || 0} validations (${totalPending} total pending)`)
+    // Get ALL pending validations (we'll filter to final games only)
+    const { data: allPending, error: fetchError } = await supabase
+      .from('PropValidation')
+      .select('*')
+      .eq('status', 'pending')
+      .order('timestamp', { ascending: true })
+    
+    if (fetchError) throw fetchError
+    
+    // Get unique game IDs and look up which ones are final
+    const gameIds = [...new Set((allPending || []).map(v => v.gameIdRef).filter(Boolean))]
+    const { data: games } = await supabase
+      .from('Game')
+      .select('id, status, date')
+      .in('id', gameIds)
+    
+    const now = new Date()
+    const yesterday = new Date(now)
+    yesterday.setDate(yesterday.getDate() - 1)
+    yesterday.setHours(23, 59, 59, 999)
+    
+    const finalGameIds = new Set(
+      (games || [])
+        .filter(g => 
+          ['final', 'completed', 'f', 'closed'].includes(g.status?.toLowerCase()) ||
+          new Date(g.date) < yesterday
+        )
+        .map(g => g.id)
+    )
+    
+    // Prioritize props whose games are final, then append the rest
+    const finalProps = (allPending || []).filter(v => finalGameIds.has(v.gameIdRef))
+    const scheduledProps = (allPending || []).filter(v => !finalGameIds.has(v.gameIdRef))
+    const prioritized = [...finalProps, ...scheduledProps]
+    
+    // Apply batching to the prioritized list
+    const pendingValidations = prioritized.slice(
+      batchNumber * BATCH_SIZE,
+      (batchNumber + 1) * BATCH_SIZE
+    )
+    
+    console.log(`📊 Processing batch ${batchNumber + 1}: ${pendingValidations.length} validations (${totalPending} total pending, ${finalProps.length} with final games)`)
     
     let updated = 0
     let errors = 0
