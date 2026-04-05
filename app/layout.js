@@ -1,5 +1,6 @@
 import './globals.css'
 import MobileNav from '../components/MobileNav'
+import { Analytics } from '@vercel/analytics/next'
 
 const SITE_URL = 'https://oddsondeck.com'
 const SITE_NAME = 'Odds on Deck'
@@ -163,6 +164,7 @@ export default function RootLayout({ children }) {
           {children}
         </main>
         <MobileNav />
+        <Analytics />
       </body>
     </html>
   )
