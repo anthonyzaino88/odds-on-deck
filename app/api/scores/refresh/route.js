@@ -93,7 +93,14 @@ async function refreshSportScores(sport) {
           dbStatus = 'in_progress'
         } else if (statusType === 'status_final' || statusType.includes('final')) {
           dbStatus = 'final'
+        } else if (statusType.includes('postponed')) {
+          dbStatus = 'postponed'
+        } else if (statusType.includes('delay') || statusType.includes('rain') || statusType.includes('suspended')) {
+          dbStatus = 'delayed'
         }
+        
+        // Skip postponed games entirely — nothing useful to update
+        if (dbStatus === 'postponed') continue
         
         // Get game date for ID matching
         const gameDate = new Date(event.date)
@@ -120,6 +127,13 @@ async function refreshSportScores(sport) {
         }
         
         if (game) {
+          // Never downgrade a final game back to scheduled/in_progress
+          // This prevents postponed or stale ESPN entries from overwriting completed games
+          if (game.status === 'final' && dbStatus !== 'final') {
+            console.log(`  ⏭️  Skipping ${game.id} — already final, ESPN says ${dbStatus}`)
+            continue
+          }
+          
           const updateData = {
             homeScore,
             awayScore,

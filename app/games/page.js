@@ -306,7 +306,9 @@ function GameCard({ game }) {
   
   const isLive = statusNormalized === 'in_progress'
   const isFinal = statusNormalized === 'final'
-  const isScheduled = !isLive && !isFinal
+  const isDelayed = statusNormalized === 'delayed' || statusNormalized === 'rain_delay'
+  const isPostponed = statusNormalized === 'postponed'
+  const isScheduled = !isLive && !isFinal && !isDelayed && !isPostponed
   const isMLB = game.sport === 'mlb'
   
   const awayAbbr = game.awayAbbr || game.away?.abbr || '?'
@@ -317,7 +319,10 @@ function GameCard({ game }) {
   return (
     <Link href={`/game/${game.id}`}>
       <div className={`bg-gradient-to-br from-slate-800 to-slate-900 border rounded-lg p-4 sm:p-5 hover:border-blue-500 hover:shadow-lg hover:shadow-blue-500/20 transition cursor-pointer ${
-        isLive ? 'border-red-500/50 shadow-red-500/20 shadow-lg' : 'border-slate-700'
+        isLive ? 'border-red-500/50 shadow-red-500/20 shadow-lg' : 
+        isDelayed ? 'border-yellow-500/50' :
+        isPostponed ? 'border-slate-600 opacity-60' :
+        'border-slate-700'
       }`}>
         
         <div className="flex items-center justify-between gap-4">
@@ -344,6 +349,13 @@ function GameCard({ game }) {
               </div>
             ) : isFinal ? (
               <span className="text-xs font-semibold text-slate-400 uppercase">Final</span>
+            ) : isDelayed ? (
+              <div>
+                <span className="text-[10px] font-bold text-yellow-400 uppercase tracking-wider">DELAY</span>
+                <div className="text-[10px] text-yellow-500/70 mt-0.5">{timeString}</div>
+              </div>
+            ) : isPostponed ? (
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">PPD</span>
             ) : (
               <span className="text-xs font-medium text-blue-400">{timeString}</span>
             )}

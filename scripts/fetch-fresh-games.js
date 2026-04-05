@@ -567,18 +567,25 @@ async function saveToSupabase(sport, games) {
       }
       
       // Check 2: Duplicate by matchup (homeId + awayId + date) - catch duplicates with different ESPN IDs
-      const gameDateStr = new Date(game.date).toISOString().split('T')[0]
-      const { data: matchupDuplicates } = await supabase
+      // Use the EST date embedded in the game ID (not UTC) to avoid cross-day false matches
+      // e.g. PHI_at_COL_2026-04-05 should NOT match PHI_at_COL_2026-04-04
+      const gameIdDate = game.id.match(/\d{4}-\d{2}-\d{2}$/)?.[0]
+      const gameDateStr = gameIdDate || new Date(game.date).toISOString().split('T')[0]
+      const { data: matchupDuplicatesRaw } = await supabase
         .from('Game')
         .select('id, espnGameId, oddsApiEventId, status, date')
         .eq('sport', sport)
         .eq('homeId', game.homeId)
         .eq('awayId', game.awayId)
-        .gte('date', gameDateStr + 'T00:00:00Z')
-        .lt('date', gameDateStr + 'T23:59:59Z')
         .neq('id', game.id)
       
-      if (matchupDuplicates && matchupDuplicates.length > 0) {
+      // Filter to only games with the same EST date in their ID (same actual game day)
+      const matchupDuplicates = (matchupDuplicatesRaw || []).filter(dup => {
+        const dupIdDate = dup.id.match(/\d{4}-\d{2}-\d{2}$/)?.[0]
+        return dupIdDate === gameDateStr
+      })
+      
+      if (matchupDuplicates.length > 0) {
         // Prioritize: game with odds > game with final status > newest game
         const withOdds = matchupDuplicates.find(g => g.oddsApiEventId)
         const withFinalStatus = matchupDuplicates.find(g => g.status === 'final')
@@ -611,8 +618,19 @@ async function saveToSupabase(sport, games) {
     }
     
     // Create upsert array AFTER duplicate check (filter out removed games)
+    // Also dedup by game ID within the batch (overlapping ESPN date queries
+    // can return the same game twice with different ESPN event IDs)
+    const seenIds = new Set()
     const gamesToUpsert = games
-      .filter(g => !gamesToRemove.includes(g.id))
+      .filter(g => {
+        if (gamesToRemove.includes(g.id)) return false
+        if (seenIds.has(g.id)) {
+          console.log(`  ⚠️  Removing intra-batch duplicate: ${g.id}`)
+          return false
+        }
+        seenIds.add(g.id)
+        return true
+      })
       .map(g => {
         const obj = {
           id: g.id,
