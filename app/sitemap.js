@@ -21,18 +21,30 @@ export default async function sitemap() {
       process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     )
 
+    // Only include games from the last 7 days — older games have low search value
+    // and waste Google's crawl budget
+    const sevenDaysAgo = new Date()
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+
     const { data: games } = await supabase
       .from('Game')
-      .select('id, date')
+      .select('id, date, status')
+      .gte('date', sevenDaysAgo.toISOString())
       .order('date', { ascending: false })
-      .limit(200)
 
-    gamePages = (games || []).map(game => ({
-      url: `${SITE_URL}/game/${game.id}`,
-      lastModified: new Date(game.date),
-      changeFrequency: 'daily',
-      priority: 0.6,
-    }))
+    const now = new Date()
+    const todayStr = now.toISOString().split('T')[0]
+
+    gamePages = (games || []).map(game => {
+      const gameDate = new Date(game.date)
+      const isToday = gameDate.toISOString().split('T')[0] === todayStr
+      return {
+        url: `${SITE_URL}/game/${game.id}`,
+        lastModified: gameDate,
+        changeFrequency: isToday ? 'hourly' : 'daily',
+        priority: isToday ? 0.7 : 0.5,
+      }
+    })
   } catch {
     // Supabase unavailable at build time — static pages only
   }
