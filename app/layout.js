@@ -145,15 +145,16 @@ export default function RootLayout({ children }) {
                   </a>
                   <a
                     href="/dfs"
-                    className="text-slate-300 hover:text-white px-3 py-2 text-sm font-medium transition"
+                    className="text-slate-300 hover:text-white px-3 py-2 text-sm font-medium transition flex items-center gap-1.5"
                   >
                     DFS
+                    <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400 border border-amber-500/30">Soon</span>
                   </a>
                   <a
                     href="/validation"
                     className="text-slate-300 hover:text-white px-3 py-2 text-sm font-medium transition"
                   >
-                    📊 Validation
+                    Validation
                   </a>
                 </div>
               </div>

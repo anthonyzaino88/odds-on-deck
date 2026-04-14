@@ -101,12 +101,12 @@ export default function HomePage() {
             Odds on Deck
           </h1>
           <p className="text-xl text-blue-400 font-medium mb-4">
-            Data-driven sports betting analytics
+            Compare odds. Spot value. Track everything.
           </p>
           <p className="text-gray-400 max-w-2xl mx-auto text-lg leading-relaxed">
-            We scan odds from every major sportsbook in real time, identify where the lines are off,
-            and surface the bets where you have a mathematical edge. No gut feelings, no hype
-            &mdash; just numbers.
+            We pull live odds from 10+ sportsbooks, strip the vig so you can see the real market
+            prices, and highlight where one book&apos;s line stands out from the rest.
+            Every pick gets tracked against actual results &mdash; full transparency, no hidden losses.
           </p>
           <div className="flex flex-wrap justify-center gap-3 mt-6">
             <span className="px-4 py-1.5 rounded-full bg-green-900/30 border border-green-500/40 text-green-400 text-sm font-medium">MLB</span>
@@ -131,11 +131,17 @@ export default function HomePage() {
 
         {/* Today's Slate */}
         {loading ? (
-          <div className="text-center py-12 mb-12">
-            <div className="inline-block">
-              <div className="animate-spin h-8 w-8 border-4 border-slate-600 border-t-blue-400 rounded-full"></div>
+          <div className="mb-16">
+            <h2 className="text-2xl font-bold text-white mb-6 text-center">Today&apos;s Slate</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {['MLB', 'NFL', 'NHL'].map((sport) => (
+                <div key={sport} className="bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 rounded-xl p-6 h-full text-center animate-pulse">
+                  <div className="h-8 w-24 bg-slate-700 rounded mx-auto mb-4" />
+                  <div className="h-10 w-12 bg-slate-700 rounded mx-auto mb-2" />
+                  <div className="h-4 w-20 bg-slate-700/60 rounded mx-auto" />
+                </div>
+              ))}
             </div>
-            <p className="text-slate-400 mt-4">Loading games...</p>
           </div>
         ) : (
           <div className="mb-16">
@@ -172,10 +178,10 @@ export default function HomePage() {
         {/* Transparent Results — Dynamic Validation Stats */}
         <section className="mb-16" id="results">
           <div className="bg-slate-900/80 border border-slate-700 rounded-xl p-8 text-center">
-            <h2 className="text-2xl font-bold text-white mb-4">Transparent results</h2>
+            <h2 className="text-2xl font-bold text-white mb-4">Every pick tracked, win or lose</h2>
             <p className="text-gray-400 max-w-xl mx-auto mb-8 leading-relaxed">
-              Every prop we surface gets tracked. After the game ends, we pull the actual stats
-              and record whether the prediction hit or missed. No hiding bad picks.
+              After each game, we pull the real box score and check every tracked prop.
+              Wins, losses, and ROI are all public &mdash; filter by time window, sport, or source on the dashboard.
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6 mb-8">
               <div className="min-w-0">
@@ -237,38 +243,38 @@ export default function HomePage() {
         <section className="mb-16">
           <h2 className="text-2xl font-bold text-white mb-2">What makes this different</h2>
           <p className="text-gray-400 mb-8">
-            Most tools show you odds. We show you where the odds are <span className="text-white font-medium">wrong</span>.
+            Most tools show you one book&apos;s odds. We show you <span className="text-white font-medium">all of them</span> &mdash; and do the math for you.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <FeatureCard
               icon="&#128269;"
-              title="Line Shopping Engine"
-              description="We compare odds across 10+ sportsbooks simultaneously. When one book posts a line that's out of step with the market, we flag it as an opportunity."
+              title="Line Shopping"
+              description="Compare odds across 10+ sportsbooks side-by-side. When one book is offering a better price than the rest, you'll see it instantly."
             />
             <FeatureCard
               icon="&#128208;"
-              title="Edge Detection"
-              description="Every prop is analyzed for its implied probability vs. the true market probability. Positive edge means the payout exceeds the actual risk."
+              title="Vig-Free Probabilities"
+              description="We strip the sportsbook margin from every line to show you the real market-implied probability. See what the odds actually mean, not what the book wants you to think."
             />
             <FeatureCard
               icon="&#127942;"
               title="Quality Scoring"
-              description="Not all edges are equal. Our quality score weighs edge size, book count, line consensus, and market confidence into a single actionable number."
+              description="Props are ranked by a composite of how far a line deviates from market consensus, how many books offer it, and the implied probability. Higher score = bigger outlier."
             />
             <FeatureCard
               icon="&#128202;"
-              title="Validated Track Record"
-              description="We track every prediction against actual results. Our validation system shows real win rates and ROI — no cherry-picked screenshots."
+              title="Full Transparency"
+              description="Every pick is tracked against actual game results. Win rates, ROI, and units are updated automatically — no cherry-picked screenshots, no hiding bad days."
             />
             <FeatureCard
               icon="&#127919;"
               title="Strategy Filters"
-              description="Filter props by betting strategy — sharp value, high confidence, balanced approach, or long shots. Match the data to your style."
+              description="Filter by confidence level, value tier, or sport. Whether you want conservative singles or aggressive long shots, sort the board to match your style."
             />
             <FeatureCard
               icon="&#127922;"
-              title="Parlay Generator"
-              description="Build parlays from our highest-quality props with correlated picks and calculated combined odds. See exactly what you're betting on."
+              title="Parlay Builder"
+              description="Combine props into parlays with calculated combined odds. See the implied probability of the full parlay before you bet."
             />
           </div>
         </section>
@@ -289,13 +295,13 @@ export default function HomePage() {
             />
             <StepCard
               number="3"
-              title="The engine calculates edges and quality scores"
-              description="For each prop, we remove the vig, calculate the true implied probability from the market consensus, and compare it to each book's posted line. The difference is your edge."
+              title="We strip the vig and compare every line"
+              description="For each prop, we remove the sportsbook margin to reveal the true market-implied probability. Then we compare each book's line against the consensus to find outliers."
             />
             <StepCard
               number="4"
-              title="Top picks surface to the top"
-              description="Props are ranked by quality score — a composite of edge size, number of supporting books, and market agreement. The best opportunities appear first."
+              title="Outlier lines surface to the top"
+              description="Props are ranked by how far a book's price deviates from the market consensus, weighted by the number of books offering the line and market agreement."
             />
             <StepCard
               number="5"
@@ -312,8 +318,8 @@ export default function HomePage() {
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <ConceptCard
               term="Edge"
-              definition="The percentage difference between the true probability and what the sportsbook is offering. A positive edge means the bet pays more than it should."
-              example='Example: If the true probability is 55% but the book implies 48%, you have a +7% edge.'
+              definition="The percentage difference between one book's implied probability and the vig-removed market consensus. A positive edge means that book is offering a better price than the rest of the market."
+              example='Example: If the market consensus is 55% but one book implies only 48%, that book is paying more than the market thinks it should.'
             />
             <ConceptCard
               term="Implied Probability"
@@ -337,7 +343,7 @@ export default function HomePage() {
             />
             <ConceptCard
               term="Win Probability"
-              definition="Our estimated chance the bet wins, derived from the vig-removed market consensus. Higher probability = more likely to hit, but usually lower payout."
+              definition="The market-implied chance the bet wins, derived from stripping the vig from the consensus line. This is what the collective market thinks, not a proprietary model."
             />
           </dl>
         </section>
@@ -413,8 +419,8 @@ export default function HomePage() {
 
         {/* CTA */}
         <section className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-white mb-4">Ready to find your edge?</h2>
-          <p className="text-gray-400 mb-8">Check today&apos;s best opportunities.</p>
+          <h2 className="text-2xl font-bold text-white mb-4">See today&apos;s best lines</h2>
+          <p className="text-gray-400 mb-8">Compare odds across every major book and find the best price.</p>
           <div className="flex flex-wrap justify-center gap-4">
             <Link
               href="/props"

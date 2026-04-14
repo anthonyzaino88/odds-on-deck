@@ -91,11 +91,33 @@ export default function GamesPage() {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <div className="max-w-7xl mx-auto px-4 py-4 sm:py-12">
-          <div className="text-center py-16">
-            <div className="inline-block">
-              <div className="animate-spin h-8 w-8 border-4 border-slate-600 border-t-blue-400 rounded-full"></div>
-            </div>
-            <p className="text-slate-400 mt-4">Loading games...</p>
+          <div className="mb-4 sm:mb-8">
+            <h1 className="text-4xl font-bold mb-3">Today&apos;s Slate</h1>
+            <div className="h-5 w-64 bg-slate-800 rounded animate-pulse" />
+          </div>
+          <div className="space-y-4">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 rounded-lg p-4 sm:p-5 animate-pulse">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="w-16 flex justify-center">
+                    <div className="h-4 w-10 bg-slate-700 rounded" />
+                  </div>
+                  <div className="flex-1 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="h-4 w-20 bg-slate-700 rounded" />
+                      <div className="h-5 w-8 bg-slate-700 rounded" />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="h-4 w-24 bg-slate-700 rounded" />
+                      <div className="h-5 w-8 bg-slate-700 rounded" />
+                    </div>
+                  </div>
+                  <div className="w-16 flex justify-center">
+                    <div className="h-4 w-4 bg-slate-700/40 rounded" />
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -126,10 +148,14 @@ export default function GamesPage() {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <div className="max-w-7xl mx-auto px-4 py-4 sm:py-12">
-          <h1 className="text-4xl font-bold mb-4 text-slate-100">Today's Slate</h1>
-          <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-12 text-center">
-            <p className="text-slate-400 text-lg mb-4">No games scheduled for today</p>
-            <p className="text-slate-500 text-sm">Check back tomorrow!</p>
+          <h1 className="text-4xl font-bold mb-3 text-slate-100">Today&apos;s Slate</h1>
+          <p className="text-slate-500 text-sm mb-6">{todayStr}</p>
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-12 text-center">
+            <div className="text-5xl mb-4">📅</div>
+            <p className="text-slate-300 text-lg font-medium mb-2">No games scheduled today</p>
+            <p className="text-slate-500 text-sm">
+              Check back tomorrow for the next slate of games. Schedules update each morning.
+            </p>
           </div>
         </div>
       </div>

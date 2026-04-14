@@ -1,258 +1,68 @@
-// DFS (Daily Fantasy Sports) Page - Player value rankings
+import Link from 'next/link'
 
-// Force dynamic rendering (required for Vercel deployment)
 export const dynamic = 'force-dynamic'
 
-import { getPlayersForDFS } from '../../lib/db.js'
-
 export const metadata = {
-  title: 'DFS Optimizer — Daily Fantasy Rankings',
-  description: 'Daily Fantasy Sports player value rankings and salary-based projections for MLB, NFL, and NHL. Find the best value plays for your DFS lineups.',
+  title: 'DFS Optimizer — Coming Soon',
+  description: 'Daily Fantasy Sports player value rankings and salary-based projections for MLB, NFL, and NHL. Coming soon to Odds on Deck.',
   openGraph: {
-    title: 'DFS Optimizer — Daily Fantasy Rankings | Odds on Deck',
-    description: 'DFS player value rankings and salary-based projections. Find the best value plays.',
+    title: 'DFS Optimizer — Coming Soon | Odds on Deck',
+    description: 'DFS player value rankings and salary-based projections. Coming soon.',
   },
 }
 
-export default async function DFSPage() {
-  let players = []
-  
-  try {
-    players = await getPlayersForDFS()
-  } catch (error) {
-    console.error('Error fetching players for DFS:', error)
-    // Return empty array if database error
-    players = []
-  }
-  
-  // If no players, show empty state
-  if (!players || players.length === 0) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">DFS Player Values</h1>
-          <p className="text-gray-600 mt-2">
-            Player projections and value rankings for daily fantasy sports.
-          </p>
-        </div>
-        
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
-          <div className="text-6xl mb-4">🎮</div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">
-            No Player Data Available
-          </h3>
-          <p className="text-gray-600 mb-4">
-            The database is currently being populated. Player DFS values will appear once data is loaded.
-          </p>
-          <p className="text-sm text-gray-500">
-            This page will show player projections, salaries, and value rankings for daily fantasy sports.
-          </p>
-        </div>
-        
-        <div className="text-sm text-gray-600 space-y-2">
-          <p>
-            <strong>Coming Soon:</strong> Full DFS integration with player projections and value rankings.
-          </p>
-        </div>
-      </div>
-    )
-  }
-  
-  // Separate hitters and pitchers
-  const hitters = players.filter(p => !p.isPitcher)
-  const pitchers = players.filter(p => p.isPitcher)
-  
-  // Generate mock DFS data for MVP
-  const hittersWithValue = hitters.slice(0, 20).map(player => ({
-    ...player,
-    projection: generateMockProjection(player, false),
-    salary: generateMockSalary(player, false),
-  }))
-  
-  const pitchersWithValue = pitchers.slice(0, 10).map(player => ({
-    ...player,
-    projection: generateMockProjection(player, true),
-    salary: generateMockSalary(player, true),
-  }))
-  
-  // Calculate value (projection / salary * 1000)
-  hittersWithValue.forEach(player => {
-    player.value = (player.projection / player.salary * 1000).toFixed(2)
-  })
-  
-  pitchersWithValue.forEach(player => {
-    player.value = (player.projection / player.salary * 1000).toFixed(2)
-  })
-  
-  // Sort by value
-  hittersWithValue.sort((a, b) => parseFloat(b.value) - parseFloat(a.value))
-  pitchersWithValue.sort((a, b) => parseFloat(b.value) - parseFloat(a.value))
-  
+export default function DFSPage() {
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">DFS Player Values</h1>
-        <p className="text-gray-600 mt-2">
-          Player projections and value rankings for daily fantasy sports.
-          Salaries are stubbed for MVP demonstration.
-        </p>
-      </div>
-      
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Hitters */}
-        <div className="card">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">
-              Top Hitters by Value
-            </h2>
-            <p className="text-sm text-gray-600 mt-1">
-              Projected points per $1K salary
-            </p>
+    <div className="min-h-screen bg-slate-950">
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-20">
+        <div className="text-center">
+          <div className="inline-flex items-center px-3 py-1 rounded-full bg-amber-900/30 border border-amber-500/40 text-amber-400 text-xs font-semibold uppercase tracking-wide mb-6">
+            Coming Soon
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="table-header px-4 py-3 text-left">Rank</th>
-                  <th className="table-header px-4 py-3 text-left">Player</th>
-                  <th className="table-header px-4 py-3 text-left">Team</th>
-                  <th className="table-header px-4 py-3 text-left">Proj</th>
-                  <th className="table-header px-4 py-3 text-left">Salary</th>
-                  <th className="table-header px-4 py-3 text-left">Value</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {hittersWithValue.slice(0, 15).map((player, index) => (
-                  <tr key={player.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {index + 1}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="text-sm font-medium text-gray-900">
-                        {player.fullName}
-                      </div>
-                      <div className="text-sm text-gray-600">
-                        {player.bats ? `${player.bats} Bats` : ''}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {player.team?.abbr || 'FA'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {player.projection.toFixed(1)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      ${player.salary.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={getValueClass(parseFloat(player.value))}>
-                        {player.value}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          
+          <h1 className="text-3xl sm:text-4xl font-bold text-white mb-4">
+            DFS Optimizer
+          </h1>
+          <p className="text-lg text-gray-400 max-w-xl mx-auto leading-relaxed mb-10">
+            We&apos;re building a daily fantasy optimizer that uses the same edge-detection engine 
+            powering our props and picks. Player projections, salary-based value rankings, and 
+            lineup suggestions — all backed by real data.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-12">
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5">
+              <div className="text-2xl mb-2">📊</div>
+              <h3 className="text-sm font-semibold text-white mb-1">Value Rankings</h3>
+              <p className="text-xs text-gray-500">Points per dollar across all salary tiers</p>
+            </div>
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5">
+              <div className="text-2xl mb-2">🎯</div>
+              <h3 className="text-sm font-semibold text-white mb-1">Projection Engine</h3>
+              <p className="text-xs text-gray-500">Matchup-driven projections for every player</p>
+            </div>
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5">
+              <div className="text-2xl mb-2">⚡</div>
+              <h3 className="text-sm font-semibold text-white mb-1">Lineup Builder</h3>
+              <p className="text-xs text-gray-500">Optimized lineups for DraftKings & FanDuel</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap justify-center gap-4">
+            <Link
+              href="/props"
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors"
+            >
+              Browse Player Props
+            </Link>
+            <Link
+              href="/picks"
+              className="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-lg border border-slate-700 transition-colors"
+            >
+              See Editor&apos;s Picks
+            </Link>
           </div>
         </div>
-        
-        {/* Pitchers */}
-        <div className="card">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">
-              Top Pitchers by Value
-            </h2>
-            <p className="text-sm text-gray-600 mt-1">
-              Projected points per $1K salary
-            </p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="table-header px-4 py-3 text-left">Rank</th>
-                  <th className="table-header px-4 py-3 text-left">Player</th>
-                  <th className="table-header px-4 py-3 text-left">Team</th>
-                  <th className="table-header px-4 py-3 text-left">Proj</th>
-                  <th className="table-header px-4 py-3 text-left">Salary</th>
-                  <th className="table-header px-4 py-3 text-left">Value</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {pitchersWithValue.slice(0, 10).map((player, index) => (
-                  <tr key={player.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {index + 1}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="text-sm font-medium text-gray-900">
-                        {player.fullName}
-                      </div>
-                      <div className="text-sm text-gray-600">
-                        {player.throws ? `${player.throws} Throws` : ''}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {player.team?.abbr || 'FA'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {player.projection.toFixed(1)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      ${player.salary.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={getValueClass(parseFloat(player.value))}>
-                        {player.value}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-      
-      <div className="text-sm text-gray-600 space-y-2">
-        <p>
-          <strong>Projection:</strong> Expected fantasy points based on matchup analysis.
-        </p>
-        <p>
-          <strong>Value:</strong> Points per $1K salary. Higher values indicate better value plays.
-        </p>
-        <p>
-          <strong>Note:</strong> Salaries are mock data for MVP demonstration. 
-          Integrate with DraftKings/FanDuel APIs for production.
-        </p>
       </div>
     </div>
   )
 }
-
-// Mock data generators for MVP
-function generateMockProjection(player, isPitcher) {
-  // Generate realistic fantasy projections
-  if (isPitcher) {
-    return Math.random() * 20 + 15 // 15-35 points
-  } else {
-    return Math.random() * 15 + 5 // 5-20 points
-  }
-}
-
-function generateMockSalary(player, isPitcher) {
-  // Generate realistic DFS salaries
-  if (isPitcher) {
-    return Math.floor(Math.random() * 4000) + 7000 // $7K-11K
-  } else {
-    return Math.floor(Math.random() * 3000) + 3000 // $3K-6K
-  }
-}
-
-function getValueClass(value) {
-  if (value >= 4.0) return 'text-brand-green font-semibold'
-  if (value >= 3.0) return 'text-green-600 font-medium'
-  if (value >= 2.5) return 'text-gray-900'
-  return 'text-gray-600'
-}
-

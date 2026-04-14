@@ -171,8 +171,34 @@ export default function PicksPage() {
 
         {/* Loading State */}
         {loading && (
-          <div className="text-center py-12">
-            <div className="text-gray-400 text-lg">Loading picks...</div>
+          <div className="space-y-4 sm:space-y-6">
+            <div className="card">
+              <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-700">
+                <div className="h-6 w-48 bg-slate-700 rounded animate-pulse" />
+                <div className="h-4 w-72 bg-slate-700/60 rounded animate-pulse mt-2" />
+              </div>
+              <div className="p-3 sm:p-6 space-y-3 sm:space-y-4">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="border border-slate-700 rounded-lg p-4 bg-slate-900 animate-pulse">
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-full bg-slate-700 flex-shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <div className="h-5 w-32 bg-slate-700 rounded" />
+                          <div className="h-4 w-16 bg-slate-700/50 rounded" />
+                        </div>
+                        <div className="h-4 w-48 bg-slate-700/40 rounded" />
+                        <div className="flex gap-4 mt-2">
+                          <div className="h-3 w-16 bg-slate-700/30 rounded" />
+                          <div className="h-3 w-20 bg-slate-700/30 rounded" />
+                          <div className="h-3 w-14 bg-slate-700/30 rounded" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 

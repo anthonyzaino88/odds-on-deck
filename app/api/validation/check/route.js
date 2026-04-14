@@ -69,16 +69,13 @@ export async function POST(request) {
         .map(g => g.id)
     )
     
-    // Prioritize props whose games are final, then append the rest
+    // Prioritize props whose games are final (these are the ones we can actually resolve)
     const finalProps = (allPending || []).filter(v => finalGameIds.has(v.gameIdRef))
     const scheduledProps = (allPending || []).filter(v => !finalGameIds.has(v.gameIdRef))
     const prioritized = [...finalProps, ...scheduledProps]
     
-    // Apply batching to the prioritized list
-    const pendingValidations = prioritized.slice(
-      batchNumber * BATCH_SIZE,
-      (batchNumber + 1) * BATCH_SIZE
-    )
+    // Always take from the front — completed items won't appear in future queries
+    const pendingValidations = prioritized.slice(0, BATCH_SIZE)
     
     console.log(`📊 Processing batch ${batchNumber + 1}: ${pendingValidations.length} validations (${totalPending} total pending, ${finalProps.length} with final games)`)
     
@@ -330,8 +327,14 @@ export async function POST(request) {
       }
     }
     
-    const hasMoreBatches = totalPending > (batchNumber + 1) * BATCH_SIZE
-    console.log(`🎯 Validation check complete: ${updated} updated, ${errors} errors, ${skipped} skipped`)
+    // Re-check remaining pending count after processing
+    const { count: remainingPending } = await supabase
+      .from('PropValidation')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending')
+
+    const hasMoreBatches = (remainingPending || 0) > 0
+    console.log(`🎯 Validation check complete: ${updated} updated, ${errors} errors, ${skipped} skipped, ${remainingPending} remaining`)
     
     return NextResponse.json({
       success: true,
@@ -339,7 +342,7 @@ export async function POST(request) {
       updated,
       errors,
       skipped,
-      remaining: totalPending - updated,
+      remaining: remainingPending || 0,
       totalPending,
       batchSize: BATCH_SIZE,
       currentBatch: batchNumber,

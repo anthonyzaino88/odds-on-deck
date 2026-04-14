@@ -117,8 +117,29 @@ export default function PropsPage() {
 
         {/* Loading State */}
         {loading && (
-          <div className="text-center py-12">
-            <div className="text-gray-400 text-lg">Loading player props...</div>
+          <div className="space-y-3">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="border border-slate-700 rounded-lg p-4 bg-slate-900 animate-pulse">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="h-5 w-28 bg-slate-700 rounded" />
+                      <div className="h-4 w-20 bg-slate-700/50 rounded" />
+                      <div className="h-5 w-14 bg-green-900/30 rounded" />
+                    </div>
+                    <div className="h-4 w-44 bg-slate-700/40 rounded" />
+                    <div className="flex gap-4 mt-1">
+                      <div className="h-3 w-16 bg-slate-700/30 rounded" />
+                      <div className="h-3 w-20 bg-slate-700/30 rounded" />
+                      <div className="h-3 w-18 bg-slate-700/30 rounded" />
+                    </div>
+                  </div>
+                  <div className="flex-shrink-0 ml-4">
+                    <div className="h-8 w-16 bg-slate-700/40 rounded" />
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
@@ -177,22 +198,22 @@ export default function PropsPage() {
               </div>
             ) : (
               <div className="text-center py-12">
-                <div className="text-gray-500 text-6xl mb-4">
+                <div className="text-gray-500 text-5xl mb-4">
                   {sportFilter === 'nfl' ? '🏈' : sportFilter === 'nhl' ? '🏒' : sportFilter === 'mlb' ? '⚾' : '📊'}
                 </div>
                 <h3 className="text-lg font-medium text-white mb-2">No Player Props Available</h3>
-                <p className="text-gray-400 mb-4">
+                <p className="text-gray-400 mb-2">
                   {sportFilter === 'all' 
-                    ? 'No player props found. Props are fetched via the odds script.'
-                    : `No ${sportFilter.toUpperCase()} player props found.`}
+                    ? 'No player props are available right now. Props appear once today\'s odds are published by the sportsbooks.'
+                    : `No ${sportFilter.toUpperCase()} player props available right now.`}
                 </p>
-                <p className="text-sm text-gray-500 mb-4">
-                  Run <code className="bg-slate-800 px-2 py-1 rounded">node scripts/fetch-live-odds.js {sportFilter}</code> to fetch props.
+                <p className="text-sm text-gray-500">
+                  Props are typically available a few hours before game time.
                 </p>
                 {sportFilter !== 'all' && (
                   <button
                     onClick={() => setSportFilter('all')}
-                    className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                    className="mt-6 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
                   >
                     View All Sports
                   </button>

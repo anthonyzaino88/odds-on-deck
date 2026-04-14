@@ -58,7 +58,10 @@ node scripts/refresh-nhl-scores.js  # NHL-specific alternative
 
 ### After Games Complete
 ```bash
-# Validate completed prop predictions
+# Validate completed prop predictions (standalone, no dev server needed)
+node scripts/validate-pending-props.js
+
+# Or validate via API (requires dev server on localhost:3000)
 npm run validate:all
 
 # Check validation status
