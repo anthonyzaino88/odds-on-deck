@@ -96,15 +96,17 @@ export async function GET(request) {
     const legCount = parseInt(searchParams.get('legs')) || 3
     const minEdge = parseFloat(searchParams.get('minEdge')) || 0.05
     const maxParlays = parseInt(searchParams.get('maxParlays')) || 10
-
-    console.log(`🎯 GET: Generating ${legCount}-leg ${sport} parlays`)
+    const filterMode = searchParams.get('filterMode') || 'safe'
+    const gameId = searchParams.get('gameId') || null
 
     const parlays = await generateSimpleParlays({
       sport,
       type,
       legCount,
       minEdge,
-      maxParlays
+      maxParlays,
+      filterMode,
+      gameId
     })
 
     return NextResponse.json({

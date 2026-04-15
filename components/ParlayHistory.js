@@ -27,9 +27,8 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
       } else {
         setError(data.error || 'Failed to fetch parlay history')
       }
-    } catch (err) {
+    } catch {
       setError('Error fetching parlay history')
-      console.error('Error:', err)
     } finally {
       setLoading(false)
     }

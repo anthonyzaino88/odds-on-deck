@@ -3,56 +3,59 @@
 import { useState, useEffect } from 'react'
 
 export default function ParlayBuilder({ onGenerate }) {
-  const [sport, setSport] = useState('nhl') // Changed default from 'mlb' to 'nhl'
+  const [sport, setSport] = useState('mlb')
   const [type, setType] = useState('multi_game')
   const [legCount, setLegCount] = useState(3)
   const [maxParlays, setMaxParlays] = useState(10)
-  const [minConfidence, setMinConfidence] = useState('low') // Allow all confidence levels
-  const [filterMode, setFilterMode] = useState('safe') // safe, balanced, value, homerun
+  const [minConfidence, setMinConfidence] = useState('low')
+  const [filterMode, setFilterMode] = useState('safe')
   const [isGenerating, setIsGenerating] = useState(false)
   const [selectedGameId, setSelectedGameId] = useState('')
   const [availableGames, setAvailableGames] = useState([])
   const [isLoadingGames, setIsLoadingGames] = useState(false)
-
-  // HONEST EDGE SYSTEM: No fake minEdge adjustments needed
-  // Props are ranked by real probability (Safe) or expected value (Value)
-
-  // ✅ Cache all games data in frontend to avoid repeated API calls
   const [allGamesCache, setAllGamesCache] = useState(null)
   const [cacheTimestamp, setCacheTimestamp] = useState(null)
   
-  // ✅ Fetch available games only once on mount, or when cache expires (5 minutes)
   useEffect(() => {
     const shouldFetchGames = type === 'single_game' && (
       !allGamesCache || 
       !cacheTimestamp || 
-      Date.now() - cacheTimestamp > 5 * 60 * 1000 // 5 minutes
+      Date.now() - cacheTimestamp > 5 * 60 * 1000
     )
-    
-    if (shouldFetchGames) {
-      fetchAvailableGames()
-    }
-  }, [type]) // ✅ Only depend on type, not sport - fetch all games once!
+    if (shouldFetchGames) fetchAvailableGames()
+  }, [type])
 
-  // ✅ Filter cached games when sport changes (no API call!)
   useEffect(() => {
-    if (type === 'single_game' && allGamesCache) {
-      filterCachedGames()
-    }
+    if (type === 'single_game' && allGamesCache) filterCachedGames()
   }, [sport, allGamesCache])
 
+  useEffect(() => {
+    async function detectSport() {
+      try {
+        const res = await fetch('/api/games/today')
+        const result = await res.json()
+        if (result.success && result.data) {
+          const counts = {
+            mlb: (result.data.mlb || []).length,
+            nhl: (result.data.nhl || []).length,
+            nfl: (result.data.nfl || []).length,
+          }
+          const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]
+          if (best && best[1] > 0) setSport(best[0])
+          setAllGamesCache({ mlb: result.data.mlb || [], nfl: result.data.nfl || [], nhl: result.data.nhl || [] })
+          setCacheTimestamp(Date.now())
+        }
+      } catch { /* use default */ }
+    }
+    detectSport()
+  }, [])
+
   const fetchAvailableGames = async () => {
-    console.log('🔄 Fetching games data (cache miss or expired)...')
     setIsLoadingGames(true)
     try {
-      // Use /api/games/today instead of disabled /api/data
       const response = await fetch('/api/games/today')
       const result = await response.json()
-      
-      console.log('📊 API Response:', result)
-      
       if (result.success && result.data) {
-        // The API returns data in a nested structure: { success, data: { mlb, nfl, nhl } }
         const allGames = {
           mlb: result.data.mlb || [],
           nfl: result.data.nfl || [],
@@ -60,27 +63,14 @@ export default function ParlayBuilder({ onGenerate }) {
         }
         setAllGamesCache(allGames)
         setCacheTimestamp(Date.now())
-        console.log('✅ Cached games data:', 
-          allGames.mlb.length, 'MLB,', 
-          allGames.nfl.length, 'NFL,', 
-          allGames.nhl.length, 'NHL'
-        )
-        
-        // Filter and set available games for current sport
         filterGamesForSport(allGames, sport)
-      } else {
-        console.error('❌ API response missing data:', result)
       }
-    } catch (error) {
-      console.error('Error fetching games:', error)
-    } finally {
-      setIsLoadingGames(false)
-    }
+    } catch { /* non-critical */ }
+    finally { setIsLoadingGames(false) }
   }
 
   const filterCachedGames = () => {
     if (!allGamesCache) return
-    console.log('✅ Filtering cached games for sport:', sport, '(no API call!)')
     filterGamesForSport(allGamesCache, sport)
   }
 
@@ -110,62 +100,36 @@ export default function ParlayBuilder({ onGenerate }) {
 
   const handleGenerate = async () => {
     setIsGenerating(true)
-    
     try {
-      // HONEST EDGE SYSTEM: No minEdge needed - system uses probability ranking
       const requestData = {
-        sport,
+        sport: type === 'cross_sport' ? 'mixed' : sport,
         type,
         legCount,
         maxParlays,
         minConfidence,
-        filterMode, // Controls ranking: safe=probability, value=EV, etc.
+        filterMode,
         saveToDatabase: false,
         gameId: type === 'single_game' ? selectedGameId : undefined
       }
-      
-      console.log('🎯 Generating parlays with:', requestData)
-      
       const response = await fetch('/api/parlays/generate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestData)
       })
-
       const data = await response.json()
-      
-      if (data.success) {
-        console.log('ParlayBuilder: Generated parlays:', data.parlays.length)
-        // Pass results to parent component
-        if (onGenerate) {
-          console.log('ParlayBuilder: Calling onGenerate with:', data.parlays.length, 'parlays')
-          onGenerate(data.parlays)
-        }
-      } else {
-        console.error('Failed to generate parlays:', data.error)
-      }
-    } catch (error) {
-      console.error('Error generating parlays:', error)
-    } finally {
-      setIsGenerating(false)
-    }
+      if (data.success && onGenerate) onGenerate(data.parlays)
+    } catch { /* non-critical */ }
+    finally { setIsGenerating(false) }
   }
 
   return (
     <div className="card p-6">
       <h2 className="text-2xl font-bold text-white mb-4">
-        🎯 Build Your Parlay
+        Build Your Parlay
       </h2>
-      <div className="mb-6 p-3 bg-green-900/20 border border-green-500/50 rounded-lg">
-        <p className="text-sm text-green-400 font-medium">
-          ✅ System Priority: <strong>HIGHEST WIN PROBABILITY</strong>
-        </p>
-        <p className="text-xs text-green-300 mt-1">
-          Parlays are sorted by win chance (not payout). For safest bets, set Risk Level to 1-5%.
-        </p>
-      </div>
+      <p className="text-sm text-gray-400 mb-6">
+        We combine the best available lines across 10+ sportsbooks into optimized parlays.
+      </p>
 
       <div className="space-y-6">
         {/* Filter Mode Selection */}
@@ -242,14 +206,14 @@ export default function ParlayBuilder({ onGenerate }) {
             onChange={(e) => setType(e.target.value)}
             className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value="single_game">Single Game Parlay</option>
+            <option value="single_game">Same-Game Parlay (SGP)</option>
             <option value="multi_game">Multi-Game Parlay</option>
             <option value="cross_sport">Cross-Sport Parlay</option>
           </select>
           <p className="mt-1 text-xs text-gray-400">
-            {type === 'single_game' && 'All props from one specific game'}
-            {type === 'multi_game' && 'Mix props from different games'}
-            {type === 'cross_sport' && 'Mix MLB, NFL, and NHL props'}
+            {type === 'single_game' && 'Stack multiple props from a single game — the most popular bet type'}
+            {type === 'multi_game' && 'Combine props from different games for more variety'}
+            {type === 'cross_sport' && 'Mix MLB, NFL, and NHL props into one parlay'}
           </p>
         </div>
 
@@ -296,15 +260,6 @@ export default function ParlayBuilder({ onGenerate }) {
             <option value="5">5-Leg Parlay</option>
             <option value="6">6-Leg Parlay</option>
           </select>
-        </div>
-
-        {/* Honest System Info */}
-        <div className="p-3 bg-slate-800/50 border border-slate-700 rounded-lg">
-          <p className="text-xs text-gray-400">
-            <span className="text-green-400 font-medium">✓ Honest Edge System:</span> Props use real vig-adjusted probabilities. 
-            Parlays are ranked by <strong className="text-white">win probability</strong> (Safe mode) or 
-            <strong className="text-white"> expected value</strong> (Value mode), not fake edges.
-          </p>
         </div>
 
         {/* Maximum Parlays */}

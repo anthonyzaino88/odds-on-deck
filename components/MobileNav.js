@@ -10,8 +10,8 @@ export default function MobileNav() {
     { href: '/', label: 'Home', icon: '🏠' },
     { href: '/picks', label: 'Picks', icon: '🎯' },
     { href: '/props', label: 'Props', icon: '📊' },
+    { href: '/parlays', label: 'Parlays', icon: '🎰' },
     { href: '/games', label: 'Games', icon: '🏟️' },
-    { href: '/insights', label: 'Insights', icon: '📈' },
   ]
 
   const isActive = (href) => {
