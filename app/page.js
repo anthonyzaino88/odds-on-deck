@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
+import DataFreshness from '../components/DataFreshness.js'
 
 function FeatureCard({ icon, title, description }) {
   return (
@@ -43,6 +44,13 @@ function StatSkeleton() {
   return <div className="h-8 w-20 bg-slate-700 rounded animate-pulse mx-auto" />
 }
 
+function decimalToAmerican(d) {
+  if (!d || d === 1) return '+100'
+  d = parseFloat(d)
+  if (isNaN(d)) return null
+  return d >= 2.0 ? `+${Math.round((d - 1) * 100)}` : `${Math.round(-100 / (d - 1))}`
+}
+
 export default function HomePage() {
   const [games, setGames] = useState({ mlb: [], nfl: [], nhl: [] })
   const [loading, setLoading] = useState(true)
@@ -50,6 +58,8 @@ export default function HomePage() {
   const [todayStr, setTodayStr] = useState('')
   const [validationStats, setValidationStats] = useState(null)
   const [statsLoading, setStatsLoading] = useState(true)
+  const [topProps, setTopProps] = useState([])
+  const [propsLoading, setPropsLoading] = useState(true)
 
   useEffect(() => {
     setTodayStr(new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }))
@@ -87,8 +97,23 @@ export default function HomePage() {
       }
     }
 
+    const fetchTopProps = async () => {
+      try {
+        const response = await fetch('/api/props?limit=5')
+        if (response.ok) {
+          const result = await response.json()
+          if (result.success) setTopProps(result.props?.slice(0, 5) || [])
+        }
+      } catch {
+        // Non-critical
+      } finally {
+        setPropsLoading(false)
+      }
+    }
+
     fetchGames()
     fetchStats()
+    fetchTopProps()
   }, [])
 
   return (
@@ -113,7 +138,10 @@ export default function HomePage() {
             <span className="px-4 py-1.5 rounded-full bg-cyan-900/30 border border-cyan-500/40 text-cyan-400 text-sm font-medium">NHL</span>
             <span className="px-4 py-1.5 rounded-full bg-blue-900/30 border border-blue-500/40 text-blue-400 text-sm font-medium">NFL</span>
           </div>
-          <p className="text-slate-500 text-sm mt-4">{todayStr}</p>
+          <div className="flex items-center justify-center gap-3 mt-4">
+            <p className="text-slate-500 text-sm">{todayStr}</p>
+            <DataFreshness />
+          </div>
         </div>
 
         {/* Error State */}
@@ -174,6 +202,69 @@ export default function HomePage() {
             </div>
           </div>
         )}
+
+        {/* Top Props Preview */}
+        <section className="mb-16">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold text-white">Top props right now</h2>
+            <Link href="/props" className="text-sm text-blue-400 hover:text-blue-300 font-medium">
+              View all &rarr;
+            </Link>
+          </div>
+          {propsLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 animate-pulse">
+                  <div className="flex items-center gap-3">
+                    <div className="h-5 w-28 bg-slate-700 rounded" />
+                    <div className="h-4 w-40 bg-slate-700/50 rounded" />
+                    <div className="ml-auto h-5 w-16 bg-slate-700 rounded" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : topProps.length > 0 ? (
+            <div className="space-y-3">
+              {topProps.map((prop) => {
+                const odds = decimalToAmerican(prop.odds)
+                return (
+                  <Link key={prop.propId || `${prop.gameId}-${prop.playerName}-${prop.type}`} href={`/game/${prop.gameId}`}>
+                    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 hover:border-blue-500/40 transition-colors cursor-pointer">
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-white">{prop.playerName}</span>
+                            <span className="text-xs text-gray-500 uppercase">{prop.sport}</span>
+                          </div>
+                          <div className="text-sm text-gray-400 mt-0.5">
+                            {prop.pick?.toUpperCase()} {prop.threshold} {(prop.type || '').replace(/_/g, ' ')}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {odds && (
+                            <span className="text-sm text-amber-400 font-bold">{odds}</span>
+                          )}
+                          {prop.bookmaker && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-700 text-[10px] text-cyan-400 font-medium border border-slate-600">
+                              {prop.bookmaker}
+                            </span>
+                          )}
+                          <span className="text-sm font-bold text-green-400">
+                            {((prop.probability || 0) * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </Link>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-8 text-center">
+              <p className="text-gray-500">No props available right now. Check back closer to game time.</p>
+            </div>
+          )}
+        </section>
 
         {/* Transparent Results — Dynamic Validation Stats */}
         <section className="mb-16" id="results">

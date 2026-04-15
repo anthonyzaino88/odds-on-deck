@@ -6,12 +6,14 @@ import Link from 'next/link'
 import { format } from 'date-fns'
 import { useState, useEffect } from 'react'
 import { getQualityTier } from '../../lib/quality-score.js'
+import DataFreshness from '../../components/DataFreshness.js'
+import ShareButton from '../../components/ShareButton.js'
 
 export default function PicksPage() {
   const [picks, setPicks] = useState([])
   const [loading, setLoading] = useState(true)
   const [filterMode, setFilterMode] = useState('safe')
-  const lastUpdated = new Date()
+  const [lastUpdated, setLastUpdated] = useState(null)
 
   useEffect(() => {
     fetchPicks()
@@ -25,6 +27,7 @@ export default function PicksPage() {
       
       if (data.success) {
         setPicks(data.picks || [])
+        setLastUpdated(new Date())
       } else {
         console.error('Failed to fetch picks:', data.error)
         setPicks([])
@@ -71,10 +74,15 @@ export default function PicksPage() {
               🎯 Editor's Picks
             </h1>
             <p className="text-base sm:text-lg text-gray-400 mt-2">
-              Today's best betting opportunities based on our models
+              Today&apos;s top opportunities ranked by odds, probability, and market consensus
             </p>
-            <div className="text-sm text-gray-500 mt-1">
-              Updated: {format(lastUpdated, 'h:mm a')}
+            <div className="flex items-center justify-center gap-3 mt-1">
+              {lastUpdated && (
+                <span className="text-sm text-gray-500" suppressHydrationWarning>
+                  Updated: {format(lastUpdated, 'h:mm a')}
+                </span>
+              )}
+              <DataFreshness />
             </div>
           </div>
         </div>
@@ -502,15 +510,15 @@ function PickCard({ pick, rank }) {
                     </span>
                   )}
                   {pick.bookmaker && (
-                    <span className="text-[10px] sm:text-xs text-gray-500">
-                      via {pick.bookmaker}
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-700 text-[10px] sm:text-xs text-cyan-400 font-medium border border-slate-600">
+                      {pick.bookmaker}
                     </span>
                   )}
                 </div>
               </div>
             </div>
           </div>
-          <div className="flex items-center justify-between sm:justify-end gap-3 pl-10 sm:pl-0">
+          <div className="flex items-center justify-between sm:justify-end gap-2 pl-10 sm:pl-0">
             <div className="flex flex-col items-end gap-1">
               <div className="text-xs text-gray-500">
                 {qualityTier.emoji} {qualityTier.label}
@@ -518,10 +526,13 @@ function PickCard({ pick, rank }) {
               <div className="text-base sm:text-lg font-bold text-green-400">
                 {((pick.probability || 0.5) * 100).toFixed(0)}%
               </div>
-              <div className="text-xs sm:text-sm font-semibold text-blue-400">
-                +{((pick.edge || 0) * 100).toFixed(1)}%
-              </div>
+              {(pick.edge || 0) > 0.01 && (
+                <div className="text-xs sm:text-sm font-semibold text-blue-400">
+                  +{((pick.edge || 0) * 100).toFixed(1)}%
+                </div>
+              )}
             </div>
+            <ShareButton prop={pick} variant="icon" />
           </div>
         </div>
       </div>
@@ -572,21 +583,26 @@ function PickRow({ pick }) {
                   {displayOdds}
                 </span>
                 {pick.bookmaker && (
-                  <span className="text-[10px] text-gray-500">
-                    via {pick.bookmaker}
+                  <span className="inline-flex items-center px-1 py-px rounded bg-slate-700 text-[10px] text-cyan-400 font-medium border border-slate-600">
+                    {pick.bookmaker}
                   </span>
                 )}
               </div>
             )}
           </div>
         </div>
-        <div className="text-right ml-2">
-          <div className="font-semibold text-sm sm:text-base text-green-400">
-            {((pick.probability || 0.5) * 100).toFixed(0)}%
+        <div className="flex items-center gap-1.5 ml-2">
+          <div className="text-right">
+            <div className="font-semibold text-sm sm:text-base text-green-400">
+              {((pick.probability || 0.5) * 100).toFixed(0)}%
+            </div>
+            {(pick.edge || 0) > 0.01 && (
+              <div className="text-[10px] sm:text-xs text-blue-400">
+                +{((pick.edge || 0) * 100).toFixed(1)}%
+              </div>
+            )}
           </div>
-          <div className="text-[10px] sm:text-xs text-blue-400">
-            +{((pick.edge || 0) * 100).toFixed(1)}%
-          </div>
+          <ShareButton prop={pick} variant="icon" />
         </div>
       </div>
     </Link>

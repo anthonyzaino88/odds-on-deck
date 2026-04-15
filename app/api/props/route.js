@@ -51,27 +51,35 @@ export async function GET(request) {
       )
     }
     
-    // Transform data to match expected format
-    const props = (data || []).map(prop => ({
-      propId: prop.propId,
-      gameId: prop.gameId,
-      playerName: prop.playerName,
-      team: prop.team,
-      type: prop.type,
-      pick: prop.pick,
-      threshold: prop.threshold,
-      odds: prop.odds,
-      probability: prop.probability || 0.5,
-      edge: prop.edge || 0,
-      confidence: prop.confidence || 'low',
-      qualityScore: prop.qualityScore || 0,
-      sport: prop.sport,
-      category: prop.category,
-      reasoning: prop.reasoning,
-      projection: prop.projection,
-      bookmaker: prop.bookmaker,
-      gameTime: prop.gameTime
-    }))
+    // Transform and filter out unbettable lines
+    const MIN_DECIMAL_ODDS = 1.25   // worse than -400 is not a real bet
+    const MAX_DECIMAL_ODDS = 15.0   // worse than +1400 is lottery territory
+
+    const props = (data || [])
+      .filter(prop => {
+        if (!prop.odds) return true
+        return prop.odds >= MIN_DECIMAL_ODDS && prop.odds <= MAX_DECIMAL_ODDS
+      })
+      .map(prop => ({
+        propId: prop.propId,
+        gameId: prop.gameId,
+        playerName: prop.playerName,
+        team: prop.team,
+        type: prop.type,
+        pick: prop.pick,
+        threshold: prop.threshold,
+        odds: prop.odds,
+        probability: prop.probability || 0.5,
+        edge: prop.edge || 0,
+        confidence: prop.confidence || 'low',
+        qualityScore: prop.qualityScore || 0,
+        sport: prop.sport,
+        category: prop.category,
+        reasoning: prop.reasoning,
+        projection: prop.projection,
+        bookmaker: prop.bookmaker,
+        gameTime: prop.gameTime
+      }))
     
     return NextResponse.json({
       success: true,

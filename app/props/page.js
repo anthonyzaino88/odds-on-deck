@@ -5,6 +5,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import PlayerPropsFilter from '../../components/PlayerPropsFilter.js'
+import DataFreshness from '../../components/DataFreshness.js'
 
 export default function PropsPage() {
   const [props, setProps] = useState([])
@@ -58,8 +59,11 @@ export default function PropsPage() {
               📊 Player Props
             </h1>
             <p className="text-lg text-gray-400 mt-2">
-              Find the best player prop betting opportunities
+              Compare player prop lines across sportsbooks
             </p>
+            <div className="mt-2">
+              <DataFreshness />
+            </div>
           </div>
         </div>
 

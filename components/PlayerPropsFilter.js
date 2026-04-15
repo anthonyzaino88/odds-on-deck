@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { getQualityTier } from '../lib/quality-score.js'
+import ShareButton from './ShareButton.js'
 
 function decimalToAmerican(decimalOdds) {
   if (!decimalOdds || decimalOdds === 1) return '+100'
@@ -484,22 +485,51 @@ function PlayerPropCard({ prop, rank }) {
               #{rank}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="font-semibold text-sm sm:text-base text-white truncate">
-                {prop.playerName}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-semibold text-sm sm:text-base text-white truncate">
+                  {prop.playerName}
+                </span>
+                <span className="text-[10px] text-gray-500 uppercase">{prop.sport}</span>
               </div>
               <div className="text-xs sm:text-sm text-gray-400">
                 {prop.pick?.toUpperCase()} {prop.threshold} {(prop.type || '').replace(/_/g, ' ')}
               </div>
-              {displayOdds && (
-                <div className="flex items-center gap-2 mt-1">
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                {displayOdds && (
                   <span className="text-xs sm:text-sm text-amber-400 font-bold">
                     {displayOdds}
                   </span>
-                  {prop.bookmaker && (
-                    <span className="text-[10px] sm:text-xs text-gray-500">
-                      via {prop.bookmaker}
-                    </span>
-                  )}
+                )}
+                {prop.bookmaker && (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-700 text-[10px] sm:text-xs text-cyan-400 font-medium border border-slate-600">
+                    {prop.bookmaker}
+                  </span>
+                )}
+                {prop.confidence && prop.confidence !== 'low' && prop.confidence !== 'very_low' && (
+                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${
+                    prop.confidence === 'very_high' ? 'bg-green-900/40 text-green-400 border-green-500/40' :
+                    prop.confidence === 'high' ? 'bg-blue-900/40 text-blue-400 border-blue-500/40' :
+                    'bg-slate-700 text-gray-400 border-slate-600'
+                  }`}>
+                    {prop.confidence === 'very_high' ? 'Very High Conf' :
+                     prop.confidence === 'high' ? 'High Conf' : 'Med Conf'}
+                  </span>
+                )}
+              </div>
+              {/* Projection vs Line */}
+              {prop.projection > 0 && (
+                <div className="text-[10px] sm:text-xs text-gray-500 mt-1">
+                  Projected: <span className={`font-medium ${
+                    (prop.pick === 'over' && prop.projection > prop.threshold) ||
+                    (prop.pick === 'under' && prop.projection < prop.threshold)
+                      ? 'text-green-400' : 'text-red-400'
+                  }`}>{prop.projection.toFixed(1)}</span> vs Line {prop.threshold}
+                </div>
+              )}
+              {/* Edge callout */}
+              {prop.edge > 0.01 && (
+                <div className="text-[10px] sm:text-xs text-purple-400 mt-0.5">
+                  {((prop.edge) * 100).toFixed(1)}% line edge vs market
                 </div>
               )}
             </div>
@@ -508,7 +538,6 @@ function PlayerPropCard({ prop, rank }) {
 
         {/* Stats and Button */}
         <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 pl-10 sm:pl-0">
-          {/* Stats - HONEST: Show probability and EV, not fake edge */}
           <div className="flex flex-col items-end gap-0.5">
             {(() => {
               const perf = getPropTypePerformance(prop.type, prop.sport)
@@ -532,23 +561,23 @@ function PlayerPropCard({ prop, rank }) {
             <div className="text-sm sm:text-base font-bold text-green-400">
               {((prop.probability || 0) * 100).toFixed(0)}% win
             </div>
-            <div className="text-xs sm:text-sm text-amber-400">
-              {prop.odds?.toFixed(2) || '—'} odds
-            </div>
           </div>
 
-          {/* Save Button */}
-          <button
-            onClick={handleSaveProp}
-            disabled={isSaving || isSaved}
-            className={`px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-all text-xs sm:text-sm whitespace-nowrap ${
-              isSaved 
-                ? 'bg-green-600 text-white' 
-                : 'bg-blue-600 hover:bg-blue-700 text-white'
-            } disabled:opacity-50`}
-          >
-            {isSaved ? '✓ Saved' : isSaving ? '...' : '💾 Save'}
-          </button>
+          {/* Actions */}
+          <div className="flex items-center gap-1">
+            <ShareButton prop={prop} variant="icon" />
+            <button
+              onClick={handleSaveProp}
+              disabled={isSaving || isSaved}
+              className={`px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-all text-xs sm:text-sm whitespace-nowrap ${
+                isSaved 
+                  ? 'bg-green-600 text-white' 
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              } disabled:opacity-50`}
+            >
+              {isSaved ? '✓ Saved' : isSaving ? '...' : '💾 Save'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -609,24 +638,42 @@ function PropRow({ prop }) {
       <Link href={`/game/${prop.gameId}`} className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0 cursor-pointer">
         <div className="text-base sm:text-lg">{qualityTier.emoji}</div>
         <div className="flex-1 min-w-0">
-          <div className="font-medium text-sm sm:text-base text-white truncate">
-            {prop.playerName}
+          <div className="flex items-center gap-1.5">
+            <span className="font-medium text-sm sm:text-base text-white truncate">
+              {prop.playerName}
+            </span>
+            <span className="text-[10px] text-gray-500 uppercase flex-shrink-0">{prop.sport}</span>
           </div>
           <div className="text-xs sm:text-sm text-gray-400 truncate">
             {prop.pick?.toUpperCase()} {prop.threshold} {(prop.type || '').replace(/_/g, ' ')}
           </div>
-          {displayOdds && (
-            <div className="flex items-center gap-1 sm:gap-2 mt-0.5">
+          <div className="flex items-center gap-1 sm:gap-2 mt-0.5 flex-wrap">
+            {displayOdds && (
               <span className="text-[10px] sm:text-xs text-amber-400 font-semibold">
                 {displayOdds}
               </span>
-              {prop.bookmaker && (
-                <span className="text-[10px] text-gray-500">
-                  via {prop.bookmaker}
-                </span>
-              )}
-            </div>
-          )}
+            )}
+            {prop.bookmaker && (
+              <span className="inline-flex items-center px-1 py-px rounded bg-slate-700 text-[10px] text-cyan-400 font-medium border border-slate-600">
+                {prop.bookmaker}
+              </span>
+            )}
+            {prop.confidence && prop.confidence !== 'low' && prop.confidence !== 'very_low' && (
+              <span className={`inline-flex items-center px-1 py-px rounded text-[10px] font-medium border ${
+                prop.confidence === 'very_high' ? 'bg-green-900/40 text-green-400 border-green-500/40' :
+                prop.confidence === 'high' ? 'bg-blue-900/40 text-blue-400 border-blue-500/40' :
+                'bg-slate-700 text-gray-400 border-slate-600'
+              }`}>
+                {prop.confidence === 'very_high' ? 'V.High' :
+                 prop.confidence === 'high' ? 'High' : 'Med'}
+              </span>
+            )}
+            {prop.edge > 0.01 && (
+              <span className="text-[10px] text-purple-400 font-medium">
+                +{((prop.edge) * 100).toFixed(1)}% edge
+              </span>
+            )}
+          </div>
         </div>
       </Link>
       {/* Stats and Save Button */}
@@ -651,22 +698,22 @@ function PropRow({ prop }) {
           <div className="font-semibold text-sm sm:text-base text-green-400">
             {((prop.probability || 0) * 100).toFixed(0)}% win
           </div>
-          <div className="text-[10px] sm:text-xs text-amber-400">
-            {prop.odds?.toFixed(2) || '—'}
-          </div>
         </div>
-        {/* Save Button */}
-        <button
-          onClick={handleSaveProp}
-          disabled={isSaving || isSaved}
-          className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg font-medium transition-all text-[10px] sm:text-xs whitespace-nowrap ${
-            isSaved 
-              ? 'bg-green-600 text-white' 
-              : 'bg-blue-600 hover:bg-blue-700 text-white'
-          } disabled:opacity-50`}
-        >
-          {isSaved ? '✓' : isSaving ? '...' : '💾'}
-        </button>
+        {/* Actions */}
+        <div className="flex items-center gap-0.5">
+          <ShareButton prop={prop} variant="icon" />
+          <button
+            onClick={handleSaveProp}
+            disabled={isSaving || isSaved}
+            className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg font-medium transition-all text-[10px] sm:text-xs whitespace-nowrap ${
+              isSaved 
+                ? 'bg-green-600 text-white' 
+                : 'bg-blue-600 hover:bg-blue-700 text-white'
+            } disabled:opacity-50`}
+          >
+            {isSaved ? '✓' : isSaving ? '...' : '💾'}
+          </button>
+        </div>
       </div>
     </div>
   )
