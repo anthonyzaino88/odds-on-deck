@@ -104,11 +104,92 @@ async function cleanupOldGames() {
     return
   }
   
+  const oldGameIds = oldGames.map(g => g.id)
+
+  // ============================================================================
+  // STEP 1b: ARCHIVE games before deletion
+  // ============================================================================
+
+  console.log(`📦 Archiving ${oldGameIds.length} games before deletion...`)
+  
+  // Fetch full game data for archiving
+  for (let i = 0; i < oldGameIds.length; i += 50) {
+    const batch = oldGameIds.slice(i, i + 50)
+    const { data: fullGames } = await supabase
+      .from('Game')
+      .select('id, sport, date, status, homeScore, awayScore, homeId, awayId, temperature, windSpeed, windDirection, humidity, probableHomePitcherId, probableAwayPitcherId, homeStartingQB, awayStartingQB, mlbGameId, espnGameId')
+      .in('id', batch)
+
+    if (fullGames && fullGames.length > 0) {
+      const archiveRows = fullGames.map(g => ({
+        id: g.id,
+        sport: g.sport,
+        date: g.date,
+        home_team: g.homeId || 'UNK',
+        away_team: g.awayId || 'UNK',
+        home_score: g.homeScore,
+        away_score: g.awayScore,
+        status: g.status,
+        weather_temp: g.temperature,
+        weather_wind: g.windSpeed,
+        weather_dir: g.windDirection,
+        weather_humid: g.humidity,
+        home_pitcher: g.probableHomePitcherId,
+        away_pitcher: g.probableAwayPitcherId,
+        home_qb: g.homeStartingQB,
+        away_qb: g.awayStartingQB,
+        mlb_game_id: g.mlbGameId,
+        espn_game_id: g.espnGameId,
+      }))
+
+      const { error: archErr } = await supabase
+        .from('ArchivedGame')
+        .upsert(archiveRows, { onConflict: 'id' })
+      if (archErr) console.error(`  ⚠️  Archive games error: ${archErr.message}`)
+      else console.log(`  ✅ Archived ${archiveRows.length} games`)
+    }
+
+    // Archive closing odds for these games
+    const { data: oddsRows } = await supabase
+      .from('Odds')
+      .select('*')
+      .in('gameId', batch)
+
+    if (oddsRows && oddsRows.length > 0) {
+      // Group by gameId+book+market, keep latest by ts
+      const latest = new Map()
+      for (const o of oddsRows) {
+        const key = `${o.gameId}|${o.book}|${o.market}`
+        const existing = latest.get(key)
+        if (!existing || new Date(o.ts) > new Date(existing.ts)) {
+          latest.set(key, o)
+        }
+      }
+
+      const closingRows = [...latest.values()].map(o => ({
+        game_id: o.gameId,
+        sport: fullGames?.find(g => g.id === o.gameId)?.sport || 'unknown',
+        book: o.book,
+        market: o.market,
+        price_home: o.priceHome,
+        price_away: o.priceAway,
+        total: o.total,
+        spread: o.spread,
+        snapshot_at: o.ts,
+      }))
+
+      const { error: closingErr } = await supabase
+        .from('ClosingOdds')
+        .insert(closingRows)
+      if (closingErr) console.error(`  ⚠️  Archive closing odds error: ${closingErr.message}`)
+      else console.log(`  ✅ Archived ${closingRows.length} closing odds`)
+    }
+  }
+
   // ============================================================================
   // STEP 2: Delete Odds records for old games (to avoid FK constraint errors)
   // ============================================================================
   
-  const oldGameIds = oldGames.map(g => g.id)
   console.log(`🗑️  Deleting Odds records for ${oldGameIds.length} old games...`)
   
   const { error: oddsError, count: deletedOdds } = await supabase

@@ -150,12 +150,26 @@ export default function PlayerPropsFilter({ props }) {
 
   return (
     <div className="space-y-6 sm:space-y-8">
-      {/* Filter Mode Selector */}
+      {/* Page Helper */}
+      <div className="bg-slate-900/60 border border-slate-700 rounded-xl p-4 sm:p-5">
+        <h2 className="text-base sm:text-lg font-semibold text-white mb-1">Compare first, then track.</h2>
+        <p className="text-sm text-gray-400 leading-relaxed">
+          This page is built to help you scan the market faster, spot line differences more
+          easily, and save props you want to monitor over time.
+        </p>
+      </div>
+
+      {/* Sort & Filter */}
       <div className="card">
         <div className="px-4 sm:px-6 py-3 sm:py-4">
-          <h3 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4">
-            🎯 Betting Strategy
-          </h3>
+          <div className="flex items-center justify-between mb-3 sm:mb-4">
+            <h3 className="text-base sm:text-lg font-semibold text-white">
+              Sort &amp; filter
+            </h3>
+            <span className="text-[11px] sm:text-xs text-gray-500">
+              Sorting aids only &mdash; not picks
+            </span>
+          </div>
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
             <button
               onClick={() => setFilterMode('safe')}
@@ -165,8 +179,8 @@ export default function PlayerPropsFilter({ props }) {
                   : 'border-slate-700 bg-slate-800 hover:border-green-500/50 text-gray-300'
               }`}
             >
-              <div className="font-semibold text-xs sm:text-sm">🛡️ Safe</div>
-              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">52%+ win</div>
+              <div className="font-semibold text-xs sm:text-sm">🛡️ Above Breakeven</div>
+              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">52%+ implied prob</div>
               {filterMode === 'safe' && (
                 <div className="text-[10px] sm:text-xs text-green-400 mt-1 sm:mt-2 font-medium">
                   {filteredProps.length} props
@@ -182,8 +196,8 @@ export default function PlayerPropsFilter({ props }) {
                   : 'border-slate-700 bg-slate-800 hover:border-blue-500/50 text-gray-300'
               }`}
             >
-              <div className="font-semibold text-xs sm:text-sm">⚖️ Balanced</div>
-              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Best quality</div>
+              <div className="font-semibold text-xs sm:text-sm">⚖️ Quality Score</div>
+              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Highest first</div>
               {filterMode === 'balanced' && (
                 <div className="text-[10px] sm:text-xs text-blue-400 mt-1 sm:mt-2 font-medium">
                   {filteredProps.length} props
@@ -199,8 +213,8 @@ export default function PlayerPropsFilter({ props }) {
                   : 'border-slate-700 bg-slate-800 hover:border-yellow-500/50 text-gray-300'
               }`}
             >
-              <div className="font-semibold text-xs sm:text-sm">💰 Value</div>
-              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Best EV</div>
+              <div className="font-semibold text-xs sm:text-sm">💰 Expected Value</div>
+              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">EV: prob × odds &minus; 1</div>
               {filterMode === 'value' && (
                 <div className="text-[10px] sm:text-xs text-yellow-400 mt-1 sm:mt-2 font-medium">
                   {filteredProps.length} props
@@ -216,8 +230,8 @@ export default function PlayerPropsFilter({ props }) {
                   : 'border-slate-700 bg-slate-800 hover:border-purple-500/50 text-gray-300'
               }`}
             >
-              <div className="font-semibold text-xs sm:text-sm">🎰 Home Run</div>
-              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Big payouts</div>
+              <div className="font-semibold text-xs sm:text-sm">🎰 Highest Payout</div>
+              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Long shots</div>
               {filterMode === 'homerun' && (
                 <div className="text-[10px] sm:text-xs text-purple-400 mt-1 sm:mt-2 font-medium">
                   {filteredProps.length} props
@@ -229,10 +243,10 @@ export default function PlayerPropsFilter({ props }) {
           {/* Mode Description */}
           <div className="mt-3 sm:mt-4 p-2 sm:p-3 bg-slate-800 rounded-lg border border-slate-700">
             <p className="text-xs sm:text-sm text-gray-300 leading-relaxed">
-              {filterMode === 'safe' && '🛡️ Showing props with 52%+ win probability. These are the safest, most consistent picks.'}
-              {filterMode === 'balanced' && '⚖️ Showing props with best quality scores (45%+ probability). Best overall picks.'}
-              {filterMode === 'value' && '💰 Showing props sorted by Expected Value (EV). Smart money opportunities.'}
-              {filterMode === 'homerun' && '🎰 Showing props with higher payouts. Includes higher-variance opportunities.'}
+              {filterMode === 'safe' && 'Filtered to props where the market-implied probability is above the 52% breakeven line. These are the lowest-variance options.'}
+              {filterMode === 'balanced' && 'Sorted by Quality Score &mdash; a composite of line deviation from market consensus and how many books offer the prop. Higher = bigger outlier.'}
+              {filterMode === 'value' && 'Sorted by Expected Value: implied probability × decimal odds &minus; 1. Positive EV doesn\u2019t guarantee wins, but it favors the bettor over time if the probability holds.'}
+              {filterMode === 'homerun' && 'Sorted by payout (highest decimal odds first). These are long-shot props with bigger payouts and more variance.'}
             </p>
           </div>
         </div>
@@ -247,7 +261,7 @@ export default function PlayerPropsFilter({ props }) {
                 <span className="text-2xl">⚾</span>
                 <div>
                   <div className="font-semibold text-blue-400">MLB Props</div>
-                  <div className="text-sm text-blue-300">{mlbProps.length} opportunities</div>
+                  <div className="text-sm text-blue-300">{mlbProps.length} props compared</div>
                 </div>
               </div>
             </div>
@@ -258,7 +272,7 @@ export default function PlayerPropsFilter({ props }) {
                 <span className="text-2xl">🏈</span>
                 <div>
                   <div className="font-semibold text-green-400">NFL Props</div>
-                  <div className="text-sm text-green-300">{nflProps.length} opportunities</div>
+                  <div className="text-sm text-green-300">{nflProps.length} props compared</div>
                 </div>
               </div>
             </div>
@@ -269,7 +283,7 @@ export default function PlayerPropsFilter({ props }) {
                 <span className="text-2xl">🏒</span>
                 <div>
                   <div className="font-semibold text-purple-400">NHL Props</div>
-                  <div className="text-sm text-purple-300">{nhlProps.length} opportunities</div>
+                  <div className="text-sm text-purple-300">{nhlProps.length} props compared</div>
                 </div>
               </div>
             </div>
@@ -282,10 +296,13 @@ export default function PlayerPropsFilter({ props }) {
         <div className="card">
           <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-700">
             <h2 className="text-lg sm:text-xl font-semibold text-white">
-              🔥 Top Props
+              Top of the board
             </h2>
             <p className="text-xs sm:text-sm text-gray-400 mt-1">
-              {filterMode === 'safe' ? 'Safest' : filterMode === 'balanced' ? 'Best Quality' : filterMode === 'value' ? 'Best Value' : 'Highest Edge'}
+              {filterMode === 'safe' ? 'Sorted by implied probability (52%+)' :
+               filterMode === 'balanced' ? 'Sorted by Quality Score' :
+               filterMode === 'value' ? 'Sorted by Expected Value' :
+               'Sorted by payout'}
             </p>
           </div>
           <div className="p-3 sm:p-6">
@@ -308,7 +325,7 @@ export default function PlayerPropsFilter({ props }) {
                 <h3 className="text-lg font-semibold text-white">
                   ⚾ Batting Props
                 </h3>
-                <div className="text-sm text-gray-400">{battingProps.length} opportunities</div>
+                <div className="text-sm text-gray-400">{battingProps.length} props compared</div>
               </div>
               <div className="p-6">
                 <div className="space-y-3 max-h-96 overflow-y-auto">
@@ -327,7 +344,7 @@ export default function PlayerPropsFilter({ props }) {
                 <h3 className="text-lg font-semibold text-white">
                   🎯 Pitching Props
                 </h3>
-                <div className="text-sm text-gray-400">{pitchingProps.length} opportunities</div>
+                <div className="text-sm text-gray-400">{pitchingProps.length} props compared</div>
               </div>
               <div className="p-6">
                 <div className="space-y-3 max-h-96 overflow-y-auto">
@@ -352,11 +369,11 @@ export default function PlayerPropsFilter({ props }) {
                   <h3 className="text-xl font-semibold text-purple-400">
                     NHL Props
             </h3>
-                  <div className="text-sm text-purple-300">{nhlProps.length} opportunities</div>
+                  <div className="text-sm text-purple-300">{nhlProps.length} props compared</div>
                 </div>
               </div>
               <div className="text-sm text-gray-400">
-                {nhlProps.filter(p => (p.probability || 0) >= 0.55).length} high confidence
+                {nhlProps.filter(p => (p.probability || 0) >= 0.55).length} above 55% implied
               </div>
             </div>
           </div>
@@ -381,11 +398,11 @@ export default function PlayerPropsFilter({ props }) {
                   <h3 className="text-xl font-semibold text-green-400">
                     NFL Props
                   </h3>
-                  <div className="text-sm text-green-300">{nflProps.length} opportunities</div>
+                  <div className="text-sm text-green-300">{nflProps.length} props compared</div>
                 </div>
               </div>
               <div className="text-sm text-gray-400">
-                {nflProps.filter(p => (p.probability || 0) >= 0.55).length} high confidence
+                {nflProps.filter(p => (p.probability || 0) >= 0.55).length} above 55% implied
               </div>
             </div>
           </div>
@@ -402,9 +419,9 @@ export default function PlayerPropsFilter({ props }) {
       {filteredProps.length === 0 && (
         <div className="card p-12 text-center">
           <div className="text-gray-500 text-6xl mb-4">🎯</div>
-          <h3 className="text-lg font-medium text-white mb-2">No Props Match This Strategy</h3>
+          <h3 className="text-lg font-medium text-white mb-2">No props match this filter</h3>
           <p className="text-gray-400">
-            Try a different betting strategy or check back when more props are available.
+            Try a different sort or filter, or check back when more props are available.
           </p>
         </div>
       )}
@@ -555,11 +572,17 @@ function PlayerPropCard({ prop, rank }) {
             <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${tierColors[qualityTier.tier]}`}>
               {qualityTier.emoji} {qualityTier.label}
             </div>
-            <div className="text-xs sm:text-sm text-gray-400">
+            <div
+              className="text-xs sm:text-sm text-gray-400"
+              title="Quality Score — sorting aid combining line deviation from market and number of books offering the prop"
+            >
               Q: <span className="font-semibold text-white">{prop.qualityScore?.toFixed(1) || 'N/A'}</span>
             </div>
-            <div className="text-sm sm:text-base font-bold text-green-400">
-              {((prop.probability || 0) * 100).toFixed(0)}% win
+            <div
+              className="text-sm sm:text-base font-bold text-green-400"
+              title="Market-implied probability (vig removed)"
+            >
+              {((prop.probability || 0) * 100).toFixed(0)}% implied
             </div>
           </div>
 
@@ -569,13 +592,14 @@ function PlayerPropCard({ prop, rank }) {
             <button
               onClick={handleSaveProp}
               disabled={isSaving || isSaved}
+              title={isSaved ? 'Tracked — we\u2019ll grade this after the game' : 'Track this prop and grade it after the game'}
               className={`px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-all text-xs sm:text-sm whitespace-nowrap ${
-                isSaved 
-                  ? 'bg-green-600 text-white' 
+                isSaved
+                  ? 'bg-green-600 text-white'
                   : 'bg-blue-600 hover:bg-blue-700 text-white'
               } disabled:opacity-50`}
             >
-              {isSaved ? '✓ Saved' : isSaving ? '...' : '💾 Save'}
+              {isSaved ? '✓ Tracking' : isSaving ? '...' : 'Track prop'}
             </button>
           </div>
         </div>
@@ -692,11 +716,17 @@ function PropRow({ prop }) {
               </div>
             )
           })()}
-          <div className="text-[10px] sm:text-xs text-gray-500 mb-0.5">
+          <div
+            className="text-[10px] sm:text-xs text-gray-500 mb-0.5"
+            title="Quality Score — sorting aid combining line deviation from market and number of books offering the prop"
+          >
             Q: {prop.qualityScore?.toFixed(1) || 'N/A'}
           </div>
-          <div className="font-semibold text-sm sm:text-base text-green-400">
-            {((prop.probability || 0) * 100).toFixed(0)}% win
+          <div
+            className="font-semibold text-sm sm:text-base text-green-400"
+            title="Market-implied probability (vig removed)"
+          >
+            {((prop.probability || 0) * 100).toFixed(0)}% implied
           </div>
         </div>
         {/* Actions */}
@@ -705,13 +735,14 @@ function PropRow({ prop }) {
           <button
             onClick={handleSaveProp}
             disabled={isSaving || isSaved}
+            title={isSaved ? 'Tracked — we\u2019ll grade this after the game' : 'Track this prop and grade it after the game'}
             className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg font-medium transition-all text-[10px] sm:text-xs whitespace-nowrap ${
-              isSaved 
-                ? 'bg-green-600 text-white' 
+              isSaved
+                ? 'bg-green-600 text-white'
                 : 'bg-blue-600 hover:bg-blue-700 text-white'
             } disabled:opacity-50`}
           >
-            {isSaved ? '✓' : isSaving ? '...' : '💾'}
+            {isSaved ? '✓' : isSaving ? '...' : 'Track'}
           </button>
         </div>
       </div>

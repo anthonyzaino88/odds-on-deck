@@ -126,12 +126,12 @@ export default function HomePage() {
             Odds on Deck
           </h1>
           <p className="text-xl text-blue-400 font-medium mb-4">
-            Compare odds. Spot value. Track everything.
+            Compare lines. Track props. Learn from results.
           </p>
           <p className="text-gray-400 max-w-2xl mx-auto text-lg leading-relaxed">
-            We pull live odds from 10+ sportsbooks, strip the vig so you can see the real market
-            prices, and highlight where one book&apos;s line stands out from the rest.
-            Every pick gets tracked against actual results &mdash; full transparency, no hidden losses.
+            We pull live odds from 10+ sportsbooks side-by-side, so you can see at a glance
+            where each book&apos;s number stands relative to the rest of the market.
+            Save props, follow them, and review what hit &mdash; full record, no cherry-picking.
           </p>
           <div className="flex flex-wrap justify-center gap-3 mt-6">
             <span className="px-4 py-1.5 rounded-full bg-green-900/30 border border-green-500/40 text-green-400 text-sm font-medium">MLB</span>
@@ -269,22 +269,13 @@ export default function HomePage() {
         {/* Transparent Results — Dynamic Validation Stats */}
         <section className="mb-16" id="results">
           <div className="bg-slate-900/80 border border-slate-700 rounded-xl p-8 text-center">
-            <h2 className="text-2xl font-bold text-white mb-4">Every pick tracked, win or lose</h2>
+            <h2 className="text-2xl font-bold text-white mb-4">A transparent record</h2>
             <p className="text-gray-400 max-w-xl mx-auto mb-8 leading-relaxed">
-              After each game, we pull the real box score and check every tracked prop.
-              Wins, losses, and ROI are all public &mdash; filter by time window, sport, or source on the dashboard.
+              After each game, we pull the real box score and grade every tracked prop.
+              Wins, losses, and pushes are all public &mdash; filter by time window, sport,
+              or whether you saved the pick yourself.
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6 mb-8">
-              <div className="min-w-0">
-                {statsLoading ? <StatSkeleton /> : (
-                  <div className="text-2xl sm:text-3xl font-bold text-green-400 truncate">
-                    {validationStats?.accuracy != null
-                      ? `${(validationStats.accuracy * 100).toFixed(1)}%`
-                      : '---'}
-                  </div>
-                )}
-                <div className="text-xs text-gray-500 mt-1">Win Rate</div>
-              </div>
+            <div className="grid grid-cols-2 gap-4 sm:gap-6 mb-4 max-w-md mx-auto">
               <div className="min-w-0">
                 {statsLoading ? <StatSkeleton /> : (
                   <div className="text-2xl sm:text-3xl font-bold text-blue-400 truncate">
@@ -293,79 +284,81 @@ export default function HomePage() {
                       : '---'}
                   </div>
                 )}
-                <div className="text-xs text-gray-500 mt-1">Props Tracked</div>
+                <div className="text-xs text-gray-500 mt-1">Tracked</div>
               </div>
               <div className="min-w-0">
                 {statsLoading ? <StatSkeleton /> : (
-                  <div className="text-2xl sm:text-3xl font-bold text-purple-400 truncate">
-                    {validationStats?.roi != null
-                      ? `${validationStats.roi > 0 ? '+' : ''}${(validationStats.roi * 100).toFixed(0)}%`
+                  <div className="text-2xl sm:text-3xl font-bold text-green-400 truncate">
+                    {validationStats?.accuracy != null
+                      ? `${(validationStats.accuracy * 100).toFixed(1)}%`
                       : '---'}
                   </div>
                 )}
-                <div className="text-xs text-gray-500 mt-1">ROI</div>
-              </div>
-              <div className="min-w-0">
-                {statsLoading ? <StatSkeleton /> : (
-                  <div className="text-2xl sm:text-3xl font-bold text-amber-400 truncate">
-                    {validationStats?.units != null
-                      ? `${validationStats.units > 0 ? '+' : ''}${validationStats.units.toFixed(0)}u`
-                      : '---'}
-                  </div>
-                )}
-                <div className="text-xs text-gray-500 mt-1">Units P/L</div>
+                <div className="text-xs text-gray-500 mt-1">Hit Rate</div>
               </div>
             </div>
             {validationStats?.correct != null && validationStats?.total != null && (
-              <p className="text-xs text-slate-500 mb-4">
-                Based on {validationStats.correct} correct out of {validationStats.total - (validationStats.pushes || 0)} resolved predictions (excludes pushes) &middot; 1 unit flat per bet
+              <p className="text-xs text-slate-500 mb-6">
+                {validationStats.correct.toLocaleString()} correct of {(validationStats.total - (validationStats.pushes || 0)).toLocaleString()} resolved &middot; pushes excluded
               </p>
             )}
             <Link
               href="/validation"
               className="inline-flex items-center px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors text-sm"
             >
-              View Full Validation Dashboard
+              See full record
             </Link>
+          </div>
+        </section>
+
+        {/* Value Support */}
+        <section className="mb-16">
+          <div className="bg-gradient-to-r from-blue-900/20 via-slate-900/40 to-purple-900/20 border border-slate-700 rounded-xl p-6 sm:p-8">
+            <h2 className="text-xl sm:text-2xl font-bold text-white mb-3">A faster way to check the board</h2>
+            <p className="text-gray-300 leading-relaxed max-w-3xl">
+              Odds on Deck helps you scan prop lines side-by-side, spot better prices, track what
+              you played, and learn from real outcomes. Instead of bouncing between books, you can
+              review the market in one place &mdash; and come back to see how it played out.
+            </p>
           </div>
         </section>
 
         {/* What Makes This Different */}
         <section className="mb-16">
-          <h2 className="text-2xl font-bold text-white mb-2">What makes this different</h2>
+          <h2 className="text-2xl font-bold text-white mb-2">What this is for</h2>
           <p className="text-gray-400 mb-8">
-            Most tools show you one book&apos;s odds. We show you <span className="text-white font-medium">all of them</span> &mdash; and do the math for you.
+            Most tools show you one book&apos;s odds. We show you <span className="text-white font-medium">all of them</span> &mdash; in one place, with the math already done.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <FeatureCard
               icon="&#128269;"
               title="Line Shopping"
-              description="Compare odds across 10+ sportsbooks side-by-side. When one book is offering a better price than the rest, you'll see it instantly."
+              description="See odds from 10+ sportsbooks for the same prop, side-by-side. When one book has a better number than the rest, it&rsquo;s obvious at a glance."
             />
             <FeatureCard
               icon="&#128208;"
               title="Vig-Free Probabilities"
-              description="We strip the sportsbook margin from every line to show you the real market-implied probability. See what the odds actually mean, not what the book wants you to think."
+              description="We strip the sportsbook margin from every line so you can see the real market-implied probability &mdash; not what the book wants you to focus on."
             />
             <FeatureCard
               icon="&#127942;"
-              title="Quality Scoring"
-              description="Props are ranked by a composite of how far a line deviates from market consensus, how many books offer it, and the implied probability. Higher score = bigger outlier."
+              title="Sortable Quality Score"
+              description="A sorting aid that combines line deviation from the market consensus and the number of books offering each prop. Use it to surface unusual lines worth a closer look."
             />
             <FeatureCard
               icon="&#128202;"
               title="Full Transparency"
-              description="Every pick is tracked against actual game results. Win rates, ROI, and units are updated automatically — no cherry-picked screenshots, no hiding bad days."
+              description="Every prop we display is tracked against actual game results. Hit rate and record are updated automatically &mdash; no cherry-picked screenshots, no hidden losses."
             />
             <FeatureCard
               icon="&#127919;"
-              title="Strategy Filters"
-              description="Filter by confidence level, value tier, or sport. Whether you want conservative singles or aggressive long shots, sort the board to match your style."
+              title="Track &amp; Save"
+              description="Save props or whole parlays to follow them through to the result. Come back tomorrow to see what hit and what missed."
             />
             <FeatureCard
               icon="&#127922;"
-              title="Parlay Builder"
-              description="Combine props into parlays with calculated combined odds. See the implied probability of the full parlay before you bet."
+              title="Parlay Comparison"
+              description="Build parlays using the best available number for each leg. See the combined odds and implied probability before you place anything."
             />
           </div>
         </section>
@@ -377,27 +370,27 @@ export default function HomePage() {
             <StepCard
               number="1"
               title="We pull today's games from ESPN and league APIs"
-              description="Every morning, we fetch the full slate — schedules, probable pitchers, matchup data — for MLB, NHL, and NFL."
+              description="Every morning, we fetch the full slate — schedules, probable pitchers, matchup context — for MLB, NHL, and NFL."
             />
             <StepCard
               number="2"
-              title="Live odds are scraped from 10+ sportsbooks"
-              description="Moneylines, spreads, totals, and 10+ player prop markets are pulled from The Odds API. We see what DraftKings, FanDuel, BetMGM, BetRivers, and others are posting."
+              title="Live odds are pulled from 10+ sportsbooks"
+              description="Moneylines, spreads, totals, and player prop markets are pulled in real time from The Odds API. You see what DraftKings, FanDuel, BetMGM, BetRivers, and others are posting &mdash; all in one place."
             />
             <StepCard
               number="3"
-              title="We strip the vig and compare every line"
-              description="For each prop, we remove the sportsbook margin to reveal the true market-implied probability. Then we compare each book's line against the consensus to find outliers."
+              title="We strip the vig and surface the comparison"
+              description="For each line, we remove the sportsbook margin to reveal the real market-implied probability, then show you how each book&rsquo;s number compares to the consensus."
             />
             <StepCard
               number="4"
-              title="Outlier lines surface to the top"
-              description="Props are ranked by how far a book's price deviates from the market consensus, weighted by the number of books offering the line and market agreement."
+              title="Outlier lines are flagged for a closer look"
+              description="Props where one book&rsquo;s price is meaningfully different from the rest of the market move to the top of the list. You decide whether they&rsquo;re worth tracking."
             />
             <StepCard
               number="5"
-              title="Results are validated against actual stats"
-              description="After games finish, we pull box scores from official league APIs and check every prediction. Win rate, ROI, and units are tracked over time with full transparency."
+              title="Every tracked prop is graded after the game"
+              description="When the box score is final, we pull official stats and grade every prop we surfaced. Hit rate and record are updated automatically &mdash; you can see what worked and what didn&rsquo;t over any time window."
             />
           </div>
         </section>
@@ -424,8 +417,8 @@ export default function HomePage() {
             />
             <ConceptCard
               term="Quality Score"
-              definition="Our composite metric (0-10) that combines edge size, number of books offering the line, market consensus, and implied probability. Higher is better."
-              example="Scores above 7 indicate strong agreement across books with meaningful edge."
+              definition="A sorting aid (0-10) that combines line deviation from the market consensus, the number of books offering the prop, and the implied probability. Use it to bring unusual lines to the top &mdash; it&rsquo;s context, not a recommendation."
+              example="Scores above 7 typically mean strong agreement across books and a meaningful gap from the consensus."
             />
             <ConceptCard
               term="Line Shopping"
@@ -442,39 +435,46 @@ export default function HomePage() {
         {/* How to Use */}
         <section className="mb-16">
           <h2 className="text-2xl font-bold text-white mb-2">How to use this</h2>
-          <p className="text-gray-400 mb-8">A few approaches depending on your style.</p>
+          <p className="text-gray-400 mb-8">A simple workflow for getting value out of the data.</p>
           <div className="space-y-5">
-            <div className="bg-gradient-to-r from-green-900/20 to-transparent border border-green-800/40 rounded-xl p-6">
-              <h3 className="text-lg font-semibold text-green-400 mb-2">Conservative: High-Confidence Singles</h3>
+            <div className="bg-gradient-to-r from-blue-900/20 to-transparent border border-blue-800/40 rounded-xl p-6">
+              <h3 className="text-lg font-semibold text-blue-400 mb-2">1. Compare lines across books</h3>
               <p className="text-sm text-gray-400 leading-relaxed">
-                Go to <span className="text-white">Player Props</span> and filter by <span className="text-white">High Confidence</span>.
-                These are props where multiple books agree on the line and the edge is moderate but consistent.
-                Place straight bets on the top 3-5 picks. Win rate tends to be highest here.
+                Head to <span className="text-white">Player Props</span> to see every prop with its
+                best available number, the bookmaker offering it, and how it compares to the rest
+                of the market. This is the core utility &mdash; spotting where books disagree.
               </p>
             </div>
-            <div className="bg-gradient-to-r from-blue-900/20 to-transparent border border-blue-800/40 rounded-xl p-6">
-              <h3 className="text-lg font-semibold text-blue-400 mb-2">Balanced: Quality Score Ranking</h3>
+            <div className="bg-gradient-to-r from-cyan-900/20 to-transparent border border-cyan-800/40 rounded-xl p-6">
+              <h3 className="text-lg font-semibold text-cyan-400 mb-2">2. Check today&apos;s slate</h3>
               <p className="text-sm text-gray-400 leading-relaxed">
-                Use the default <span className="text-white">Best Value</span> sort on the Props page.
-                This balances edge and confidence. The top 10 props by quality score represent the best
-                risk-adjusted opportunities on the board. Mix singles and small parlays.
+                Browse <span className="text-white">Today&apos;s Slate</span> to see all games at a
+                glance. Click into any game for moneyline comparison, probable pitchers, matchup
+                context, and the props specific to that matchup.
               </p>
             </div>
             <div className="bg-gradient-to-r from-purple-900/20 to-transparent border border-purple-800/40 rounded-xl p-6">
-              <h3 className="text-lg font-semibold text-purple-400 mb-2">Aggressive: Sharp Value Hunting</h3>
+              <h3 className="text-lg font-semibold text-purple-400 mb-2">3. Save and track props</h3>
               <p className="text-sm text-gray-400 leading-relaxed">
-                Filter by <span className="text-white">Sharp Value</span> to find props with the largest edges.
-                These may have lower win probability but the payout more than compensates.
-                Use the <span className="text-white">Parlay Generator</span> to combine 2-3 of these for bigger payouts.
-                Expect more losses but larger wins.
+                Save individual props or build parlays you want to follow.
+                We&apos;ll grade them after the game and add them to your record so you can see
+                what hit and what missed over time.
+              </p>
+            </div>
+            <div className="bg-gradient-to-r from-green-900/20 to-transparent border border-green-800/40 rounded-xl p-6">
+              <h3 className="text-lg font-semibold text-green-400 mb-2">4. Use Editor&apos;s Picks for context</h3>
+              <p className="text-sm text-gray-400 leading-relaxed">
+                <span className="text-white">Editor&apos;s Picks</span> is a curated shortlist of
+                props worth a closer look based on current pricing and market context. Treat it as
+                a starting point for your own research, not a recommendation list.
               </p>
             </div>
             <div className="bg-gradient-to-r from-amber-900/20 to-transparent border border-amber-800/40 rounded-xl p-6">
-              <h3 className="text-lg font-semibold text-amber-400 mb-2">Research: Game Detail Pages</h3>
+              <h3 className="text-lg font-semibold text-amber-400 mb-2">5. Review the record</h3>
               <p className="text-sm text-gray-400 leading-relaxed">
-                Click into any game on <span className="text-white">Today&apos;s Slate</span> to see moneyline edges,
-                probable pitchers, player props for that matchup, and box scores for completed games.
-                Use this to validate your own analysis before placing bets.
+                Come back to <span className="text-white">Validation</span> to see how the lines we
+                surface have performed over time &mdash; by sport, time window, and prop type.
+                The record is fully public and built from every prop we&apos;ve tracked.
               </p>
             </div>
           </div>
@@ -484,25 +484,25 @@ export default function HomePage() {
         <section className="mb-16">
           <h2 className="text-2xl font-bold text-white mb-6 text-center">Jump in</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Link href="/picks">
-              <div className="bg-slate-800/50 border border-slate-700 hover:border-blue-500/60 rounded-xl p-6 transition cursor-pointer group text-center">
-                <div className="text-3xl mb-2">&#127919;</div>
-                <h3 className="text-lg font-bold mb-1 group-hover:text-blue-400 transition">Editor&apos;s Picks</h3>
-                <p className="text-slate-400 text-sm">Top recommended plays</p>
-              </div>
-            </Link>
             <Link href="/props">
               <div className="bg-slate-800/50 border border-slate-700 hover:border-purple-500/60 rounded-xl p-6 transition cursor-pointer group text-center">
                 <div className="text-3xl mb-2">&#128202;</div>
                 <h3 className="text-lg font-bold mb-1 group-hover:text-purple-400 transition">Player Props</h3>
-                <p className="text-slate-400 text-sm">Detailed prop analysis</p>
+                <p className="text-slate-400 text-sm">Compare lines across books</p>
               </div>
             </Link>
             <Link href="/games">
               <div className="bg-slate-800/50 border border-slate-700 hover:border-cyan-500/60 rounded-xl p-6 transition cursor-pointer group text-center">
                 <div className="text-3xl mb-2">&#128203;</div>
                 <h3 className="text-lg font-bold mb-1 group-hover:text-cyan-400 transition">Today&apos;s Slate</h3>
-                <p className="text-slate-400 text-sm">Full game schedule + scores</p>
+                <p className="text-slate-400 text-sm">Full schedule and scores</p>
+              </div>
+            </Link>
+            <Link href="/picks">
+              <div className="bg-slate-800/50 border border-slate-700 hover:border-blue-500/60 rounded-xl p-6 transition cursor-pointer group text-center">
+                <div className="text-3xl mb-2">&#127919;</div>
+                <h3 className="text-lg font-bold mb-1 group-hover:text-blue-400 transition">Editor&apos;s Picks</h3>
+                <p className="text-slate-400 text-sm">Curated props worth a closer look</p>
               </div>
             </Link>
           </div>
@@ -510,8 +510,8 @@ export default function HomePage() {
 
         {/* CTA */}
         <section className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-white mb-4">See today&apos;s best lines</h2>
-          <p className="text-gray-400 mb-8">Compare odds across every major book and find the best price.</p>
+          <h2 className="text-2xl font-bold text-white mb-4">Start comparing lines</h2>
+          <p className="text-gray-400 mb-8">See today&apos;s props side-by-side across every major sportsbook.</p>
           <div className="flex flex-wrap justify-center gap-4">
             <Link
               href="/props"
@@ -520,16 +520,16 @@ export default function HomePage() {
               Browse Player Props
             </Link>
             <Link
-              href="/picks"
-              className="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-lg border border-slate-700 transition-colors"
-            >
-              See Editor&apos;s Picks
-            </Link>
-            <Link
               href="/games"
               className="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-lg border border-slate-700 transition-colors"
             >
               Today&apos;s Slate
+            </Link>
+            <Link
+              href="/picks"
+              className="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-lg border border-slate-700 transition-colors"
+            >
+              Editor&apos;s Picks
             </Link>
           </div>
         </section>

@@ -16,7 +16,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
-import { getPlayerGameStat as getMLBStat } from '../lib/vendors/mlb-game-stats.js'
+import { getPlayerGameStat as getMLBStat, fetchMLBGameStats } from '../lib/vendors/mlb-game-stats.js'
 import { getPlayerGameStat as getNFLStat } from '../lib/vendors/nfl-game-stats.js'
 import { getPlayerGameStat as getNHLStat } from '../lib/vendors/nhl-game-stats.js'
 
@@ -228,6 +228,56 @@ async function main() {
   console.log(`⏭️  Not Final Yet: ${skippedNotFinal}`)
   console.log(`💥 Errors:        ${errors}`)
   console.log(`📈 Accuracy:      ${accuracy}% (${correct}/${total})`)
+
+  // ── Archive box scores for completed games ───────────────────────────
+  const completedGameIds = [...new Set(
+    toProcess
+      .filter(({ game }) => game)
+      .map(({ game }) => game.id)
+  )]
+
+  if (completedGameIds.length > 0) {
+    console.log(`\n📦 Archiving box scores for ${completedGameIds.length} games...`)
+    let archivedGames = 0
+
+    for (const gid of completedGameIds) {
+      const game = gameMap.get(gid)
+      if (!game) continue
+
+      // Skip if already archived
+      const { count } = await supabase
+        .from('GameBoxScore')
+        .select('*', { count: 'exact', head: true })
+        .eq('game_id', gid)
+      if (count && count > 0) continue
+
+      const sport = game.sport || 'mlb'
+      try {
+        if (sport === 'mlb' && game.mlbGameId) {
+          const allStats = await fetchMLBGameStats(game.mlbGameId)
+          if (allStats) {
+            const rows = Object.entries(allStats).map(([name, stats]) => ({
+              game_id: gid,
+              sport: 'mlb',
+              player_name: name,
+              team: null,
+              stats,
+            }))
+            if (rows.length > 0) {
+              const { error: bsErr } = await supabase.from('GameBoxScore').insert(rows)
+              if (!bsErr) { archivedGames++; console.log(`  ✅ Archived ${rows.length} player stats for ${gid}`) }
+              else console.log(`  ⚠️  ${gid}: ${bsErr.message}`)
+            }
+          }
+        }
+        // NHL and NFL box score archival can be added when vendor functions support full-game fetch
+      } catch (bsError) {
+        console.log(`  ⚠️  Box score fetch failed for ${gid}: ${bsError.message}`)
+      }
+      await new Promise(r => setTimeout(r, 200))
+    }
+    console.log(`  📦 Archived box scores for ${archivedGames} games`)
+  }
 
   const { count: remainingPending } = await supabase
     .from('PropValidation')

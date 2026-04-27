@@ -71,12 +71,14 @@ export default function PicksPage() {
           </Link>
           <div className="text-center">
             <h1 className="text-2xl sm:text-3xl font-bold text-white">
-              🎯 Editor's Picks
+              🎯 Editor&apos;s Picks
             </h1>
-            <p className="text-base sm:text-lg text-gray-400 mt-2">
-              Today&apos;s top opportunities ranked by odds, probability, and market consensus
+            <p className="text-base sm:text-lg text-gray-400 mt-2 max-w-2xl mx-auto">
+              A smaller, curated view of the board. This page highlights props that stand out
+              based on line differences, market consensus, and current context. It&apos;s meant
+              to help you narrow the board, not replace your judgment.
             </p>
-            <div className="flex items-center justify-center gap-3 mt-1">
+            <div className="flex items-center justify-center gap-3 mt-3">
               {lastUpdated && (
                 <span className="text-sm text-gray-500" suppressHydrationWarning>
                   Updated: {format(lastUpdated, 'h:mm a')}
@@ -217,10 +219,10 @@ export default function PicksPage() {
             <div className="card">
               <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-700">
                 <h2 className="text-lg sm:text-xl font-semibold text-white">
-                  🔥 Top Picks Today
+                  Today&apos;s shortlist
                 </h2>
                 <p className="text-xs sm:text-sm text-gray-400 mt-1">
-                  Highest-quality opportunities ranked by our models
+                  Props that stood out today &mdash; compare books and track anything worth following
                 </p>
               </div>
               <div className="p-3 sm:p-6">

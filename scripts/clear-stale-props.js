@@ -64,10 +64,66 @@ async function main() {
     process.exit(0)
   }
 
+  // ── Archive before deleting ──────────────────────────────────────────
+  console.log('\n📦 Archiving props before deletion...')
+  let totalArchived = 0
+
+  async function archiveBatch(filter) {
+    let page = 0
+    const pageSize = 500
+    let archived = 0
+    while (true) {
+      let query = supabase
+        .from('PlayerPropCache')
+        .select('*')
+        .range(page * pageSize, (page + 1) * pageSize - 1)
+
+      if (filter.field === 'lt') query = query.lt(filter.col, filter.val)
+      else if (filter.field === 'eq') query = query.eq(filter.col, filter.val)
+
+      const { data } = await query
+      if (!data || data.length === 0) break
+
+      const rows = data.map(p => ({
+        prop_id: p.propId,
+        game_id: p.gameId,
+        sport: p.sport,
+        player_name: p.playerName,
+        team: p.team,
+        prop_type: p.type,
+        pick: p.pick,
+        threshold: p.threshold,
+        odds: p.odds,
+        probability: p.probability,
+        edge: p.edge,
+        confidence: p.confidence,
+        quality_score: p.qualityScore,
+        bookmaker: p.bookmaker,
+        projection: p.projection,
+        game_time: p.gameTime,
+      }))
+
+      const { error: archErr } = await supabase.from('ArchivedPropLine').insert(rows)
+      if (archErr) {
+        console.error(`  ⚠️  Archive batch error: ${archErr.message}`)
+      } else {
+        archived += rows.length
+      }
+      if (data.length < pageSize) break
+      page++
+    }
+    return archived
+  }
+
+  totalArchived += await archiveBatch({ field: 'lt', col: 'expiresAt', val: nowIso })
+  totalArchived += await archiveBatch({ field: 'eq', col: 'isStale', val: true })
+  totalArchived += await archiveBatch({ field: 'lt', col: 'gameTime', val: nowIso })
+  console.log(`  ✅ Archived ${totalArchived} prop lines to ArchivedPropLine`)
+
+  // ── Now delete ───────────────────────────────────────────────────────
   console.log('\n🗑️  Deleting stale props using server-side filters...')
   let totalDeleted = 0
 
-  // Delete expired props in batches (server-side filter, no 1000-row limit issue)
   const { error: err1, count: del1 } = await supabase
     .from('PlayerPropCache')
     .delete({ count: 'exact' })
@@ -75,7 +131,6 @@ async function main() {
   if (err1) console.error('❌ Error deleting expired:', err1.message)
   else { totalDeleted += (del1 || 0); console.log(`  ✅ Deleted ${del1 || 0} expired props`) }
 
-  // Delete stale props
   const { error: err2, count: del2 } = await supabase
     .from('PlayerPropCache')
     .delete({ count: 'exact' })
@@ -83,7 +138,6 @@ async function main() {
   if (err2) console.error('❌ Error deleting stale:', err2.message)
   else { totalDeleted += (del2 || 0); console.log(`  ✅ Deleted ${del2 || 0} stale props`) }
 
-  // Delete props with past game time
   const { error: err3, count: del3 } = await supabase
     .from('PlayerPropCache')
     .delete({ count: 'exact' })

@@ -58,8 +58,9 @@ export default function PropsPage() {
             <h1 className="text-3xl font-bold text-white">
               📊 Player Props
             </h1>
-            <p className="text-lg text-gray-400 mt-2">
-              Compare player prop lines across sportsbooks
+            <p className="text-lg text-gray-400 mt-2 max-w-2xl mx-auto">
+              Compare prop lines across 10+ sportsbooks side-by-side. See the best
+              available number and how it stacks up against the market.
             </p>
             <div className="mt-2">
               <DataFreshness />
@@ -92,28 +93,26 @@ export default function PropsPage() {
           ))}
           </div>
           
-          {/* Quick Stats Bar - HONEST: Show probability-based stats, not fake edge */}
+          {/* Quick Stats Bar */}
           {!loading && !error && props.length > 0 && (
             <div className="flex flex-wrap justify-center items-center gap-3 sm:gap-6 text-xs sm:text-sm text-gray-400">
               <div className="flex items-center gap-1 sm:gap-2">
                 <span className="text-white font-bold">{props.length}</span>
-                <span className="hidden sm:inline">Total Props</span>
-                <span className="sm:hidden">Props</span>
+                <span>props compared</span>
               </div>
               <div className="hidden sm:block h-4 w-px bg-slate-700"></div>
               <div className="flex items-center gap-1 sm:gap-2">
                 <span className="text-green-400 font-bold">
                   {props.filter(p => (p.probability || 0) >= 0.55).length}
                 </span>
-                <span className="hidden sm:inline">High Confidence (55%+)</span>
-                <span className="sm:hidden">High</span>
+                <span>strong market agreement (55%+)</span>
               </div>
               <div className="hidden sm:block h-4 w-px bg-slate-700"></div>
               <div className="flex items-center gap-1 sm:gap-2">
                 <span className="text-blue-400 font-bold">
                   {props.filter(p => (p.probability || 0) >= 0.52).length}
                 </span>
-                <span>Safe Picks (52%+)</span>
+                <span>above breakeven (52%+)</span>
               </div>
             </div>
           )}
@@ -186,7 +185,7 @@ export default function PropsPage() {
                             {sportFilter.toUpperCase()} Props
                           </h2>
                           <p className="text-xs sm:text-sm text-gray-400">
-                            {props.length} opportunities
+                            {props.length} props compared
                           </p>
                         </div>
                       </div>
@@ -230,10 +229,12 @@ export default function PropsPage() {
         )}
 
         {/* Info Section */}
-        <div className="mt-8 p-4 bg-blue-900/20 border border-blue-500/50 rounded-lg">
-          <p className="text-sm text-blue-300">
-            <strong>💡 How it works:</strong> Player props are fetched from The Odds API and cached in our database. 
-            Props are automatically analyzed for betting edges and sorted by quality score.
+        <div className="mt-8 p-4 bg-slate-900/60 border border-slate-700 rounded-lg">
+          <p className="text-sm text-gray-400">
+            <strong className="text-white">How this page works:</strong> Player props are pulled
+            in real time from 10+ sportsbooks via The Odds API. Each prop is shown with the best
+            available number, the bookmaker offering it, and how it compares to the rest of the
+            market. Sort and filter to surface the comparisons that matter most to you.
           </p>
         </div>
       </div>

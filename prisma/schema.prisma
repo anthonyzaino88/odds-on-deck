@@ -485,6 +485,93 @@ model MockPropValidation {
   @@map("MockPropValidation")
 }
 
+// ============================================================================
+// ARCHIVE TABLES — Path B training data (never cleaned up)
+// ============================================================================
+
+model ArchivedGame {
+  id            String    @id // original Game.id
+  sport         String
+  date          DateTime
+  homeTeam      String    @map("home_team")
+  awayTeam      String    @map("away_team")
+  homeScore     Int?      @map("home_score")
+  awayScore     Int?      @map("away_score")
+  status        String?
+  weatherTemp   Float?    @map("weather_temp")
+  weatherWind   Float?    @map("weather_wind")
+  weatherDir    String?   @map("weather_dir")
+  weatherHumid  Float?    @map("weather_humid")
+  homePitcher   String?   @map("home_pitcher")
+  awayPitcher   String?   @map("away_pitcher")
+  homeQb        String?   @map("home_qb")
+  awayQb        String?   @map("away_qb")
+  mlbGameId     String?   @map("mlb_game_id")
+  espnGameId    String?   @map("espn_game_id")
+  archivedAt    DateTime  @default(now()) @map("archived_at")
+
+  @@index([sport, date])
+  @@map("ArchivedGame")
+}
+
+model ClosingOdds {
+  id          String   @id @default(cuid())
+  gameId      String   @map("game_id")
+  sport       String
+  book        String
+  market      String
+  priceHome   Float?   @map("price_home")
+  priceAway   Float?   @map("price_away")
+  total       Float?
+  spread      Float?
+  snapshotAt  DateTime @default(now()) @map("snapshot_at")
+
+  @@index([gameId])
+  @@index([sport, snapshotAt])
+  @@map("ClosingOdds")
+}
+
+model ArchivedPropLine {
+  id           String   @id @default(cuid())
+  propId       String   @map("prop_id")
+  gameId       String   @map("game_id")
+  sport        String
+  playerName   String   @map("player_name")
+  team         String?
+  propType     String   @map("prop_type")
+  pick         String
+  threshold    Float
+  odds         Float?
+  probability  Float?
+  edge         Float?
+  confidence   String?
+  qualityScore Float?   @map("quality_score")
+  bookmaker    String?
+  projection   Float?
+  gameTime     DateTime? @map("game_time")
+  archivedAt   DateTime  @default(now()) @map("archived_at")
+
+  @@index([sport, gameTime])
+  @@index([gameId])
+  @@index([playerName])
+  @@map("ArchivedPropLine")
+}
+
+model GameBoxScore {
+  id          String   @id @default(cuid())
+  gameId      String   @map("game_id")
+  sport       String
+  playerName  String   @map("player_name")
+  team        String?
+  stats       Json
+  fetchedAt   DateTime @default(now()) @map("fetched_at")
+
+  @@index([gameId])
+  @@index([sport, fetchedAt])
+  @@index([playerName])
+  @@map("GameBoxScore")
+}
+
 // Cache for player props to reduce API calls
 model PlayerPropCache {
   id              String   @id @default(cuid())

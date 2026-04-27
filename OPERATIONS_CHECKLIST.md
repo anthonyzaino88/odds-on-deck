@@ -1,15 +1,16 @@
 # 🎯 Odds on Deck - Complete Operations Checklist
 
-## 📅 Updated: Dec 17, 2025
+## 📅 Updated: Apr 13, 2026
 
 ## 📋 Table of Contents
 1. [Daily Operations Workflow](#daily-operations-workflow)
 2. [Core Node Scripts](#core-node-scripts)
 3. [Operations Scripts](#operations-scripts-private)
 4. [Validation System](#validation-system)
-5. [API Endpoints](#api-endpoints)
-6. [Database & Data Flow](#database--data-flow)
-7. [Troubleshooting Scripts](#troubleshooting-scripts)
+5. [Data Archive Pipeline](#data-archive-pipeline)
+6. [API Endpoints](#api-endpoints)
+7. [Database & Data Flow](#database--data-flow)
+8. [Troubleshooting Scripts](#troubleshooting-scripts)
 
 ---
 
@@ -46,6 +47,12 @@ node scripts/clear-stale-props.js; node scripts/fetch-fresh-games.js all; node s
 node scripts/clear-stale-props.js && node scripts/fetch-fresh-games.js all && node scripts/fetch-live-odds.js all --cache-fresh
 ```
 
+### Before First Pitch / Puck Drop
+```bash
+# Capture closing lines for games starting soon (run 30-60 min before)
+node scripts/snapshot-closing-lines.js
+```
+
 ### During Games (Every 15-30 min)
 ```bash
 # Update live scores for all sports
@@ -59,6 +66,7 @@ node scripts/refresh-nhl-scores.js  # NHL-specific alternative
 ### After Games Complete
 ```bash
 # Validate completed prop predictions (standalone, no dev server needed)
+# Now also archives full box score stats to GameBoxScore table
 node scripts/validate-pending-props.js
 
 # Or validate via API (requires dev server on localhost:3000)
@@ -66,12 +74,18 @@ npm run validate:all
 
 # Check validation status
 node scripts/check-validation-status.js
+
 ```
 
 ### End of Day / Before Bed
 ```bash
 # Clear stale props to prep for tomorrow
+# Now archives props to ArchivedPropLine before deleting
 node scripts/clear-stale-props.js
+
+# Clean up old games (optional, run periodically)
+# Now archives games/odds to ArchivedGame + ClosingOdds before deleting
+node scripts/cleanup-old-games.js
 ```
 
 ---
@@ -140,8 +154,9 @@ npm run validate:parlays   # Validate parlays only
 
 | Script | Purpose | Usage |
 |--------|---------|-------|
-| `clear-stale-props.js` | **DAILY:** Clear expired props | `node scripts/clear-stale-props.js` |
-| `cleanup-old-games.js` | Remove old game records | `node scripts/cleanup-old-games.js` |
+| `clear-stale-props.js` | **DAILY:** Archive + clear expired props | `node scripts/clear-stale-props.js` |
+| `cleanup-old-games.js` | Archive + remove old game records | `node scripts/cleanup-old-games.js` |
+| `snapshot-closing-lines.js` | Capture closing odds before game time | `node scripts/snapshot-closing-lines.js` |
 | `delete-old-games.js` | Delete old games | `node scripts/delete-old-games.js` |
 | `remove-duplicate-games-by-espn-id.js` | Remove duplicate games | `node scripts/remove-duplicate-games-by-espn-id.js` |
 | `export-all-data.js` | Export all data from DB | `node scripts/export-all-data.js` |
@@ -227,6 +242,48 @@ Located in `operations/` - NOT pushed to GitHub (contains API keys)
 
 ---
 
+## 📦 Data Archive Pipeline
+
+### Purpose
+All cleanup scripts now archive data before deleting. This quietly builds the
+training dataset needed for a future predictive model (Path B) without changing
+the user-facing product or daily workflow.
+
+### Archive Tables (Supabase)
+
+| Table | What It Stores | Populated By |
+|-------|---------------|--------------|
+| `ArchivedGame` | Completed games with final scores, weather, pitchers/QBs | `cleanup-old-games.js` |
+| `ClosingOdds` | Last known odds per book/market before game time | `cleanup-old-games.js`, `snapshot-closing-lines.js` |
+| `ArchivedPropLine` | Full prop cache snapshots (lines, edge, quality) | `clear-stale-props.js`, `snapshot-closing-lines.js` |
+| `GameBoxScore` | Full player stats (JSON) from box scores | `validate-pending-props.js` |
+
+### Archive Scripts
+
+| Script | Purpose | When to Run |
+|--------|---------|-------------|
+| `snapshot-closing-lines.js` | Captures closing odds + prop lines before game time | 30-60 min before first game |
+| `clear-stale-props.js` | Archives props → `ArchivedPropLine`, then deletes | Morning + end of day |
+| `cleanup-old-games.js` | Archives games/odds → `ArchivedGame` + `ClosingOdds`, then deletes | Periodically |
+| `validate-pending-props.js` | Archives box scores → `GameBoxScore` after validating | After games complete |
+
+### Setup (One-Time)
+```bash
+# Run the migration SQL in Supabase SQL Editor:
+# File: scripts/migrations/001_archive_tables.sql
+```
+
+### Data Growth Estimates
+- ~15 games/day × 365 = ~5,500 archived games/year
+- ~50 odds lines/game = ~275,000 closing odds/year
+- ~200 props/day = ~73,000 archived prop lines/year
+- ~15 games × ~30 players = ~164,000 box score rows/year
+
+After 3-6 months: 10,000+ labeled predictions with full context (market lines,
+closing odds, box scores, weather, pitchers) — enough to train a real model.
+
+---
+
 ## 💾 Database & Data Flow
 
 ### Data Pipeline
@@ -254,15 +311,19 @@ Located in `operations/` - NOT pushed to GitHub (contains API keys)
 
 ### Key Database Tables
 
-| Table | Purpose |
-|-------|---------|
-| `Game` | All games (NFL, NHL, MLB) |
-| `Team` | Team information |
-| `Odds` | Game odds (moneyline, spreads, totals) |
-| `PlayerPropCache` | Cached player props (with `gameTime` field!) |
-| `PropValidation` | Prop prediction tracking |
-| `Parlay` | Saved parlays |
-| `EdgeSnapshot` | Calculated betting edges |
+| Table | Purpose | Lifecycle |
+|-------|---------|-----------|
+| `Game` | All games (NFL, NHL, MLB) | Rotated daily → archived |
+| `Team` | Team information | Persistent |
+| `Odds` | Game odds (moneyline, spreads, totals) | Rotated with games → archived |
+| `PlayerPropCache` | Cached player props | Rotated daily → archived |
+| `PropValidation` | Prop prediction tracking | Persistent |
+| `Parlay` | Saved parlays | Persistent |
+| `EdgeSnapshot` | Calculated betting edges | Rotated with games |
+| `ArchivedGame` | Completed game results | **Permanent** |
+| `ClosingOdds` | Final odds before game time | **Permanent** |
+| `ArchivedPropLine` | Historical prop line snapshots | **Permanent** |
+| `GameBoxScore` | Full player box score stats (JSON) | **Permanent** |
 
 ### Important PlayerPropCache Fields
 
@@ -353,22 +414,25 @@ npm run dev  # Start Next.js dev server
 ### Full Daily Refresh (Copy & Paste)
 ```bash
 # Morning - before games (RUN IN ORDER!)
-node scripts/clear-stale-props.js           # Step 0: Clear stale
+node scripts/clear-stale-props.js           # Step 0: Archive + clear stale
 node scripts/fetch-fresh-games.js all       # Step 1: Fetch games
 node scripts/fetch-live-odds.js all --cache-fresh  # Step 2: Fetch odds
 node scripts/calculate-game-edges.js        # Step 3: Calculate edges
 
+# Before first game (30-60 min before)
+node scripts/snapshot-closing-lines.js      # Capture closing lines
+
 # During games (run every 15-30 min)
 node scripts/update-scores-safely.js all
 
-# After games complete
-npm run validate:all
+# After games complete (archives box scores automatically)
+node scripts/validate-pending-props.js
 
 # End of day
-node scripts/clear-stale-props.js
+node scripts/clear-stale-props.js           # Archive + clear stale
 ```
 
 ---
 
-*Last Updated: December 17, 2025*
-*Key Fix: Added daily clear-stale-props.js and fixed gameTime mapping*
+*Last Updated: April 13, 2026*
+*Added data archive pipeline for Path B model training*

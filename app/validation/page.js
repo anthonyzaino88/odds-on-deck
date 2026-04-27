@@ -4,14 +4,14 @@ import { getValidationStats, getValidationRecords, getValidationCounts } from '.
 import CheckPropsButton from '../../components/CheckPropsButton.js'
 import CompletedPropsTable from '../../components/CompletedPropsTable.js'
 import TimeWindowFilter from '../../components/TimeWindowFilter.js'
-import ROITooltip from '../../components/ROITooltip.js'
+import MethodologyPanel from '../../components/MethodologyPanel.js'
 
 export const metadata = {
-  title: 'Validation — Transparent Pick Tracking',
-  description: 'Full transparency on every pick we make. Track win rates, ROI, and units profit/loss across MLB, NFL, and NHL props — updated in real time.',
+  title: 'Validation — Transparent Record',
+  description: 'A transparent record of every pick we track — wins, losses, and pushes across MLB, NFL, and NHL props.',
   openGraph: {
-    title: 'Validation — Transparent Pick Tracking | Odds on Deck',
-    description: 'Full transparency on every pick. Track win rates, ROI, and units P/L in real time.',
+    title: 'Validation — Transparent Record | Odds on Deck',
+    description: 'A transparent record of every pick we track. See what hit and what missed.',
   },
 }
 
@@ -19,7 +19,12 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const fetchCache = 'force-no-store'
 
-const MIN_SAMPLE_SIZE = 10
+// Min sample size to show a prop type breakdown (raised to reduce small-sample noise)
+const MIN_SAMPLE_SIZE = 25
+// Sample size below which we visually flag results as low-confidence
+const LOW_CONFIDENCE_SAMPLE = 50
+// ROI absolute value above which we show a small-sample caveat
+const ROI_OUTLIER_THRESHOLD = 1.0 // 100%
 
 function formatROI(roi) {
   const pct = roi * 100
@@ -31,6 +36,14 @@ function formatUnits(units) {
   if (typeof units !== 'number') return '—'
   const sign = units >= 0 ? '+' : ''
   return `${sign}${units.toFixed(2)}`
+}
+
+function isLowSample(total) {
+  return total < LOW_CONFIDENCE_SAMPLE
+}
+
+function isOutlierROI(roi, total) {
+  return Math.abs(roi) > ROI_OUTLIER_THRESHOLD && total < LOW_CONFIDENCE_SAMPLE
 }
 
 function windowLabel(window) {
@@ -84,10 +97,11 @@ export default async function ValidationDashboard({ searchParams }) {
           </Link>
           <div className="text-center">
             <h1 className="text-2xl sm:text-3xl font-bold text-white">
-              Validation Dashboard
+              Transparent Record
             </h1>
-            <p className="text-base sm:text-lg text-gray-400 mt-2">
-              Every prediction tracked against real results
+            <p className="text-base sm:text-lg text-gray-400 mt-2 max-w-2xl mx-auto">
+              An honest, ongoing record of every prop we track &mdash; wins,
+              losses, and pushes. No filters. No cherry-picking.
             </p>
             <div className="mt-4 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
               <CheckPropsButton />
@@ -111,49 +125,63 @@ export default async function ValidationDashboard({ searchParams }) {
           </p>
         </div>
 
-        {/* Overall Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 mb-6 sm:mb-8">
-          <div className="card p-4 sm:p-6">
-            <div className="text-xs sm:text-sm font-medium text-gray-400">Predictions</div>
-            <div className="mt-1 sm:mt-2 text-2xl sm:text-3xl font-bold text-white">
+        {/* Primary Stats — Tracked + Hit Rate (dominant) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-6 mb-3 sm:mb-4">
+          <div className="card p-5 sm:p-6">
+            <div className="text-xs sm:text-sm font-medium text-gray-400 uppercase tracking-wide">Tracked Predictions</div>
+            <div className="mt-2 text-3xl sm:text-4xl font-bold text-white">
               {stats.total.toLocaleString()}
             </div>
-            <div className="text-xs text-gray-500 mt-1">
-              {stats.correct.toLocaleString()}W – {stats.incorrect.toLocaleString()}L{stats.pushes > 0 && ` – ${stats.pushes}P`}
+            <div className="text-sm text-gray-500 mt-2">
+              {stats.correct.toLocaleString()} won &middot; {stats.incorrect.toLocaleString()} lost
+              {stats.pushes > 0 && ` · ${stats.pushes} push`}
             </div>
           </div>
-          
-          <div className="bg-green-900/20 rounded-lg shadow p-4 sm:p-6 border-2 border-green-500/50">
-            <div className="text-xs sm:text-sm font-medium text-green-400">Win Rate</div>
-            <div className="mt-1 sm:mt-2 text-2xl sm:text-3xl font-bold text-green-400">
+
+          <div className="bg-green-900/15 rounded-lg shadow p-5 sm:p-6 border-2 border-green-500/40">
+            <div className="text-xs sm:text-sm font-medium text-green-400 uppercase tracking-wide">Hit Rate</div>
+            <div className="mt-2 text-3xl sm:text-4xl font-bold text-green-400">
               {stats.total > 0 ? `${(stats.accuracy * 100).toFixed(1)}%` : 'N/A'}
             </div>
-            <div className="text-xs text-green-300/60 mt-1">
-              {stats.correct} / {stats.correct + stats.incorrect} resolved
+            <div className="text-sm text-green-300/70 mt-2">
+              {stats.correct.toLocaleString()} of {(stats.correct + stats.incorrect).toLocaleString()} resolved
             </div>
           </div>
-          
-          <div className="bg-blue-900/20 rounded-lg shadow p-4 sm:p-6 border-2 border-blue-500/50">
-            <div className="text-xs sm:text-sm font-medium text-blue-400">Avg Edge</div>
-            <div className="mt-1 sm:mt-2 text-2xl sm:text-3xl font-bold text-blue-400">
-              {stats.total > 0 ? `${(stats.avgEdge * 100).toFixed(1)}%` : 'N/A'}
+        </div>
+
+        {/* Secondary Stats — ROI + Avg Implied (supporting context) */}
+        <div className="grid grid-cols-2 gap-3 sm:gap-6 mb-6 sm:mb-8">
+          <div className="bg-slate-900/60 rounded-lg p-3 sm:p-4 border border-slate-800">
+            <div className="text-[11px] sm:text-xs font-medium text-gray-500 uppercase tracking-wide">
+              Avg Edge vs Market
+            </div>
+            <div className="mt-1 text-lg sm:text-xl font-semibold text-blue-400">
+              {stats.total > 0 ? `${(stats.avgEdge * 100).toFixed(1)}%` : '—'}
+            </div>
+            <div className="text-[10px] sm:text-xs text-gray-500 mt-0.5">
+              avg line difference vs consensus
             </div>
           </div>
-          
-          <div className="bg-purple-900/20 rounded-lg shadow p-4 sm:p-6 border-2 border-purple-500/50">
-            <div className="flex items-center text-xs sm:text-sm font-medium text-purple-400">
-              ROI
-              <ROITooltip />
+
+          <div className="bg-slate-900/60 rounded-lg p-3 sm:p-4 border border-slate-800">
+            <div className="text-[11px] sm:text-xs font-medium text-gray-500 uppercase tracking-wide">
+              Units P/L &middot; ROI
             </div>
-            <div className="mt-1 sm:mt-2 text-2xl sm:text-3xl font-bold text-purple-400">
-              {stats.total > 0 ? formatROI(stats.roi) : 'N/A'}
+            <div className="mt-1 text-lg sm:text-xl font-semibold text-purple-400">
+              {typeof stats.units === 'number' ? formatUnits(stats.units) : '—'}u
+              <span className="text-sm text-gray-500 ml-2">
+                ({stats.total > 0 ? formatROI(stats.roi) : '—'})
+              </span>
             </div>
-            <div className="text-xs text-purple-300/60 mt-1">
-              {typeof stats.units === 'number' && (
-                <>{formatUnits(stats.units)} units &middot; 1u flat</>
-              )}
+            <div className="text-[10px] sm:text-xs text-gray-500 mt-0.5">
+              1-unit flat per pick &middot; pushes excluded
             </div>
           </div>
+        </div>
+
+        {/* Methodology panel — explains how we track and grade */}
+        <div className="mb-6 sm:mb-8">
+          <MethodologyPanel minSampleSize={MIN_SAMPLE_SIZE} />
         </div>
 
         {/* Performance by Sport */}
@@ -187,59 +215,98 @@ export default async function ValidationDashboard({ searchParams }) {
         {/* Performance by Prop Type */}
         {propTypeEntries.length > 0 && (
           <div className="card p-6 mb-8">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
-              <h3 className="text-lg font-semibold text-white">Performance by Prop Type</h3>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+              <h3 className="text-lg font-semibold text-white">Record by Prop Type</h3>
               <span className="text-xs text-slate-500">
-                Minimum {MIN_SAMPLE_SIZE} bets to display
+                Showing prop types with at least {MIN_SAMPLE_SIZE} resolved bets
               </span>
             </div>
+            <p className="text-sm text-gray-400 leading-relaxed mb-4">
+              See how different prop types have performed over time. Use this table to compare
+              hit rate, volume, and results by market &mdash; smaller samples can swing more
+              sharply, so larger tracked groups usually tell the clearer story.
+            </p>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-700">
                 <thead className="bg-slate-900">
                   <tr>
                     <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Prop Type</th>
                     <th className="px-4 sm:px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">Record</th>
-                    <th className="px-4 sm:px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">Win Rate</th>
+                    <th className="px-4 sm:px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">Hit Rate</th>
                     <th className="px-4 sm:px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider hidden sm:table-cell">Avg Implied</th>
                     <th className="px-4 sm:px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">ROI</th>
                     <th className="px-4 sm:px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">Units</th>
                   </tr>
                 </thead>
                 <tbody className="bg-slate-800 divide-y divide-slate-700">
-                  {propTypeEntries.map(([propType, propStats]) => (
-                    <tr key={propType} className="hover:bg-slate-700/50">
-                      <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
-                        {propType.replace(/_/g, ' ')}
-                      </td>
-                      <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-center text-gray-400">
-                        {propStats.correct}–{propStats.incorrect}{propStats.pushes > 0 && `–${propStats.pushes}`}
-                        <span className="text-gray-600 ml-1">({propStats.total})</span>
-                      </td>
-                      <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-center">
-                        <span className={`font-semibold ${propStats.accuracy >= 0.55 ? 'text-green-400' : propStats.accuracy >= 0.50 ? 'text-blue-400' : 'text-red-400'}`}>
-                          {(propStats.accuracy * 100).toFixed(1)}%
-                        </span>
-                      </td>
-                      <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-center text-gray-400 hidden sm:table-cell">
-                        {typeof propStats.avgImplied === 'number'
-                          ? `${(propStats.avgImplied * 100).toFixed(1)}%`
-                          : '—'}
-                      </td>
-                      <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-center">
-                        <span className={`font-semibold ${propStats.roi >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                          {formatROI(propStats.roi)}
-                        </span>
-                      </td>
-                      <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-center">
-                        <span className={`font-semibold ${propStats.units >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                          {formatUnits(propStats.units)}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {propTypeEntries.map(([propType, propStats]) => {
+                    const lowSample = isLowSample(propStats.total)
+                    const outlierROI = isOutlierROI(propStats.roi, propStats.total)
+                    return (
+                      <tr key={propType} className="hover:bg-slate-700/50">
+                        <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
+                          <div className="flex items-center gap-2">
+                            <span>{propType.replace(/_/g, ' ')}</span>
+                            {lowSample && (
+                              <span
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-900/30 text-yellow-400 border border-yellow-500/30"
+                                title="Sample size below 50 — results may vary as more data comes in"
+                              >
+                                small sample
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-center text-gray-400">
+                          {propStats.correct}–{propStats.incorrect}{propStats.pushes > 0 && `–${propStats.pushes}`}
+                          <span className="text-gray-600 ml-1">({propStats.total})</span>
+                        </td>
+                        <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-center">
+                          <span className={`font-semibold ${
+                            lowSample ? 'text-gray-400' :
+                            propStats.accuracy >= 0.55 ? 'text-green-400' :
+                            propStats.accuracy >= 0.50 ? 'text-blue-400' : 'text-red-400'
+                          }`}>
+                            {(propStats.accuracy * 100).toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-center text-gray-400 hidden sm:table-cell">
+                          {typeof propStats.avgImplied === 'number'
+                            ? `${(propStats.avgImplied * 100).toFixed(1)}%`
+                            : '—'}
+                        </td>
+                        <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-center">
+                          <span
+                            className={`font-semibold ${
+                              outlierROI ? 'text-gray-500' :
+                              propStats.roi >= 0 ? 'text-green-400' : 'text-red-400'
+                            }`}
+                            title={outlierROI ? 'Extreme ROI from small sample — interpret with caution' : undefined}
+                          >
+                            {formatROI(propStats.roi)}
+                            {outlierROI && (
+                              <span className="ml-1 text-[10px] text-yellow-500/80">⚠</span>
+                            )}
+                          </span>
+                        </td>
+                        <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-center">
+                          <span className={`font-semibold ${
+                            outlierROI ? 'text-gray-500' :
+                            propStats.units >= 0 ? 'text-green-400' : 'text-red-400'
+                          }`}>
+                            {formatUnits(propStats.units)}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
+            <p className="text-xs text-slate-500 mt-3">
+              Rows marked &ldquo;small sample&rdquo; have between {MIN_SAMPLE_SIZE} and {LOW_CONFIDENCE_SAMPLE - 1} resolved bets.
+              Hit rate and ROI for these will fluctuate as we collect more data.
+            </p>
           </div>
         )}
 
@@ -312,7 +379,7 @@ export default async function ValidationDashboard({ searchParams }) {
 
         {/* Recent Predictions */}
         <div className="card p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Recent Predictions</h3>
+          <h3 className="text-lg font-semibold text-white mb-4">Recent Tracked Predictions</h3>
           
           {recentRecords.length > 0 ? (
             <div className="space-y-3">
@@ -370,19 +437,6 @@ export default async function ValidationDashboard({ searchParams }) {
         {completedRecords.length > 0 && (
           <CompletedPropsTable records={completedRecords} />
         )}
-
-        {/* How Validation Works */}
-        <div className="mt-8 p-5 bg-slate-900/60 border border-slate-700 rounded-xl">
-          <h4 className="font-semibold text-white mb-3">How Validation Works</h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2 text-sm text-gray-400">
-            <div><span className="text-white font-medium">Win Rate</span> — Correct predictions / total resolved (excludes pushes)</div>
-            <div><span className="text-white font-medium">ROI</span> — Total units profit or loss / total resolved bets, using recorded odds (1 unit flat per bet)</div>
-            <div><span className="text-white font-medium">Units</span> — Cumulative profit/loss if betting 1 unit on every pick</div>
-            <div><span className="text-white font-medium">Min Sample</span> — Prop type breakdown requires at least {MIN_SAMPLE_SIZE} resolved bets to appear</div>
-            <div><span className="text-white font-medium">System Generated</span> — Auto-tracked props for model accuracy measurement</div>
-            <div><span className="text-white font-medium">User Saved</span> — Props you explicitly saved or included in parlays</div>
-          </div>
-        </div>
       </div>
     </div>
   )
@@ -405,7 +459,7 @@ function SportCard({ emoji, label, color, stats }) {
           </span>
         </div>
         <div className="flex justify-between items-center">
-          <span className="text-sm text-gray-400">Win Rate</span>
+          <span className="text-sm text-gray-400">Hit Rate</span>
           <span className={`font-bold ${stats.accuracy >= 0.50 ? 'text-green-400' : 'text-red-400'}`}>
             {(stats.accuracy * 100).toFixed(1)}%
           </span>

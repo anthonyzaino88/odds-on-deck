@@ -186,8 +186,10 @@ export default function ParlaysPage() {
             <h1 className="text-3xl font-bold text-white">
               Parlay Builder
             </h1>
-            <p className="text-lg text-gray-400 mt-2">
-              Combine the sharpest lines from 10+ sportsbooks into multi-leg parlays
+            <p className="text-base sm:text-lg text-gray-400 mt-2 max-w-2xl mx-auto">
+              A practical way to build and follow parlays. Use this page to assemble parlays
+              from the current slate, save the ones you want to track, and review what happened
+              later &mdash; all in one place.
             </p>
           </div>
         </div>

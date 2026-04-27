@@ -99,13 +99,15 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
 
   return (
     <div className="card p-6">
-      <div className="flex items-center justify-between mb-6">
-        <div>
+      <div className="flex items-center justify-between mb-6 gap-4">
+        <div className="flex-1 min-w-0">
           <h2 className="text-2xl font-bold text-white">
             📋 Your Saved Parlays
           </h2>
-          <p className="text-sm text-gray-400 mt-1">
-            Track your saved parlays • View performance
+          <p className="text-sm text-gray-400 mt-1 leading-relaxed max-w-2xl">
+            <span className="text-white font-medium">Track the full record, not just the good ones.</span>{' '}
+            Saved parlays stay here so you can review results over time and build a clearer
+            picture of how your combinations are actually performing.
           </p>
         </div>
         <div className="flex items-center gap-3">
