@@ -4,6 +4,29 @@ import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { getQualityTier } from '../lib/quality-score.js'
 import ShareButton from './ShareButton.js'
+import { cn } from '../lib/utils'
+import {
+  SectionHeading,
+  SportBadge,
+  BookBadge,
+  EdgeBadge,
+  QualityChip,
+  ConfidenceBadge,
+} from './ui'
+
+const FILTER_OPTIONS = [
+  { id: 'safe', label: 'Above Breakeven', sub: '52%+ implied' },
+  { id: 'balanced', label: 'Quality Score', sub: 'Highest first' },
+  { id: 'value', label: 'Expected Value', sub: 'prob × odds − 1' },
+  { id: 'homerun', label: 'Highest Payout', sub: 'Long shots' },
+]
+
+const MODE_DESCRIPTIONS = {
+  safe: 'Filtered to props where the market-implied probability is above the 52% breakeven line. These are the lowest-variance options.',
+  balanced: 'Sorted by Quality Score — a composite of line deviation from market consensus and how many books offer the prop. Higher = bigger outlier.',
+  value: 'Sorted by Expected Value: implied probability × decimal odds − 1. Positive EV doesn\u2019t guarantee wins, but it favors the bettor over time if the probability holds.',
+  homerun: 'Sorted by payout (highest decimal odds first). These are long-shot props with bigger payouts and more variance.',
+}
 
 function decimalToAmerican(decimalOdds) {
   if (!decimalOdds || decimalOdds === 1) return '+100'
@@ -149,164 +172,80 @@ export default function PlayerPropsFilter({ props }) {
   const pitchingProps = mlbProps.filter(p => p.category === 'pitching')
 
   return (
-    <div className="space-y-6 sm:space-y-8">
-      {/* Page Helper */}
-      <div className="bg-slate-900/60 border border-slate-700 rounded-xl p-4 sm:p-5">
-        <h2 className="text-base sm:text-lg font-semibold text-white mb-1">Compare first, then track.</h2>
-        <p className="text-sm text-gray-400 leading-relaxed">
-          This page is built to help you scan the market faster, spot line differences more
-          easily, and save props you want to monitor over time.
-        </p>
-      </div>
-
+    <div className="space-y-8">
       {/* Sort & Filter */}
-      <div className="card">
-        <div className="px-4 sm:px-6 py-3 sm:py-4">
-          <div className="flex items-center justify-between mb-3 sm:mb-4">
-            <h3 className="text-base sm:text-lg font-semibold text-white">
-              Sort &amp; filter
-            </h3>
-            <span className="text-[11px] sm:text-xs text-gray-500">
-              Sorting aids only &mdash; not picks
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-2 sm:gap-3">
-            <button
-              onClick={() => setFilterMode('safe')}
-              className={`p-3 sm:p-4 rounded-lg border-2 text-left transition-all ${
-                filterMode === 'safe'
-                  ? 'border-green-500 bg-green-900/30 text-white'
-                  : 'border-slate-700 bg-slate-800 hover:border-green-500/50 text-gray-300'
-              }`}
-            >
-              <div className="font-semibold text-xs sm:text-sm">🛡️ Above Breakeven</div>
-              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">52%+ implied prob</div>
-              {filterMode === 'safe' && (
-                <div className="text-[10px] sm:text-xs text-green-400 mt-1 sm:mt-2 font-medium">
-                  {filteredProps.length} props
+      <div>
+        <SectionHeading
+          title="Sort & Filter"
+          action={<span className="text-[11px] text-slate-600 whitespace-nowrap">Sorting aids only — not picks</span>}
+        />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {FILTER_OPTIONS.map((opt) => {
+            const active = filterMode === opt.id
+            return (
+              <button
+                key={opt.id}
+                onClick={() => setFilterMode(opt.id)}
+                className={cn(
+                  'p-3 rounded-[4px] border text-left transition-colors duration-100',
+                  active
+                    ? 'border-white/[0.12] bg-elevated'
+                    : 'border-white/[0.06] bg-surface hover:bg-elevated hover:border-white/[0.10]',
+                )}
+              >
+                <div className={cn('text-xs font-semibold', active ? 'text-slate-100' : 'text-slate-300')}>
+                  {opt.label}
                 </div>
-              )}
-            </button>
-
-            <button
-              onClick={() => setFilterMode('balanced')}
-              className={`p-3 sm:p-4 rounded-lg border-2 text-left transition-all ${
-                filterMode === 'balanced'
-                  ? 'border-blue-500 bg-blue-900/30 text-white'
-                  : 'border-slate-700 bg-slate-800 hover:border-blue-500/50 text-gray-300'
-              }`}
-            >
-              <div className="font-semibold text-xs sm:text-sm">⚖️ Quality Score</div>
-              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Highest first</div>
-              {filterMode === 'balanced' && (
-                <div className="text-[10px] sm:text-xs text-blue-400 mt-1 sm:mt-2 font-medium">
-                  {filteredProps.length} props
-                </div>
-              )}
-            </button>
-
-            <button
-              onClick={() => setFilterMode('value')}
-              className={`p-3 sm:p-4 rounded-lg border-2 text-left transition-all ${
-                filterMode === 'value'
-                  ? 'border-yellow-500 bg-yellow-900/30 text-white'
-                  : 'border-slate-700 bg-slate-800 hover:border-yellow-500/50 text-gray-300'
-              }`}
-            >
-              <div className="font-semibold text-xs sm:text-sm">💰 Expected Value</div>
-              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">EV: prob × odds &minus; 1</div>
-              {filterMode === 'value' && (
-                <div className="text-[10px] sm:text-xs text-yellow-400 mt-1 sm:mt-2 font-medium">
-                  {filteredProps.length} props
-                </div>
-              )}
-            </button>
-
-            <button
-              onClick={() => setFilterMode('homerun')}
-              className={`p-3 sm:p-4 rounded-lg border-2 text-left transition-all ${
-                filterMode === 'homerun'
-                  ? 'border-purple-500 bg-purple-900/30 text-white'
-                  : 'border-slate-700 bg-slate-800 hover:border-purple-500/50 text-gray-300'
-              }`}
-            >
-              <div className="font-semibold text-xs sm:text-sm">🎰 Highest Payout</div>
-              <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Long shots</div>
-              {filterMode === 'homerun' && (
-                <div className="text-[10px] sm:text-xs text-purple-400 mt-1 sm:mt-2 font-medium">
-                  {filteredProps.length} props
-                </div>
-              )}
-            </button>
-          </div>
-
-          {/* Mode Description */}
-          <div className="mt-3 sm:mt-4 p-2 sm:p-3 bg-slate-800 rounded-lg border border-slate-700">
-            <p className="text-xs sm:text-sm text-gray-300 leading-relaxed">
-              {filterMode === 'safe' && 'Filtered to props where the market-implied probability is above the 52% breakeven line. These are the lowest-variance options.'}
-              {filterMode === 'balanced' && 'Sorted by Quality Score &mdash; a composite of line deviation from market consensus and how many books offer the prop. Higher = bigger outlier.'}
-              {filterMode === 'value' && 'Sorted by Expected Value: implied probability × decimal odds &minus; 1. Positive EV doesn\u2019t guarantee wins, but it favors the bettor over time if the probability holds.'}
-              {filterMode === 'homerun' && 'Sorted by payout (highest decimal odds first). These are long-shot props with bigger payouts and more variance.'}
-            </p>
-          </div>
+                <div className="text-[10px] text-slate-500 mt-0.5">{opt.sub}</div>
+                {active && (
+                  <div className="text-[10px] text-green-400 mt-1.5 font-medium tabular-nums font-mono">
+                    {filteredProps.length} props
+                  </div>
+                )}
+              </button>
+            )
+          })}
         </div>
+        <p className="text-xs text-slate-500 leading-relaxed mt-3 max-w-3xl">
+          {MODE_DESCRIPTIONS[filterMode]}
+        </p>
       </div>
 
       {/* Stats Summary - Only show sports with props */}
       {(mlbProps.length > 0 || nflProps.length > 0 || nhlProps.length > 0) && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {mlbProps.length > 0 && (
-            <div className="bg-blue-900/20 border border-blue-500/50 rounded-lg p-4">
-              <div className="flex items-center space-x-2">
-                <span className="text-2xl">⚾</span>
-                <div>
-                  <div className="font-semibold text-blue-400">MLB Props</div>
-                  <div className="text-sm text-blue-300">{mlbProps.length} props compared</div>
-                </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[
+            { key: 'mlb', count: mlbProps.length },
+            { key: 'nhl', count: nhlProps.length },
+            { key: 'nfl', count: nflProps.length },
+          ].filter(s => s.count > 0).map((s) => (
+            <div key={s.key} className="bg-surface border border-white/[0.06] rounded-[4px] p-4">
+              <div className="flex items-center justify-between mb-2">
+                <SportBadge sport={s.key} />
               </div>
+              <p className="text-2xl font-semibold text-slate-100 tabular-nums font-mono">{s.count}</p>
+              <p className="text-xs text-slate-500 mt-0.5">props compared</p>
             </div>
-          )}
-          {nflProps.length > 0 && (
-            <div className="bg-green-900/20 border border-green-500/50 rounded-lg p-4">
-              <div className="flex items-center space-x-2">
-                <span className="text-2xl">🏈</span>
-                <div>
-                  <div className="font-semibold text-green-400">NFL Props</div>
-                  <div className="text-sm text-green-300">{nflProps.length} props compared</div>
-                </div>
-              </div>
-            </div>
-          )}
-          {nhlProps.length > 0 && (
-            <div className="bg-purple-900/20 border border-purple-500/50 rounded-lg p-4">
-              <div className="flex items-center space-x-2">
-                <span className="text-2xl">🏒</span>
-                <div>
-                  <div className="font-semibold text-purple-400">NHL Props</div>
-                  <div className="text-sm text-purple-300">{nhlProps.length} props compared</div>
-                </div>
-              </div>
-            </div>
-          )}
+          ))}
         </div>
       )}
 
       {/* Top Props */}
       {filteredProps.length > 0 && (
-        <div className="card">
-          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-700">
-            <h2 className="text-lg sm:text-xl font-semibold text-white">
-              Top of the board
-            </h2>
-            <p className="text-xs sm:text-sm text-gray-400 mt-1">
-              {filterMode === 'safe' ? 'Sorted by implied probability (52%+)' :
-               filterMode === 'balanced' ? 'Sorted by Quality Score' :
-               filterMode === 'value' ? 'Sorted by Expected Value' :
-               'Sorted by payout'}
-            </p>
-          </div>
-          <div className="p-3 sm:p-6">
-            <div className="space-y-2 sm:space-y-3 max-h-[500px] sm:max-h-[600px] overflow-y-auto">
+        <div>
+          <SectionHeading
+            title="Top of the Board"
+            action={
+              <span className="text-[11px] text-slate-600 whitespace-nowrap">
+                {filterMode === 'safe' ? 'By implied probability' :
+                 filterMode === 'balanced' ? 'By Quality Score' :
+                 filterMode === 'value' ? 'By Expected Value' :
+                 'By payout'}
+              </span>
+            }
+          />
+          <div className="rounded-[4px] border border-white/[0.06] overflow-hidden">
+            <div className="max-h-[600px] overflow-y-auto divide-y divide-white/[0.04]">
               {filteredProps.slice(0, 20).map((prop, index) => (
                 <PlayerPropCard key={prop.propId || `${prop.gameId}-${prop.playerName}-${prop.type}-${prop.pick}-${prop.threshold}`} prop={prop} rank={index + 1} />
               ))}
@@ -318,17 +257,11 @@ export default function PlayerPropsFilter({ props }) {
       {/* MLB Props by Category */}
       {(battingProps.length > 0 || pitchingProps.length > 0) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Batting Props */}
           {battingProps.length > 0 && (
-            <div className="card">
-              <div className="px-6 py-4 border-b border-slate-700">
-                <h3 className="text-lg font-semibold text-white">
-                  ⚾ Batting Props
-                </h3>
-                <div className="text-sm text-gray-400">{battingProps.length} props compared</div>
-              </div>
-              <div className="p-6">
-                <div className="space-y-3 max-h-96 overflow-y-auto">
+            <div>
+              <SectionHeading title="MLB · Batting" action={<span className="text-[11px] text-slate-600 tabular-nums font-mono">{battingProps.length}</span>} />
+              <div className="rounded-[4px] border border-white/[0.06] overflow-hidden">
+                <div className="max-h-96 overflow-y-auto divide-y divide-white/[0.04]">
                   {battingProps.map((prop) => (
                     <PropRow key={prop.propId || `${prop.gameId}-${prop.playerName}-${prop.type}-${prop.pick}-${prop.threshold}`} prop={prop} />
                   ))}
@@ -337,17 +270,11 @@ export default function PlayerPropsFilter({ props }) {
             </div>
           )}
 
-          {/* Pitching Props */}
           {pitchingProps.length > 0 && (
-            <div className="card">
-              <div className="px-6 py-4 border-b border-slate-700">
-                <h3 className="text-lg font-semibold text-white">
-                  🎯 Pitching Props
-                </h3>
-                <div className="text-sm text-gray-400">{pitchingProps.length} props compared</div>
-              </div>
-              <div className="p-6">
-                <div className="space-y-3 max-h-96 overflow-y-auto">
+            <div>
+              <SectionHeading title="MLB · Pitching" action={<span className="text-[11px] text-slate-600 tabular-nums font-mono">{pitchingProps.length}</span>} />
+              <div className="rounded-[4px] border border-white/[0.06] overflow-hidden">
+                <div className="max-h-96 overflow-y-auto divide-y divide-white/[0.04]">
                   {pitchingProps.map((prop) => (
                     <PropRow key={prop.propId || `${prop.gameId}-${prop.playerName}-${prop.type}-${prop.pick}-${prop.threshold}`} prop={prop} />
                   ))}
@@ -357,28 +284,20 @@ export default function PlayerPropsFilter({ props }) {
           )}
         </div>
       )}
-      
+
       {/* NHL Props */}
       {nhlProps.length > 0 && (
-        <div className="card">
-          <div className="px-6 py-4 border-b border-slate-700 bg-gradient-to-r from-purple-900/20 to-transparent">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">🏒</span>
-                <div>
-                  <h3 className="text-xl font-semibold text-purple-400">
-                    NHL Props
-            </h3>
-                  <div className="text-sm text-purple-300">{nhlProps.length} props compared</div>
-                </div>
-              </div>
-              <div className="text-sm text-gray-400">
-                {nhlProps.filter(p => (p.probability || 0) >= 0.55).length} above 55% implied
-              </div>
-            </div>
-          </div>
-          <div className="p-6">
-            <div className="space-y-3 max-h-96 overflow-y-auto">
+        <div>
+          <SectionHeading
+            title="NHL Props"
+            action={
+              <span className="text-[11px] text-slate-600 whitespace-nowrap tabular-nums">
+                {nhlProps.filter(p => (p.probability || 0) >= 0.55).length} @ 55%+
+              </span>
+            }
+          />
+          <div className="rounded-[4px] border border-white/[0.06] overflow-hidden">
+            <div className="max-h-96 overflow-y-auto divide-y divide-white/[0.04]">
               {nhlProps.map((prop) => (
                 <PropRow key={prop.propId || `${prop.gameId}-${prop.playerName}-${prop.type}-${prop.pick}-${prop.threshold}`} prop={prop} />
               ))}
@@ -386,28 +305,20 @@ export default function PlayerPropsFilter({ props }) {
           </div>
         </div>
       )}
-      
+
       {/* NFL Props */}
       {nflProps.length > 0 && (
-        <div className="card">
-          <div className="px-6 py-4 border-b border-slate-700 bg-gradient-to-r from-green-900/20 to-transparent">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">🏈</span>
-                <div>
-                  <h3 className="text-xl font-semibold text-green-400">
-                    NFL Props
-                  </h3>
-                  <div className="text-sm text-green-300">{nflProps.length} props compared</div>
-                </div>
-              </div>
-              <div className="text-sm text-gray-400">
-                {nflProps.filter(p => (p.probability || 0) >= 0.55).length} above 55% implied
-              </div>
-            </div>
-          </div>
-          <div className="p-6">
-            <div className="space-y-3 max-h-[600px] overflow-y-auto">
+        <div>
+          <SectionHeading
+            title="NFL Props"
+            action={
+              <span className="text-[11px] text-slate-600 whitespace-nowrap tabular-nums">
+                {nflProps.filter(p => (p.probability || 0) >= 0.55).length} @ 55%+
+              </span>
+            }
+          />
+          <div className="rounded-[4px] border border-white/[0.06] overflow-hidden">
+            <div className="max-h-[600px] overflow-y-auto divide-y divide-white/[0.04]">
               {nflProps.map((prop) => (
                 <PropRow key={prop.propId || `${prop.gameId}-${prop.playerName}-${prop.type}-${prop.pick}-${prop.threshold}`} prop={prop} />
               ))}
@@ -417,10 +328,9 @@ export default function PlayerPropsFilter({ props }) {
       )}
 
       {filteredProps.length === 0 && (
-        <div className="card p-12 text-center">
-          <div className="text-gray-500 text-6xl mb-4">🎯</div>
-          <h3 className="text-lg font-medium text-white mb-2">No props match this filter</h3>
-          <p className="text-gray-400">
+        <div className="bg-surface border border-white/[0.06] rounded-[4px] p-8">
+          <h3 className="text-sm font-semibold text-slate-100 mb-1">No props match this filter</h3>
+          <p className="text-sm text-slate-500">
             Try a different sort or filter, or check back when more props are available.
           </p>
         </div>
@@ -444,14 +354,6 @@ function PlayerPropCard({ prop, rank }) {
       setIsSaved(true)
     }
   }, [propKey])
-
-  const tierColors = {
-    elite: 'bg-green-900/30 text-green-400 border-green-500/50',
-    premium: 'bg-blue-900/30 text-blue-400 border-blue-500/50',
-    solid: 'bg-yellow-900/30 text-yellow-400 border-yellow-500/50',
-    speculative: 'bg-orange-900/30 text-orange-400 border-orange-500/50',
-    longshot: 'bg-slate-700 text-gray-400 border-slate-600'
-  }
 
   const handleSaveProp = async (e) => {
     e.preventDefault() // Prevent navigation
@@ -485,121 +387,74 @@ function PlayerPropCard({ prop, rank }) {
   }
 
   const displayOdds = decimalToAmerican(prop.odds)
+  const perf = getPropTypePerformance(prop.type, prop.sport)
 
   return (
-    <div className="border border-slate-700 rounded-lg p-3 sm:p-4 hover:border-blue-500 hover:shadow-md transition-all bg-slate-800/50">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        {/* Rank - Hidden on mobile */}
-        <div className="hidden sm:block text-xl font-bold text-blue-400 min-w-[40px]">
-          #{rank}
+    <div className="bg-surface hover:bg-elevated transition-colors duration-100 px-3 py-2.5">
+      <div className="flex items-center gap-3">
+        {/* Rank */}
+        <div className="text-sm font-medium text-slate-500 tabular-nums font-mono w-7 shrink-0 text-right">
+          {rank}
         </div>
 
         {/* Main Content */}
-        <Link href={`/game/${prop.gameId}`} className="flex-1 cursor-pointer min-w-0">
-          <div className="flex items-start gap-2">
-            {/* Rank on mobile */}
-            <div className="sm:hidden text-sm font-bold text-blue-400 min-w-[32px]">
-              #{rank}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-semibold text-sm sm:text-base text-white truncate">
-                  {prop.playerName}
-                </span>
-                <span className="text-[10px] text-gray-500 uppercase">{prop.sport}</span>
-              </div>
-              <div className="text-xs sm:text-sm text-gray-400">
-                {prop.pick?.toUpperCase()} {prop.threshold} {(prop.type || '').replace(/_/g, ' ')}
-              </div>
-              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                {displayOdds && (
-                  <span className="text-xs sm:text-sm text-amber-400 font-bold">
-                    {displayOdds}
-                  </span>
-                )}
-                {prop.bookmaker && (
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-700 text-[10px] sm:text-xs text-cyan-400 font-medium border border-slate-600">
-                    {prop.bookmaker}
-                  </span>
-                )}
-                {prop.confidence && prop.confidence !== 'low' && prop.confidence !== 'very_low' && (
-                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${
-                    prop.confidence === 'very_high' ? 'bg-green-900/40 text-green-400 border-green-500/40' :
-                    prop.confidence === 'high' ? 'bg-blue-900/40 text-blue-400 border-blue-500/40' :
-                    'bg-slate-700 text-gray-400 border-slate-600'
-                  }`}>
-                    {prop.confidence === 'very_high' ? 'Very High Conf' :
-                     prop.confidence === 'high' ? 'High Conf' : 'Med Conf'}
-                  </span>
-                )}
-              </div>
-              {/* Projection vs Line */}
-              {prop.projection > 0 && (
-                <div className="text-[10px] sm:text-xs text-gray-500 mt-1">
-                  Projected: <span className={`font-medium ${
-                    (prop.pick === 'over' && prop.projection > prop.threshold) ||
-                    (prop.pick === 'under' && prop.projection < prop.threshold)
-                      ? 'text-green-400' : 'text-red-400'
-                  }`}>{prop.projection.toFixed(1)}</span> vs Line {prop.threshold}
-                </div>
-              )}
-              {/* Edge callout */}
-              {prop.edge > 0.01 && (
-                <div className="text-[10px] sm:text-xs text-purple-400 mt-0.5">
-                  {((prop.edge) * 100).toFixed(1)}% line edge vs market
-                </div>
-              )}
-            </div>
+        <Link href={`/game/${prop.gameId}`} className="flex-1 min-w-0 cursor-pointer">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium text-slate-100 truncate">{prop.playerName}</span>
+            <SportBadge sport={prop.sport} />
           </div>
+          <div className="text-xs text-slate-500 mt-0.5 uppercase tracking-wide">
+            {prop.pick} {prop.threshold} {(prop.type || '').replace(/_/g, ' ')}
+          </div>
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            {displayOdds && (
+              <span className="text-[13px] font-medium text-slate-100 tabular-nums font-mono">{displayOdds}</span>
+            )}
+            <BookBadge book={prop.bookmaker} />
+            <ConfidenceBadge confidence={prop.confidence} />
+            {prop.edge > 0.01 && <EdgeBadge edge={prop.edge * 100} />}
+          </div>
+          {prop.projection > 0 && (
+            <div className="text-[10px] text-slate-600 mt-1 tabular-nums">
+              Proj <span className={cn('font-medium',
+                (prop.pick === 'over' && prop.projection > prop.threshold) ||
+                (prop.pick === 'under' && prop.projection < prop.threshold)
+                  ? 'text-green-400' : 'text-red-400')}>{prop.projection.toFixed(1)}</span> vs {prop.threshold}
+            </div>
+          )}
         </Link>
 
         {/* Stats and Button */}
-        <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 pl-10 sm:pl-0">
-          <div className="flex flex-col items-end gap-0.5">
-            {(() => {
-              const perf = getPropTypePerformance(prop.type, prop.sport)
-              if (!perf) return null
-              return (
-                <div
-                  className={`text-[10px] font-medium ${
-                    perf.status === 'warning' ? 'text-amber-400' : 'text-green-400'
-                  }`}
-                >
-                  {perf.message}
-                </div>
-              )
-            })()}
-            <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${tierColors[qualityTier.tier]}`}>
-              {qualityTier.emoji} {qualityTier.label}
-            </div>
-            <div
-              className="text-xs sm:text-sm text-gray-400"
-              title="Quality Score — sorting aid combining line deviation from market and number of books offering the prop"
-            >
-              Q: <span className="font-semibold text-white">{prop.qualityScore?.toFixed(1) || 'N/A'}</span>
-            </div>
-            <div
-              className="text-sm sm:text-base font-bold text-green-400"
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="flex flex-col items-end gap-1">
+            {perf && (
+              <span className={cn('text-[10px] font-medium tabular-nums', perf.status === 'warning' ? 'text-amber-400' : 'text-green-400')}>
+                {perf.accuracy}% acc
+              </span>
+            )}
+            <QualityChip score={prop.qualityScore} tier={qualityTier.tier} />
+            <span
+              className="text-sm font-medium text-green-400 tabular-nums font-mono"
               title="Market-implied probability (vig removed)"
             >
-              {((prop.probability || 0) * 100).toFixed(0)}% implied
-            </div>
+              {((prop.probability || 0) * 100).toFixed(0)}%
+            </span>
           </div>
 
-          {/* Actions */}
           <div className="flex items-center gap-1">
             <ShareButton prop={prop} variant="icon" />
             <button
               onClick={handleSaveProp}
               disabled={isSaving || isSaved}
               title={isSaved ? 'Tracked — we\u2019ll grade this after the game' : 'Track this prop and grade it after the game'}
-              className={`px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-all text-xs sm:text-sm whitespace-nowrap ${
+              className={cn(
+                'px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors border disabled:opacity-50',
                 isSaved
-                  ? 'bg-green-600 text-white'
-                  : 'bg-blue-600 hover:bg-blue-700 text-white'
-              } disabled:opacity-50`}
+                  ? 'bg-green-500/10 text-green-400 border-green-500/20'
+                  : 'bg-elevated hover:bg-[#283548] text-slate-100 border-white/[0.12]',
+              )}
             >
-              {isSaved ? '✓ Tracking' : isSaving ? '...' : 'Track prop'}
+              {isSaved ? '✓ Tracking' : isSaving ? '...' : 'Track'}
             </button>
           </div>
         </div>
@@ -656,91 +511,54 @@ function PropRow({ prop }) {
   }
 
   const displayOdds = decimalToAmerican(prop.odds)
+  const perf = getPropTypePerformance(prop.type, prop.sport)
 
   return (
-    <div className="flex items-center justify-between p-2 sm:p-3 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors border border-slate-700">
-      <Link href={`/game/${prop.gameId}`} className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0 cursor-pointer">
-        <div className="text-base sm:text-lg">{qualityTier.emoji}</div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="font-medium text-sm sm:text-base text-white truncate">
-              {prop.playerName}
-            </span>
-            <span className="text-[10px] text-gray-500 uppercase flex-shrink-0">{prop.sport}</span>
-          </div>
-          <div className="text-xs sm:text-sm text-gray-400 truncate">
-            {prop.pick?.toUpperCase()} {prop.threshold} {(prop.type || '').replace(/_/g, ' ')}
-          </div>
-          <div className="flex items-center gap-1 sm:gap-2 mt-0.5 flex-wrap">
-            {displayOdds && (
-              <span className="text-[10px] sm:text-xs text-amber-400 font-semibold">
-                {displayOdds}
-              </span>
-            )}
-            {prop.bookmaker && (
-              <span className="inline-flex items-center px-1 py-px rounded bg-slate-700 text-[10px] text-cyan-400 font-medium border border-slate-600">
-                {prop.bookmaker}
-              </span>
-            )}
-            {prop.confidence && prop.confidence !== 'low' && prop.confidence !== 'very_low' && (
-              <span className={`inline-flex items-center px-1 py-px rounded text-[10px] font-medium border ${
-                prop.confidence === 'very_high' ? 'bg-green-900/40 text-green-400 border-green-500/40' :
-                prop.confidence === 'high' ? 'bg-blue-900/40 text-blue-400 border-blue-500/40' :
-                'bg-slate-700 text-gray-400 border-slate-600'
-              }`}>
-                {prop.confidence === 'very_high' ? 'V.High' :
-                 prop.confidence === 'high' ? 'High' : 'Med'}
-              </span>
-            )}
-            {prop.edge > 0.01 && (
-              <span className="text-[10px] text-purple-400 font-medium">
-                +{((prop.edge) * 100).toFixed(1)}% edge
-              </span>
-            )}
-          </div>
+    <div className="flex items-center justify-between gap-2 px-3 py-2.5 bg-surface hover:bg-elevated transition-colors duration-100">
+      <Link href={`/game/${prop.gameId}`} className="flex-1 min-w-0 cursor-pointer">
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-medium text-slate-100 truncate">{prop.playerName}</span>
+          <SportBadge sport={prop.sport} />
+        </div>
+        <div className="text-xs text-slate-500 truncate mt-0.5 uppercase tracking-wide">
+          {prop.pick} {prop.threshold} {(prop.type || '').replace(/_/g, ' ')}
+        </div>
+        <div className="flex items-center gap-2 mt-1 flex-wrap">
+          {displayOdds && (
+            <span className="text-xs font-medium text-slate-100 tabular-nums font-mono">{displayOdds}</span>
+          )}
+          <BookBadge book={prop.bookmaker} />
+          <ConfidenceBadge confidence={prop.confidence} />
+          {prop.edge > 0.01 && <EdgeBadge edge={prop.edge * 100} />}
         </div>
       </Link>
-      {/* Stats and Save Button */}
-      <div className="flex items-center gap-2 sm:gap-3 ml-2">
-        <div className="text-right">
-          {(() => {
-            const perf = getPropTypePerformance(prop.type, prop.sport)
-            if (!perf) return null
-            return (
-              <div
-                className={`text-[10px] sm:text-xs font-medium mb-0.5 ${
-                  perf.status === 'warning' ? 'text-amber-400' : 'text-green-400'
-                }`}
-              >
-                {perf.message}
-              </div>
-            )
-          })()}
-          <div
-            className="text-[10px] sm:text-xs text-gray-500 mb-0.5"
-            title="Quality Score — sorting aid combining line deviation from market and number of books offering the prop"
-          >
-            Q: {prop.qualityScore?.toFixed(1) || 'N/A'}
-          </div>
-          <div
-            className="font-semibold text-sm sm:text-base text-green-400"
+      <div className="flex items-center gap-3 shrink-0">
+        <div className="flex flex-col items-end gap-1">
+          {perf && (
+            <span className={cn('text-[10px] font-medium tabular-nums', perf.status === 'warning' ? 'text-amber-400' : 'text-green-400')}>
+              {perf.accuracy}% acc
+            </span>
+          )}
+          <QualityChip score={prop.qualityScore} tier={qualityTier.tier} />
+          <span
+            className="text-sm font-medium text-green-400 tabular-nums font-mono"
             title="Market-implied probability (vig removed)"
           >
-            {((prop.probability || 0) * 100).toFixed(0)}% implied
-          </div>
+            {((prop.probability || 0) * 100).toFixed(0)}%
+          </span>
         </div>
-        {/* Actions */}
         <div className="flex items-center gap-0.5">
           <ShareButton prop={prop} variant="icon" />
           <button
             onClick={handleSaveProp}
             disabled={isSaving || isSaved}
             title={isSaved ? 'Tracked — we\u2019ll grade this after the game' : 'Track this prop and grade it after the game'}
-            className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg font-medium transition-all text-[10px] sm:text-xs whitespace-nowrap ${
+            className={cn(
+              'px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors border disabled:opacity-50',
               isSaved
-                ? 'bg-green-600 text-white'
-                : 'bg-blue-600 hover:bg-blue-700 text-white'
-            } disabled:opacity-50`}
+                ? 'bg-green-500/10 text-green-400 border-green-500/20'
+                : 'bg-elevated hover:bg-[#283548] text-slate-100 border-white/[0.12]',
+            )}
           >
             {isSaved ? '✓' : isSaving ? '...' : 'Track'}
           </button>

@@ -6,6 +6,15 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import PlayerPropsFilter from '../../components/PlayerPropsFilter.js'
 import DataFreshness from '../../components/DataFreshness.js'
+import { cn } from '../../lib/utils'
+import { SectionHeading } from '../../components/ui'
+
+const SPORT_OPTIONS = [
+  { value: 'all', label: 'All' },
+  { value: 'mlb', label: 'MLB' },
+  { value: 'nhl', label: 'NHL' },
+  { value: 'nfl', label: 'NFL' },
+]
 
 export default function PropsPage() {
   const [props, setProps] = useState([])
@@ -21,14 +30,14 @@ export default function PropsPage() {
     try {
       setLoading(true)
       setError(null)
-      
-      const url = sportFilter === 'all' 
+
+      const url = sportFilter === 'all'
         ? '/api/props'
         : `/api/props?sport=${sportFilter}`
-      
+
       const response = await fetch(url)
       const data = await response.json()
-      
+
       if (data.success) {
         setProps(data.props || [])
       } else {
@@ -43,200 +52,144 @@ export default function PropsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-        
-        {/* Header */}
-        <div className="mb-4 sm:mb-8">
-          <Link 
-            href="/"
-            className="inline-flex items-center text-sm font-medium text-blue-400 hover:text-blue-300 mb-4"
-          >
-            ← Back to Home
-          </Link>
-          <div className="text-center">
-            <h1 className="text-3xl font-bold text-white">
-              📊 Player Props
-            </h1>
-            <p className="text-lg text-gray-400 mt-2 max-w-2xl mx-auto">
-              Compare prop lines across 10+ sportsbooks side-by-side. See the best
-              available number and how it stacks up against the market.
-            </p>
-            <div className="mt-2">
-              <DataFreshness />
-            </div>
-          </div>
-        </div>
+    <div className="pb-8">
 
-        {/* Sport Filter */}
-        <div className="mb-6">
-          <div className="flex flex-wrap justify-center gap-2 sm:gap-3 mb-4">
-            {[
-              { value: 'all', label: 'All Sports', emoji: '🎯', color: 'blue' },
-              { value: 'nfl', label: 'NFL', emoji: '🏈', color: 'green' },
-              { value: 'nhl', label: 'NHL', emoji: '🏒', color: 'purple' },
-              { value: 'mlb', label: 'MLB', emoji: '⚾', color: 'yellow' }
-            ].map((sport) => (
+      {/* Header */}
+      <header className="mb-6">
+        <Link
+          href="/"
+          className="inline-flex items-center text-[11px] font-medium uppercase tracking-wide text-slate-500 hover:text-slate-300 transition-colors mb-3"
+        >
+          &larr; Home
+        </Link>
+        <div className="flex items-center gap-3 mb-1">
+          <h1 className="text-xl font-semibold text-slate-100 tracking-tight">Player Props</h1>
+        </div>
+        <p className="text-sm text-slate-400 max-w-2xl leading-relaxed">
+          Compare prop lines across 10+ sportsbooks side-by-side. See the best available
+          number and how it stacks up against the market.
+        </p>
+        <div className="mt-2">
+          <DataFreshness />
+        </div>
+      </header>
+
+      {/* Sport Filter + quick stats */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+        <div className="flex items-center gap-0.5 bg-surface border border-white/[0.06] rounded-[4px] p-0.5 w-fit">
+          {SPORT_OPTIONS.map((opt) => (
             <button
-                key={sport.value}
-                onClick={() => setSportFilter(sport.value)}
-                className={`px-3 sm:px-6 py-2 sm:py-3 rounded-lg font-medium transition-all text-sm sm:text-base ${
-                  sportFilter === sport.value
-                    ? `bg-${sport.color}-600 text-white shadow-lg shadow-${sport.color}-500/50`
-                  : 'bg-slate-800 text-gray-300 hover:bg-slate-700'
-              }`}
+              key={opt.value}
+              onClick={() => setSportFilter(opt.value)}
+              className={cn(
+                'px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide rounded-[3px] transition-colors duration-100',
+                sportFilter === opt.value
+                  ? 'bg-elevated text-slate-100'
+                  : 'text-slate-500 hover:text-slate-300',
+              )}
             >
-                <span className="text-lg sm:text-xl mr-1 sm:mr-2">{sport.emoji}</span>
-                <span className="hidden xs:inline">{sport.label}</span>
-                <span className="xs:hidden">{sport.value.toUpperCase()}</span>
+              {opt.label}
             </button>
           ))}
+        </div>
+
+        {!loading && !error && props.length > 0 && (
+          <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500">
+            <span><span className="text-slate-100 font-medium tabular-nums font-mono">{props.length}</span> compared</span>
+            <span className="hidden sm:block h-3 w-px bg-white/[0.06]" />
+            <span><span className="text-green-400 font-medium tabular-nums font-mono">{props.filter(p => (p.probability || 0) >= 0.55).length}</span> @ 55%+</span>
+            <span className="hidden sm:block h-3 w-px bg-white/[0.06]" />
+            <span><span className="text-slate-300 font-medium tabular-nums font-mono">{props.filter(p => (p.probability || 0) >= 0.52).length}</span> above breakeven</span>
           </div>
-          
-          {/* Quick Stats Bar */}
-          {!loading && !error && props.length > 0 && (
-            <div className="flex flex-wrap justify-center items-center gap-3 sm:gap-6 text-xs sm:text-sm text-gray-400">
-              <div className="flex items-center gap-1 sm:gap-2">
-                <span className="text-white font-bold">{props.length}</span>
-                <span>props compared</span>
-              </div>
-              <div className="hidden sm:block h-4 w-px bg-slate-700"></div>
-              <div className="flex items-center gap-1 sm:gap-2">
-                <span className="text-green-400 font-bold">
-                  {props.filter(p => (p.probability || 0) >= 0.55).length}
-                </span>
-                <span>strong market agreement (55%+)</span>
-              </div>
-              <div className="hidden sm:block h-4 w-px bg-slate-700"></div>
-              <div className="flex items-center gap-1 sm:gap-2">
-                <span className="text-blue-400 font-bold">
-                  {props.filter(p => (p.probability || 0) >= 0.52).length}
-                </span>
-                <span>above breakeven (52%+)</span>
+        )}
+      </div>
+
+      {/* Loading State */}
+      {loading && (
+        <div className="rounded-[4px] border border-white/[0.06] overflow-hidden divide-y divide-white/[0.04]">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="px-3 py-2.5 bg-surface animate-pulse">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <div className="h-4 w-28 bg-elevated rounded-[3px]" />
+                    <div className="h-3 w-10 bg-elevated/60 rounded-[3px]" />
+                  </div>
+                  <div className="h-3 w-44 bg-elevated/40 rounded-[3px]" />
+                </div>
+                <div className="h-4 w-16 bg-elevated/40 rounded-[3px]" />
               </div>
             </div>
+          ))}
+        </div>
+      )}
+
+      {/* Error State */}
+      {error && (
+        <div className="bg-red-500/[0.08] border border-red-500/20 rounded-[4px] p-4 mb-6">
+          <p className="text-sm text-red-400">{error}</p>
+          <button
+            onClick={fetchProps}
+            className="mt-3 px-3 py-1.5 rounded-md bg-elevated hover:bg-[#283548] border border-white/[0.12] text-slate-100 text-xs font-medium transition-colors"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {/* Props Display */}
+      {!loading && !error && (
+        <>
+          {props.length > 0 ? (
+            sportFilter !== 'all' && (
+              <div className="flex items-center justify-between bg-surface border border-white/[0.06] rounded-[4px] px-4 py-2.5 mb-4">
+                <p className="text-xs text-slate-400">
+                  <span className="text-slate-100 font-semibold uppercase tracking-wide">{sportFilter}</span>
+                  {' '}&middot;{' '}
+                  <span className="tabular-nums font-mono">{props.length}</span> props compared
+                </p>
+                <button
+                  onClick={() => setSportFilter('all')}
+                  className="text-[11px] font-medium text-slate-500 hover:text-slate-100 transition-colors"
+                >
+                  View all
+                </button>
+              </div>
+            )
+          ) : (
+            <div className="bg-surface border border-white/[0.06] rounded-[4px] p-8">
+              <h3 className="text-sm font-semibold text-slate-100 mb-1">No player props available</h3>
+              <p className="text-sm text-slate-500 mb-1">
+                {sportFilter === 'all'
+                  ? "No player props are available right now. Props appear once today's odds are published by the sportsbooks."
+                  : `No ${sportFilter.toUpperCase()} player props available right now.`}
+              </p>
+              <p className="text-xs text-slate-600">
+                Props are typically available a few hours before game time.
+              </p>
+              {sportFilter !== 'all' && (
+                <button
+                  onClick={() => setSportFilter('all')}
+                  className="mt-4 px-3 py-1.5 rounded-md bg-elevated hover:bg-[#283548] border border-white/[0.12] text-slate-100 text-xs font-medium transition-colors"
+                >
+                  View all sports
+                </button>
+              )}
+            </div>
           )}
-        </div>
 
-        {/* Loading State */}
-        {loading && (
-          <div className="space-y-3">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="border border-slate-700 rounded-lg p-4 bg-slate-900 animate-pulse">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className="h-5 w-28 bg-slate-700 rounded" />
-                      <div className="h-4 w-20 bg-slate-700/50 rounded" />
-                      <div className="h-5 w-14 bg-green-900/30 rounded" />
-                    </div>
-                    <div className="h-4 w-44 bg-slate-700/40 rounded" />
-                    <div className="flex gap-4 mt-1">
-                      <div className="h-3 w-16 bg-slate-700/30 rounded" />
-                      <div className="h-3 w-20 bg-slate-700/30 rounded" />
-                      <div className="h-3 w-18 bg-slate-700/30 rounded" />
-                    </div>
-                  </div>
-                  <div className="flex-shrink-0 ml-4">
-                    <div className="h-8 w-16 bg-slate-700/40 rounded" />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+          {props.length > 0 && <PlayerPropsFilter props={props} />}
+        </>
+      )}
 
-        {/* Error State */}
-        {error && (
-          <div className="bg-red-900/20 border border-red-500/50 rounded-lg p-6 mb-6">
-            <p className="text-red-400">{error}</p>
-            <button
-              onClick={fetchProps}
-              className="mt-4 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
-            >
-              Try Again
-            </button>
-          </div>
-        )}
-
-        {/* Props Display */}
-        {!loading && !error && (
-          <>
-            {props.length > 0 ? (
-              <div className="mb-6">
-                {/* Sport-specific header */}
-                {sportFilter !== 'all' && (
-                  <div className={`p-3 sm:p-4 rounded-lg mb-4 ${
-                    sportFilter === 'nfl' ? 'bg-green-900/20 border border-green-500/50' :
-                    sportFilter === 'nhl' ? 'bg-purple-900/20 border border-purple-500/50' :
-                    'bg-yellow-900/20 border border-yellow-500/50'
-                  }`}>
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 sm:gap-3">
-                        <span className="text-2xl sm:text-3xl">
-                          {sportFilter === 'nfl' ? '🏈' : sportFilter === 'nhl' ? '🏒' : '⚾'}
-                        </span>
-                        <div>
-                          <h2 className={`text-lg sm:text-xl font-bold ${
-                            sportFilter === 'nfl' ? 'text-green-400' :
-                            sportFilter === 'nhl' ? 'text-purple-400' :
-                            'text-yellow-400'
-                          }`}>
-                            {sportFilter.toUpperCase()} Props
-                          </h2>
-                          <p className="text-xs sm:text-sm text-gray-400">
-                            {props.length} props compared
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => setSportFilter('all')}
-                        className="px-3 py-1.5 sm:px-4 sm:py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs sm:text-sm transition-colors whitespace-nowrap"
-                      >
-                        View All
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-12">
-                <div className="text-gray-500 text-5xl mb-4">
-                  {sportFilter === 'nfl' ? '🏈' : sportFilter === 'nhl' ? '🏒' : sportFilter === 'mlb' ? '⚾' : '📊'}
-                </div>
-                <h3 className="text-lg font-medium text-white mb-2">No Player Props Available</h3>
-                <p className="text-gray-400 mb-2">
-                  {sportFilter === 'all' 
-                    ? 'No player props are available right now. Props appear once today\'s odds are published by the sportsbooks.'
-                    : `No ${sportFilter.toUpperCase()} player props available right now.`}
-                </p>
-                <p className="text-sm text-gray-500">
-                  Props are typically available a few hours before game time.
-                </p>
-                {sportFilter !== 'all' && (
-                  <button
-                    onClick={() => setSportFilter('all')}
-                    className="mt-6 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-                  >
-                    View All Sports
-                  </button>
-                )}
-              </div>
-            )}
-            
-            {props.length > 0 && <PlayerPropsFilter props={props} />}
-          </>
-        )}
-
-        {/* Info Section */}
-        <div className="mt-8 p-4 bg-slate-900/60 border border-slate-700 rounded-lg">
-          <p className="text-sm text-gray-400">
-            <strong className="text-white">How this page works:</strong> Player props are pulled
-            in real time from 10+ sportsbooks via The Odds API. Each prop is shown with the best
-            available number, the bookmaker offering it, and how it compares to the rest of the
-            market. Sort and filter to surface the comparisons that matter most to you.
-          </p>
-        </div>
+      {/* Info Section */}
+      <div className="mt-8">
+        <SectionHeading title="How This Page Works" />
+        <p className="text-sm text-slate-400 leading-relaxed max-w-3xl">
+          Player props are pulled in real time from 10+ sportsbooks via The Odds API. Each prop
+          is shown with the best available number, the bookmaker offering it, and how it compares
+          to the rest of the market. Sort and filter to surface the comparisons that matter most.
+        </p>
       </div>
     </div>
   )

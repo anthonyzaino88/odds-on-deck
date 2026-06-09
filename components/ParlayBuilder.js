@@ -1,6 +1,22 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { cn } from '../lib/utils'
+
+const STRATEGIES = [
+  { id: 'safe', label: 'Safe Mode', sub: '52%+ win rate' },
+  { id: 'balanced', label: 'Balanced', sub: 'Best quality' },
+  { id: 'value', label: 'Value Hunter', sub: '+EV plays' },
+]
+
+const STRATEGY_DESC = {
+  safe: 'Highest probability picks (52%+). Consistent wins, lower variance.',
+  balanced: 'Optimized quality score. Best overall risk/reward balance.',
+  value: 'Positive expected value plays. Best long-term profitability.',
+}
+
+const SELECT_CLASS = 'w-full px-3 py-2 bg-bg border border-white/[0.06] rounded-[4px] text-sm text-slate-200 focus:outline-none focus:border-white/20 transition-colors'
+const LABEL_CLASS = 'block text-[11px] font-medium uppercase tracking-wide text-slate-500 mb-1.5'
 
 export default function ParlayBuilder({ onGenerate }) {
   const [sport, setSport] = useState('mlb')
@@ -123,94 +139,65 @@ export default function ParlayBuilder({ onGenerate }) {
   }
 
   return (
-    <div className="card p-6">
-      <h2 className="text-2xl font-bold text-white mb-4">
+    <div className="rounded-[4px] border border-white/[0.06] bg-surface p-4">
+      <h2 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">
         Build Your Parlay
       </h2>
-      <p className="text-sm text-gray-400 mb-6">
+      <p className="text-sm text-slate-400 mt-1.5 mb-5">
         We combine the best available lines across 10+ sportsbooks into optimized parlays.
       </p>
 
-      <div className="space-y-6">
+      <div className="space-y-5">
         {/* Filter Mode Selection */}
         <div>
-          <label className="block text-sm font-medium text-white mb-2">
-            🎯 Betting Strategy
-          </label>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => setFilterMode('safe')}
-              className={`p-3 rounded-lg border-2 text-left transition-all ${
-                filterMode === 'safe'
-                  ? 'border-green-500 bg-green-900/30 text-white'
-                  : 'border-slate-700 bg-slate-800 hover:border-green-500/50 text-gray-300'
-              }`}
-            >
-              <div className="font-semibold text-sm">🛡️ Safe Mode</div>
-              <div className="text-xs text-gray-400 mt-1">52%+ win rate</div>
-            </button>
-            <button
-              onClick={() => setFilterMode('balanced')}
-              className={`p-3 rounded-lg border-2 text-left transition-all ${
-                filterMode === 'balanced'
-                  ? 'border-blue-500 bg-blue-900/30 text-white'
-                  : 'border-slate-700 bg-slate-800 hover:border-blue-500/50 text-gray-300'
-              }`}
-            >
-              <div className="font-semibold text-sm">⚖️ Balanced</div>
-              <div className="text-xs text-gray-400 mt-1">Best quality</div>
-            </button>
-            <button
-              onClick={() => setFilterMode('value')}
-              className={`p-3 rounded-lg border-2 text-left transition-all ${
-                filterMode === 'value'
-                  ? 'border-yellow-500 bg-yellow-900/30 text-white'
-                  : 'border-slate-700 bg-slate-800 hover:border-yellow-500/50 text-gray-300'
-              }`}
-            >
-              <div className="font-semibold text-sm">💰 Value Hunter</div>
-              <div className="text-xs text-gray-400 mt-1">+EV plays</div>
-            </button>
+          <label className={LABEL_CLASS}>Betting Strategy</label>
+          <div className="grid grid-cols-3 gap-2">
+            {STRATEGIES.map((s) => {
+              const active = filterMode === s.id
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setFilterMode(s.id)}
+                  className={cn(
+                    'p-2.5 rounded-[4px] border text-left transition-colors duration-100',
+                    active
+                      ? 'bg-elevated border-white/[0.12]'
+                      : 'bg-bg border-white/[0.06] hover:border-white/[0.12]',
+                  )}
+                >
+                  <div className={cn('text-xs font-semibold', active ? 'text-slate-100' : 'text-slate-300')}>
+                    {s.label}
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">{s.sub}</div>
+                </button>
+              )
+            })}
           </div>
-          <p className="mt-2 text-xs text-gray-400">
-            {filterMode === 'safe' && '🛡️ Highest probability picks (52%+). Consistent wins, lower variance.'}
-            {filterMode === 'balanced' && '⚖️ Optimized quality score. Best overall risk/reward balance.'}
-            {filterMode === 'value' && '💰 Positive expected value plays. Best long-term profitability.'}
+          <p className="mt-2 text-xs text-slate-400 leading-relaxed">
+            {STRATEGY_DESC[filterMode]}
           </p>
         </div>
 
         {/* Sport Selection */}
         <div>
-          <label className="block text-sm font-medium text-white mb-2">
-            Sport
-          </label>
-          <select
-            value={sport}
-            onChange={(e) => setSport(e.target.value)}
-            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="mlb">⚾ Baseball Only</option>
-            <option value="nfl">🏈 Football Only</option>
-            <option value="nhl">🏒 Hockey Only</option>
-            <option value="mixed">🏆 Mixed Sports</option>
+          <label className={LABEL_CLASS}>Sport</label>
+          <select value={sport} onChange={(e) => setSport(e.target.value)} className={SELECT_CLASS}>
+            <option value="mlb">Baseball Only</option>
+            <option value="nfl">Football Only</option>
+            <option value="nhl">Hockey Only</option>
+            <option value="mixed">Mixed Sports</option>
           </select>
         </div>
 
         {/* Parlay Type */}
         <div>
-          <label className="block text-sm font-medium text-white mb-2">
-            Parlay Type
-          </label>
-          <select
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
+          <label className={LABEL_CLASS}>Parlay Type</label>
+          <select value={type} onChange={(e) => setType(e.target.value)} className={SELECT_CLASS}>
             <option value="single_game">Same-Game Parlay (SGP)</option>
             <option value="multi_game">Multi-Game Parlay</option>
             <option value="cross_sport">Cross-Sport Parlay</option>
           </select>
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="mt-1.5 text-xs text-slate-400">
             {type === 'single_game' && 'Stack multiple props from a single game — the most popular bet type'}
             {type === 'multi_game' && 'Combine props from different games for more variety'}
             {type === 'cross_sport' && 'Mix MLB, NFL, and NHL props into one parlay'}
@@ -220,17 +207,11 @@ export default function ParlayBuilder({ onGenerate }) {
         {/* Game Selector (only for single_game) */}
         {type === 'single_game' && (
           <div>
-            <label className="block text-sm font-medium text-white mb-2">
-              Select Game
-            </label>
+            <label className={LABEL_CLASS}>Select Game</label>
             {isLoadingGames ? (
-              <div className="text-sm text-gray-400">Loading games...</div>
+              <div className="text-sm text-slate-400">Loading games...</div>
             ) : availableGames.length > 0 ? (
-              <select
-                value={selectedGameId}
-                onChange={(e) => setSelectedGameId(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
+              <select value={selectedGameId} onChange={(e) => setSelectedGameId(e.target.value)} className={SELECT_CLASS}>
                 {availableGames.map(game => (
                   <option key={game.id} value={game.id}>
                     {game.away?.abbr || 'Away'} @ {game.home?.abbr || 'Home'} 
@@ -239,21 +220,15 @@ export default function ParlayBuilder({ onGenerate }) {
                 ))}
               </select>
             ) : (
-              <div className="text-sm text-gray-400">No active games available</div>
+              <div className="text-sm text-slate-400">No active games available</div>
             )}
           </div>
         )}
 
         {/* Leg Count */}
         <div>
-          <label className="block text-sm font-medium text-white mb-2">
-            Number of Legs
-          </label>
-          <select
-            value={legCount}
-            onChange={(e) => setLegCount(parseInt(e.target.value))}
-            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
+          <label className={LABEL_CLASS}>Number of Legs</label>
+          <select value={legCount} onChange={(e) => setLegCount(parseInt(e.target.value))} className={SELECT_CLASS}>
             <option value="2">2-Leg Parlay</option>
             <option value="3">3-Leg Parlay</option>
             <option value="4">4-Leg Parlay</option>
@@ -264,14 +239,8 @@ export default function ParlayBuilder({ onGenerate }) {
 
         {/* Maximum Parlays */}
         <div>
-          <label className="block text-sm font-medium text-white mb-2">
-            Maximum Results
-          </label>
-          <select
-            value={maxParlays}
-            onChange={(e) => setMaxParlays(parseInt(e.target.value))}
-            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
+          <label className={LABEL_CLASS}>Maximum Results</label>
+          <select value={maxParlays} onChange={(e) => setMaxParlays(parseInt(e.target.value))} className={SELECT_CLASS}>
             <option value="5">5 Parlays</option>
             <option value="10">10 Parlays</option>
             <option value="20">20 Parlays</option>
@@ -283,34 +252,35 @@ export default function ParlayBuilder({ onGenerate }) {
         <button
           onClick={handleGenerate}
           disabled={isGenerating}
-          className={`w-full py-3 px-4 rounded-md font-medium text-white transition-colors ${
+          className={cn(
+            'w-full py-2.5 px-4 rounded-[4px] text-sm font-semibold transition-colors duration-100',
             isGenerating
-              ? 'bg-slate-600 cursor-not-allowed'
-              : 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500'
-          }`}
+              ? 'bg-elevated text-slate-500 cursor-not-allowed'
+              : 'bg-blue-600 hover:bg-blue-500 text-white',
+          )}
         >
           {isGenerating ? (
             <span className="flex items-center justify-center">
-              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
               Generating...
             </span>
           ) : (
-            '🎯 Generate Parlays'
+            'Generate Parlays'
           )}
         </button>
       </div>
 
       {/* Quick Stats */}
-      <div className="mt-6 pt-6 border-t border-slate-700">
-        <h3 className="text-sm font-medium text-white mb-3">Current Settings:</h3>
-        <div className="grid grid-cols-2 gap-2 text-xs text-gray-400">
-          <div>Sport: <span className="font-medium text-white">{sport.toUpperCase()}</span></div>
-          <div>Type: <span className="font-medium text-white">{type.replace('_', ' ')}</span></div>
-          <div>Legs: <span className="font-medium text-white">{legCount}</span></div>
-          <div>Strategy: <span className="font-medium text-white">{filterMode}</span></div>
+      <div className="mt-5 pt-5 border-t border-white/[0.06]">
+        <h3 className="text-[11px] font-medium uppercase tracking-wide text-slate-500 mb-2.5">Current Settings</h3>
+        <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
+          <div>Sport: <span className="font-medium text-slate-200 tabular-nums font-mono">{sport.toUpperCase()}</span></div>
+          <div>Type: <span className="font-medium text-slate-200">{type.replace('_', ' ')}</span></div>
+          <div>Legs: <span className="font-medium text-slate-200 tabular-nums font-mono">{legCount}</span></div>
+          <div>Strategy: <span className="font-medium text-slate-200 capitalize">{filterMode}</span></div>
         </div>
       </div>
     </div>

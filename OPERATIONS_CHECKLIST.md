@@ -44,7 +44,7 @@ node scripts/clear-stale-props.js; node scripts/fetch-fresh-games.js all; node s
 
 ### ⚡ One-Liner (Bash/CMD)
 ```bash
-node scripts/clear-stale-props.js && node scripts/fetch-fresh-games.js all && node scripts/fetch-live-odds.js all --cache-fresh
+node scripts/clear-stale-props.js; node scripts/fetch-fresh-games.js all; node scripts/fetch-live-odds.js all --cache-fresh; node scripts/calculate-game-edges.js
 ```
 
 ### Before First Pitch / Puck Drop

@@ -30,19 +30,19 @@ export default function TimeWindowFilter() {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {/* Time window */}
-      <div className="flex flex-wrap justify-center gap-2">
+      <div className="inline-flex flex-wrap items-center gap-1 p-1 rounded-[4px] border border-white/[0.06] bg-surface">
         {WINDOWS.map(({ key, label }) => {
           const active = currentWindow === key
           return (
             <button
               key={key}
               onClick={() => navigate(key, currentSource)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-[3px] text-xs font-medium transition-colors duration-100 ${
                 active
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30'
-                  : 'bg-slate-800 text-gray-400 hover:bg-slate-700 hover:text-white'
+                  ? 'bg-elevated text-slate-100'
+                  : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               {label}
@@ -51,17 +51,17 @@ export default function TimeWindowFilter() {
         })}
       </div>
       {/* Source filter */}
-      <div className="flex flex-wrap justify-center gap-2">
+      <div className="inline-flex flex-wrap items-center gap-1 p-1 rounded-[4px] border border-white/[0.06] bg-surface ml-0 sm:ml-2">
         {SOURCES.map(({ key, label }) => {
           const active = currentSource === key
           return (
             <button
               key={key}
               onClick={() => navigate(currentWindow, key)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-[3px] text-xs font-medium transition-colors duration-100 ${
                 active
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-slate-800/60 text-gray-500 hover:bg-slate-700 hover:text-gray-300'
+                  ? 'bg-elevated text-slate-100'
+                  : 'text-slate-500 hover:text-slate-300'
               }`}
             >
               {label}

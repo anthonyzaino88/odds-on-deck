@@ -5,6 +5,7 @@ import CheckPropsButton from '../../components/CheckPropsButton.js'
 import CompletedPropsTable from '../../components/CompletedPropsTable.js'
 import TimeWindowFilter from '../../components/TimeWindowFilter.js'
 import MethodologyPanel from '../../components/MethodologyPanel.js'
+import { SportBadge } from '../../components/ui'
 
 export const metadata = {
   title: 'Validation — Transparent Record',
@@ -59,6 +60,8 @@ function sourceLabel(source) {
   return 'All Picks'
 }
 
+const TH_CLASS = 'px-4 sm:px-6 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wider'
+
 export default async function ValidationDashboard({ searchParams }) {
   const window = searchParams?.window || 'all'
   const sourceFilter = searchParams?.source || 'all'
@@ -84,395 +87,360 @@ export default async function ValidationDashboard({ searchParams }) {
     .sort((a, b) => b[1].total - a[1].total)
 
   return (
-    <div className="min-h-screen bg-slate-950">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        
-        {/* Header */}
-        <div className="mb-6 sm:mb-8">
-          <Link 
-            href="/"
-            className="inline-flex items-center text-sm font-medium text-blue-400 hover:text-blue-300 mb-4"
+    <div className="space-y-8">
+      {/* Header */}
+      <div>
+        <Link
+          href="/"
+          className="inline-flex items-center text-[11px] font-medium uppercase tracking-wide text-slate-500 hover:text-slate-300 transition-colors duration-100 mb-3"
+        >
+          ← Home
+        </Link>
+        <h1 className="text-xl font-semibold text-slate-100">Transparent Record</h1>
+        <p className="text-sm text-slate-400 mt-1.5 max-w-2xl leading-relaxed">
+          An honest, ongoing record of every prop we track &mdash; wins, losses, and pushes.
+          No filters. No cherry-picking.
+        </p>
+        <div className="mt-4 flex flex-col sm:flex-row gap-2">
+          <CheckPropsButton />
+          <Link
+            href="/insights"
+            className="inline-flex items-center justify-center px-3 py-2 bg-surface hover:bg-elevated text-slate-200 text-sm font-medium rounded-[4px] border border-white/[0.06] transition-colors duration-100"
           >
-            ← Back to Home
+            View Insights
           </Link>
-          <div className="text-center">
-            <h1 className="text-2xl sm:text-3xl font-bold text-white">
-              Transparent Record
-            </h1>
-            <p className="text-base sm:text-lg text-gray-400 mt-2 max-w-2xl mx-auto">
-              An honest, ongoing record of every prop we track &mdash; wins,
-              losses, and pushes. No filters. No cherry-picking.
-            </p>
-            <div className="mt-4 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
-              <CheckPropsButton />
-              <Link
-                href="/insights"
-                className="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors"
-              >
-                View Insights
-              </Link>
-            </div>
+        </div>
+      </div>
+
+      {/* Time Window Filter */}
+      <div>
+        <Suspense fallback={null}>
+          <TimeWindowFilter />
+        </Suspense>
+        <p className="text-[11px] text-slate-500 mt-2">
+          Showing: {windowLabel(window)} &middot; {sourceLabel(sourceFilter)}
+        </p>
+      </div>
+
+      {/* Primary Stats — Tracked + Hit Rate (dominant) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+        <div className="rounded-[4px] border border-white/[0.06] bg-surface p-5">
+          <div className="text-[11px] font-medium text-slate-500 uppercase tracking-widest">Tracked Predictions</div>
+          <div className="mt-2 text-3xl sm:text-4xl font-semibold text-slate-100 tabular-nums font-mono">
+            {stats.total.toLocaleString()}
+          </div>
+          <div className="text-sm text-slate-500 mt-2 tabular-nums font-mono">
+            {stats.correct.toLocaleString()} won &middot; {stats.incorrect.toLocaleString()} lost
+            {stats.pushes > 0 && ` · ${stats.pushes} push`}
           </div>
         </div>
 
-        {/* Time Window Filter */}
-        <div className="mb-6 sm:mb-8">
-          <Suspense fallback={null}>
-            <TimeWindowFilter />
-          </Suspense>
-          <p className="text-center text-xs text-slate-500 mt-2">
-            Showing: {windowLabel(window)} &middot; {sourceLabel(sourceFilter)}
+        <div className="rounded-[4px] border border-green-500/20 bg-green-500/[0.06] p-5">
+          <div className="text-[11px] font-medium text-green-400 uppercase tracking-widest">Hit Rate</div>
+          <div className="mt-2 text-3xl sm:text-4xl font-semibold text-green-400 tabular-nums font-mono">
+            {stats.total > 0 ? `${(stats.accuracy * 100).toFixed(1)}%` : 'N/A'}
+          </div>
+          <div className="text-sm text-green-300/60 mt-2 tabular-nums font-mono">
+            {stats.correct.toLocaleString()} of {(stats.correct + stats.incorrect).toLocaleString()} resolved
+          </div>
+        </div>
+      </div>
+
+      {/* Secondary Stats — ROI + Avg Implied (supporting context) */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
+        <div className="rounded-[4px] border border-white/[0.06] bg-surface p-4">
+          <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">
+            Avg Edge vs Market
+          </div>
+          <div className="mt-1 text-lg sm:text-xl font-semibold text-blue-400 tabular-nums font-mono">
+            {stats.total > 0 ? `${(stats.avgEdge * 100).toFixed(1)}%` : '—'}
+          </div>
+          <div className="text-[11px] text-slate-500 mt-0.5">
+            avg line difference vs consensus
+          </div>
+        </div>
+
+        <div className="rounded-[4px] border border-white/[0.06] bg-surface p-4">
+          <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">
+            Units P/L &middot; ROI
+          </div>
+          <div className="mt-1 text-lg sm:text-xl font-semibold tabular-nums font-mono">
+            <span className={typeof stats.units === 'number' && stats.units >= 0 ? 'text-green-400' : 'text-red-400'}>
+              {typeof stats.units === 'number' ? formatUnits(stats.units) : '—'}u
+            </span>
+            <span className="text-sm text-slate-500 ml-2">
+              ({stats.total > 0 ? formatROI(stats.roi) : '—'})
+            </span>
+          </div>
+          <div className="text-[11px] text-slate-500 mt-0.5">
+            1-unit flat per pick &middot; pushes excluded
+          </div>
+        </div>
+      </div>
+
+      {/* Methodology panel — explains how we track and grade */}
+      <MethodologyPanel minSampleSize={MIN_SAMPLE_SIZE} />
+
+      {/* Performance by Sport */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {nflStats.total > 0 && <SportCard sport="nfl" stats={nflStats} />}
+        {nhlStats.total > 0 && <SportCard sport="nhl" stats={nhlStats} />}
+        {mlbStats.total > 0 && <SportCard sport="mlb" stats={mlbStats} />}
+      </div>
+
+      {/* Performance by Prop Type */}
+      {propTypeEntries.length > 0 && (
+        <div className="rounded-[4px] border border-white/[0.06] bg-surface p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+            <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Record by Prop Type</h3>
+            <span className="text-[11px] text-slate-500">
+              Showing prop types with at least {MIN_SAMPLE_SIZE} resolved bets
+            </span>
+          </div>
+          <p className="text-sm text-slate-400 leading-relaxed mb-4">
+            See how different prop types have performed over time. Use this table to compare
+            hit rate, volume, and results by market &mdash; smaller samples can swing more
+            sharply, so larger tracked groups usually tell the clearer story.
+          </p>
+          <div className="overflow-x-auto -mx-4 sm:mx-0">
+            <table className="min-w-full">
+              <thead className="bg-bg border-y border-white/[0.06]">
+                <tr>
+                  <th className={`${TH_CLASS} text-left`}>Prop Type</th>
+                  <th className={`${TH_CLASS} text-center`}>Record</th>
+                  <th className={`${TH_CLASS} text-center`}>Hit Rate</th>
+                  <th className={`${TH_CLASS} text-center hidden sm:table-cell`}>Avg Implied</th>
+                  <th className={`${TH_CLASS} text-center`}>ROI</th>
+                  <th className={`${TH_CLASS} text-center`}>Units</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.06]">
+                {propTypeEntries.map(([propType, propStats]) => {
+                  const lowSample = isLowSample(propStats.total)
+                  const outlierROI = isOutlierROI(propStats.roi, propStats.total)
+                  return (
+                    <tr key={propType} className="hover:bg-elevated transition-colors duration-100">
+                      <td className="px-4 sm:px-6 py-3 whitespace-nowrap text-sm font-medium text-slate-100">
+                        <div className="flex items-center gap-2">
+                          <span className="capitalize">{propType.replace(/_/g, ' ')}</span>
+                          {lowSample && (
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded-[3px] bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                              title="Sample size below 50 — results may vary as more data comes in"
+                            >
+                              small sample
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 sm:px-6 py-3 whitespace-nowrap text-sm text-center text-slate-400 tabular-nums font-mono">
+                        {propStats.correct}–{propStats.incorrect}{propStats.pushes > 0 && `–${propStats.pushes}`}
+                        <span className="text-slate-600 ml-1">({propStats.total})</span>
+                      </td>
+                      <td className="px-4 sm:px-6 py-3 whitespace-nowrap text-sm text-center">
+                        <span className={`font-semibold tabular-nums font-mono ${
+                          lowSample ? 'text-slate-400' :
+                          propStats.accuracy >= 0.55 ? 'text-green-400' :
+                          propStats.accuracy >= 0.50 ? 'text-blue-400' : 'text-red-400'
+                        }`}>
+                          {(propStats.accuracy * 100).toFixed(1)}%
+                        </span>
+                      </td>
+                      <td className="px-4 sm:px-6 py-3 whitespace-nowrap text-sm text-center text-slate-400 tabular-nums font-mono hidden sm:table-cell">
+                        {typeof propStats.avgImplied === 'number'
+                          ? `${(propStats.avgImplied * 100).toFixed(1)}%`
+                          : '—'}
+                      </td>
+                      <td className="px-4 sm:px-6 py-3 whitespace-nowrap text-sm text-center">
+                        <span
+                          className={`font-semibold tabular-nums font-mono ${
+                            outlierROI ? 'text-slate-500' :
+                            propStats.roi >= 0 ? 'text-green-400' : 'text-red-400'
+                          }`}
+                          title={outlierROI ? 'Extreme ROI from small sample — interpret with caution' : undefined}
+                        >
+                          {formatROI(propStats.roi)}
+                          {outlierROI && (
+                            <span className="ml-1 text-[10px] text-amber-500/80">!</span>
+                          )}
+                        </span>
+                      </td>
+                      <td className="px-4 sm:px-6 py-3 whitespace-nowrap text-sm text-center">
+                        <span className={`font-semibold tabular-nums font-mono ${
+                          outlierROI ? 'text-slate-500' :
+                          propStats.units >= 0 ? 'text-green-400' : 'text-red-400'
+                        }`}>
+                          {formatUnits(propStats.units)}
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-3">
+            Rows marked &ldquo;small sample&rdquo; have between {MIN_SAMPLE_SIZE} and {LOW_CONFIDENCE_SAMPLE - 1} resolved bets.
+            Hit rate and ROI for these will fluctuate as we collect more data.
           </p>
         </div>
+      )}
 
-        {/* Primary Stats — Tracked + Hit Rate (dominant) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-6 mb-3 sm:mb-4">
-          <div className="card p-5 sm:p-6">
-            <div className="text-xs sm:text-sm font-medium text-gray-400 uppercase tracking-wide">Tracked Predictions</div>
-            <div className="mt-2 text-3xl sm:text-4xl font-bold text-white">
-              {stats.total.toLocaleString()}
+      {/* Status & Source Breakdown */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="rounded-[4px] border border-white/[0.06] bg-surface p-4 sm:p-6">
+          <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-4">Status</h3>
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Completed</span>
+              <span className="font-semibold text-green-400 tabular-nums font-mono">{counts.completed.toLocaleString()}</span>
             </div>
-            <div className="text-sm text-gray-500 mt-2">
-              {stats.correct.toLocaleString()} won &middot; {stats.incorrect.toLocaleString()} lost
-              {stats.pushes > 0 && ` · ${stats.pushes} push`}
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Pending</span>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-amber-400 tabular-nums font-mono">{counts.pending}</span>
+                {counts.pending > 0 && (
+                  <span className="text-[11px] text-slate-500">
+                    ({[
+                      pendingBySport.mlb > 0 && `${pendingBySport.mlb} MLB`,
+                      pendingBySport.nhl > 0 && `${pendingBySport.nhl} NHL`,
+                      pendingBySport.nfl > 0 && `${pendingBySport.nfl} NFL`
+                    ].filter(Boolean).join(', ')})
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
-
-          <div className="bg-green-900/15 rounded-lg shadow p-5 sm:p-6 border-2 border-green-500/40">
-            <div className="text-xs sm:text-sm font-medium text-green-400 uppercase tracking-wide">Hit Rate</div>
-            <div className="mt-2 text-3xl sm:text-4xl font-bold text-green-400">
-              {stats.total > 0 ? `${(stats.accuracy * 100).toFixed(1)}%` : 'N/A'}
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Needs Review</span>
+              <span className="font-semibold text-blue-400 tabular-nums font-mono">{counts.needs_review}</span>
             </div>
-            <div className="text-sm text-green-300/70 mt-2">
-              {stats.correct.toLocaleString()} of {(stats.correct + stats.incorrect).toLocaleString()} resolved
-            </div>
-          </div>
-        </div>
-
-        {/* Secondary Stats — ROI + Avg Implied (supporting context) */}
-        <div className="grid grid-cols-2 gap-3 sm:gap-6 mb-6 sm:mb-8">
-          <div className="bg-slate-900/60 rounded-lg p-3 sm:p-4 border border-slate-800">
-            <div className="text-[11px] sm:text-xs font-medium text-gray-500 uppercase tracking-wide">
-              Avg Edge vs Market
-            </div>
-            <div className="mt-1 text-lg sm:text-xl font-semibold text-blue-400">
-              {stats.total > 0 ? `${(stats.avgEdge * 100).toFixed(1)}%` : '—'}
-            </div>
-            <div className="text-[10px] sm:text-xs text-gray-500 mt-0.5">
-              avg line difference vs consensus
-            </div>
-          </div>
-
-          <div className="bg-slate-900/60 rounded-lg p-3 sm:p-4 border border-slate-800">
-            <div className="text-[11px] sm:text-xs font-medium text-gray-500 uppercase tracking-wide">
-              Units P/L &middot; ROI
-            </div>
-            <div className="mt-1 text-lg sm:text-xl font-semibold text-purple-400">
-              {typeof stats.units === 'number' ? formatUnits(stats.units) : '—'}u
-              <span className="text-sm text-gray-500 ml-2">
-                ({stats.total > 0 ? formatROI(stats.roi) : '—'})
-              </span>
-            </div>
-            <div className="text-[10px] sm:text-xs text-gray-500 mt-0.5">
-              1-unit flat per pick &middot; pushes excluded
+            {counts.manual_closed > 0 && (
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Manually Closed</span>
+                <span className="font-semibold text-slate-500 tabular-nums font-mono">{counts.manual_closed}</span>
+              </div>
+            )}
+            <div className="flex justify-between items-center pt-3 border-t border-white/[0.06]">
+              <span className="font-semibold text-slate-200">Total Tracked</span>
+              <span className="font-semibold text-slate-100 tabular-nums font-mono">{counts.total.toLocaleString()}</span>
             </div>
           </div>
         </div>
 
-        {/* Methodology panel — explains how we track and grade */}
-        <div className="mb-6 sm:mb-8">
-          <MethodologyPanel minSampleSize={MIN_SAMPLE_SIZE} />
-        </div>
-
-        {/* Performance by Sport */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          {nflStats.total > 0 && (
-            <SportCard
-              emoji="🏈"
-              label="NFL"
-              color="blue"
-              stats={nflStats}
-            />
-          )}
-          {nhlStats.total > 0 && (
-            <SportCard
-              emoji="🏒"
-              label="NHL"
-              color="cyan"
-              stats={nhlStats}
-            />
-          )}
-          {mlbStats.total > 0 && (
-            <SportCard
-              emoji="⚾"
-              label="MLB"
-              color="green"
-              stats={mlbStats}
-            />
-          )}
-        </div>
-
-        {/* Performance by Prop Type */}
-        {propTypeEntries.length > 0 && (
-          <div className="card p-6 mb-8">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
-              <h3 className="text-lg font-semibold text-white">Record by Prop Type</h3>
-              <span className="text-xs text-slate-500">
-                Showing prop types with at least {MIN_SAMPLE_SIZE} resolved bets
-              </span>
+        <div className="rounded-[4px] border border-white/[0.06] bg-surface p-4 sm:p-6">
+          <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-4">Source Tracking</h3>
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Individual Props</span>
+              <span className="font-semibold text-blue-400 tabular-nums font-mono">{sourceCounts.user_saved}</span>
             </div>
-            <p className="text-sm text-gray-400 leading-relaxed mb-4">
-              See how different prop types have performed over time. Use this table to compare
-              hit rate, volume, and results by market &mdash; smaller samples can swing more
-              sharply, so larger tracked groups usually tell the clearer story.
-            </p>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-700">
-                <thead className="bg-slate-900">
-                  <tr>
-                    <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Prop Type</th>
-                    <th className="px-4 sm:px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">Record</th>
-                    <th className="px-4 sm:px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">Hit Rate</th>
-                    <th className="px-4 sm:px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider hidden sm:table-cell">Avg Implied</th>
-                    <th className="px-4 sm:px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">ROI</th>
-                    <th className="px-4 sm:px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">Units</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-slate-800 divide-y divide-slate-700">
-                  {propTypeEntries.map(([propType, propStats]) => {
-                    const lowSample = isLowSample(propStats.total)
-                    const outlierROI = isOutlierROI(propStats.roi, propStats.total)
-                    return (
-                      <tr key={propType} className="hover:bg-slate-700/50">
-                        <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
-                          <div className="flex items-center gap-2">
-                            <span>{propType.replace(/_/g, ' ')}</span>
-                            {lowSample && (
-                              <span
-                                className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-900/30 text-yellow-400 border border-yellow-500/30"
-                                title="Sample size below 50 — results may vary as more data comes in"
-                              >
-                                small sample
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-center text-gray-400">
-                          {propStats.correct}–{propStats.incorrect}{propStats.pushes > 0 && `–${propStats.pushes}`}
-                          <span className="text-gray-600 ml-1">({propStats.total})</span>
-                        </td>
-                        <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-center">
-                          <span className={`font-semibold ${
-                            lowSample ? 'text-gray-400' :
-                            propStats.accuracy >= 0.55 ? 'text-green-400' :
-                            propStats.accuracy >= 0.50 ? 'text-blue-400' : 'text-red-400'
-                          }`}>
-                            {(propStats.accuracy * 100).toFixed(1)}%
-                          </span>
-                        </td>
-                        <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-center text-gray-400 hidden sm:table-cell">
-                          {typeof propStats.avgImplied === 'number'
-                            ? `${(propStats.avgImplied * 100).toFixed(1)}%`
-                            : '—'}
-                        </td>
-                        <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-center">
-                          <span
-                            className={`font-semibold ${
-                              outlierROI ? 'text-gray-500' :
-                              propStats.roi >= 0 ? 'text-green-400' : 'text-red-400'
-                            }`}
-                            title={outlierROI ? 'Extreme ROI from small sample — interpret with caution' : undefined}
-                          >
-                            {formatROI(propStats.roi)}
-                            {outlierROI && (
-                              <span className="ml-1 text-[10px] text-yellow-500/80">⚠</span>
-                            )}
-                          </span>
-                        </td>
-                        <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-center">
-                          <span className={`font-semibold ${
-                            outlierROI ? 'text-gray-500' :
-                            propStats.units >= 0 ? 'text-green-400' : 'text-red-400'
-                          }`}>
-                            {formatUnits(propStats.units)}
-                          </span>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Saved Parlays</span>
+              <span className="font-semibold text-slate-300 tabular-nums font-mono">{sourceCounts.parlay_leg}</span>
             </div>
-            <p className="text-xs text-slate-500 mt-3">
-              Rows marked &ldquo;small sample&rdquo; have between {MIN_SAMPLE_SIZE} and {LOW_CONFIDENCE_SAMPLE - 1} resolved bets.
-              Hit rate and ROI for these will fluctuate as we collect more data.
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Auto-Generated</span>
+              <span className="font-semibold text-slate-400 tabular-nums font-mono">{sourceCounts.system_generated}</span>
+            </div>
+            <div className="flex justify-between items-center pt-3 border-t border-white/[0.06]">
+              <span className="font-semibold text-slate-200">Your Saved Picks</span>
+              <span className="font-semibold text-green-400 tabular-nums font-mono">{sourceCounts.user_saved + sourceCounts.parlay_leg}</span>
+            </div>
+          </div>
+          <div className="mt-4 pt-4 border-t border-white/[0.06] text-[11px] text-slate-500 leading-relaxed">
+            &ldquo;Saved Parlays&rdquo; = legs from parlays you saved. &ldquo;Auto-Generated&rdquo; = system-tracked for accuracy analysis.
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Predictions */}
+      <div className="rounded-[4px] border border-white/[0.06] bg-surface p-4 sm:p-6">
+        <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-4">Recent Tracked Predictions</h3>
+
+        {recentRecords.length > 0 ? (
+          <div className="rounded-[4px] border border-white/[0.06] divide-y divide-white/[0.06] overflow-hidden">
+            {recentRecords.slice(0, 20).map((record) => (
+              <div key={record.id} className="p-3 sm:p-4 bg-bg hover:bg-elevated transition-colors duration-100">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold text-slate-100">
+                    {record.playerName}
+                  </span>
+                  <span className="text-sm text-slate-400 capitalize">
+                    &middot; {record.propType.replace(/_/g, ' ')}
+                  </span>
+                  <span className={`px-1.5 py-0.5 rounded-[3px] text-[10px] font-semibold uppercase tracking-wide border ${
+                    record.status === 'pending' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                    record.status === 'needs_review' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                    record.result === 'correct' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
+                    record.result === 'push' ? 'bg-white/[0.05] text-slate-400 border-white/[0.06]' :
+                    'bg-red-500/10 text-red-400 border-red-500/20'
+                  }`}>
+                    {record.status === 'pending' ? 'Pending' :
+                     record.status === 'needs_review' ? 'Needs Review' :
+                     record.result}
+                  </span>
+                </div>
+                <div className="text-sm text-slate-400 mt-1 tabular-nums font-mono">
+                  {record.prediction.toUpperCase()} {record.threshold}
+                  {record.actualValue !== null && ` · Actual: ${record.actualValue.toFixed(1)}`}
+                  {record.projectedValue && ` · Proj: ${record.projectedValue.toFixed(1)}`}
+                </div>
+                <div className="flex flex-wrap gap-3 sm:gap-4 mt-2 text-[11px] text-slate-500 tabular-nums font-mono">
+                  {record.edge > 0 && <span>Edge: {(record.edge * 100).toFixed(1)}%</span>}
+                  <span>Win Prob: {((record.probability || 0.5) * 100).toFixed(1)}%</span>
+                  {record.qualityScore > 0 && <span>Quality: {record.qualityScore.toFixed(1)}</span>}
+                  <span className="capitalize font-sans">{(record.source || 'system_generated').replace(/_/g, ' ')}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <h3 className="text-sm font-medium text-slate-200 mb-1">No validation records yet</h3>
+            <p className="text-sm text-slate-500">
+              Save some parlays or generate props to start tracking accuracy.
             </p>
           </div>
-        )}
-
-        {/* Status & Source Breakdown */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          <div className="card p-6">
-            <h3 className="text-lg font-semibold text-white mb-4">Status</h3>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-400">Completed</span>
-                <span className="font-bold text-green-400">{counts.completed.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-400">Pending</span>
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-yellow-400">{counts.pending}</span>
-                  {counts.pending > 0 && (
-                    <span className="text-xs text-gray-500">
-                      ({[
-                        pendingBySport.mlb > 0 && `${pendingBySport.mlb} MLB`,
-                        pendingBySport.nhl > 0 && `${pendingBySport.nhl} NHL`,
-                        pendingBySport.nfl > 0 && `${pendingBySport.nfl} NFL`
-                      ].filter(Boolean).join(', ')})
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-400">Needs Review</span>
-                <span className="font-bold text-blue-400">{counts.needs_review}</span>
-              </div>
-              {counts.manual_closed > 0 && (
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-400">Manually Closed</span>
-                  <span className="font-bold text-gray-500">{counts.manual_closed}</span>
-                </div>
-              )}
-              <div className="flex justify-between items-center pt-3 border-t border-slate-700">
-                <span className="font-semibold text-white">Total Tracked</span>
-                <span className="font-bold text-white">{counts.total.toLocaleString()}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="card p-6">
-            <h3 className="text-lg font-semibold text-white mb-4">Source Tracking</h3>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-400">Individual Props</span>
-                <span className="font-bold text-blue-400">{sourceCounts.user_saved}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-400">Saved Parlays</span>
-                <span className="font-bold text-purple-400">{sourceCounts.parlay_leg}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-400">Auto-Generated</span>
-                <span className="font-bold text-gray-400">{sourceCounts.system_generated}</span>
-              </div>
-              <div className="flex justify-between items-center pt-3 border-t border-slate-700">
-                <span className="font-semibold text-white">Your Saved Picks</span>
-                <span className="font-bold text-green-400">{sourceCounts.user_saved + sourceCounts.parlay_leg}</span>
-              </div>
-            </div>
-            <div className="mt-4 pt-4 border-t border-slate-700 text-xs text-gray-500">
-              &ldquo;Saved Parlays&rdquo; = legs from parlays you saved. &ldquo;Auto-Generated&rdquo; = system-tracked for accuracy analysis.
-            </div>
-          </div>
-        </div>
-
-        {/* Recent Predictions */}
-        <div className="card p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Recent Tracked Predictions</h3>
-          
-          {recentRecords.length > 0 ? (
-            <div className="space-y-3">
-              {recentRecords.slice(0, 20).map((record) => (
-                <div key={record.id} className="border border-slate-700 rounded-lg p-4 bg-slate-900">
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-white">
-                          {record.playerName}
-                        </span>
-                        <span className="text-sm text-gray-400">
-                          &middot; {record.propType.replace(/_/g, ' ')}
-                        </span>
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                          record.status === 'pending' ? 'bg-yellow-900/30 text-yellow-400 border border-yellow-500/50' :
-                          record.status === 'needs_review' ? 'bg-blue-900/30 text-blue-400 border border-blue-500/50' :
-                          record.result === 'correct' ? 'bg-green-900/30 text-green-400 border border-green-500/50' :
-                          record.result === 'push' ? 'bg-slate-700 text-gray-400 border border-slate-600' :
-                          'bg-red-900/30 text-red-400 border border-red-500/50'
-                        }`}>
-                          {record.status === 'pending' ? 'Pending' : 
-                           record.status === 'needs_review' ? 'Needs Review' :
-                           record.result}
-                        </span>
-                      </div>
-                      <div className="text-sm text-gray-400 mt-1">
-                        {record.prediction.toUpperCase()} {record.threshold} 
-                        {record.actualValue !== null && ` · Actual: ${record.actualValue.toFixed(1)}`}
-                        {record.projectedValue && ` · Proj: ${record.projectedValue.toFixed(1)}`}
-                      </div>
-                      <div className="flex flex-wrap gap-3 sm:gap-4 mt-2 text-xs text-gray-500">
-                        {record.edge > 0 && <span>Edge: {(record.edge * 100).toFixed(1)}%</span>}
-                        <span>Win Prob: {((record.probability || 0.5) * 100).toFixed(1)}%</span>
-                        {record.qualityScore > 0 && <span>Quality: {record.qualityScore.toFixed(1)}</span>}
-                        <span className="capitalize">{(record.source || 'system_generated').replace(/_/g, ' ')}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-12">
-              <div className="text-gray-500 text-5xl mb-4">📊</div>
-              <h3 className="text-lg font-medium text-white mb-2">No Validation Records Yet</h3>
-              <p className="text-gray-400">
-                Save some parlays or generate props to start tracking accuracy.
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Completed Props History */}
-        {completedRecords.length > 0 && (
-          <CompletedPropsTable records={completedRecords} />
         )}
       </div>
+
+      {/* Completed Props History */}
+      {completedRecords.length > 0 && (
+        <CompletedPropsTable records={completedRecords} />
+      )}
     </div>
   )
 }
 
-function SportCard({ emoji, label, color, stats }) {
-  const borderColor = color === 'blue' ? 'border-blue-500' : color === 'cyan' ? 'border-cyan-500' : 'border-green-500'
-  const textColor = color === 'blue' ? 'text-blue-400' : color === 'cyan' ? 'text-cyan-400' : 'text-green-400'
-
+function SportCard({ sport, stats }) {
   return (
-    <div className={`card p-6 border-l-4 ${borderColor}`}>
-      <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
-        {emoji} {label}
-      </h3>
-      <div className="space-y-2">
+    <div className="rounded-[4px] border border-white/[0.06] bg-surface p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <SportBadge sport={sport} />
+        <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Record</h3>
+      </div>
+      <div className="space-y-2 text-sm">
         <div className="flex justify-between items-center">
-          <span className="text-sm text-gray-400">Record</span>
-          <span className="text-white font-medium">
+          <span className="text-slate-400">Record</span>
+          <span className="text-slate-100 font-medium tabular-nums font-mono">
             {stats.correct}–{stats.incorrect}{stats.pushes > 0 && `–${stats.pushes}`}
           </span>
         </div>
         <div className="flex justify-between items-center">
-          <span className="text-sm text-gray-400">Hit Rate</span>
-          <span className={`font-bold ${stats.accuracy >= 0.50 ? 'text-green-400' : 'text-red-400'}`}>
+          <span className="text-slate-400">Hit Rate</span>
+          <span className={`font-semibold tabular-nums font-mono ${stats.accuracy >= 0.50 ? 'text-green-400' : 'text-red-400'}`}>
             {(stats.accuracy * 100).toFixed(1)}%
           </span>
         </div>
         <div className="flex justify-between items-center">
-          <span className="text-sm text-gray-400">ROI</span>
-          <span className={`font-bold ${stats.roi >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+          <span className="text-slate-400">ROI</span>
+          <span className={`font-semibold tabular-nums font-mono ${stats.roi >= 0 ? 'text-green-400' : 'text-red-400'}`}>
             {formatROI(stats.roi)}
           </span>
         </div>
         <div className="flex justify-between items-center">
-          <span className="text-sm text-gray-400">Units</span>
-          <span className={`font-bold ${stats.units >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+          <span className="text-slate-400">Units</span>
+          <span className={`font-semibold tabular-nums font-mono ${stats.units >= 0 ? 'text-green-400' : 'text-red-400'}`}>
             {formatUnits(stats.units)}
           </span>
         </div>

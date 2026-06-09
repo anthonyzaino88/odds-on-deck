@@ -5,6 +5,7 @@ import Link from 'next/link'
 import ParlayBuilder from '../../components/ParlayBuilder.js'
 import ParlayResults from '../../components/ParlayResults.js'
 import ParlayHistory from '../../components/ParlayHistory.js'
+import { SportBadge, BookBadge } from '../../components/ui'
 
 function formatOdds(decimalOdds) {
   if (!decimalOdds || decimalOdds <= 1) return '+100'
@@ -12,66 +13,67 @@ function formatOdds(decimalOdds) {
   return `${Math.round(-100 / (decimalOdds - 1))}`
 }
 
-const SPORT_META = {
-  mlb: { icon: '⚾', label: 'MLB' },
-  nhl: { icon: '🏒', label: 'NHL' },
-  nfl: { icon: '🏈', label: 'NFL' },
-}
-
 function FeaturedParlayCard({ parlay, sport, parlayType }) {
-  const meta = SPORT_META[sport] || { icon: '🎯', label: sport.toUpperCase() }
-  const isSGP = parlayType === 'sgp'
   const gameIds = new Set(parlay.legs.map(l => l.gameId))
   const actualSGP = gameIds.size === 1
 
   return (
-    <div className="bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700 rounded-xl p-5 hover:border-blue-500/40 transition-colors">
+    <div className="bg-surface border border-white/[0.06] rounded-[4px] p-4 hover:bg-elevated transition-colors duration-100">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className="text-xl">{meta.icon}</span>
-          <span className="text-sm font-bold text-white">{meta.label}</span>
-          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+          <SportBadge sport={sport} />
+          <span className={`inline-flex items-center px-1.5 py-0.5 rounded-[3px] text-[10px] font-semibold uppercase tracking-wide border ${
             actualSGP
-              ? 'bg-purple-900/40 text-purple-400 border border-purple-500/30'
-              : 'bg-blue-900/40 text-blue-400 border border-blue-500/30'
+              ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+              : 'bg-white/[0.05] text-slate-400 border-white/[0.06]'
           }`}>
             {actualSGP ? 'SGP' : 'Multi-Game'}
           </span>
         </div>
         <div className="text-right">
-          <div className="text-lg font-bold text-green-400">{formatOdds(parlay.totalOdds)}</div>
-          <div className="text-[10px] text-gray-500">{parlay.totalOdds.toFixed(2)}x</div>
+          <div className="text-base font-semibold text-green-400 tabular-nums font-mono">{formatOdds(parlay.totalOdds)}</div>
+          <div className="text-[10px] text-slate-500 tabular-nums font-mono">{parlay.totalOdds.toFixed(2)}x</div>
         </div>
       </div>
       <div className="space-y-1.5 mb-3">
         {parlay.legs.map((leg, i) => (
           <div key={i} className="flex items-center justify-between text-xs">
-            <span className="text-gray-300 truncate mr-2">
+            <span className="text-slate-300 truncate mr-2">
               {leg.betType === 'prop'
                 ? `${leg.playerName} ${leg.selection?.toUpperCase()} ${leg.threshold}`
                 : `${leg.team} ${leg.betType}`
               }
             </span>
             <div className="flex items-center gap-2 flex-shrink-0">
-              {leg.bookmaker && (
-                <span className="text-[9px] text-cyan-400">{leg.bookmaker}</span>
-              )}
-              <span className="text-gray-500">{formatOdds(leg.odds)}</span>
+              {leg.bookmaker && <BookBadge book={leg.bookmaker} />}
+              <span className="text-slate-500 tabular-nums font-mono">{formatOdds(leg.odds)}</span>
             </div>
           </div>
         ))}
       </div>
-      <div className="flex items-center justify-between pt-3 border-t border-slate-700">
+      <div className="flex items-center justify-between pt-3 border-t border-white/[0.06]">
         <div className="flex items-center gap-3 text-xs">
-          <span className="text-blue-400">{(parlay.probability * 100).toFixed(0)}% win</span>
+          <span className="text-blue-400 tabular-nums font-mono">{(parlay.probability * 100).toFixed(0)}% win</span>
           {parlay.expectedValue > 0 && (
-            <span className="text-green-400">+EV</span>
+            <span className="text-green-400 font-medium">+EV</span>
           )}
         </div>
-        <div className="text-[10px] text-gray-600">
+        <div className="text-[10px] text-slate-600 tabular-nums font-mono">
           {parlay.legs.length}-leg &middot; {actualSGP ? 'same game' : `${gameIds.size} games`}
         </div>
       </div>
+    </div>
+  )
+}
+
+function SectionHeading({ title, action }) {
+  return (
+    <div className="flex items-center gap-3 mb-4">
+      <h2 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 whitespace-nowrap">
+        {title}
+      </h2>
+      <div className="flex-1 h-px bg-white/[0.04]" />
+      {action}
     </div>
   )
 }
@@ -127,18 +129,18 @@ function ParlayOfTheDay() {
 
   if (loading) {
     return (
-      <div className="mb-8">
-        <h2 className="text-xl font-bold text-white mb-4">Today&apos;s Featured Parlays</h2>
+      <div>
+        <SectionHeading title="Today's Featured Parlays" />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[0, 1, 2].map(i => (
-            <div key={i} className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 animate-pulse">
-              <div className="h-5 w-24 bg-slate-700 rounded mb-3" />
+            <div key={i} className="bg-surface border border-white/[0.06] rounded-[4px] p-4 animate-pulse">
+              <div className="h-4 w-20 bg-white/[0.06] rounded mb-3" />
               <div className="space-y-2">
-                <div className="h-4 w-full bg-slate-700/50 rounded" />
-                <div className="h-4 w-3/4 bg-slate-700/50 rounded" />
-                <div className="h-4 w-5/6 bg-slate-700/50 rounded" />
+                <div className="h-3 w-full bg-white/[0.04] rounded" />
+                <div className="h-3 w-3/4 bg-white/[0.04] rounded" />
+                <div className="h-3 w-5/6 bg-white/[0.04] rounded" />
               </div>
-              <div className="h-8 w-20 bg-slate-700 rounded mt-4" />
+              <div className="h-6 w-16 bg-white/[0.06] rounded mt-4" />
             </div>
           ))}
         </div>
@@ -149,11 +151,11 @@ function ParlayOfTheDay() {
   if (cards.length === 0) return null
 
   return (
-    <div className="mb-8">
-      <div className="flex items-center gap-3 mb-4">
-        <h2 className="text-xl font-bold text-white">Today&apos;s Featured Parlays</h2>
-        <span className="text-xs text-gray-500 bg-slate-800 px-2 py-1 rounded">Auto-generated from best lines</span>
-      </div>
+    <div>
+      <SectionHeading
+        title="Today's Featured Parlays"
+        action={<span className="text-[11px] text-slate-600">Auto-generated from best lines</span>}
+      />
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {cards.map((c, i) => (
           <FeaturedParlayCard key={`${c.sport}-${c.type}-${i}`} parlay={c.parlay} sport={c.sport} parlayType={c.type} />
@@ -171,61 +173,47 @@ export default function ParlaysPage() {
   const handleParlaySaved = () => setRefreshHistory(prev => prev + 1)
 
   return (
-    <div className="min-h-screen bg-slate-950">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-        
-        {/* Header */}
-        <div className="mb-8">
-          <Link 
-            href="/"
-            className="inline-flex items-center text-sm font-medium text-blue-400 hover:text-blue-300 mb-4"
-          >
-            &larr; Back to Home
-          </Link>
-          <div className="text-center">
-            <h1 className="text-3xl font-bold text-white">
-              Parlay Builder
-            </h1>
-            <p className="text-base sm:text-lg text-gray-400 mt-2 max-w-2xl mx-auto">
-              A practical way to build and follow parlays. Use this page to assemble parlays
-              from the current slate, save the ones you want to track, and review what happened
-              later &mdash; all in one place.
-            </p>
-          </div>
-        </div>
+    <div className="space-y-8">
+      {/* Header */}
+      <div>
+        <Link
+          href="/"
+          className="inline-flex items-center text-[11px] font-medium uppercase tracking-wide text-slate-500 hover:text-slate-300 transition-colors duration-100 mb-3"
+        >
+          ← Home
+        </Link>
+        <h1 className="text-xl font-semibold text-slate-100">Parlay Builder</h1>
+        <p className="text-sm text-slate-400 mt-1.5 max-w-2xl leading-relaxed">
+          A practical way to build and follow parlays. Assemble parlays from the current slate,
+          save the ones you want to track, and review what happened later &mdash; all in one place.
+        </p>
+      </div>
 
-        {/* Parlay of the Day */}
-        <ParlayOfTheDay />
+      {/* Parlay of the Day */}
+      <ParlayOfTheDay />
 
-        {/* Main Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <div>
-            <ParlayBuilder onGenerate={handleGenerate} />
-          </div>
-          <div>
-            <ParlayResults 
-              generatedParlays={generatedParlays} 
-              onParlaySaved={handleParlaySaved}
-            />
-          </div>
-        </div>
+      {/* Main Content */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <ParlayBuilder onGenerate={handleGenerate} />
+        <ParlayResults
+          generatedParlays={generatedParlays}
+          onParlaySaved={handleParlaySaved}
+        />
+      </div>
 
-        {/* Parlay History Section */}
-        <div className="mb-8">
-          <ParlayHistory refreshTrigger={refreshHistory} />
-        </div>
+      {/* Parlay History Section */}
+      <ParlayHistory refreshTrigger={refreshHistory} />
 
-        {/* Info Section */}
-        <div className="mt-8 p-4 bg-blue-900/20 border border-blue-500/50 rounded-lg">
-          <h4 className="font-semibold text-blue-300 mb-2">How It Works</h4>
-          <ul className="text-sm text-blue-200 space-y-1">
-            <li>&bull; <strong>Featured Parlays</strong> are auto-generated daily from the best available lines</li>
-            <li>&bull; <strong>Build Your Own</strong> by selecting sport, strategy, and leg count below</li>
-            <li>&bull; <strong>Same-Game Parlays (SGPs)</strong> stack multiple props from a single game</li>
-            <li>&bull; <strong>Save &amp; Track</strong> any parlay to monitor results when games complete</li>
-            <li>&bull; <strong>Every leg</strong> uses the sharpest line from 10+ sportsbooks</li>
-          </ul>
-        </div>
+      {/* Info Section */}
+      <div className="rounded-[4px] border border-white/[0.06] bg-surface p-4">
+        <h4 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-2">How It Works</h4>
+        <ul className="text-sm text-slate-400 space-y-1.5">
+          <li>&bull; <span className="text-slate-200 font-medium">Featured Parlays</span> are auto-generated daily from the best available lines</li>
+          <li>&bull; <span className="text-slate-200 font-medium">Build Your Own</span> by selecting sport, strategy, and leg count below</li>
+          <li>&bull; <span className="text-slate-200 font-medium">Same-Game Parlays (SGPs)</span> stack multiple props from a single game</li>
+          <li>&bull; <span className="text-slate-200 font-medium">Save &amp; Track</span> any parlay to monitor results when games complete</li>
+          <li>&bull; <span className="text-slate-200 font-medium">Every leg</span> uses the sharpest line from 10+ sportsbooks</li>
+        </ul>
       </div>
     </div>
   )

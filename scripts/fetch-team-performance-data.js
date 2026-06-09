@@ -9,18 +9,53 @@ config({ path: '.env.local' })
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
+
+// DB team IDs don't match ESPN's API IDs for MLB — map them explicitly
+const MLB_ESPN_IDS = {
+  'MLB_109': '29',   // ARI
+  'MLB_133': '11',   // ATH/OAK
+  'MLB_144': '15',   // ATL
+  'MLB_110': '1',    // BAL
+  'MLB_111': '2',    // BOS
+  'MLB_112': '16',   // CHC
+  'MLB_4':   '4',    // CHW
+  'MLB_113': '17',   // CIN
+  'MLB_114': '5',    // CLE
+  'MLB_115': '27',   // COL
+  'MLB_145': '4',    // CWS (same as CHW)
+  'MLB_116': '6',    // DET
+  'MLB_117': '18',   // HOU
+  'MLB_118': '7',    // KC
+  'MLB_108': '3',    // LAA
+  'MLB_119': '19',   // LAD
+  'MLB_146': '28',   // MIA
+  'MLB_158': '8',    // MIL
+  'MLB_142': '9',    // MIN
+  'MLB_121': '21',   // NYM
+  'MLB_147': '10',   // NYY
+  'MLB_143': '22',   // PHI
+  'MLB_134': '23',   // PIT
+  'MLB_135': '25',   // SD
+  'MLB_136': '12',   // SEA
+  'MLB_137': '26',   // SF
+  'MLB_138': '24',   // STL
+  'MLB_139': '30',   // TB
+  'MLB_140': '13',   // TEX
+  'MLB_141': '14',   // TOR
+  'MLB_120': '20',   // WSH
+}
 
 console.log('\n📊 Fetching Team Performance Data from ESPN...\n')
 
 async function fetchTeamPerformanceData() {
   try {
-    // Get all NFL and NHL teams from database
+    // Get all NFL, NHL, and MLB teams from database
     const { data: teams, error: teamsError } = await supabase
       .from('Team')
       .select('*')
-      .in('sport', ['nfl', 'nhl'])
+      .in('sport', ['nfl', 'nhl', 'mlb'])
       .order('sport')
       .order('abbr')
     
@@ -37,14 +72,19 @@ async function fetchTeamPerformanceData() {
     for (const team of teams) {
       try {
         const sport = team.sport
-        const espnId = team.espnId || team.id.replace(`${sport.toUpperCase()}_`, '')
+        const espnId = (sport === 'mlb' && MLB_ESPN_IDS[team.id])
+          ? MLB_ESPN_IDS[team.id]
+          : team.id.replace(`${sport.toUpperCase()}_`, '')
         
-        console.log(`\n🏈 ${team.abbr} (${sport.toUpperCase()}) - ID: ${espnId}`)
+        const sportEmoji = sport === 'mlb' ? '⚾' : sport === 'nhl' ? '🏒' : '🏈'
+        console.log(`\n${sportEmoji} ${team.abbr} (${sport.toUpperCase()}) - ID: ${espnId}`)
         
         // Fetch team data from ESPN
-        const baseUrl = sport === 'nfl' 
-          ? 'https://site.api.espn.com/apis/site/v2/sports/football/nfl'
-          : 'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl'
+        const baseUrl = sport === 'mlb'
+          ? 'https://site.api.espn.com/apis/site/v2/sports/baseball/mlb'
+          : sport === 'nfl' 
+            ? 'https://site.api.espn.com/apis/site/v2/sports/football/nfl'
+            : 'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl'
         
         const url = `${baseUrl}/teams/${espnId}?enable=record,stats`
         
@@ -148,22 +188,30 @@ function extractPerformanceData(data, sport) {
       }
       
       // Extract stats from the overall record
+      // ESPN provides both avgPointsFor (per-game) and pointsFor (season total).
+      // Always prefer the per-game average; only fall back to total if avg is missing.
       if (overallRecord && overallRecord.stats) {
+        let totalFor = null, totalAgainst = null, gamesPlayed = null
+
         for (const stat of overallRecord.stats) {
           const name = stat.name || ''
           const value = parseFloat(stat.value)
           
-          // Points/Goals per game
-          if (name === 'avgPointsFor' || name === 'pointsFor') {
-            performanceData.avgPointsLast10 = value
-          }
-          
-          // Points/Goals against per game
-          if (name === 'avgPointsAgainst' || name === 'pointsAgainst') {
-            performanceData.avgPointsAllowedLast10 = value
-          }
-          
-          // Skip gamesPlayed - column doesn't exist in Team table
+          if (name === 'avgPointsFor') performanceData.avgPointsLast10 = value
+          else if (name === 'pointsFor') totalFor = value
+
+          if (name === 'avgPointsAgainst') performanceData.avgPointsAllowedLast10 = value
+          else if (name === 'pointsAgainst') totalAgainst = value
+
+          if (name === 'gamesPlayed') gamesPlayed = value
+        }
+
+        // Fall back to computing avg from totals if ESPN didn't provide avg fields
+        if (!performanceData.avgPointsLast10 && totalFor && gamesPlayed) {
+          performanceData.avgPointsLast10 = totalFor / gamesPlayed
+        }
+        if (!performanceData.avgPointsAllowedLast10 && totalAgainst && gamesPlayed) {
+          performanceData.avgPointsAllowedLast10 = totalAgainst / gamesPlayed
         }
       }
     }

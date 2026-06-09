@@ -66,10 +66,10 @@ export default function CheckPropsButton() {
         }
       }
       
-      alert(`✅ Validation Complete!\n\n` +
-            `📊 Batches processed: ${batch}\n` +
-            `✅ Updated: ${totalUpdated}\n` +
-            `❌ Errors: ${totalErrors}`)
+      alert(`Validation Complete\n\n` +
+            `Batches processed: ${batch}\n` +
+            `Updated: ${totalUpdated}\n` +
+            `Errors: ${totalErrors}`)
       // Force hard refresh to bypass any caching
       window.location.href = window.location.href + '?t=' + Date.now()
       
@@ -83,20 +83,20 @@ export default function CheckPropsButton() {
   }
 
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex flex-col gap-2">
       <button
         onClick={handleCheck}
         disabled={isChecking}
-        className="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-500 text-white font-medium rounded-lg transition-colors"
+        className="inline-flex items-center justify-center px-3 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-elevated disabled:text-slate-500 text-white text-sm font-medium rounded-[4px] transition-colors duration-100"
       >
-        {isChecking ? '🔄 Checking...' : '🔄 Check Completed Props'}
+        {isChecking ? 'Checking...' : 'Check Completed Props'}
       </button>
-      
+
       {progress && (
-        <div className="text-sm text-gray-400 text-center">
-          <div>Batch {progress.batch} • Updated: {progress.updated} • Errors: {progress.errors}</div>
+        <div className="text-xs text-slate-400 tabular-nums font-mono">
+          <div>Batch {progress.batch} &middot; Updated: {progress.updated} &middot; Errors: {progress.errors}</div>
           {progress.remaining > 0 && (
-            <div className="text-xs text-amber-400">
+            <div className="text-amber-400">
               ~{progress.remaining} remaining
             </div>
           )}

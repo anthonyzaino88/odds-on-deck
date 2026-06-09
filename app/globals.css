@@ -2,12 +2,62 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* ── Surfaces ── */
+  --color-bg:             #020617;  /* slate-950 — page background */
+  --color-surface:        #0f172a;  /* slate-900 — card, panel, table row */
+  --color-elevated:       #1e293b;  /* slate-800 — hover row, active state */
+  --color-border:         rgba(255, 255, 255, 0.06);
+  --color-border-strong:  rgba(255, 255, 255, 0.12);
+
+  /* ── Text ── */
+  --color-text-primary:   #f1f5f9;  /* slate-100 */
+  --color-text-secondary: #94a3b8;  /* slate-400 */
+  --color-text-muted:     #475569;  /* slate-600 */
+
+  /* ── Edge — positive ── */
+  --color-edge-positive:        #22c55e;
+  --color-edge-positive-bg:     rgba(34, 197, 94, 0.08);
+  --color-edge-positive-border: rgba(34, 197, 94, 0.20);
+
+  /* ── Edge — weak positive ── */
+  --color-edge-weak:    rgba(34, 197, 94, 0.45);
+
+  /* ── Edge — negative ── */
+  --color-edge-negative:    #ef4444;
+  --color-edge-negative-bg: rgba(239, 68, 68, 0.08);
+
+  /* ── Quality score tiers ── */
+  --color-quality-high: #22c55e;   /* score 7–10 */
+  --color-quality-mid:  #f59e0b;   /* score 4–6  */
+  --color-quality-low:  #475569;   /* score 0–3  */
+
+  /* ── Sports ── */
+  --color-mlb:    #ef4444;
+  --color-mlb-bg: rgba(239, 68, 68, 0.10);
+  --color-nhl:    #3b82f6;
+  --color-nhl-bg: rgba(59, 130, 246, 0.10);
+  --color-nfl:    #f59e0b;
+  --color-nfl-bg: rgba(245, 158, 11, 0.10);
+
+  /* ── Spacing ── */
+  --row-height:         44px;
+  --row-height-compact: 36px;
+  --card-radius:        4px;
+  --badge-radius:       3px;
+}
+
 @layer base {
   html {
-    font-family: system-ui, sans-serif;
+    font-family: var(--font-geist-sans), 'Inter', system-ui, sans-serif;
     scroll-behavior: smooth;
   }
-  
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text-primary);
+  }
+
   /* Safe area support for devices with notches */
   @supports (padding: max(0px)) {
     .safe-area-inset-bottom {
@@ -18,35 +68,42 @@
 
 @layer components {
   .btn {
-    @apply px-4 py-2 rounded-lg font-medium transition-colors duration-200;
+    @apply px-4 py-2 rounded-md text-sm font-medium transition-colors duration-150;
   }
-  
+
   .btn-primary {
-    @apply bg-brand-blue text-white hover:bg-blue-700;
+    @apply bg-elevated text-slate-100 border border-white/[0.12] hover:bg-[#283548];
   }
-  
+
   .btn-secondary {
-    @apply bg-gray-200 text-gray-800 hover:bg-gray-300;
+    @apply bg-surface text-slate-300 border border-white/[0.06] hover:bg-elevated;
   }
-  
+
+  /* Card surface — flat, bordered, 4px radius. No shadows, no gradients. */
   .card {
-    @apply bg-slate-800 rounded-lg shadow-md border border-slate-700;
+    @apply bg-surface rounded-[4px] border border-white/[0.06];
   }
-  
+
   .table-header {
-    @apply bg-slate-900 text-left text-xs font-medium text-gray-400 uppercase tracking-wider;
+    @apply bg-bg text-left text-[11px] font-medium text-slate-500 uppercase tracking-wider;
   }
-  
+
   .edge-positive {
-    @apply text-brand-green font-semibold;
+    @apply text-edge-positive font-semibold tabular-nums;
   }
-  
+
   .edge-negative {
-    @apply text-brand-red font-semibold;
+    @apply text-edge-negative font-semibold tabular-nums;
   }
-  
+
   .edge-neutral {
-    @apply text-gray-600;
+    @apply text-slate-500 tabular-nums;
   }
 }
 
+@layer utilities {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+}

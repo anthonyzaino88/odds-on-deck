@@ -57,42 +57,42 @@ export default function ScoreRefreshButton({ onRefreshComplete }) {
       <button
         onClick={handleRefresh}
         disabled={isRefreshing}
-        className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
           isRefreshing
-            ? 'bg-slate-700 text-slate-400 cursor-wait'
-            : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30'
+            ? 'bg-surface text-slate-500 border-white/[0.06] cursor-wait'
+            : 'bg-elevated hover:bg-[#283548] text-slate-100 border-white/[0.12]'
         }`}
       >
         {isRefreshing ? (
           <>
-            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
             </svg>
-            <span>Refreshing...</span>
+            <span>Refreshing</span>
           </>
         ) : (
           <>
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
             <span>Refresh Scores</span>
           </>
         )}
       </button>
-      
+
       {/* Status message */}
       {result && (
-        <span className={`text-sm ${
+        <span className={`text-xs tabular-nums ${
           result.type === 'success' ? 'text-green-400' : 'text-red-400'
         }`}>
           {result.type === 'success' ? '✓' : '✗'} {result.message}
         </span>
       )}
-      
+
       {/* Last refresh time */}
       {lastRefresh && !result && (
-        <span className="text-xs text-slate-500">
+        <span className="text-xs text-slate-500 tabular-nums">
           Last: {lastRefresh.toLocaleTimeString()}
         </span>
       )}

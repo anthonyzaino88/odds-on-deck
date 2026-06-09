@@ -62,7 +62,7 @@ export default function ShareButton({ prop, variant = 'icon' }) {
     return (
       <button
         onClick={handleShare}
-        className="p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-slate-700 transition-colors"
+        className="p-1.5 rounded-md text-slate-500 hover:text-slate-100 hover:bg-elevated transition-colors"
         title="Share this pick"
       >
         {copied ? (
@@ -81,7 +81,7 @@ export default function ShareButton({ prop, variant = 'icon' }) {
   return (
     <button
       onClick={handleShare}
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors"
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-slate-400 hover:text-slate-100 bg-surface hover:bg-elevated border border-white/[0.06] transition-colors"
     >
       {copied ? (
         <>

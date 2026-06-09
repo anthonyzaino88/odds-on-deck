@@ -40,11 +40,11 @@ export default function NHLMatchupSection({ gameId }) {
   if (loading) {
     return (
       <div className="card">
-        <div className="px-6 py-4 border-b border-slate-700">
-          <h2 className="text-lg font-semibold text-white">Matchup Analysis</h2>
+        <div className="px-4 py-3 border-b border-white/[0.06]">
+          <h2 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Matchup Analysis</h2>
         </div>
-        <div className="p-6">
-          <div className="text-center text-gray-500">Loading matchup analysis...</div>
+        <div className="p-4">
+          <div className="text-center text-slate-500">Loading matchup analysis...</div>
         </div>
       </div>
     )
@@ -53,14 +53,14 @@ export default function NHLMatchupSection({ gameId }) {
   if (error || !matchupData) {
     return (
       <div className="card">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Matchup Analysis</h2>
-          <p className="text-sm text-gray-600 mt-1">
+        <div className="px-4 py-3 border-b border-white/[0.06]">
+          <h2 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Matchup Analysis</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
             Team statistics and offensive vs defensive trends
           </p>
         </div>
-        <div className="p-6">
-          <div className="text-center text-gray-500">
+        <div className="p-4">
+          <div className="text-center text-slate-500">
             {error || 'No matchup data available'}
           </div>
         </div>
@@ -105,22 +105,22 @@ export default function NHLMatchupSection({ gameId }) {
   if (!hasData) {
     return (
       <div className="card">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Matchup Analysis</h2>
-          <p className="text-sm text-gray-600 mt-1">
+        <div className="px-4 py-3 border-b border-white/[0.06]">
+          <h2 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Matchup Analysis</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
             Team statistics and offensive vs defensive trends
           </p>
         </div>
-        <div className="p-6">
+        <div className="p-4">
           <div className="text-center space-y-3">
-            <div className="text-gray-500">
+            <div className="text-slate-500">
               <p className="font-medium mb-2">Season statistics are being calculated</p>
               <p className="text-sm">
                 Team stats will be available once we've processed recent game data.
               </p>
             </div>
-            <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm text-blue-800">
+            <div className="mt-4 p-4 bg-surface border border-white/[0.06] rounded-[4px]">
+              <p className="text-sm text-slate-300">
                 <strong>Note:</strong> ESPN NHL API doesn't provide a direct standings endpoint.
                 We're working on calculating team statistics from game results.
               </p>
@@ -135,16 +135,16 @@ export default function NHLMatchupSection({ gameId }) {
 
   return (
     <div className="card">
-      <div className="px-6 py-4 border-b border-slate-700 bg-slate-800">
-        <h2 className="text-xl font-bold text-white">Matchup Analysis</h2>
-        <p className="text-sm text-gray-400 mt-1">
+      <div className="px-4 py-3 border-b border-white/[0.06]">
+        <h2 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Matchup Analysis</h2>
+        <p className="text-xs text-slate-500 mt-0.5">
           Team statistics and offensive vs defensive trends
         </p>
       </div>
-      <div className="p-6 space-y-6 bg-slate-800">
+      <div className="p-4 space-y-6">
         
         {/* Team Statistics Comparison */}
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className="grid md:grid-cols-2 gap-4">
           <MatchupCard 
             title={`${game.away.abbr} Offense vs ${game.home.abbr} Defense`}
             advantages={advantages.away}
@@ -160,7 +160,7 @@ export default function NHLMatchupSection({ gameId }) {
         {/* Key Insights */}
         {insights && insights.length > 0 && (
           <div className="mt-6">
-            <h3 className="text-base font-semibold text-gray-800 mb-4">Key Insights</h3>
+            <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-4">Key Insights</h3>
             <div className="space-y-3">
               {insights.map((insight, index) => (
                 <InsightCard key={index} insight={insight} />
@@ -176,9 +176,9 @@ export default function NHLMatchupSection({ gameId }) {
 function MatchupCard({ title, advantages, teamSide }) {
   if (!advantages) {
     return (
-      <div className="p-4 border border-slate-700 rounded-lg bg-slate-900">
-        <h4 className="font-medium text-white mb-2">{title}</h4>
-        <div className="text-sm text-gray-500 italic">
+      <div className="p-4 border border-white/[0.06] rounded-[4px] bg-surface">
+        <h4 className="font-medium text-slate-100 mb-2">{title}</h4>
+        <div className="text-sm text-slate-500 italic">
           No data available
         </div>
       </div>
@@ -187,17 +187,17 @@ function MatchupCard({ title, advantages, teamSide }) {
 
   const getTrendColor = (trend) => {
     switch (trend) {
-      case 'improving': return 'text-green-600'
-      case 'declining': return 'text-red-600'
-      default: return 'text-gray-600'
+      case 'improving': return 'text-green-400'
+      case 'declining': return 'text-red-400'
+      default: return 'text-slate-500'
     }
   }
 
   const getEfficiencyColor = (efficiency) => {
-    if (!efficiency) return 'text-gray-600'
-    if (efficiency >= 70) return 'text-green-600'
-    if (efficiency >= 50) return 'text-yellow-600'
-    return 'text-red-600'
+    if (!efficiency) return 'text-slate-500'
+    if (efficiency >= 70) return 'text-green-400'
+    if (efficiency >= 50) return 'text-amber-400'
+    return 'text-red-400'
   }
 
   // Format values for display
@@ -212,57 +212,57 @@ function MatchupCard({ title, advantages, teamSide }) {
   }
 
   return (
-    <div className="p-5 border border-slate-700 rounded-lg bg-slate-800 shadow-sm hover:shadow-md transition-shadow">
-      <h4 className="font-semibold text-white mb-4 text-base">{title}</h4>
+    <div className="p-4 border border-white/[0.06] rounded-[4px] bg-elevated hover:bg-elevated/70 transition-colors duration-100">
+      <h4 className="font-semibold text-slate-100 mb-4 text-sm">{title}</h4>
       
       <div className="space-y-3 text-sm">
         <div className="flex justify-between items-center py-1">
-          <span className="text-gray-400 font-medium">Avg Goals:</span>
-          <span className="font-semibold text-white text-base">
+          <span className="text-slate-400 font-medium">Avg Goals:</span>
+          <span className="font-semibold text-slate-100 text-sm tabular-nums font-mono">
             {formatValue(advantages.goalsAvg)}
           </span>
         </div>
         
         <div className="flex justify-between items-center py-1">
-          <span className="text-gray-400 font-medium">Avg Shots:</span>
-          <span className="font-semibold text-white text-base">
+          <span className="text-slate-400 font-medium">Avg Shots:</span>
+          <span className="font-semibold text-slate-100 text-sm tabular-nums font-mono">
             {formatValue(advantages.shotsAvg)}
           </span>
         </div>
         
         <div className="flex justify-between items-center py-1">
-          <span className="text-gray-400 font-medium">Power Play %:</span>
-          <span className="font-semibold text-white text-base">
+          <span className="text-slate-400 font-medium">Power Play %:</span>
+          <span className="font-semibold text-slate-100 text-sm tabular-nums font-mono">
             {formatPercent(advantages.powerPlayPct)}
           </span>
         </div>
         
         <div className="flex justify-between items-center py-1">
-          <span className="text-gray-400 font-medium">Penalty Kill %:</span>
-          <span className="font-semibold text-white text-base">
+          <span className="text-slate-400 font-medium">Penalty Kill %:</span>
+          <span className="font-semibold text-slate-100 text-sm tabular-nums font-mono">
             {formatPercent(advantages.penaltyKillPct)}
           </span>
         </div>
         
         {advantages.efficiency && (
           <div className="flex justify-between items-center py-1">
-            <span className="text-gray-400 font-medium">Efficiency:</span>
-            <span className={`font-semibold text-base ${getEfficiencyColor(advantages.efficiency)}`}>
+            <span className="text-slate-400 font-medium">Efficiency:</span>
+            <span className={`font-semibold text-sm tabular-nums font-mono ${getEfficiencyColor(advantages.efficiency)}`}>
               {advantages.efficiency}/100
             </span>
           </div>
         )}
         
         <div className="flex justify-between items-center py-1">
-          <span className="text-gray-600 font-medium">Trend:</span>
-          <span className={`font-semibold capitalize text-base ${getTrendColor(advantages.trend)}`}>
+          <span className="text-slate-500 font-medium">Trend:</span>
+          <span className={`font-semibold capitalize text-sm ${getTrendColor(advantages.trend)}`}>
             {advantages.trend?.replace('_', ' ') || 'stable'}
           </span>
         </div>
         
         {(advantages.gamesAnalyzed > 0) && (
-          <div className="mt-4 pt-3 border-t border-slate-700">
-            <span className="text-xs text-gray-400 font-medium">
+          <div className="mt-4 pt-3 border-t border-white/[0.06]">
+            <span className="text-xs text-slate-400 font-medium">
               Based on {advantages.gamesAnalyzed} game{advantages.gamesAnalyzed !== 1 ? 's' : ''}
             </span>
           </div>
@@ -273,33 +273,33 @@ function MatchupCard({ title, advantages, teamSide }) {
 }
 
 function InsightCard({ insight }) {
-  const getInsightIcon = (type) => {
+  const getInsightDot = (type) => {
     switch (type) {
-      case 'advantage': return '⚡'
-      case 'trend': return '📈'
-      case 'strength': return '💪'
-      case 'warning': return '⚠️'
-      default: return '💡'
+      case 'advantage': return 'bg-green-400'
+      case 'trend': return 'bg-blue-400'
+      case 'strength': return 'bg-green-400'
+      case 'warning': return 'bg-amber-400'
+      default: return 'bg-slate-400'
     }
   }
 
   const getConfidenceColor = (confidence) => {
     switch (confidence) {
-      case 'very_high': return 'text-green-600'
-      case 'high': return 'text-blue-600'
-      case 'medium': return 'text-yellow-600'
-      case 'low': return 'text-gray-600'
-      default: return 'text-gray-600'
+      case 'very_high': return 'text-green-400'
+      case 'high': return 'text-blue-400'
+      case 'medium': return 'text-amber-400'
+      case 'low': return 'text-slate-500'
+      default: return 'text-slate-500'
     }
   }
 
   return (
-    <div className="flex items-start space-x-3 p-3 bg-slate-900 rounded-lg">
-      <span className="text-lg">{getInsightIcon(insight.type)}</span>
+    <div className="flex items-start space-x-3 p-3 bg-surface border border-white/[0.06] rounded-[4px]">
+      <span className={`mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0 ${getInsightDot(insight.type)}`} />
       <div className="flex-1">
-        <div className="text-sm text-white">{insight.message}</div>
+        <div className="text-sm text-slate-100">{insight.message}</div>
         <div className="flex items-center mt-1 space-x-2">
-          <span className="text-xs text-gray-500 capitalize">{insight.category?.replace('_', ' ')}</span>
+          <span className="text-xs text-slate-500 capitalize">{insight.category?.replace('_', ' ')}</span>
           <span className="text-xs">•</span>
           <span className={`text-xs font-medium capitalize ${getConfidenceColor(insight.confidence)}`}>
             {insight.confidence?.replace('_', ' ')} confidence

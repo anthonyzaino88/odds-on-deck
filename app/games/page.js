@@ -4,6 +4,21 @@ import Link from 'next/link'
 import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
 import ScoreRefreshButton from '../../components/ScoreRefreshButton'
+import { cn } from '../../lib/utils'
+import { SportBadge } from '../../components/ui'
+
+function SportSectionHeading({ sport, count }) {
+  return (
+    <div className="flex items-center gap-3 mb-4">
+      <SportBadge sport={sport} />
+      <h2 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 whitespace-nowrap">
+        Games
+      </h2>
+      <div className="flex-1 h-px bg-white/[0.04]" />
+      <span className="text-[11px] text-slate-600 tabular-nums font-mono">{count}</span>
+    </div>
+  )
+}
 
 export default function GamesPage() {
   const [games, setGames] = useState({ mlb: [], nfl: [], nhl: [] })
@@ -89,36 +104,34 @@ export default function GamesPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white">
-        <div className="max-w-7xl mx-auto px-4 py-4 sm:py-12">
-          <div className="mb-4 sm:mb-8">
-            <h1 className="text-4xl font-bold mb-3">Today&apos;s Slate</h1>
-            <div className="h-5 w-64 bg-slate-800 rounded animate-pulse" />
-          </div>
-          <div className="space-y-4">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 rounded-lg p-4 sm:p-5 animate-pulse">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="w-16 flex justify-center">
-                    <div className="h-4 w-10 bg-slate-700 rounded" />
+      <div className="pb-8">
+        <div className="mb-6">
+          <h1 className="text-xl font-semibold text-slate-100 tracking-tight mb-2">Today&apos;s Slate</h1>
+          <div className="h-3 w-48 bg-elevated rounded-[3px] animate-pulse" />
+        </div>
+        <div className="rounded-[4px] border border-white/[0.06] overflow-hidden divide-y divide-white/[0.08]">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="px-3 py-3.5 bg-surface animate-pulse">
+              <div className="flex items-center justify-between gap-4">
+                <div className="w-14 flex justify-center">
+                  <div className="h-3 w-10 bg-elevated rounded-[3px]" />
+                </div>
+                <div className="flex-1 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="h-3.5 w-20 bg-elevated rounded-[3px]" />
+                    <div className="h-3.5 w-6 bg-elevated rounded-[3px]" />
                   </div>
-                  <div className="flex-1 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="h-4 w-20 bg-slate-700 rounded" />
-                      <div className="h-5 w-8 bg-slate-700 rounded" />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="h-4 w-24 bg-slate-700 rounded" />
-                      <div className="h-5 w-8 bg-slate-700 rounded" />
-                    </div>
-                  </div>
-                  <div className="w-16 flex justify-center">
-                    <div className="h-4 w-4 bg-slate-700/40 rounded" />
+                  <div className="flex items-center justify-between">
+                    <div className="h-3.5 w-24 bg-elevated rounded-[3px]" />
+                    <div className="h-3.5 w-6 bg-elevated rounded-[3px]" />
                   </div>
                 </div>
+                <div className="w-14 flex justify-center">
+                  <div className="h-3.5 w-3.5 bg-elevated/40 rounded-[3px]" />
+                </div>
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
       </div>
     )
@@ -126,17 +139,15 @@ export default function GamesPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white">
-        <div className="max-w-7xl mx-auto px-4 py-4 sm:py-12">
-          <div className="bg-red-950 border border-red-800 rounded-lg p-6">
-            <p className="text-red-200 font-medium">⚠️ {error}</p>
-            <button 
-              onClick={() => window.location.reload()}
-              className="text-red-400 text-sm mt-3 underline hover:text-red-300 transition"
-            >
-              Try refreshing
-            </button>
-          </div>
+      <div className="pb-8">
+        <div className="bg-red-500/[0.08] border border-red-500/20 rounded-[4px] p-4">
+          <p className="text-sm text-red-400 font-medium">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="text-red-400/80 text-xs mt-2 underline hover:text-red-400 transition-colors"
+          >
+            Try refreshing
+          </button>
         </div>
       </div>
     )
@@ -146,137 +157,88 @@ export default function GamesPage() {
 
   if (totalGames === 0) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white">
-        <div className="max-w-7xl mx-auto px-4 py-4 sm:py-12">
-          <h1 className="text-4xl font-bold mb-3 text-slate-100">Today&apos;s Slate</h1>
-          <p className="text-slate-500 text-sm mb-6">{todayStr}</p>
-          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-12 text-center">
-            <div className="text-5xl mb-4">📅</div>
-            <p className="text-slate-300 text-lg font-medium mb-2">No games scheduled today</p>
-            <p className="text-slate-500 text-sm">
-              Check back tomorrow for the next slate of games. Schedules update each morning.
-            </p>
-          </div>
+      <div className="pb-8">
+        <h1 className="text-xl font-semibold text-slate-100 tracking-tight mb-1">Today&apos;s Slate</h1>
+        <p className="text-xs text-slate-500 tabular-nums mb-6">{todayStr}</p>
+        <div className="bg-surface border border-white/[0.06] rounded-[4px] p-8">
+          <h3 className="text-sm font-semibold text-slate-100 mb-1">No games scheduled today</h3>
+          <p className="text-sm text-slate-500">
+            Check back tomorrow for the next slate of games. Schedules update each morning.
+          </p>
         </div>
       </div>
     )
   }
 
+  const liveCount = [...games.mlb, ...games.nfl, ...games.nhl].filter(g => {
+    let s = (g.status || '').toLowerCase().replace(/^status_/i, '').replace(/-/g, '_')
+    return s === 'in_progress'
+  }).length
+
+  const SPORT_SECTIONS = [
+    { key: 'mlb', list: games.mlb },
+    { key: 'nfl', list: games.nfl },
+    { key: 'nhl', list: games.nhl },
+  ]
+
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
-      <div className="max-w-7xl mx-auto px-4 py-4 sm:py-12">
-        {/* Header */}
-        <div className="mb-4 sm:mb-8">
-          <h1 className="text-4xl font-bold mb-3">Today's Slate</h1>
-          <p className="text-slate-400">
-            {totalGames} games • ⚾ {games.mlb.length} MLB • 🏈 {games.nfl.length} NFL • 🏒 {games.nhl.length} NHL
-          </p>
-          <p className="text-slate-500 text-sm mt-2">
-            {todayStr}
-          </p>
-          
-          {/* Score Refresh Button */}
-          <div className="mt-4">
-            <ScoreRefreshButton onRefreshComplete={handleScoreRefresh} />
-          </div>
-          
-          {/* Live Games Indicator */}
-          {(() => {
-            const allGames = [...games.mlb, ...games.nfl, ...games.nhl]
-            // Use the same logic as GameCard to determine live games
-            const liveGames = allGames.filter(g => {
-              // Normalize status: remove "status_" prefix if present, handle hyphens
-              let statusNormalized = (g.status || '').toLowerCase()
-              statusNormalized = statusNormalized.replace(/^status_/i, '') // Remove "status_" prefix
-              statusNormalized = statusNormalized.replace(/-/g, '_') // Convert hyphens to underscores
-              
-              // Only count as live if status is explicitly 'in_progress'
-              return statusNormalized === 'in_progress'
-            })
-            
-            if (liveGames.length > 0) {
-              return (
-                <div className="mt-4 flex items-center gap-2 px-4 py-2 bg-red-900/20 border border-red-500/50 rounded-lg">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-                  </span>
-                  <span className="text-red-400 font-semibold text-sm">
-                    {liveGames.length} {liveGames.length === 1 ? 'Game' : 'Games'} Live
-                  </span>
-                </div>
-              )
-            }
-            return null
-          })()}
-          
-          {/* Quick Navigation */}
-          {(games.mlb.length > 0 || games.nfl.length > 0 || games.nhl.length > 0) && (
-            <div className="flex flex-wrap gap-3 mt-6">
-              {games.mlb.length > 0 && (
-                <a 
-                  href="#mlb" 
-                  className="px-4 py-2 bg-blue-600/20 border border-blue-500/50 rounded-lg text-blue-400 hover:bg-blue-600/30 hover:border-blue-500 transition text-sm font-medium"
-                >
-                  ⚾ Jump to MLB ({games.mlb.length})
-                </a>
-              )}
-              {games.nfl.length > 0 && (
-                <a 
-                  href="#nfl" 
-                  className="px-4 py-2 bg-green-600/20 border border-green-500/50 rounded-lg text-green-400 hover:bg-green-600/30 hover:border-green-500 transition text-sm font-medium"
-                >
-                  🏈 Jump to NFL ({games.nfl.length})
-                </a>
-              )}
-              {games.nhl.length > 0 && (
-                <a 
-                  href="#nhl" 
-                  className="px-4 py-2 bg-cyan-600/20 border border-cyan-500/50 rounded-lg text-cyan-400 hover:bg-cyan-600/30 hover:border-cyan-500 transition text-sm font-medium"
-                >
-                  🏒 Jump to NHL ({games.nhl.length})
-                </a>
-              )}
+    <div className="pb-8">
+      {/* Header */}
+      <header className="mb-8">
+        <h1 className="text-xl font-semibold text-slate-100 tracking-tight mb-2">Today&apos;s Slate</h1>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-slate-500">
+          <span><span className="text-slate-100 font-medium tabular-nums font-mono">{totalGames}</span> games</span>
+          {SPORT_SECTIONS.filter(s => s.list.length > 0).map((s) => (
+            <span key={s.key} className="flex items-center gap-1.5">
+              <span className="h-3 w-px bg-white/[0.06]" />
+              <SportBadge sport={s.key} />
+              <span className="text-slate-300 tabular-nums font-mono">{s.list.length}</span>
+            </span>
+          ))}
+        </div>
+        <p className="text-xs text-slate-500 tabular-nums mt-2">{todayStr}</p>
+
+        <div className="flex flex-wrap items-center gap-3 mt-4">
+          <ScoreRefreshButton onRefreshComplete={handleScoreRefresh} />
+          {liveCount > 0 && (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-red-500/[0.08] border border-red-500/20 rounded-[4px]">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+              </span>
+              <span className="text-red-400 font-semibold text-xs tabular-nums">
+                {liveCount} {liveCount === 1 ? 'Game' : 'Games'} Live
+              </span>
             </div>
           )}
         </div>
 
-        {/* MLB Games */}
-        {games.mlb.length > 0 && (
-          <div id="mlb" className="mb-12 scroll-mt-20">
-            <h2 className="text-2xl font-bold mb-6 text-slate-100">⚾ MLB Games</h2>
-            <div className="grid grid-cols-1 gap-4">
-              {games.mlb.map((game) => (
-                <GameCard key={game.id} game={game} />
-              ))}
-            </div>
-          </div>
-        )}
+        {/* Quick Navigation */}
+        <div className="flex flex-wrap gap-2 mt-4">
+          {SPORT_SECTIONS.filter(s => s.list.length > 0).map((s) => (
+            <a
+              key={s.key}
+              href={`#${s.key}`}
+              className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-[4px] border border-white/[0.06] bg-surface hover:bg-elevated hover:border-white/[0.10] transition-colors"
+            >
+              <SportBadge sport={s.key} />
+              <span className="text-[11px] text-slate-400 tabular-nums font-mono">{s.list.length}</span>
+            </a>
+          ))}
+        </div>
+      </header>
 
-        {/* NFL Games */}
-        {games.nfl.length > 0 && (
-          <div id="nfl" className="mb-12 scroll-mt-20">
-            <h2 className="text-2xl font-bold mb-6 text-slate-100">🏈 NFL Games</h2>
-            <div className="grid grid-cols-1 gap-4">
-              {games.nfl.map((game) => (
-                <GameCard key={game.id} game={game} />
-              ))}
-            </div>
+      {/* Sport Sections */}
+      {SPORT_SECTIONS.filter(s => s.list.length > 0).map((s) => (
+        <section key={s.key} id={s.key} className="mb-8 scroll-mt-20">
+          <SportSectionHeading sport={s.key} count={s.list.length} />
+          <div className="rounded-[4px] border border-white/[0.06] overflow-hidden divide-y divide-white/[0.08]">
+            {s.list.map((game) => (
+              <GameCard key={game.id} game={game} />
+            ))}
           </div>
-        )}
-
-        {/* NHL Games */}
-        {games.nhl.length > 0 && (
-          <div id="nhl" className="mb-12 scroll-mt-20">
-            <h2 className="text-2xl font-bold mb-6 text-slate-100">🏒 NHL Games</h2>
-            <div className="grid grid-cols-1 gap-4">
-              {games.nhl.map((game) => (
-                <GameCard key={game.id} game={game} />
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+        </section>
+      ))}
     </div>
   )
 }
@@ -307,7 +269,7 @@ function OutsDots({ outs }) {
   return (
     <div className="flex gap-1 items-center">
       {[0, 1, 2].map(i => (
-        <div key={i} className={`w-2 h-2 rounded-full ${i < (outs || 0) ? 'bg-yellow-400' : 'bg-slate-600'}`} />
+        <div key={i} className={`w-2 h-2 rounded-full ${i < (outs || 0) ? 'bg-amber-400' : 'bg-slate-700'}`} />
       ))}
     </div>
   )
@@ -344,46 +306,44 @@ function GameCard({ game }) {
   
   return (
     <Link href={`/game/${game.id}`}>
-      <div className={`bg-gradient-to-br from-slate-800 to-slate-900 border rounded-lg p-4 sm:p-5 hover:border-blue-500 hover:shadow-lg hover:shadow-blue-500/20 transition cursor-pointer ${
-        isLive ? 'border-red-500/50 shadow-red-500/20 shadow-lg' : 
-        isDelayed ? 'border-yellow-500/50' :
-        isPostponed ? 'border-slate-600 opacity-60' :
-        'border-slate-700'
-      }`}>
-        
+      <div className={cn(
+        'bg-surface hover:bg-elevated transition-colors duration-100 cursor-pointer px-3 py-3.5',
+        isPostponed && 'opacity-60',
+      )}>
+
         <div className="flex items-center justify-between gap-4">
           {/* Left: Status column */}
-          <div className="flex-shrink-0 w-16 text-center">
+          <div className="flex-shrink-0 w-14 text-center">
             {isLive ? (
               <div>
                 <div className="flex items-center justify-center gap-1.5 mb-1">
                   <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
                   </span>
-                  <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider">LIVE</span>
+                  <span className="text-[10px] font-semibold text-red-400 uppercase tracking-wider">Live</span>
                 </div>
                 {isMLB && game.inning ? (
-                  <div className="text-xs text-red-300 font-semibold">
+                  <div className="text-[11px] text-red-400/80 font-medium tabular-nums">
                     {game.inningHalf === 'top' ? '▲' : game.inningHalf === 'bottom' ? '▼' : '●'} {game.inning}
                   </div>
                 ) : game.sport === 'nhl' && game.lastPlay ? (
-                  <div className="text-[10px] text-red-300">{game.lastPlay}</div>
+                  <div className="text-[10px] text-red-400/80">{game.lastPlay}</div>
                 ) : game.sport === 'nfl' && game.nflData?.quarter ? (
-                  <div className="text-xs text-red-300">Q{game.nflData.quarter}</div>
+                  <div className="text-[11px] text-red-400/80 tabular-nums">Q{game.nflData.quarter}</div>
                 ) : null}
               </div>
             ) : isFinal ? (
-              <span className="text-xs font-semibold text-slate-400 uppercase">Final</span>
+              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Final</span>
             ) : isDelayed ? (
               <div>
-                <span className="text-[10px] font-bold text-yellow-400 uppercase tracking-wider">DELAY</span>
-                <div className="text-[10px] text-yellow-500/70 mt-0.5">{timeString}</div>
+                <span className="text-[10px] font-semibold text-amber-400 uppercase tracking-wider">Delay</span>
+                <div className="text-[10px] text-amber-400/60 mt-0.5 tabular-nums">{timeString}</div>
               </div>
             ) : isPostponed ? (
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">PPD</span>
+              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">PPD</span>
             ) : (
-              <span className="text-xs font-medium text-blue-400">{timeString}</span>
+              <span className="text-xs font-medium text-slate-300 tabular-nums font-mono">{timeString}</span>
             )}
           </div>
 
@@ -392,14 +352,15 @@ function GameCard({ game }) {
             {/* Away team row */}
             <div className="flex items-center justify-between mb-1.5">
               <div className="flex items-center gap-2 min-w-0">
-                <span className={`text-sm font-bold ${isLive ? 'text-white' : 'text-slate-200'}`}>{awayAbbr}</span>
+                <span className="text-sm font-semibold text-slate-100 tabular-nums">{awayAbbr}</span>
                 <span className="text-xs text-slate-500 truncate hidden sm:inline">{awayName}</span>
               </div>
               {(isLive || isFinal) && (
-                <span className={`text-lg font-bold tabular-nums ml-3 ${
-                  isLive ? 'text-red-400' : 
-                  (game.awayScore || 0) > (game.homeScore || 0) ? 'text-white' : 'text-slate-400'
-                }`}>
+                <span className={cn(
+                  'text-base font-semibold tabular-nums font-mono ml-3',
+                  isLive ? 'text-slate-100' :
+                  (game.awayScore || 0) > (game.homeScore || 0) ? 'text-slate-100' : 'text-slate-500',
+                )}>
                   {game.awayScore ?? 0}
                 </span>
               )}
@@ -407,14 +368,15 @@ function GameCard({ game }) {
             {/* Home team row */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 min-w-0">
-                <span className={`text-sm font-bold ${isLive ? 'text-white' : 'text-slate-200'}`}>{homeAbbr}</span>
+                <span className="text-sm font-semibold text-slate-100 tabular-nums">{homeAbbr}</span>
                 <span className="text-xs text-slate-500 truncate hidden sm:inline">{homeName}</span>
               </div>
               {(isLive || isFinal) && (
-                <span className={`text-lg font-bold tabular-nums ml-3 ${
-                  isLive ? 'text-red-400' : 
-                  (game.homeScore || 0) > (game.awayScore || 0) ? 'text-white' : 'text-slate-400'
-                }`}>
+                <span className={cn(
+                  'text-base font-semibold tabular-nums font-mono ml-3',
+                  isLive ? 'text-slate-100' :
+                  (game.homeScore || 0) > (game.awayScore || 0) ? 'text-slate-100' : 'text-slate-500',
+                )}>
                   {game.homeScore ?? 0}
                 </span>
               )}
@@ -422,29 +384,29 @@ function GameCard({ game }) {
           </div>
 
           {/* Right: MLB live state (diamond + count) or arrow */}
-          <div className="flex-shrink-0 w-16 flex flex-col items-center">
+          <div className="flex-shrink-0 w-14 flex flex-col items-center">
             {isLive && isMLB && game.inning ? (
               <div className="flex flex-col items-center gap-1">
-                <BasesDiamond 
-                  runner1st={game.runnerOn1st} 
-                  runner2nd={game.runnerOn2nd} 
-                  runner3rd={game.runnerOn3rd} 
+                <BasesDiamond
+                  runner1st={game.runnerOn1st}
+                  runner2nd={game.runnerOn2nd}
+                  runner3rd={game.runnerOn3rd}
                 />
                 <OutsDots outs={game.outs} />
                 {game.balls != null && game.strikes != null && (
-                  <div className="text-[10px] text-slate-400 font-mono">{game.balls}-{game.strikes}</div>
+                  <div className="text-[10px] text-slate-500 font-mono tabular-nums">{game.balls}-{game.strikes}</div>
                 )}
               </div>
             ) : (
-              <span className="text-slate-500 text-sm">→</span>
+              <span className="text-slate-600 text-sm">→</span>
             )}
           </div>
         </div>
 
         {/* Last play for live MLB games */}
         {isLive && isMLB && game.lastPlay && (
-          <div className="mt-2 pt-2 border-t border-slate-700/50">
-            <p className="text-[11px] text-slate-400 truncate">{game.lastPlay}</p>
+          <div className="mt-2 pt-2 border-t border-white/[0.04]">
+            <p className="text-[11px] text-slate-500 truncate">{game.lastPlay}</p>
           </div>
         )}
       </div>

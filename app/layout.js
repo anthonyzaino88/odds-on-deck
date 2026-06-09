@@ -1,4 +1,6 @@
 import './globals.css'
+import { GeistSans } from 'geist/font/sans'
+import { GeistMono } from 'geist/font/mono'
 import MobileNav from '../components/MobileNav'
 import { Analytics } from '@vercel/analytics/next'
 
@@ -89,9 +91,19 @@ const jsonLd = {
   },
 }
 
+const NAV_LINKS = [
+  { href: '/', label: 'Home' },
+  { href: '/picks', label: "Editor's Picks" },
+  { href: '/props', label: 'Player Props' },
+  { href: '/games', label: "Today's Slate" },
+  { href: '/parlays', label: 'Parlays' },
+  { href: '/validation', label: 'Validation' },
+  { href: '/insights', label: 'Insights' },
+]
+
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
       <head>
         <script async src="https://www.googletagmanager.com/gtag/js?id=G-J6RZED32JY" />
         <script
@@ -100,67 +112,34 @@ export default function RootLayout({ children }) {
           }}
         />
       </head>
-      <body className="bg-slate-950 text-white min-h-screen pb-20 sm:pb-0">
+      <body className="bg-bg text-slate-100 min-h-screen pb-20 sm:pb-0">
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
-        <nav className="bg-slate-900 shadow-lg border-b border-slate-800">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <div className="flex items-center space-x-8">
-                <h1 className="text-xl font-bold text-white">
-                  ⚾ Odds on Deck
-                </h1>
-                <div className="hidden sm:flex space-x-8">
+        <nav className="sticky top-0 z-50 border-b border-white/[0.06] bg-bg/80 backdrop-blur-md">
+          <div className="max-w-screen-xl mx-auto px-4 md:px-6">
+            <div className="flex items-center gap-6 h-12">
+              <a href="/" className="flex items-center gap-2 shrink-0">
+                <span className="text-[13px] font-semibold tracking-tight text-slate-100">
+                  Odds on Deck
+                </span>
+              </a>
+              <div className="hidden sm:flex items-center gap-1">
+                {NAV_LINKS.map((link) => (
                   <a
-                    href="/"
-                    className="text-slate-300 hover:text-white px-3 py-2 text-sm font-medium transition"
+                    key={link.href}
+                    href={link.href}
+                    className="px-2.5 py-1.5 text-[12px] font-medium text-slate-400 hover:text-slate-100 transition-colors duration-100"
                   >
-                    Home
+                    {link.label}
                   </a>
-                  <a
-                    href="/picks"
-                    className="text-slate-300 hover:text-white px-3 py-2 text-sm font-medium transition"
-                  >
-                    Editor's Picks
-                  </a>
-                  <a
-                    href="/props"
-                    className="text-slate-300 hover:text-white px-3 py-2 text-sm font-medium transition"
-                  >
-                    Player Props
-                  </a>
-                  <a
-                    href="/games"
-                    className="text-slate-300 hover:text-white px-3 py-2 text-sm font-medium transition"
-                  >
-                    Today's Slate
-                  </a>
-                  <a
-                    href="/parlays"
-                    className="text-slate-300 hover:text-white px-3 py-2 text-sm font-medium transition"
-                  >
-                    Parlay Generator
-                  </a>
-                  <a
-                    href="/validation"
-                    className="text-slate-300 hover:text-white px-3 py-2 text-sm font-medium transition"
-                  >
-                    Validation
-                  </a>
-                  <a
-                    href="/insights"
-                    className="text-slate-300 hover:text-white px-3 py-2 text-sm font-medium transition"
-                  >
-                    Insights
-                  </a>
-                </div>
+                ))}
               </div>
             </div>
           </div>
         </nav>
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-8 sm:py-8">
+        <main className="max-w-screen-xl mx-auto px-4 md:px-6 pt-4 pb-8 sm:pt-6">
           {children}
         </main>
         <MobileNav />
