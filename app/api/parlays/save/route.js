@@ -4,6 +4,7 @@ export const runtime = 'nodejs'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '../../../../lib/supabase-admin.js'
 import { recordPropPrediction } from '../../../../lib/validation.js'
+import { rateLimit, rateLimited, badRequest, serverError } from '../../../../lib/api-security.js'
 
 // Use admin client for writes (bypasses RLS)
 const supabase = supabaseAdmin
@@ -14,15 +15,17 @@ function generateId() {
 }
 
 export async function POST(request) {
+  const limit = rateLimit(request, { key: 'parlays-save', limit: 20, windowMs: 60_000 })
+  if (!limit.allowed) return rateLimited(limit.retryAfter)
   try {
-    const body = await request.json()
+    const body = await request.json().catch(() => ({}))
     const { parlay } = body
 
-    if (!parlay) {
-      return NextResponse.json(
-        { error: 'No parlay data provided' },
-        { status: 400 }
-      )
+    if (!parlay || typeof parlay !== 'object') {
+      return badRequest('No parlay data provided')
+    }
+    if (!Array.isArray(parlay.legs) || parlay.legs.length === 0 || parlay.legs.length > 20) {
+      return badRequest('Parlay must have between 1 and 20 legs')
     }
 
     console.log(`💾 Saving parlay with ${parlay.legs?.length || 0} legs`)
@@ -129,9 +132,6 @@ export async function POST(request) {
 
   } catch (error) {
     console.error('❌ Error saving parlay:', error)
-    return NextResponse.json(
-      { error: 'Failed to save parlay', details: error.message },
-      { status: 500 }
-    )
+    return serverError()
   }
 }

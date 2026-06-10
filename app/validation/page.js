@@ -1,7 +1,6 @@
 import Link from 'next/link'
 import { Suspense } from 'react'
 import { getValidationStats, getValidationRecords, getValidationCounts } from '../../lib/validation.js'
-import CheckPropsButton from '../../components/CheckPropsButton.js'
 import CompletedPropsTable from '../../components/CompletedPropsTable.js'
 import TimeWindowFilter from '../../components/TimeWindowFilter.js'
 import MethodologyPanel from '../../components/MethodologyPanel.js'
@@ -101,8 +100,7 @@ export default async function ValidationDashboard({ searchParams }) {
           An honest, ongoing record of every prop we track &mdash; wins, losses, and pushes.
           No filters. No cherry-picking.
         </p>
-        <div className="mt-4 flex flex-col sm:flex-row gap-2">
-          <CheckPropsButton />
+        <div className="mt-4">
           <Link
             href="/insights"
             className="inline-flex items-center justify-center px-3 py-2 bg-surface hover:bg-elevated text-slate-200 text-sm font-medium rounded-[4px] border border-white/[0.06] transition-colors duration-100"

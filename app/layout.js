@@ -142,6 +142,20 @@ export default function RootLayout({ children }) {
         <main className="max-w-screen-xl mx-auto px-4 md:px-6 pt-4 pb-8 sm:pt-6">
           {children}
         </main>
+        <footer className="border-t border-white/[0.06] mt-8">
+          <div className="max-w-screen-xl mx-auto px-4 md:px-6 py-6 space-y-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px]">
+              <span className="font-semibold text-slate-300">Odds on Deck</span>
+              <a href="/privacy" className="text-slate-400 hover:text-slate-100 transition-colors duration-100">Privacy</a>
+              <a href="/terms" className="text-slate-400 hover:text-slate-100 transition-colors duration-100">Terms &amp; Disclaimer</a>
+            </div>
+            <p className="text-[11px] text-slate-500 leading-relaxed max-w-3xl">
+              For entertainment and informational purposes only. Not betting or financial advice.
+              Projections are estimates and may be inaccurate. You must be of legal age to gamble in
+              your jurisdiction (18+/21+). If you have a gambling problem, call 1-800-GAMBLER.
+            </p>
+          </div>
+        </footer>
         <MobileNav />
         <Analytics />
       </body>

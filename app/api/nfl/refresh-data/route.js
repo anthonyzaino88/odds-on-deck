@@ -4,8 +4,10 @@ export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { fetchAndStoreNFLSchedule, fetchAndStoreNFLLiveData } from '../../../../lib/nfl-data.js'
+import { isAuthorizedAdmin, unauthorized, serverError } from '../../../../lib/api-security.js'
 
-export async function GET() {
+export async function GET(request) {
+  if (!isAuthorizedAdmin(request)) return unauthorized()
   try {
     console.log('Starting NFL data refresh...')
 
@@ -26,17 +28,10 @@ export async function GET() {
 
   } catch (error) {
     console.error('Error in NFL data refresh:', error)
-    return NextResponse.json(
-      {
-        success: false,
-        error: error.message,
-        timestamp: new Date().toISOString(),
-      },
-      { status: 500 }
-    )
+    return serverError()
   }
 }
 
-export async function POST() {
-  return GET()
+export async function POST(request) {
+  return GET(request)
 }

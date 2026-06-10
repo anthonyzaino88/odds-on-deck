@@ -4,6 +4,7 @@ export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { fetchAndStoreNFLSchedule, fetchAndStoreNFLLiveData } from '../../../../lib/nfl-data.js'
+import { isAuthorizedAdmin, unauthorized, serverError } from '../../../../lib/api-security.js'
 
 /**
  * Determine the current NFL week based on the date
@@ -44,7 +45,8 @@ function getCurrentNFLWeek() {
   return { week: currentWeek, seasonYear, isPastSeason }
 }
 
-export async function GET() {
+export async function GET(request) {
+  if (!isAuthorizedAdmin(request)) return unauthorized()
   try {
     console.log('🏈 Starting automatic NFL week refresh...')
     
@@ -102,11 +104,6 @@ export async function GET() {
     
   } catch (error) {
     console.error('❌ Error in auto-refresh:', error)
-    return NextResponse.json({
-      success: false,
-      error: error.message,
-      stack: error.stack,
-      timestamp: new Date().toISOString()
-    }, { status: 500 })
+    return serverError()
   }
 }

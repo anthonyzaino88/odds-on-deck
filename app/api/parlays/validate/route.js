@@ -7,8 +7,10 @@ export const runtime = 'nodejs'
 import { NextResponse } from 'next/server'
 // Use admin client to bypass RLS for updates
 import { supabaseAdmin as supabase } from '../../../../lib/supabase-admin.js'
+import { isAuthorizedAdmin, unauthorized, serverError } from '../../../../lib/api-security.js'
 
 export async function POST(request) {
+  if (!isAuthorizedAdmin(request)) return unauthorized()
   try {
     console.log('🔍 Validating pending parlays...')
     
@@ -165,10 +167,7 @@ export async function POST(request) {
     
   } catch (error) {
     console.error('❌ Error in parlay validation:', error)
-    return NextResponse.json(
-      { error: 'Failed to validate parlays', details: error.message },
-      { status: 500 }
-    )
+    return serverError()
   }
 }
 
@@ -197,10 +196,7 @@ export async function GET(request) {
     
   } catch (error) {
     console.error('❌ Error fetching parlay stats:', error)
-    return NextResponse.json(
-      { error: 'Failed to fetch parlay stats', details: error.message },
-      { status: 500 }
-    )
+    return serverError()
   }
 }
 

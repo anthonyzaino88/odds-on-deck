@@ -1,9 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { format } from 'date-fns'
-import ScoreRefreshButton from '../../components/ScoreRefreshButton'
 import { cn } from '../../lib/utils'
 import { SportBadge } from '../../components/ui'
 
@@ -24,7 +23,6 @@ export default function GamesPage() {
   const [games, setGames] = useState({ mlb: [], nfl: [], nhl: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [refreshKey, setRefreshKey] = useState(0)
   const [todayStr, setTodayStr] = useState('')
 
   useEffect(() => {
@@ -59,13 +57,8 @@ export default function GamesPage() {
     }
 
     fetchGames()
-  }, [refreshKey])
-  
-  // Callback for score refresh button
-  const handleScoreRefresh = useCallback(() => {
-    setRefreshKey(k => k + 1)
   }, [])
-
+  
   // Handle scroll to sport section on mount or URL change
   useEffect(() => {
     if (loading) return
@@ -198,9 +191,8 @@ export default function GamesPage() {
         </div>
         <p className="text-xs text-slate-500 tabular-nums mt-2">{todayStr}</p>
 
-        <div className="flex flex-wrap items-center gap-3 mt-4">
-          <ScoreRefreshButton onRefreshComplete={handleScoreRefresh} />
-          {liveCount > 0 && (
+        {liveCount > 0 && (
+          <div className="flex flex-wrap items-center gap-3 mt-4">
             <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-red-500/[0.08] border border-red-500/20 rounded-[4px]">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
@@ -210,8 +202,8 @@ export default function GamesPage() {
                 {liveCount} {liveCount === 1 ? 'Game' : 'Games'} Live
               </span>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Quick Navigation */}
         <div className="flex flex-wrap gap-2 mt-4">

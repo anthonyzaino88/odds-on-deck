@@ -4,6 +4,7 @@ export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { updatePropResult } from '../../../../lib/validation.js'
+import { isAuthorizedAdmin, unauthorized, serverError } from '../../../../lib/api-security.js'
 
 /**
  * POST /api/validation/update-result
@@ -17,6 +18,7 @@ import { updatePropResult } from '../../../../lib/validation.js'
  * }
  */
 export async function POST(request) {
+  if (!isAuthorizedAdmin(request)) return unauthorized()
   try {
     const { propId, actualValue } = await request.json()
     
@@ -51,10 +53,7 @@ export async function POST(request) {
     
   } catch (error) {
     console.error('Error updating prop result:', error)
-    return NextResponse.json(
-      { success: false, message: 'Failed to update result', error: error.message },
-      { status: 500 }
-    )
+    return serverError()
   }
 }
 
@@ -64,6 +63,7 @@ export async function POST(request) {
  * Get all pending props for a specific game (to help with manual entry)
  */
 export async function GET(request) {
+  if (!isAuthorizedAdmin(request)) return unauthorized()
   try {
     const { searchParams } = new URL(request.url)
     const gameId = searchParams.get('gameId')
@@ -95,10 +95,7 @@ export async function GET(request) {
     
   } catch (error) {
     console.error('Error fetching pending props:', error)
-    return NextResponse.json(
-      { success: false, message: 'Failed to fetch props', error: error.message },
-      { status: 500 }
-    )
+    return serverError()
   }
 }
 

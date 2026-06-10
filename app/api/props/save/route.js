@@ -4,16 +4,20 @@ export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { recordPropPrediction } from '../../../../lib/validation.js'
+import { rateLimit, rateLimited, badRequest, serverError } from '../../../../lib/api-security.js'
 
 export async function POST(request) {
+  const limit = rateLimit(request, { key: 'props-save', limit: 30, windowMs: 60_000 })
+  if (!limit.allowed) return rateLimited(limit.retryAfter)
   try {
-    const { prop } = await request.json()
-    
-    if (!prop) {
-      return NextResponse.json(
-        { success: false, error: 'No prop data provided' },
-        { status: 400 }
-      )
+    const body = await request.json().catch(() => ({}))
+    const { prop } = body
+
+    if (!prop || typeof prop !== 'object') {
+      return badRequest('No prop data provided')
+    }
+    if (!prop.playerName || !prop.gameId || !prop.type) {
+      return badRequest('Missing required prop fields')
     }
     
     console.log(`💾 Saving individual prop: ${prop.playerName} ${prop.type}`)
@@ -38,10 +42,7 @@ export async function POST(request) {
     
   } catch (error) {
     console.error('❌ Error saving prop:', error)
-    return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 500 }
-    )
+    return serverError()
   }
 }
 

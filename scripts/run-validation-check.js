@@ -1,81 +1,23 @@
 #!/usr/bin/env node
 /**
- * RUN VALIDATION CHECK (via API)
- * 
- * Triggers the /api/validation/check endpoint in batches.
- * Requires the dev server to be running on localhost:3000.
- * 
- * For standalone validation (no dev server), use:
- *   node scripts/validate-pending-props.js
+ * RUN VALIDATION CHECK
+ *
+ * Delegates to the standalone validator (no dev server or public API required).
+ *
+ * Usage:
+ *   node scripts/run-validation-check.js
+ *   node scripts/run-validation-check.js mlb
+ *   node scripts/run-validation-check.js --limit 500
  */
 
-import { config } from 'dotenv'
+import { spawn } from 'child_process'
+import path from 'path'
+import { fileURLToPath } from 'url'
 
-config({ path: '.env.local' })
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const script = path.join(__dirname, 'validate-pending-props.js')
+const args = process.argv.slice(2)
 
-async function runValidationCheck() {
-  console.log('\n🔍 Running Validation Check (batched via API)...\n')
-  
-  let batch = 0
-  let totalUpdated = 0
-  let totalErrors = 0
-  const MAX_BATCHES = 100
-  let consecutiveEmptyBatches = 0
+const child = spawn(process.execPath, [script, ...args], { stdio: 'inherit' })
 
-  try {
-    while (batch < MAX_BATCHES) {
-      const response = await fetch('http://localhost:3000/api/validation/check', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batch })
-      })
-      
-      const data = await response.json()
-
-      if (!data.success) {
-        console.error('❌ Validation check failed:', data.error)
-        break
-      }
-
-      console.log(`✅ Batch ${batch + 1}: ${data.message}`)
-      console.log(`   Updated: ${data.updated} | Errors: ${data.errors} | Skipped: ${data.skipped}`)
-
-      totalUpdated += data.updated || 0
-      totalErrors += data.errors || 0
-
-      if ((data.updated || 0) === 0 && (data.errors || 0) === 0) {
-        consecutiveEmptyBatches++
-      } else {
-        consecutiveEmptyBatches = 0
-      }
-
-      if (!data.hasMoreBatches || consecutiveEmptyBatches >= 3) {
-        break
-      }
-
-      batch++
-      // Small delay between batches to avoid hammering the dev server
-      await new Promise(r => setTimeout(r, 500))
-    }
-
-    console.log('\n✅ Validation Check Complete!')
-    console.log('='.repeat(60))
-    console.log(`📊 Batches run: ${batch + 1}`)
-    console.log(`✅ Updated: ${totalUpdated}`)
-    console.log(`❌ Errors: ${totalErrors}`)
-    console.log('='.repeat(60))
-    
-    if (totalUpdated > 0) {
-      console.log('\n💡 Visit /validation dashboard to see updated stats!\n')
-    } else {
-      console.log('\n✨ All validations are up to date!\n')
-    }
-
-  } catch (error) {
-    console.error('❌ Error running validation check:', error.message)
-    console.log('\n💡 Make sure your dev server is running on http://localhost:3000')
-    console.log('   Or use the standalone script: node scripts/validate-pending-props.js\n')
-  }
-}
-
-runValidationCheck().catch(console.error)
+child.on('exit', (code) => process.exit(code ?? 0))
