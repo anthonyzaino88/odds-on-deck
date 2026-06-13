@@ -87,13 +87,10 @@ CREATE INDEX IF NOT EXISTS idx_boxscore_game ON "GameBoxScore" (game_id);
 CREATE INDEX IF NOT EXISTS idx_boxscore_sport_date ON "GameBoxScore" (sport, fetched_at);
 CREATE INDEX IF NOT EXISTS idx_boxscore_player ON "GameBoxScore" (player_name);
 
--- Enable RLS but allow service role full access
+-- Enable RLS on archive tables (internal/training data — not exposed to the browser).
+-- No policies needed for anon: service role key bypasses RLS for scripts.
+-- Do NOT add FOR ALL USING (true) — that applies to every role, not just service.
 ALTER TABLE "ArchivedGame" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "ClosingOdds" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "ArchivedPropLine" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "GameBoxScore" ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Allow all for service role" ON "ArchivedGame" FOR ALL USING (true);
-CREATE POLICY "Allow all for service role" ON "ClosingOdds" FOR ALL USING (true);
-CREATE POLICY "Allow all for service role" ON "ArchivedPropLine" FOR ALL USING (true);
-CREATE POLICY "Allow all for service role" ON "GameBoxScore" FOR ALL USING (true);

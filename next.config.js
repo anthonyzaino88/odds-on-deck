@@ -1,16 +1,20 @@
 /** @type {import('next').NextConfig} */
 
+const isDev = process.env.NODE_ENV !== 'production'
+
 // Content Security Policy. 'unsafe-inline' is required for Google Analytics,
 // the JSON-LD block, and Next.js hydration scripts. External origins are
 // limited to the services this app actually uses (GA, Vercel Analytics,
 // Supabase). Image sources are left broad (team-logo CDNs vary).
+// 'unsafe-eval' is added in development only because Next.js React Refresh
+// (HMR) evaluates strings as JavaScript; it is never sent in production.
 const ContentSecurityPolicy = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://www.google-analytics.com https://va.vercel-scripts.com",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''} https://www.googletagmanager.com https://www.google-analytics.com https://va.vercel-scripts.com`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
   "font-src 'self' data:",
-  "connect-src 'self' https://*.supabase.co https://www.google-analytics.com https://region1.google-analytics.com https://vitals.vercel-insights.com https://va.vercel-scripts.com",
+  `connect-src 'self'${isDev ? ' ws: http://localhost:*' : ''} https://*.supabase.co https://www.google-analytics.com https://region1.google-analytics.com https://vitals.vercel-insights.com https://va.vercel-scripts.com`,
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
