@@ -51,16 +51,10 @@
 
 ### **💡 Performance Insights**
 - Sport-specific accuracy metrics (NFL, NHL, MLB)
-- Best/worst performing prop types
-- Actionable recommendations
+- Best/worst performing prop types grouped into System, Prop Type, and Player tiers
+- Actionable recommendations with search and filtering
 - Historical trend analysis
 - Break-even tracking (52.4% for standard -110 odds)
-
-### **🧪 Training Mode**
-- Generate mock props using free APIs (ESPN, MLB Stats)
-- Test validation system without API costs
-- Build training datasets for model improvement
-- Perfect for development and testing
 
 ### **💰 DFS Rankings** *(Coming Soon)*
 - Daily Fantasy Sports player values
@@ -73,10 +67,11 @@
 
 | Category | Technology |
 |----------|------------|
-| **Frontend** | Next.js 14, React 18, TailwindCSS |
+| **Frontend** | Next.js 14 (App Router), React 18, TailwindCSS |
+| **Design system** | Custom "terminal" UI (data-dense, dark-first), Geist Sans/Mono |
 | **Backend** | Next.js API Routes |
-| **Database** | Supabase (PostgreSQL) |
-| **Authentication** | Supabase Auth (Admin) |
+| **Database** | Supabase (PostgreSQL) with Row Level Security |
+| **Server access** | Supabase secret key for server-side writes (never exposed to the client) |
 | **Deployment** | Vercel |
 
 ### **APIs Integrated**
@@ -115,6 +110,13 @@ QualityScore = (
 → 4. ESPN API Validation → 5. Result Updated → 6. Performance Analysis
 ```
 
+### **Security & Compliance**
+- Row Level Security enabled on all tables; internal archive tables are locked to the secret key only
+- Admin/cron write endpoints protected by a shared `CRON_SECRET`
+- Strict Content Security Policy and security headers (HSTS, X-Frame-Options, etc.); `unsafe-eval` is dev-only
+- No debug/diagnostic endpoints in production
+- Privacy Policy and Terms & Disclaimer pages with responsible-gambling notices
+
 ---
 
 ## 🚀 Getting Started
@@ -135,13 +137,15 @@ cd odds-on-deck
 npm install
 
 # Set up environment variables
-cp env.demo.example .env.local
+cp env.example .env.local
 
-# Add your API keys to .env.local
+# Add your keys to .env.local
+DATABASE_URL=postgresql://user:password@host:port/db
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+SUPABASE_SECRET_KEY=your_supabase_secret_key
 ODDS_API_KEY=your_odds_api_key
+CRON_SECRET=a_long_random_string
 
 # Run development server
 npm run dev
@@ -155,10 +159,12 @@ Open [http://localhost:3000](http://localhost:3000)
 
 | Variable | Description | Required |
 |----------|-------------|----------|
+| `DATABASE_URL` | PostgreSQL connection string (Prisma) | ✅ |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL | ✅ |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anonymous key | ✅ |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase admin key (for writes) | ✅ |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anonymous (browser) key — RLS enforced | ✅ |
+| `SUPABASE_SECRET_KEY` | Supabase secret key for server-side writes (bypasses RLS) | ✅ |
 | `ODDS_API_KEY` | The Odds API key | ✅ |
+| `CRON_SECRET` | Shared secret protecting admin/cron write endpoints | ✅ |
 
 ### **API Keys**
 - **The Odds API** - Free Tier: 500 requests/month → [Get Key](https://the-odds-api.com)
@@ -178,8 +184,9 @@ Open [http://localhost:3000](http://localhost:3000)
 | Parlays | `/parlays` | Parlay generator & history |
 | Validation | `/validation` | Accuracy tracking dashboard |
 | Insights | `/insights` | Performance analysis |
-| Training | `/training` | Mock prop generation |
 | DFS | `/dfs` | Daily fantasy rankings |
+| Privacy | `/privacy` | Privacy policy |
+| Terms | `/terms` | Terms & disclaimer |
 
 ---
 
@@ -212,7 +219,8 @@ npm run export:stats # Export performance stats
 - [x] Comprehensive validation system ✅
 - [x] Supabase database migration ✅
 - [x] Performance insights dashboard ✅
-- [x] Training mode for development ✅
+- [x] Security hardening (RLS, CSP headers, privacy/terms) ✅
+- [x] Terminal-style design system & brand refresh ✅
 - [ ] Add NBA, Soccer support
 - [ ] User accounts & saved preferences
 - [ ] Mobile app (React Native)
