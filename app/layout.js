@@ -2,6 +2,7 @@ import './globals.css'
 import { GeistSans } from 'geist/font/sans'
 import { GeistMono } from 'geist/font/mono'
 import MobileNav from '../components/MobileNav'
+import { OddsOnDeckLogo } from '../components/ui/OddsOnDeckLogo'
 import { Analytics } from '@vercel/analytics/next'
 
 const SITE_URL = 'https://oddsondeck.com'
@@ -31,20 +32,11 @@ export const metadata = {
     siteName: SITE_NAME,
     title: `${SITE_NAME} — Sports Betting Analytics & Edge Detection`,
     description: SITE_DESCRIPTION,
-    images: [
-      {
-        url: '/og-image.png',
-        width: 1200,
-        height: 630,
-        alt: `${SITE_NAME} — Data-driven sports betting analytics`,
-      },
-    ],
   },
   twitter: {
     card: 'summary_large_image',
     title: `${SITE_NAME} — Sports Betting Analytics & Edge Detection`,
     description: SITE_DESCRIPTION,
-    images: ['/og-image.png'],
   },
   robots: {
     index: true,
@@ -120,10 +112,8 @@ export default function RootLayout({ children }) {
         <nav className="sticky top-0 z-50 border-b border-white/[0.06] bg-bg/80 backdrop-blur-md">
           <div className="max-w-screen-xl mx-auto px-4 md:px-6">
             <div className="flex items-center gap-6 h-12">
-              <a href="/" className="flex items-center gap-2 shrink-0">
-                <span className="text-[13px] font-semibold tracking-tight text-slate-100">
-                  Odds on Deck
-                </span>
+              <a href="/" className="flex items-center shrink-0">
+                <OddsOnDeckLogo size="sm" />
               </a>
               <div className="hidden sm:flex items-center gap-1">
                 {NAV_LINKS.map((link) => (
@@ -145,7 +135,7 @@ export default function RootLayout({ children }) {
         <footer className="border-t border-white/[0.06] mt-8">
           <div className="max-w-screen-xl mx-auto px-4 md:px-6 py-6 space-y-3">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px]">
-              <span className="font-semibold text-slate-300">Odds on Deck</span>
+              <OddsOnDeckLogo size="sm" />
               <a href="/privacy" className="text-slate-400 hover:text-slate-100 transition-colors duration-100">Privacy</a>
               <a href="/terms" className="text-slate-400 hover:text-slate-100 transition-colors duration-100">Terms &amp; Disclaimer</a>
             </div>
