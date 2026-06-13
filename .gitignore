@@ -58,3 +58,7 @@ manual-*.js
 # Documentation Archive
 /docs/archive/
 
+# Personal reference docs — keep local only (README files stay tracked)
+*.md
+!README.md
+
