@@ -4,6 +4,9 @@ export default async function sitemap() {
   const staticPages = [
     { url: SITE_URL, lastModified: new Date(), changeFrequency: 'daily', priority: 1.0 },
     { url: `${SITE_URL}/games`, lastModified: new Date(), changeFrequency: 'hourly', priority: 0.9 },
+    { url: `${SITE_URL}/mlb`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.9 },
+    { url: `${SITE_URL}/nfl`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.9 },
+    { url: `${SITE_URL}/nhl`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.9 },
     { url: `${SITE_URL}/picks`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.9 },
     { url: `${SITE_URL}/props`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.9 },
     { url: `${SITE_URL}/parlays`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.8 },

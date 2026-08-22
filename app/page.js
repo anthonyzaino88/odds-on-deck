@@ -58,13 +58,13 @@ export default async function HomePage() {
             const cfg = SPORT_CONFIG[sport]
             return (
               <div key={sport}>
-                <div className="flex items-center gap-2 mb-2">
+                <Link href={`/${sport}`} className="flex items-center gap-2 mb-2 w-fit group">
                   <SportBadge sport={sport} />
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 group-hover:text-slate-300 transition-colors">
                     <span className={`font-semibold tabular-nums font-mono ${cfg.text}`}>{list.length}</span>
                     {' '}{SPORT_SUB[sport]}
                   </p>
-                </div>
+                </Link>
                 {list.length > 0 ? (
                   <ul className="flex flex-wrap gap-1.5">
                     {list.map((game) => (
