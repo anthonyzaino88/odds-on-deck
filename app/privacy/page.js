@@ -1,4 +1,7 @@
 export const metadata = {
+  alternates: {
+    canonical: 'https://oddsondeck.com/privacy',
+  },
   title: 'Privacy Policy',
   description: 'How Odds on Deck collects, uses, and protects information.',
 }

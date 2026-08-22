@@ -1,4 +1,7 @@
 export const metadata = {
+  alternates: {
+    canonical: 'https://oddsondeck.com/games',
+  },
   title: "Today's Slate — Live Games & Scores",
   description: "Today's MLB, NFL, and NHL games with live scores, real-time odds, and detailed matchup analytics. Track every game on the slate.",
   openGraph: {

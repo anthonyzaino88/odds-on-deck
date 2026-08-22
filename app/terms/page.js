@@ -1,4 +1,7 @@
 export const metadata = {
+  alternates: {
+    canonical: 'https://oddsondeck.com/terms',
+  },
   title: 'Terms & Disclaimer',
   description: 'Terms of use and important disclaimers for Odds on Deck.',
 }

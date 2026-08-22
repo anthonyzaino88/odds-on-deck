@@ -1,4 +1,7 @@
 export const metadata = {
+  alternates: {
+    canonical: 'https://oddsondeck.com/parlays',
+  },
   title: 'Parlay Generator — Smart Correlated Parlays',
   description: 'Build smarter parlays with correlated picks and edge-based selection. Data-driven parlay combinations for MLB, NFL, and NHL.',
   openGraph: {

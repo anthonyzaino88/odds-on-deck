@@ -1,6 +1,9 @@
 // Insights Dashboard - Learn what's working and what's not
 
 export const metadata = {
+  alternates: {
+    canonical: 'https://oddsondeck.com/insights',
+  },
   title: 'Insights — Performance Breakdown',
   description: 'Deep analysis of what is working and what is not. Performance breakdowns by sport, prop type, and player to refine your betting strategy.',
   openGraph: {

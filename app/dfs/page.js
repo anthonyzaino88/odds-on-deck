@@ -3,6 +3,10 @@ import Link from 'next/link'
 export const dynamic = 'force-dynamic'
 
 export const metadata = {
+  alternates: {
+    canonical: 'https://oddsondeck.com/dfs',
+  },
+  robots: { index: false, follow: true },
   title: 'DFS Optimizer — Coming Soon',
   description: 'Daily Fantasy Sports player value rankings and salary-based projections for MLB, NFL, and NHL. Coming soon to Odds on Deck.',
   openGraph: {

@@ -7,9 +7,11 @@ export default async function sitemap() {
     { url: `${SITE_URL}/picks`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.9 },
     { url: `${SITE_URL}/props`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.9 },
     { url: `${SITE_URL}/parlays`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.8 },
-    { url: `${SITE_URL}/dfs`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.8 },
+    { url: `${SITE_URL}/dfs`, lastModified: new Date(), changeFrequency: 'weekly', priority: 0.3 },
     { url: `${SITE_URL}/validation`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.7 },
     { url: `${SITE_URL}/insights`, lastModified: new Date(), changeFrequency: 'weekly', priority: 0.6 },
+    { url: `${SITE_URL}/privacy`, lastModified: new Date(), changeFrequency: 'yearly', priority: 0.3 },
+    { url: `${SITE_URL}/terms`, lastModified: new Date(), changeFrequency: 'yearly', priority: 0.3 },
   ]
 
   let gamePages = []
@@ -20,15 +22,15 @@ export default async function sitemap() {
       process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     )
 
-    // Only include games from the last 7 days — older games have low search value
+    // Only include games from the last 30 days — older games have low search value
     // and waste Google's crawl budget
-    const sevenDaysAgo = new Date()
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+    const thirtyDaysAgo = new Date()
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
 
     const { data: games } = await supabase
       .from('Game')
       .select('id, date, status')
-      .gte('date', sevenDaysAgo.toISOString())
+      .gte('date', thirtyDaysAgo.toISOString())
       .order('date', { ascending: false })
 
     const now = new Date()

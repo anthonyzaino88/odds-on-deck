@@ -41,13 +41,15 @@ import NHLMatchupSection from '../../../components/NHLMatchupSection'
 
 export async function generateMetadata({ params }) {
   const game = await getGameDetail(params.id)
+  const canonical = `https://oddsondeck.com/game/${params.id}`
   if (!game) {
-    return { title: 'Game Not Found' }
+    return { title: 'Game Not Found', alternates: { canonical } }
   }
   
   return {
     title: `${game.away.abbr} @ ${game.home.abbr} - Odds on Deck`,
     description: `Detailed matchup analysis for ${game.away.name} at ${game.home.name}`,
+    alternates: { canonical },
   }
 }
 

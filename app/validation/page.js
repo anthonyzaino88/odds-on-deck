@@ -7,6 +7,9 @@ import MethodologyPanel from '../../components/MethodologyPanel.js'
 import { SportBadge } from '../../components/ui'
 
 export const metadata = {
+  alternates: {
+    canonical: 'https://oddsondeck.com/validation',
+  },
   title: 'Validation — Transparent Record',
   description: 'A transparent record of every pick we track — wins, losses, and pushes across MLB, NFL, and NHL props.',
   openGraph: {

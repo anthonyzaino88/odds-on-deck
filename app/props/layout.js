@@ -1,4 +1,7 @@
 export const metadata = {
+  alternates: {
+    canonical: 'https://oddsondeck.com/props',
+  },
   title: 'Player Props — Rankings & Edge Detection',
   description: 'Real-time player prop rankings for MLB, NFL, and NHL. Find mispriced lines, compare odds across sportsbooks, and spot edges with data-driven analysis.',
   openGraph: {
