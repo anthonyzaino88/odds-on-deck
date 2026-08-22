@@ -135,6 +135,7 @@ export default function RootLayout({ children }) {
               <OddsOnDeckLogo size="sm" />
               <a href="/privacy" className="text-slate-400 hover:text-slate-100 transition-colors duration-100">Privacy</a>
               <a href="/terms" className="text-slate-400 hover:text-slate-100 transition-colors duration-100">Terms &amp; Disclaimer</a>
+              <a href="/glossary" className="text-slate-400 hover:text-slate-100 transition-colors duration-100">Glossary</a>
               <a href="/mlb" className="text-slate-400 hover:text-slate-100 transition-colors duration-100">MLB</a>
               <a href="/nfl" className="text-slate-400 hover:text-slate-100 transition-colors duration-100">NFL</a>
               <a href="/nhl" className="text-slate-400 hover:text-slate-100 transition-colors duration-100">NHL</a>

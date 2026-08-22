@@ -1,4 +1,12 @@
 const SITE_URL = 'https://oddsondeck.com'
+const GLOSSARY_SLUGS = [
+  'edge',
+  'implied-probability',
+  'vig',
+  'quality-score',
+  'line-shopping',
+  'win-probability',
+]
 
 export default async function sitemap() {
   const staticPages = [
@@ -12,6 +20,13 @@ export default async function sitemap() {
     { url: `${SITE_URL}/parlays`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.8 },
     { url: `${SITE_URL}/dfs`, lastModified: new Date(), changeFrequency: 'weekly', priority: 0.3 },
     { url: `${SITE_URL}/validation`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.7 },
+    { url: `${SITE_URL}/glossary`, lastModified: new Date(), changeFrequency: 'weekly', priority: 0.6 },
+    ...GLOSSARY_SLUGS.map((slug) => ({
+      url: `${SITE_URL}/glossary/${slug}`,
+      lastModified: new Date(),
+      changeFrequency: 'weekly',
+      priority: 0.6,
+    })),
     { url: `${SITE_URL}/insights`, lastModified: new Date(), changeFrequency: 'weekly', priority: 0.6 },
     { url: `${SITE_URL}/privacy`, lastModified: new Date(), changeFrequency: 'yearly', priority: 0.3 },
     { url: `${SITE_URL}/terms`, lastModified: new Date(), changeFrequency: 'yearly', priority: 0.3 },

@@ -100,8 +100,8 @@ export default async function ValidationDashboard({ searchParams }) {
         </Link>
         <h1 className="text-xl font-semibold text-slate-100">Transparent Record</h1>
         <p className="text-sm text-slate-400 mt-1.5 max-w-2xl leading-relaxed">
-          An honest, ongoing record of every prop we track &mdash; wins, losses, and pushes.
-          No filters. No cherry-picking.
+          This is the public record. After each game we pull the box score and grade every tracked prop &mdash; wins, losses, and pushes are all listed.
+          No cherry-picking. See the <Link href="/glossary" className="text-slate-300 underline decoration-white/15 underline-offset-2 hover:text-slate-100">glossary</Link> for how we define <Link href="/glossary/edge" className="text-slate-300 underline decoration-white/15 underline-offset-2 hover:text-slate-100">edge</Link>.
         </p>
         <div className="mt-4">
           <Link
@@ -178,6 +178,9 @@ export default async function ValidationDashboard({ searchParams }) {
           </div>
         </div>
       </div>
+
+      {/* Always-visible grading rules — crawlers must see this without JS */}
+      <HowWeGrade />
 
       {/* Methodology panel — explains how we track and grade */}
       <MethodologyPanel minSampleSize={MIN_SAMPLE_SIZE} />
@@ -413,6 +416,38 @@ export default async function ValidationDashboard({ searchParams }) {
   )
 }
 
+
+function HowWeGrade() {
+  return (
+    <div className="rounded-[4px] border border-white/[0.06] bg-surface p-4 sm:p-6">
+      <h2 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-3">How we grade</h2>
+      <p className="text-sm text-slate-400 leading-relaxed mb-3">
+        Every tracked prop is graded from the official box score once the game is final.
+      </p>
+      <ul className="text-sm text-slate-400 leading-relaxed space-y-1.5 list-disc ml-5">
+        <li>
+          <span className="text-slate-200 font-medium">Correct</span> &mdash; actual stat
+          finished on the predicted side of the line
+        </li>
+        <li>
+          <span className="text-slate-200 font-medium">Incorrect</span> &mdash; actual stat
+          finished on the opposite side
+        </li>
+        <li>
+          <span className="text-slate-200 font-medium">Push</span> &mdash; actual stat
+          exactly equals the line (excluded from win-rate math)
+        </li>
+        <li>
+          <span className="text-slate-200 font-medium">Needs review</span> &mdash; we
+          couldn&apos;t resolve the stat from official sources
+        </li>
+      </ul>
+      <p className="text-sm text-slate-400 leading-relaxed mt-3">
+        Hit rate is correct / (correct + incorrect). Pushes are excluded.
+      </p>
+    </div>
+  )
+}
 function SportCard({ sport, stats }) {
   return (
     <div className="rounded-[4px] border border-white/[0.06] bg-surface p-4">

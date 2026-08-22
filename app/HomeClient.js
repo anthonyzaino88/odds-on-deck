@@ -31,10 +31,14 @@ function StepCard({ number, title, description }) {
   )
 }
 
-function ConceptCard({ term, definition, example }) {
+function ConceptCard({ term, definition, example, href }) {
   return (
     <div className="bg-surface border border-white/[0.06] rounded-[4px] p-4">
-      <dt className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-1.5">{term}</dt>
+      <dt className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-1.5">
+        <Link href={href} className="hover:text-slate-300 transition-colors">
+          {term}
+        </Link>
+      </dt>
       <dd className="text-slate-300 text-xs leading-relaxed mb-1.5">{definition}</dd>
       {example && (
         <dd className="text-[11px] text-slate-600 leading-relaxed">{example}</dd>
@@ -322,12 +326,12 @@ export default function HomeClient() {
       <section className="mb-10">
         <SectionHeading title="Key Concepts" />
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <ConceptCard term="Edge" definition="The percentage difference between one book's implied probability and the vig-removed market consensus. A positive edge means that book is offering a better price than the rest of the market." example="If consensus is 55% but one book implies only 48%, that book is paying more than the market thinks it should." />
-          <ConceptCard term="Implied Probability" definition="The break-even win rate embedded in the odds. American odds of -110 imply ~52.4% — you need to win more than that to profit long-term." example="+150 odds imply 40% probability. If the true chance is 50%, that's a value bet." />
-          <ConceptCard term="Vig (Juice)" definition="The sportsbook's built-in margin. Both sides of a bet add up to more than 100%. We strip the vig to see the true market probability." example="-110 on both sides = ~104.8% total. The extra 4.8% is the book's cut." />
-          <ConceptCard term="Quality Score" definition="A sorting aid (0-10) combining line deviation from consensus, the number of books offering the prop, and implied probability. It's context, not a recommendation." example="Scores above 7 typically mean strong agreement across books and a meaningful gap from consensus." />
-          <ConceptCard term="Line Shopping" definition="Comparing the same bet across multiple sportsbooks to find the best price. A half-point or +10 in odds compounds over hundreds of bets." example="Player Over 2.5 hits might be -130 on DraftKings but -110 on BetRivers." />
-          <ConceptCard term="Win Probability" definition="The market-implied chance the bet wins, derived from stripping the vig from the consensus line. This is what the collective market thinks, not a proprietary model." />
+          <ConceptCard href="/glossary/edge" term="Edge" definition="The percentage difference between one book's implied probability and the vig-removed market consensus. A positive edge means that book is offering a better price than the rest of the market." example="If consensus is 55% but one book implies only 48%, that book is paying more than the market thinks it should." />
+          <ConceptCard href="/glossary/implied-probability" term="Implied Probability" definition="The break-even win rate embedded in the odds. American odds of -110 imply ~52.4% — you need to win more than that to profit long-term." example="+150 odds imply 40% probability. If the true chance is 50%, that's a value bet." />
+          <ConceptCard href="/glossary/vig" term="Vig (Juice)" definition="The sportsbook's built-in margin. Both sides of a bet add up to more than 100%. We strip the vig to see the true market probability." example="-110 on both sides = ~104.8% total. The extra 4.8% is the book's cut." />
+          <ConceptCard href="/glossary/quality-score" term="Quality Score" definition="A sorting aid (0-10) combining line deviation from consensus, the number of books offering the prop, and implied probability. It's context, not a recommendation." example="Scores above 7 typically mean strong agreement across books and a meaningful gap from consensus." />
+          <ConceptCard href="/glossary/line-shopping" term="Line Shopping" definition="Comparing the same bet across multiple sportsbooks to find the best price. A half-point or +10 in odds compounds over hundreds of bets." example="Player Over 2.5 hits might be -130 on DraftKings but -110 on BetRivers." />
+          <ConceptCard href="/glossary/win-probability" term="Win Probability" definition="The market-implied chance the bet wins, derived from stripping the vig from the consensus line. This is what the collective market thinks, not a proprietary model." />
         </dl>
       </section>
 
