@@ -997,10 +997,48 @@ async function fetchPlayerProps(sport, date, oddsGames) {
     }
     
     console.log(`  📅 Found ${oddsGames.length} games from Odds API`)
+
+    // Only fetch props for Odds API events already mapped to a Game (oddsApiEventId).
+    // Same expanded slate window as mapAndSaveEventIds (±3 days / +4 days).
+    const dateObj = new Date(date)
+    const dateStart = new Date(dateObj)
+    dateStart.setHours(0, 0, 0, 0)
+    dateStart.setDate(dateStart.getDate() - 3)
+    const dateEnd = new Date(dateObj)
+    dateEnd.setHours(23, 59, 59, 999)
+    dateEnd.setDate(dateEnd.getDate() + 4)
+
+    const { data: mappedRows, error: mappedError } = await supabase
+      .from('Game')
+      .select('oddsApiEventId')
+      .eq('sport', sport)
+      .not('oddsApiEventId', 'is', null)
+      .gte('date', dateStart.toISOString())
+      .lte('date', dateEnd.toISOString())
+
+    if (mappedError) {
+      console.log(`  ⚠️  Error loading mapped ESPN games for ${sport.toUpperCase()} props: ${mappedError.message}`)
+      console.log(`  ⚠️  No mapped ESPN games for ${sport.toUpperCase()} props — skipping ${oddsGames.length} Odds API events`)
+      return []
+    }
+
+    const mappedEventIds = new Set(
+      (mappedRows || []).map(row => row.oddsApiEventId).filter(Boolean)
+    )
+    const totalOddsEvents = oddsGames.length
+    const mappedOddsGames = oddsGames.filter(game => mappedEventIds.has(game.id))
+    const skippedUnmapped = totalOddsEvents - mappedOddsGames.length
+
+    if (mappedOddsGames.length === 0) {
+      console.log(`  ⚠️  No mapped ESPN games for ${sport.toUpperCase()} props — skipping ${totalOddsEvents} Odds API events`)
+      return []
+    }
+
+    console.log(`  🔗 Fetching props for ${mappedOddsGames.length} mapped events (skipped ${skippedUnmapped} unmapped Odds API events)`)
     
     let allProps = []
     
-    for (const game of oddsGames) {
+    for (const game of mappedOddsGames) {
       // Use The Odds API's event ID (hash format)
       const eventId = game.id
       const gameDisplayName = game.home_team && game.away_team 
