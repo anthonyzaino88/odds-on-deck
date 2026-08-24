@@ -59,11 +59,12 @@ export async function GET(request) {
             v.playerName === leg.playerName && 
             v.propType === leg.propType
           )
+          const actualFromResult = String(leg.actualResult || '').match(/Actual:\s*(\d+(?:\.\d+)?)/i)
           return {
             ...leg,
-            validationResult: validation?.result || null,
+            validationResult: validation?.result || (leg.outcome === 'won' ? 'correct' : leg.outcome === 'lost' ? 'incorrect' : leg.outcome === 'push' ? 'push' : null),
             validationStatus: validation?.status || null,
-            actualValue: validation?.actualValue || null
+            actualValue: validation?.actualValue ?? (actualFromResult ? Number(actualFromResult[1]) : null)
           }
         })
       }
@@ -96,9 +97,11 @@ function calculatePerformanceMetrics(parlays) {
   const completedParlays = parlays.filter(p => p.outcome && p.outcome !== 'pending')
   const wonParlays = completedParlays.filter(p => p.outcome === 'won')
   const lostParlays = completedParlays.filter(p => p.outcome === 'lost')
+  const pushParlays = completedParlays.filter(p => p.outcome === 'push')
+  const decidedParlays = wonParlays.length + lostParlays.length
 
   const totalParlays = completedParlays.length
-  const winRate = totalParlays > 0 ? (wonParlays.length / totalParlays) * 100 : 0
+  const winRate = decidedParlays > 0 ? (wonParlays.length / decidedParlays) * 100 : 0
 
   // Calculate average edge and expected value
   const avgEdge = parlays.length > 0 
@@ -118,6 +121,7 @@ function calculatePerformanceMetrics(parlays) {
     totalParlays: totalParlays,
     wonParlays: wonParlays.length,
     lostParlays: lostParlays.length,
+    pushParlays: pushParlays.length,
     winRate: Math.round(winRate * 100) / 100,
     avgEdge: Math.round(avgEdge * 1000) / 1000,
     avgExpectedValue: Math.round(avgExpectedValue * 1000) / 1000,

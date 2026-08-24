@@ -97,7 +97,7 @@ export async function POST(request) {
     for (const leg of parlay.legs) {
       if (leg.betType === 'prop' || leg.type) {
         const propData = {
-          id: `prop-${leg.playerId || leg.playerName}-${leg.propType || leg.type}-${leg.gameId}`,
+          id: `prop-${leg.playerId || leg.playerName}-${leg.propType || leg.type}-${leg.gameId}-${parlayId}`,
           playerId: leg.playerId,
           playerName: leg.playerName,
           gameId: leg.gameId,

@@ -61,6 +61,7 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
       case 'won': return 'bg-green-500/10 text-green-400 border-green-500/20'
       case 'lost': return 'bg-red-500/10 text-red-400 border-red-500/20'
       case 'pending': return 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+      case 'push': return 'bg-amber-500/10 text-amber-400 border-amber-500/20'
       case 'cancelled': return 'bg-white/[0.05] text-slate-400 border-white/[0.06]'
       default: return 'bg-white/[0.05] text-slate-400 border-white/[0.06]'
     }
@@ -146,7 +147,7 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
           <div className="bg-bg border border-white/[0.06] rounded-[4px] p-3">
             <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Win Rate</div>
             <div className="mt-1 text-2xl font-semibold text-green-400 tabular-nums font-mono">{performance.winRate.toFixed(1)}%</div>
-            <div className="text-[11px] text-slate-500 mt-1 tabular-nums font-mono">{performance.wonParlays}W / {performance.lostParlays}L</div>
+            <div className="text-[11px] text-slate-500 mt-1 tabular-nums font-mono">{performance.wonParlays}W / {performance.lostParlays}L{performance.pushParlays ? ` / ${performance.pushParlays}P` : ''}</div>
           </div>
           <div className="bg-bg border border-white/[0.06] rounded-[4px] p-3">
             <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Avg Edge</div>
