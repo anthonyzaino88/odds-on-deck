@@ -94,6 +94,55 @@ function normalizeStatus(status) {
   return statusMap[cleanStatus] || cleanStatus
 }
 
+function isLiveStatus(status) {
+  const value = String(status || '').toLowerCase()
+  return value.includes('progress') || value === 'halftime' || value.includes('delay')
+}
+
+function formatMatchup(game, awayScore, homeScore) {
+  const away = game.away?.abbr || '?'
+  const home = game.home?.abbr || '?'
+  return `${away} ${awayScore ?? 0} @ ${home} ${homeScore ?? 0}`
+}
+
+function formatLiveDetail(sport, liveData, status) {
+  const parts = [status]
+  if (sport === 'mlb' && liveData?.inning) {
+    const half = liveData.inningHalf ? `${liveData.inningHalf} ` : ''
+    parts.push(`${half}${liveData.inning}`.trim())
+  } else if (sport === 'nhl' && liveData?.period) {
+    parts.push(liveData.periodDescriptor || `P${liveData.period}${liveData.clock ? ` ${liveData.clock}` : ''}`)
+  } else if (liveData?.lastPlay) {
+    parts.push(liveData.lastPlay)
+  }
+  return parts.filter(Boolean).join(' · ')
+}
+
+function printScoreRecap({ live, changes, totalUpdated, totalErrors, duration }) {
+  console.log('\n----- SCORE RECAP -----')
+  console.log(`Ran at: ${new Date().toISOString()}`)
+  console.log(`Rows written: ${totalUpdated}  Errors: ${totalErrors}  Duration: ${duration}s`)
+
+  console.log('\nLIVE GAMES:')
+  if (!live.length) {
+    console.log('  None in progress')
+  } else {
+    for (const game of live) {
+      console.log(`  ${game.sport.toUpperCase()}  ${game.line}`)
+    }
+  }
+
+  console.log('\nWHAT CHANGED:')
+  if (!changes.length) {
+    console.log('  No score or status changes this run')
+  } else {
+    for (const change of changes) {
+      console.log(`  ${change.sport.toUpperCase()}  ${change.line}`)
+    }
+  }
+  console.log('----- END RECAP -----\n')
+}
+
 async function updateScoresForSport(sport) {
   console.log(`\n🔄 Updating ${sport.toUpperCase()} scores...\n`)
   
@@ -111,18 +160,20 @@ async function updateScoresForSport(sport) {
   
   if (error) {
     console.error(`❌ Error fetching ${sport} games:`, error.message)
-    return { updated: 0, errors: 1 }
+    return { updated: 0, errors: 1, live: [], changes: [] }
   }
   
   if (!games || games.length === 0) {
     console.log(`ℹ️  No active ${sport.toUpperCase()} games found (last 3 days)`)
-    return { updated: 0, errors: 0 }
+    return { updated: 0, errors: 0, live: [], changes: [] }
   }
   
   console.log(`📊 Found ${games.length} active ${sport.toUpperCase()} games\n`)
   
   let updated = 0
   let errors = 0
+  const live = []
+  const changes = []
   
   for (const game of games) {
     try {
@@ -161,6 +212,10 @@ async function updateScoresForSport(sport) {
           console.log(`  ⏰ Game is ${Math.round(gameAge)}h old with no data — marking as final`)
           await supabase.from('Game').update({ status: 'final', lastUpdate: new Date().toISOString() }).eq('id', game.id)
           updated++
+          changes.push({
+            sport,
+            line: `${formatMatchup(game, game.awayScore, game.homeScore)}  scheduled → final (stale, no live data)`
+          })
         } else {
           console.log(`  ⚠️  No live data available`)
         }
@@ -233,6 +288,28 @@ async function updateScoresForSport(sport) {
         const statusDisplay = updateData.status
         console.log(`  ✅ Updated: ${scoreDisplay} - Status: ${statusDisplay}`)
         updated++
+
+        const prevAway = game.awayScore ?? 0
+        const prevHome = game.homeScore ?? 0
+        const prevStatus = normalizeStatus(game.status)
+        const nextAway = updateData.awayScore ?? 0
+        const nextHome = updateData.homeScore ?? 0
+        const scoreOrStatusChanged =
+          prevAway !== nextAway || prevHome !== nextHome || prevStatus !== resolvedStatus
+
+        if (isLiveStatus(resolvedStatus)) {
+          live.push({
+            sport,
+            line: `${formatMatchup(game, nextAway, nextHome)}  — ${formatLiveDetail(sport, liveData, resolvedStatus)}`
+          })
+        }
+
+        if (scoreOrStatusChanged) {
+          changes.push({
+            sport,
+            line: `${game.away?.abbr || '?'} @ ${game.home?.abbr || '?'}  ${prevAway}-${prevHome} ${prevStatus} → ${nextAway}-${nextHome} ${resolvedStatus}`
+          })
+        }
       }
       
       // Small delay to avoid rate limiting
@@ -249,7 +326,7 @@ async function updateScoresForSport(sport) {
   console.log(`  ❌ Errors: ${errors}`)
   console.log(`  📋 Total: ${games.length}`)
   
-  return { updated, errors }
+  return { updated, errors, live, changes }
 }
 
 async function main() {
@@ -265,26 +342,16 @@ async function main() {
   
   let totalUpdated = 0
   let totalErrors = 0
-  
-  if (sport === 'all') {
-    // Update NHL
-    const nhlResult = await updateScoresForSport('nhl')
-    totalUpdated += nhlResult.updated
-    totalErrors += nhlResult.errors
-    
-    // Update NFL
-    const nflResult = await updateScoresForSport('nfl')
-    totalUpdated += nflResult.updated
-    totalErrors += nflResult.errors
-    
-    // Update MLB
-    const mlbResult = await updateScoresForSport('mlb')
-    totalUpdated += mlbResult.updated
-    totalErrors += mlbResult.errors
-  } else {
-    const result = await updateScoresForSport(sport)
+  const live = []
+  const changes = []
+
+  const sports = sport === 'all' ? ['nhl', 'nfl', 'mlb'] : [sport]
+  for (const nextSport of sports) {
+    const result = await updateScoresForSport(nextSport)
     totalUpdated += result.updated
     totalErrors += result.errors
+    live.push(...result.live)
+    changes.push(...result.changes)
   }
   
   const duration = ((Date.now() - startTime) / 1000).toFixed(1)
@@ -294,6 +361,8 @@ async function main() {
   console.log(`  📊 Total updated: ${totalUpdated}`)
   console.log(`  ❌ Total errors: ${totalErrors}`)
   console.log(`${'='.repeat(60)}\n`)
+
+  printScoreRecap({ live, changes, totalUpdated, totalErrors, duration })
 }
 
 main().catch(console.error)
