@@ -20,9 +20,10 @@ export default function ROITooltip() {
           <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 p-4 bg-slate-800 border border-slate-600 rounded-xl shadow-2xl text-left">
             <h4 className="text-sm font-semibold text-white mb-2">How ROI is calculated</h4>
             <p className="text-xs text-gray-300 leading-relaxed mb-2">
-              Each prediction is treated as a 1-unit flat bet. When recorded odds are available, 
-              wins pay (decimal odds - 1) units. Without recorded odds, we assume standard -110 
-              (0.91 units per win).
+              Each prediction is treated as a 1-unit flat bet. Recorded odds are detected as
+              American (abs 100+, including +110 stored as 110, and negatives like -150) or
+              decimal (1.01-99.99). A +110 win is +1.10 units, not +109. Without recorded odds,
+              we assume standard -110 (0.91 units per win). Losses are -1 unit.
             </p>
             <div className="text-xs text-gray-400 bg-slate-900 rounded-lg p-2 font-mono">
               ROI = Total Units P/L / Total Bets

@@ -21,8 +21,8 @@ const STRATEGIES = [
 const MODE_DESCRIPTIONS = {
   safe: 'Picks with 52%+ win probability. The safest, most consistent opportunities.',
   balanced: 'Picks with optimal quality scores. Best combination of probability and edge.',
-  value: 'Picks with 10%+ edge. Market inefficiencies with higher potential value.',
-  all: 'All available picks sorted by quality, regardless of filters.',
+  value: 'Picks ranked by line-shop edge. Market inefficiencies with higher potential value.',
+  all: 'All available picks sorted by line-shop edge, regardless of other filters.',
 }
 
 // Quality-tier dot legend (matches TIER_DOT colors below)
@@ -53,7 +53,7 @@ function TierLegend() {
 export default function PicksPage() {
   const [picks, setPicks] = useState([])
   const [loading, setLoading] = useState(true)
-  const [filterMode, setFilterMode] = useState('safe')
+  const [filterMode, setFilterMode] = useState('value')
   const [lastUpdated, setLastUpdated] = useState(null)
 
   useEffect(() => {
@@ -384,7 +384,7 @@ function pickDetail(pick, fallback) {
 }
 
 function PickCard({ pick, rank }) {
-  const qualityTier = getQualityTier(pick.qualityScore || 0)
+  const qualityTier = getQualityTier(pick.qualityScore || 0, pick)
   const displayOdds = decimalToAmerican(pick.odds)
   const edge = pick.edge || 0
   const probability = (pick.probability || 0.5) * 100
@@ -440,7 +440,7 @@ function PickCard({ pick, rank }) {
 }
 
 function PickRow({ pick }) {
-  const qualityTier = getQualityTier(pick.qualityScore || 0)
+  const qualityTier = getQualityTier(pick.qualityScore || 0, pick)
   const displayOdds = decimalToAmerican(pick.odds)
   const edge = pick.edge || 0
   const probability = (pick.probability || 0.5) * 100

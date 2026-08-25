@@ -21,6 +21,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
 import { calculateQualityScore } from '../lib/quality-score.js'
+import { isJuiceTrap } from '../lib/juice-traps.js'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -1505,7 +1506,8 @@ async function autoSaveTopPropsForValidation(sport) {
   const now = new Date().toISOString()
   
   // Fetch top quality props from cache
-  const { data: topProps, error } = await supabase
+  // Oversample so the juice-trap filter still leaves up to 50 real plays
+  const { data: candidates, error } = await supabase
     .from('PlayerPropCache')
     .select('*')
     .eq('sport', sport)
@@ -1514,13 +1516,15 @@ async function autoSaveTopPropsForValidation(sport) {
     .gte('qualityScore', 35)  // Only high quality
     .gte('probability', 0.55) // Only 55%+ probability
     .order('qualityScore', { ascending: false })
-    .limit(50)  // Top 50 per sport
+    .limit(250)
   
   if (error) {
     console.log(`  ⚠️ Error fetching top props: ${error.message}`)
     return
   }
   
+  const topProps = (candidates || []).filter((prop) => !isJuiceTrap(prop)).slice(0, 50)
+
   if (!topProps || topProps.length === 0) {
     console.log(`  ℹ️ No high-quality props found to save for validation`)
     return

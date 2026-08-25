@@ -14,12 +14,12 @@ export async function GET(request) {
     }
 
     const { searchParams } = new URL(request.url)
-    const mode = searchParams.get('mode') || 'safe'
+    const mode = searchParams.get('mode') || 'value'
     const includeInsights = searchParams.get('insights') !== 'false' // Default to true
     
     // Validate mode
     const validModes = ['safe', 'balanced', 'value', 'all']
-    const filterMode = validModes.includes(mode) ? mode : 'safe'
+    const filterMode = validModes.includes(mode) ? mode : 'value'
     
     // Generate picks with the selected filter mode
     const picks = await generateEditorPicks(filterMode)

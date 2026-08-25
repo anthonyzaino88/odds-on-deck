@@ -7,6 +7,7 @@ config({ path: '.env.local' })
 
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
+import { isJuiceTrap } from '../lib/juice-traps.js'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -52,7 +53,7 @@ async function saveTopPropsForValidation() {
       .gte('probability', 0.60) // 60%+ win probability
       .gte('qualityScore', 40)  // Elite quality (top tier)
       .order('qualityScore', { ascending: false })
-      .limit(50)
+      .limit(200)
     
     // Tier 2: High-quality props (next 75)
     const { data: highProps } = await supabase
@@ -64,7 +65,7 @@ async function saveTopPropsForValidation() {
       .gte('qualityScore', 35)  // High quality
       .lt('qualityScore', 40)   // But not elite
       .order('qualityScore', { ascending: false })
-      .limit(75)
+      .limit(200)
     
     // Tier 3: Good props (next 75)
     const { data: goodProps } = await supabase
@@ -76,13 +77,19 @@ async function saveTopPropsForValidation() {
       .gte('qualityScore', 30)  // Good quality
       .lt('qualityScore', 35)   // But not high
       .order('qualityScore', { ascending: false })
-      .limit(75)
+      .limit(200)
     
-    // Combine all tiers
+    // Drop juice traps first, then re-apply original per-tier caps
+    const eliteClean = (eliteProps || []).filter((prop) => !isJuiceTrap(prop)).slice(0, 50)
+    const eliteIds = new Set(eliteClean.map((prop) => prop.propId))
+    const highClean = (highProps || []).filter((prop) => !isJuiceTrap(prop) && !eliteIds.has(prop.propId)).slice(0, 75)
+    const highIds = new Set(highClean.map((prop) => prop.propId))
+    const goodClean = (goodProps || []).filter((prop) => !isJuiceTrap(prop) && !eliteIds.has(prop.propId) && !highIds.has(prop.propId)).slice(0, 75)
+
     const allProps = [
-      ...(eliteProps || []),
-      ...(highProps || []),
-      ...(goodProps || [])
+      ...eliteClean,
+      ...highClean,
+      ...goodClean
     ]
     
     if (allProps.length === 0) {
@@ -91,9 +98,9 @@ async function saveTopPropsForValidation() {
     }
     
     console.log('📊 Props by tier:')
-    console.log(`   🏆 Elite (Q40+, P60+): ${eliteProps?.length || 0}`)
-    console.log(`   ⭐ High (Q35-39, P55+): ${highProps?.length || 0}`)
-    console.log(`   ✅ Good (Q30-34, P52+): ${goodProps?.length || 0}`)
+    console.log(`   🏆 Elite (Q40+, P60+): ${eliteClean.length}`)
+    console.log(`   ⭐ High (Q35-39, P55+): ${highClean.length}`)
+    console.log(`   ✅ Good (Q30-34, P52+): ${goodClean.length}`)
     console.log(`   📈 Total: ${allProps.length}\n`)
     
     // Group by sport for visibility
@@ -146,8 +153,8 @@ async function saveTopPropsForValidation() {
         }
         
         // Determine which tier this prop belongs to
-        const tier = eliteProps?.some(p => p.propId === prop.propId) ? 'elite' :
-                     highProps?.some(p => p.propId === prop.propId) ? 'high' : 'good'
+        const tier = eliteClean.some(p => p.propId === prop.propId) ? 'elite' :
+                     highClean.some(p => p.propId === prop.propId) ? 'high' : 'good'
         
         // Save to validation system directly
         const validationData = {
