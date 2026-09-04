@@ -427,6 +427,7 @@ model PropValidation {
   odds            Int?     // American odds
   probability     Float?   // Win probability
   qualityScore    Float?   // Combined quality metric (0-100)
+  numBooks        Int?     // Books seen at save time; null on historical rows
   
   // Source tracking
   source          String   @default("system_generated") // "user_saved", "parlay_leg", "system_generated"
@@ -593,6 +594,7 @@ model PlayerPropCache {
   edge            Float
   confidence      String
   qualityScore    Float
+  numBooks        Int?     // Books seen at save time; null on historical rows
   
   // Metadata
   sport           String   // "mlb", "nfl", "nhl"

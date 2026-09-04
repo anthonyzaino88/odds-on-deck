@@ -7,7 +7,7 @@ config({ path: '.env.local' })
 
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
-import { isJuiceTrap } from '../lib/juice-traps.js'
+import { isJuiceTrap, attachNumBooks } from '../lib/juice-traps.js'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -157,7 +157,7 @@ async function saveTopPropsForValidation() {
                      highClean.some(p => p.propId === prop.propId) ? 'high' : 'good'
         
         // Save to validation system directly
-        const validationData = {
+        const validationData = attachNumBooks({
           id: generateId(),
           propId: prop.propId,
           gameIdRef: prop.gameId,
@@ -181,7 +181,7 @@ async function saveTopPropsForValidation() {
           sport: prop.sport,
           timestamp: new Date().toISOString(),
           notes: `tier:${tier}` // Track which tier for analysis
-        }
+        }, prop)
         
         const { data: validation, error: saveError } = await supabase
           .from('PropValidation')

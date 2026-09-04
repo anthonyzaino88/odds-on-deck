@@ -21,6 +21,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
 import { calculateQualityScore } from '../lib/quality-score.js'
+import { attachNumBooks } from '../lib/juice-traps.js'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -1242,8 +1243,8 @@ async function savePlayerProps(gameProps, sport) {
               edge: edge,
               confidence: confidence,
               qualityScore: qualityScore,
-              sport,
               bookmaker: bookmaker.title,
+              sport,
               gameTime: new Date().toISOString(),
               fetchedAt: new Date().toISOString(),
               expiresAt: new Date(Date.now() + CACHE_DURATION.PROPS).toISOString(),
@@ -1257,6 +1258,13 @@ async function savePlayerProps(gameProps, sport) {
     }
   }
   
+  // Count books per player/market/line/pick before dedupe. Honest observed count only.
+  const booksByKey = {}
+  for (const prop of propsToSave) {
+    const key = `${prop.gameId}|${prop.playerName}|${prop.type}|${prop.threshold}|${prop.pick}`
+    booksByKey[key] = (booksByKey[key] || 0) + 1
+  }
+
   // DEDUPLICATE: Keep best odds for each unique propId
   const propMap = {}
   for (const prop of propsToSave) {
@@ -1264,7 +1272,11 @@ async function savePlayerProps(gameProps, sport) {
       propMap[prop.propId] = prop
     }
   }
-  const uniqueProps = Object.values(propMap)
+  const uniqueProps = Object.values(propMap).map((prop) => {
+    const key = `${prop.gameId}|${prop.playerName}|${prop.type}|${prop.threshold}|${prop.pick}`
+    const numBooks = booksByKey[key]
+    return numBooks ? { ...prop, numBooks } : prop
+  })
   
   console.log(`  📦 Batch saving ${uniqueProps.length} unique props (${propsToSave.length} total with duplicates)...`)
   let saved = 0
@@ -1368,7 +1380,7 @@ async function autoSaveTopPropsForValidation(sport) {
                    prop.qualityScore >= 35 ? 'high' : 'good'
       
       // Save to validation
-      const validationData = {
+      const validationData = attachNumBooks({
         id: generateId(),
         propId: prop.propId,
         gameIdRef: prop.gameId,
@@ -1388,7 +1400,7 @@ async function autoSaveTopPropsForValidation(sport) {
         sport: prop.sport,
         timestamp: new Date().toISOString(),
         notes: `tier:${tier},auto-saved`
-      }
+      }, prop)
       
       const { error: saveError } = await supabase
         .from('PropValidation')
