@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { SectionHeading, SportBadge, EdgeBadge } from './ui'
+import { SectionHeading, SportBadge } from './ui'
 
 function lineLabel(row) {
   const pick = row.pick ? String(row.pick) : ''
@@ -26,19 +26,17 @@ function BoardRow({ row }) {
             {lineLabel(row)}
           </div>
         </div>
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0 flex-wrap">
           {row.odds && (
             <span className="text-[15px] font-medium text-slate-100 tabular-nums font-mono">
               {row.odds}
             </span>
           )}
-          {typeof row.edge === 'number' && row.edge > 0 ? (
-            <EdgeBadge edge={row.edge} />
-          ) : row.why ? (
-            <span className="text-[11px] text-slate-500 max-w-[11rem] sm:text-right leading-snug">
+          {row.why && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded-[3px] text-[10px] font-medium tabular-nums font-mono border border-white/[0.08] bg-white/[0.04] text-slate-300">
               {row.why}
             </span>
-          ) : null}
+          )}
         </div>
       </div>
     </div>

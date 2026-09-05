@@ -5,6 +5,9 @@ import {
   filterPublishedPicks,
   summarizePublishedPicks,
   selectTodaysBoardRows,
+  summarizeYesterdayPublished,
+  getEtCalendarDayRange,
+  pickWhyChip,
   boardRowKey,
   PUBLISHED_MIN_QUALITY,
   TODAYS_BOARD_CAP,
@@ -208,5 +211,83 @@ describe('selectTodaysBoardRows', () => {
     expect(rows[1].prop.playerName).toBe('Other')
     expect(rows[1].source).toBe('editors')
     expect(boardRowKey(rows[0].prop)).not.toBe(boardRowKey(rows[1].prop))
+  })
+})
+
+describe('summarizeYesterdayPublished', () => {
+  // Saturday Sep 5, 2026 16:00 UTC = noon EDT. Prior ET day is Fri Sep 4.
+  const now = new Date('2026-09-05T16:00:00.000Z')
+
+  test('uses prior ET calendar day — not rolling 24h', () => {
+    const { start, end } = getEtCalendarDayRange(-1, now)
+    expect(start.toISOString()).toBe('2026-09-04T04:00:00.000Z')
+    expect(end.toISOString()).toBe('2026-09-05T04:00:00.000Z')
+  })
+
+  test('W–L among decided Published picks plus flat-1u units', () => {
+    const records = [
+      publishedBase({
+        result: 'correct',
+        odds: 110,
+        completedAt: '2026-09-04T18:00:00.000Z',
+      }),
+      publishedBase({
+        result: 'correct',
+        odds: -110,
+        completedAt: '2026-09-04T20:00:00.000Z',
+      }),
+      publishedBase({
+        result: 'incorrect',
+        odds: 1.91,
+        completedAt: '2026-09-04T22:00:00.000Z',
+      }),
+      publishedBase({
+        result: 'push',
+        odds: -110,
+        completedAt: '2026-09-04T23:00:00.000Z',
+      }),
+      publishedBase({
+        result: 'correct',
+        odds: 150,
+        completedAt: '2026-09-05T10:00:00.000Z', // today ET — excluded
+      }),
+      publishedBase({
+        result: 'correct',
+        odds: -110,
+        sport: 'nhl',
+        completedAt: '2026-09-04T18:00:00.000Z',
+      }),
+    ]
+
+    const yesterday = summarizeYesterdayPublished(records, now)
+    expect(yesterday.empty).toBe(false)
+    expect(yesterday.correct).toBe(2)
+    expect(yesterday.incorrect).toBe(1)
+    expect(yesterday.decided).toBe(3)
+    const expectedUnits = unitsFromResult(110, 'correct')
+      + unitsFromResult(-110, 'correct')
+      + unitsFromResult(1.91, 'incorrect')
+    expect(yesterday.units).toBeCloseTo(expectedUnits, 5)
+    expect(yesterday.line).toBe(`Yesterday: 2–1, ${expectedUnits >= 0 ? '+' : ''}${expectedUnits.toFixed(1)}u`)
+  })
+
+  test('soft line when zero decided Published grades yesterday', () => {
+    const yesterday = summarizeYesterdayPublished([
+      publishedBase({ result: 'push', completedAt: '2026-09-04T18:00:00.000Z' }),
+      publishedBase({ result: 'correct', completedAt: '2026-09-03T18:00:00.000Z' }),
+    ], now)
+    expect(yesterday.empty).toBe(true)
+    expect(yesterday.decided).toBe(0)
+    expect(yesterday.line).toBe('No Published grades yesterday.')
+  })
+})
+
+describe('pickWhyChip', () => {
+  test('prefers a stored book count and does not invent books', () => {
+    expect(pickWhyChip({ numBooks: 3, edge: 0.078, qualityScore: 52 })).toBe('3-book edge')
+    expect(pickWhyChip({ edge: 0.078, qualityScore: 52 })).toBe('+7.8% edge')
+    expect(pickWhyChip({ qualityScore: 52 })).toBe('QS 52')
+    expect(pickWhyChip({ edge: 0.04 })).toBe('+4.0% edge')
+    expect(pickWhyChip({})).toBeNull()
   })
 })

@@ -17,7 +17,7 @@ function formatUnits(units) {
  * Mini Published-track teaser. Numbers must come from getPublishedPicksStats()
  * — the same cohort as the /validation card.
  */
-export default function PublishedProofStrip({ stats }) {
+export default function PublishedProofStrip({ stats, yesterday }) {
   const hasSample = (stats?.graded || 0) > 0
   const roiClass = !hasSample
     ? 'text-slate-100'
@@ -74,9 +74,18 @@ export default function PublishedProofStrip({ stats }) {
           />
         </div>
 
-        <p className="px-4 sm:px-5 py-3 text-xs text-slate-500 leading-relaxed">
-          Methodology locked. Sample still building.
-        </p>
+        <div className="px-4 sm:px-5 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+          <p className="text-xs text-slate-500 leading-relaxed">
+            Methodology locked. Sample still building.
+          </p>
+          {yesterday?.line && (
+            <p className={`text-xs leading-relaxed tabular-nums font-mono ${
+              yesterday.empty ? 'text-slate-500' : 'text-slate-300'
+            }`}>
+              {yesterday.line}
+            </p>
+          )}
+        </div>
       </div>
     </section>
   )

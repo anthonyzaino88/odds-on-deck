@@ -38,11 +38,13 @@ function emptyGames() {
 }
 
 export default async function HomePage() {
-  const [gamesResult, publishedStats, board] = await Promise.all([
+  const [gamesResult, proof, board] = await Promise.all([
     getTodaysGames().catch(() => null),
     getHomepageProofStats(),
     getHomepageBoard(),
   ])
+  const publishedStats = proof?.stats || null
+  const yesterday = proof?.yesterday || null
 
   const games = gamesResult?.success && gamesResult.data
     ? {
@@ -57,7 +59,7 @@ export default async function HomePage() {
   return (
     <>
       <HomeHero />
-      <PublishedProofStrip stats={publishedStats} />
+      <PublishedProofStrip stats={publishedStats} yesterday={yesterday} />
       <TodaysBoard board={board} />
 
       <section className="mb-8">
