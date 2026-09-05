@@ -4,6 +4,7 @@ import { GeistMono } from 'geist/font/mono'
 import MobileNav from '../components/MobileNav'
 import { OddsOnDeckLogo } from '../components/ui/OddsOnDeckLogo'
 import { Analytics } from '@vercel/analytics/next'
+import { SpeedInsights } from '@vercel/speed-insights/next'
 
 const SITE_URL = 'https://oddsondeck.com'
 const SITE_NAME = 'Odds on Deck'
@@ -149,6 +150,7 @@ export default function RootLayout({ children }) {
         </footer>
         <MobileNav />
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   )

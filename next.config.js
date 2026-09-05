@@ -5,7 +5,7 @@ const isDev = process.env.NODE_ENV !== 'production'
 // Content Security Policy. 'unsafe-inline' is required for Google Analytics,
 // the JSON-LD block, and Next.js hydration scripts. External origins are
 // limited to the services this app actually uses (GA, Vercel Analytics,
-// Supabase). Image sources are left broad (team-logo CDNs vary).
+// Vercel Speed Insights, Supabase). Image sources are left broad (team-logo CDNs vary).
 // 'unsafe-eval' is added in development only because Next.js React Refresh
 // (HMR) evaluates strings as JavaScript; it is never sent in production.
 const ContentSecurityPolicy = [
