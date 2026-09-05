@@ -47,26 +47,11 @@ function ConceptCard({ term, definition, example, href }) {
   )
 }
 
-function StatSkeleton() {
-  return <div className="h-7 w-20 bg-elevated rounded-[3px] animate-pulse" />
-}
-
-function decimalToAmerican(d) {
-  if (!d || d === 1) return '+100'
-  d = parseFloat(d)
-  if (isNaN(d)) return null
-  return d >= 2.0 ? `+${Math.round((d - 1) * 100)}` : `${Math.round(-100 / (d - 1))}`
-}
-
 export default function HomeClient() {
   const [games, setGames] = useState({ mlb: [], nfl: [], nhl: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [todayStr, setTodayStr] = useState('')
-  const [validationStats, setValidationStats] = useState(null)
-  const [statsLoading, setStatsLoading] = useState(true)
-  const [topProps, setTopProps] = useState([])
-  const [propsLoading, setPropsLoading] = useState(true)
 
   useEffect(() => {
     setTodayStr(new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }))
@@ -90,37 +75,7 @@ export default function HomeClient() {
       }
     }
 
-    const fetchStats = async () => {
-      try {
-        const response = await fetch('/api/validation?type=stats')
-        if (response.ok) {
-          const result = await response.json()
-          if (result.success) setValidationStats(result.data)
-        }
-      } catch {
-        // Stats are non-critical; silently fail
-      } finally {
-        setStatsLoading(false)
-      }
-    }
-
-    const fetchTopProps = async () => {
-      try {
-        const response = await fetch('/api/props?limit=5')
-        if (response.ok) {
-          const result = await response.json()
-          if (result.success) setTopProps(result.props?.slice(0, 5) || [])
-        }
-      } catch {
-        // Non-critical
-      } finally {
-        setPropsLoading(false)
-      }
-    }
-
     fetchGames()
-    fetchStats()
-    fetchTopProps()
   }, [])
 
   return (
@@ -172,112 +127,6 @@ export default function HomeClient() {
                   </Link>
                 )
               })}
-        </div>
-      </section>
-
-      {/* Top Props Preview */}
-      <section className="mb-10">
-        <SectionHeading
-          title="Top Props"
-          action={
-            <Link href="/props" className="text-[11px] font-medium text-slate-400 hover:text-slate-100 transition-colors whitespace-nowrap">
-              View all &rarr;
-            </Link>
-          }
-        />
-        {propsLoading ? (
-          <div className="space-y-1.5">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="bg-surface border border-white/[0.06] rounded-[4px] p-3 animate-pulse">
-                <div className="flex items-center gap-3">
-                  <div className="h-4 w-28 bg-elevated rounded-[3px]" />
-                  <div className="h-3 w-40 bg-elevated/50 rounded-[3px]" />
-                  <div className="ml-auto h-4 w-12 bg-elevated rounded-[3px]" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : topProps.length > 0 ? (
-          <div className="rounded-[4px] border border-white/[0.06] overflow-hidden divide-y divide-white/[0.04]">
-            {topProps.map((prop) => {
-              const odds = decimalToAmerican(prop.odds)
-              const sportKey = (prop.sport || '').toLowerCase()
-              return (
-                <Link key={prop.propId || `${prop.gameId}-${prop.playerName}-${prop.type}`} href={`/game/${prop.gameId}`}>
-                  <div className="bg-surface hover:bg-elevated transition-colors duration-100 px-3 py-2.5 cursor-pointer">
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-medium text-slate-100 truncate">{prop.playerName}</span>
-                          {SPORT_CONFIG[sportKey] && <SportBadge sport={sportKey} />}
-                        </div>
-                        <div className="text-xs text-slate-500 mt-0.5 uppercase tracking-wide">
-                          {prop.pick} {prop.threshold} {(prop.type || '').replace(/_/g, ' ')}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        {odds && (
-                          <span className="text-[15px] font-medium text-slate-100 tabular-nums font-mono">{odds}</span>
-                        )}
-                        {prop.bookmaker && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-[3px] text-[10px] font-medium uppercase tracking-wide bg-white/[0.05] text-slate-400">
-                            {prop.bookmaker}
-                          </span>
-                        )}
-                        <span className="text-sm font-medium text-green-400 tabular-nums font-mono">
-                          {((prop.probability || 0) * 100).toFixed(0)}%
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </Link>
-              )
-            })}
-          </div>
-        ) : (
-          <div className="bg-surface border border-white/[0.06] rounded-[4px] p-6">
-            <p className="text-sm text-slate-500">No props available right now. Check back closer to game time.</p>
-          </div>
-        )}
-      </section>
-
-      {/* Transparent Results */}
-      <section className="mb-10" id="results">
-        <SectionHeading title="Transparent Record" />
-        <div className="bg-surface border border-white/[0.06] rounded-[4px] p-4">
-          <p className="text-sm text-slate-400 max-w-xl mb-5 leading-relaxed">
-            After each game we pull the real box score and grade every tracked prop.
-            Wins, losses, and pushes are all public.
-          </p>
-          <div className="grid grid-cols-2 gap-3 max-w-md mb-3">
-            <div className="bg-bg border border-white/[0.06] rounded-[4px] p-4 min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-1">Tracked</p>
-              {statsLoading ? <StatSkeleton /> : (
-                <p className="text-2xl font-semibold text-slate-100 tabular-nums font-mono truncate">
-                  {validationStats?.total != null ? validationStats.total.toLocaleString() : '---'}
-                </p>
-              )}
-            </div>
-            <div className="bg-bg border border-white/[0.06] rounded-[4px] p-4 min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-1">Hit Rate</p>
-              {statsLoading ? <StatSkeleton /> : (
-                <p className="text-2xl font-semibold text-green-400 tabular-nums font-mono truncate">
-                  {validationStats?.accuracy != null ? `${(validationStats.accuracy * 100).toFixed(1)}%` : '---'}
-                </p>
-              )}
-            </div>
-          </div>
-          {validationStats?.correct != null && validationStats?.total != null && (
-            <p className="text-[11px] text-slate-600 mb-5 tabular-nums">
-              {validationStats.correct.toLocaleString()} correct of {(validationStats.total - (validationStats.pushes || 0)).toLocaleString()} resolved &middot; pushes excluded
-            </p>
-          )}
-          <Link
-            href="/validation"
-            className="inline-flex items-center px-3 py-1.5 rounded-md bg-elevated hover:bg-[#283548] border border-white/[0.12] text-slate-100 text-xs font-medium transition-colors"
-          >
-            See full record
-          </Link>
         </div>
       </section>
 
