@@ -126,23 +126,10 @@ export default function HomeClient() {
   return (
     <div className="pb-8">
 
-      {/* Hero */}
-      <header className="mb-10">
-        <div className="flex items-center gap-3 mb-2">
-          <h1 className="text-xl font-semibold text-slate-100 tracking-tight">Odds on Deck</h1>
-          <div className="flex items-center gap-1.5">
-            {Object.keys(SPORT_CONFIG).map((s) => <SportBadge key={s} sport={s} />)}
-          </div>
-        </div>
-        <p className="text-sm text-slate-400 max-w-2xl leading-relaxed">
-          Live odds from 10+ sportsbooks side-by-side. Compare lines, strip the vig, track
-          every prop against real results &mdash; full record, no cherry-picking.
-        </p>
-        <div className="flex items-center gap-3 mt-3">
-          <p className="text-xs text-slate-500 tabular-nums">{todayStr}</p>
-          <DataFreshness />
-        </div>
-      </header>
+      <div className="flex items-center gap-3 mb-6">
+        <p className="text-xs text-slate-500 tabular-nums">{todayStr}</p>
+        <DataFreshness />
+      </div>
 
       {/* Error State */}
       {error && (

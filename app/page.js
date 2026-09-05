@@ -1,6 +1,10 @@
 import Link from 'next/link'
 import HomeClient from './HomeClient'
+import HomeHero from '../components/HomeHero'
+import PublishedProofStrip from '../components/PublishedProofStrip'
+import TodaysBoard from '../components/TodaysBoard'
 import { getTodaysGames } from '../lib/todays-games.js'
+import { getHomepageBoard, getHomepageProofStats } from '../lib/homepage-hook.js'
 import { SportBadge, SPORT_CONFIG } from '../components/ui'
 
 const SITE_URL = 'https://oddsondeck.com'
@@ -8,6 +12,13 @@ const SITE_URL = 'https://oddsondeck.com'
 export const metadata = {
   alternates: {
     canonical: SITE_URL,
+  },
+  title: 'Sports props with a public track record',
+  description: 'Curated picks, graded from box scores, ROI first — not vanity win rate.',
+  openGraph: {
+    title: 'Sports props with a public track record | Odds on Deck',
+    description: 'Curated picks, graded from box scores, ROI first — not vanity win rate.',
+    url: SITE_URL,
   },
 }
 
@@ -22,25 +33,33 @@ function gameLabel(game) {
   return `${away} @ ${home}`
 }
 
+function emptyGames() {
+  return { mlb: [], nfl: [], nhl: [] }
+}
+
 export default async function HomePage() {
-  let games = { mlb: [], nfl: [], nhl: [] }
-  try {
-    const result = await getTodaysGames()
-    if (result.success && result.data) {
-      games = {
-        mlb: result.data.mlb || [],
-        nfl: result.data.nfl || [],
-        nhl: result.data.nhl || [],
+  const [gamesResult, publishedStats, board] = await Promise.all([
+    getTodaysGames().catch(() => null),
+    getHomepageProofStats(),
+    getHomepageBoard(),
+  ])
+
+  const games = gamesResult?.success && gamesResult.data
+    ? {
+        mlb: gamesResult.data.mlb || [],
+        nfl: gamesResult.data.nfl || [],
+        nhl: gamesResult.data.nhl || [],
       }
-    }
-  } catch {
-    // Teaser is optional; HomeClient still loads the live widgets
-  }
+    : emptyGames()
 
   const total = SPORT_ORDER.reduce((sum, sport) => sum + (games[sport]?.length || 0), 0)
 
   return (
     <>
+      <HomeHero />
+      <PublishedProofStrip stats={publishedStats} />
+      <TodaysBoard board={board} />
+
       <section className="mb-8">
         <div className="flex items-center gap-3 mb-4">
           <h2 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 whitespace-nowrap">
