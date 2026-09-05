@@ -1,20 +1,21 @@
 import Link from 'next/link'
 import { Suspense } from 'react'
-import { getValidationStats, getValidationRecords, getValidationCounts } from '../../lib/validation.js'
+import { getValidationStats, getValidationRecords, getValidationCounts, getPublishedPicksStats } from '../../lib/validation.js'
 import CompletedPropsTable from '../../components/CompletedPropsTable.js'
 import TimeWindowFilter from '../../components/TimeWindowFilter.js'
 import MethodologyPanel from '../../components/MethodologyPanel.js'
+import PublishedPicksCard, { HowPublishedPicks } from '../../components/PublishedPicksCard.js'
 import { SportBadge } from '../../components/ui'
 
 export const metadata = {
   alternates: {
     canonical: 'https://oddsondeck.com/validation',
   },
-  title: 'Validation — Transparent Record',
-  description: 'A transparent record of every pick we track — wins, losses, and pushes across MLB, NFL, and NHL props.',
+  title: 'Validation — Published Picks & Full Record',
+  description: 'ROI, units, sample, and average odds for the published-picks cohort, plus the full graded archive. Methodology locked; sample still building.',
   openGraph: {
-    title: 'Validation — Transparent Record | Odds on Deck',
-    description: 'A transparent record of every pick we track. See what hit and what missed.',
+    title: 'Validation — Published Picks & Full Record | Odds on Deck',
+    description: 'Public ROI track for published picks, with the full graded archive below. Methodology locked; sample still building.',
   },
 }
 
@@ -73,8 +74,9 @@ export default async function ValidationDashboard({ searchParams }) {
   if (sourceFilter === 'user') statsOpts.sourceGroup = 'user'
   else if (sourceFilter === 'system') statsOpts.sourceGroup = 'system'
 
-  const [stats, recentRecords, validationCounts, nflStats, nhlStats, mlbStats] = await Promise.all([
+  const [stats, publishedStats, recentRecords, validationCounts, nflStats, nhlStats, mlbStats] = await Promise.all([
     getValidationStats(statsOpts),
+    getPublishedPicksStats({ days }),
     getValidationRecords({ limit: 50 }),
     getValidationCounts(),
     getValidationStats({ ...statsOpts, sport: 'nfl' }),
@@ -98,10 +100,14 @@ export default async function ValidationDashboard({ searchParams }) {
         >
           ← Home
         </Link>
-        <h1 className="text-xl font-semibold text-slate-100">Transparent Record</h1>
+        <h1 className="text-xl font-semibold text-slate-100">Published picks &amp; full record</h1>
         <p className="text-sm text-slate-400 mt-1.5 max-w-2xl leading-relaxed">
-          This is the public record. After each game we pull the box score and grade every tracked prop &mdash; wins, losses, and pushes are all listed.
-          No cherry-picking. See the <Link href="/glossary" className="text-slate-300 underline decoration-white/15 underline-offset-2 hover:text-slate-100">glossary</Link> for how we define <Link href="/glossary/edge" className="text-slate-300 underline decoration-white/15 underline-offset-2 hover:text-slate-100">edge</Link>.
+          The Published card is the curated public track (ROI first). Everything below it is the
+          full graded archive &mdash; bulk tracked props, not the brand picks. After each game we
+          pull the box score and grade wins, losses, and pushes. See the{' '}
+          <Link href="/glossary" className="text-slate-300 underline decoration-white/15 underline-offset-2 hover:text-slate-100">glossary</Link>
+          {' '}for how we define{' '}
+          <Link href="/glossary/edge" className="text-slate-300 underline decoration-white/15 underline-offset-2 hover:text-slate-100">edge</Link>.
         </p>
         <div className="mt-4">
           <Link
@@ -123,7 +129,19 @@ export default async function ValidationDashboard({ searchParams }) {
         </p>
       </div>
 
-      {/* Primary Stats — Tracked + Hit Rate (dominant) */}
+      <PublishedPicksCard stats={publishedStats} windowLabel={windowLabel(window)} />
+      <HowPublishedPicks />
+
+      {/* Full graded archive — bulk tracked, not the brand picks */}
+      <div>
+        <h2 className="text-lg font-semibold text-slate-100">Full graded archive</h2>
+        <p className="text-sm text-slate-400 mt-1.5 max-w-2xl leading-relaxed">
+          Every tracked prop we grade &mdash; including juice traps, longshots, NHL, and rows that
+          do not meet the published filters. This is the honest bulk record, not the Published card.
+        </p>
+      </div>
+
+      {/* Archive stats — Tracked + Hit Rate */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
         <div className="rounded-[4px] border border-white/[0.06] bg-surface p-5">
           <div className="text-[11px] font-medium text-slate-500 uppercase tracking-widest">Tracked Predictions</div>
@@ -357,9 +375,10 @@ export default async function ValidationDashboard({ searchParams }) {
         </div>
       </div>
 
-      {/* Recent Predictions */}
+      {/* Recent Predictions — archive, not published cohort */}
       <div className="rounded-[4px] border border-white/[0.06] bg-surface p-4 sm:p-6">
-        <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-4">Recent Tracked Predictions</h3>
+        <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-1">Recent archive rows</h3>
+        <p className="text-[11px] text-slate-500 mb-4">Bulk tracked props. Not filtered to Published picks.</p>
 
         {recentRecords.length > 0 ? (
           <div className="rounded-[4px] border border-white/[0.06] divide-y divide-white/[0.06] overflow-hidden">
@@ -444,6 +463,8 @@ function HowWeGrade() {
       </ul>
       <p className="text-sm text-slate-400 leading-relaxed mt-3">
         Hit rate is correct / (correct + incorrect). Pushes are excluded.
+        These rules apply to the full graded archive. The Published card uses the stricter
+        cohort listed above.
       </p>
     </div>
   )

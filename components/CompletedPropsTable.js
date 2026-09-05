@@ -79,7 +79,10 @@ export default function CompletedPropsTable({ records }) {
   return (
     <div className="rounded-[4px] border border-white/[0.06] bg-surface p-4 sm:p-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
-        <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Completed Props</h3>
+        <div>
+          <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Full graded archive</h3>
+          <p className="text-[11px] text-slate-500 mt-1">Bulk graded props — not the Published picks card.</p>
+        </div>
         <span className="text-[11px] text-slate-500 tabular-nums font-mono">
           {records.length} total
         </span>

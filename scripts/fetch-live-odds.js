@@ -21,7 +21,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
 import { calculateQualityScore } from '../lib/quality-score.js'
-import { isJuiceTrap } from '../lib/juice-traps.js'
+import { isJuiceTrap, attachNumBooks } from '../lib/juice-traps.js'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -1431,6 +1431,7 @@ async function savePlayerProps(gameProps, sport) {
               edge: edge,
               confidence: confidence,
               qualityScore: qualityScore,
+              numBooks,
               sport,
               category,
               bookmaker: bestBook,
@@ -1565,7 +1566,7 @@ async function autoSaveTopPropsForValidation(sport) {
                    prop.qualityScore >= 35 ? 'high' : 'good'
       
       // Save to validation
-      const validationData = {
+      const validationData = attachNumBooks({
         id: generateId(),
         propId: prop.propId,
         gameIdRef: prop.gameId,
@@ -1585,7 +1586,7 @@ async function autoSaveTopPropsForValidation(sport) {
         sport: prop.sport,
         timestamp: new Date().toISOString(),
         notes: `tier:${tier},auto-saved`
-      }
+      }, prop)
       
       const { error: saveError } = await supabase
         .from('PropValidation')

@@ -1,6 +1,9 @@
 import {
   detectOddsFormat,
   toDecimalOdds,
+  toAmericanOdds,
+  formatAmericanOdds,
+  isAmericanOddsInPublishedBand,
   unitsFromResult,
   impliedProbabilityFromOdds,
 } from '../../lib/odds-units.js'
@@ -53,5 +56,46 @@ describe('impliedProbabilityFromOdds', () => {
   test('does not treat American 110 as decimal 110', () => {
     expect(impliedProbabilityFromOdds(110)).toBeCloseTo(100 / 210, 5)
     expect(impliedProbabilityFromOdds(1.91)).toBeCloseTo(1 / 1.91, 5)
+  })
+})
+
+describe('toAmericanOdds', () => {
+  test('leaves American values alone', () => {
+    expect(toAmericanOdds(-150)).toBe(-150)
+    expect(toAmericanOdds(110)).toBe(110)
+    expect(toAmericanOdds('+110')).toBe(110)
+  })
+
+  test('converts decimal without mixing formats', () => {
+    expect(toAmericanOdds(1.50)).toBeCloseTo(-200, 5)
+    expect(toAmericanOdds(1.91)).toBeCloseTo(-100 / 0.91, 5)
+    expect(toAmericanOdds(2.0)).toBe(100)
+    expect(toAmericanOdds(3.50)).toBeCloseTo(250, 5)
+  })
+})
+
+describe('isAmericanOddsInPublishedBand', () => {
+  test('includes −200 to +250 after honest parse', () => {
+    expect(isAmericanOddsInPublishedBand(-200)).toBe(true)
+    expect(isAmericanOddsInPublishedBand(250)).toBe(true)
+    expect(isAmericanOddsInPublishedBand(1.50)).toBe(true)
+    expect(isAmericanOddsInPublishedBand(3.50)).toBe(true)
+    expect(isAmericanOddsInPublishedBand(-110)).toBe(true)
+  })
+
+  test('excludes juice and longshot prices', () => {
+    expect(isAmericanOddsInPublishedBand(-250)).toBe(false)
+    expect(isAmericanOddsInPublishedBand(300)).toBe(false)
+    expect(isAmericanOddsInPublishedBand(1.40)).toBe(false)
+    expect(isAmericanOddsInPublishedBand(4.00)).toBe(false)
+    expect(isAmericanOddsInPublishedBand(null)).toBe(false)
+  })
+})
+
+describe('formatAmericanOdds', () => {
+  test('formats mixed storage as signed American', () => {
+    expect(formatAmericanOdds(-110)).toBe('-110')
+    expect(formatAmericanOdds(110)).toBe('+110')
+    expect(formatAmericanOdds(1.91)).toBe('-110')
   })
 })

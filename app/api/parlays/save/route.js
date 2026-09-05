@@ -113,7 +113,8 @@ export async function POST(request) {
           gameTime: leg.gameTime || new Date(),
           sport: leg.sport || parlay.sport || 'mlb',
           category: leg.category || 'batting',
-          projection: leg.projection
+          projection: leg.projection,
+          numBooks: leg.numBooks ?? leg.bookCount ?? null
         }
         
         await recordPropPrediction(propData, 'parlay_leg', savedParlay.id)

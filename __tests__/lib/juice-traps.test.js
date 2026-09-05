@@ -1,4 +1,4 @@
-import { isJuiceTrap, getBookCount, filterJuiceTraps } from '../../lib/juice-traps.js'
+import { isJuiceTrap, getBookCount, attachNumBooks, filterJuiceTraps } from '../../lib/juice-traps.js'
 
 describe('isJuiceTrap', () => {
   test('flags NHL PPP under 0.5', () => {
@@ -44,6 +44,21 @@ describe('getBookCount', () => {
     expect(getBookCount({ numBooks: 4 })).toBe(4)
     expect(getBookCount({ bookCount: 3 })).toBe(3)
     expect(getBookCount({ books: ['a', 'b', 'c'] })).toBe(3)
+  })
+})
+
+describe('attachNumBooks', () => {
+  test('does not invent a book count for historical rows', () => {
+    const row = { edge: 0.04, qualityScore: 40 }
+    expect(attachNumBooks(row)).toEqual(row)
+    expect(attachNumBooks(row).numBooks).toBeUndefined()
+  })
+
+  test('copies a known count onto the write payload', () => {
+    expect(attachNumBooks({ playerName: 'X' }, { numBooks: 5 })).toEqual({
+      playerName: 'X',
+      numBooks: 5,
+    })
   })
 })
 
