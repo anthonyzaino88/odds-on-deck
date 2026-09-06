@@ -1,6 +1,7 @@
 import './globals.css'
 import { GeistSans } from 'geist/font/sans'
 import { GeistMono } from 'geist/font/mono'
+import Script from 'next/script'
 import MobileNav from '../components/MobileNav'
 import { OddsOnDeckLogo } from '../components/ui/OddsOnDeckLogo'
 import { Analytics } from '@vercel/analytics/next'
@@ -93,15 +94,7 @@ const NAV_LINKS = [
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
-      <head>
-        <script async src="https://www.googletagmanager.com/gtag/js?id=G-J6RZED32JY" />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-J6RZED32JY');`,
-          }}
-        />
-      </head>
+    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable} ${GeistSans.className}`}>
       <body className="bg-bg text-slate-100 min-h-screen pb-20 sm:pb-0">
         <script
           type="application/ld+json"
@@ -152,6 +145,10 @@ export default function RootLayout({ children }) {
         <MobileNav />
         <Analytics />
         <SpeedInsights />
+        <Script src="https://www.googletagmanager.com/gtag/js?id=G-J6RZED32JY" strategy="lazyOnload" />
+        <Script id="ga-init" strategy="lazyOnload">
+          {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-J6RZED32JY');`}
+        </Script>
       </body>
     </html>
   )
