@@ -26,13 +26,18 @@ const getCachedTodaysGames = unstable_cache(
 )
 
 export async function HomeProof() {
-  const proof = await getHomepageProofStats()
-  return (
-    <PublishedProofStrip
-      stats={proof?.stats || null}
-      yesterday={proof?.yesterday || null}
-    />
-  )
+  try {
+    const proof = await getHomepageProofStats()
+    return (
+      <PublishedProofStrip
+        stats={proof?.stats || null}
+        yesterday={proof?.yesterday || null}
+      />
+    )
+  } catch (error) {
+    console.error('homepage: published proof failed', error)
+    return <PublishedProofStrip stats={null} yesterday={null} />
+  }
 }
 
 export async function HomeBoard() {
