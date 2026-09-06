@@ -9,7 +9,9 @@ import {
   getEtCalendarDayRange,
   pickWhyChip,
   boardRowKey,
+  matchesPublishedStatsPrefilter,
   PUBLISHED_MIN_QUALITY,
+  PUBLISHED_STATS_PREFILTER,
   TODAYS_BOARD_CAP,
 } from '../../lib/published-picks.js'
 import { unitsFromResult } from '../../lib/odds-units.js'
@@ -67,6 +69,28 @@ describe('isPublishedPick', () => {
   test('holds NHL off the public published card', () => {
     expect(isPublishedPick(publishedBase({ sport: 'nhl' }))).toBe(false)
     expect(isPublishedPick(publishedBase({ sport: 'nfl' }))).toBe(true)
+  })
+})
+
+describe('matchesPublishedStatsPrefilter', () => {
+  test('mirrors the SQL prefilter used by getPublishedPicksStats', () => {
+    expect(PUBLISHED_STATS_PREFILTER.sports).toEqual(['mlb', 'nfl'])
+    expect(PUBLISHED_STATS_PREFILTER.minQuality).toBe(PUBLISHED_MIN_QUALITY)
+    expect(PUBLISHED_STATS_PREFILTER.edgeGreaterThan).toBe(0)
+
+    expect(matchesPublishedStatsPrefilter(publishedBase())).toBe(true)
+    expect(matchesPublishedStatsPrefilter(publishedBase({ sport: 'nhl' }))).toBe(false)
+    expect(matchesPublishedStatsPrefilter(publishedBase({ edge: 0 }))).toBe(false)
+    expect(matchesPublishedStatsPrefilter(publishedBase({ qualityScore: 39.9 }))).toBe(false)
+  })
+
+  test('does not replace juice-trap or odds-band checks — those stay in JS', () => {
+    expect(matchesPublishedStatsPrefilter(publishedBase({
+      prediction: 'under',
+      threshold: 0.5,
+      propType: 'batter_hits',
+    }))).toBe(true)
+    expect(matchesPublishedStatsPrefilter(publishedBase({ odds: -250 }))).toBe(true)
   })
 })
 

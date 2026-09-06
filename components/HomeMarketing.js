@@ -1,12 +1,5 @@
-'use client'
-
 import Link from 'next/link'
-import { useState, useEffect } from 'react'
-import DataFreshness from '../components/DataFreshness.js'
-import { cn } from '../lib/utils'
-import { SectionHeading, SportBadge, SPORT_CONFIG } from '../components/ui'
-
-const SPORT_SUB = { mlb: 'Games Today', nfl: 'Games This Week', nhl: 'Games Today' }
+import { SectionHeading } from './ui'
 
 function FeatureCard({ title, description }) {
   return (
@@ -47,90 +40,13 @@ function ConceptCard({ term, definition, example, href }) {
   )
 }
 
-export default function HomeClient() {
-  const [games, setGames] = useState({ mlb: [], nfl: [], nhl: [] })
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [todayStr, setTodayStr] = useState('')
-
-  useEffect(() => {
-    setTodayStr(new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }))
-
-    const fetchGames = async () => {
-      try {
-        setLoading(true)
-        const response = await fetch('/api/games/today', { cache: 'no-store' })
-        if (!response.ok) throw new Error(`API returned ${response.status}`)
-        const result = await response.json()
-        if (result.success) {
-          setGames(result.data)
-        } else {
-          setError(result.error || 'Failed to load games')
-        }
-      } catch (err) {
-        setError(err.message)
-        setGames({ mlb: [], nfl: [], nhl: [] })
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchGames()
-  }, [])
-
+/**
+ * Below-the-fold marketing copy. Server-rendered so it does not add to the
+ * homepage client bundle or refetch the slate already shown above.
+ */
+export default function HomeMarketing() {
   return (
     <div className="pb-8">
-
-      <div className="flex items-center gap-3 mb-6">
-        <p className="text-xs text-slate-500 tabular-nums">{todayStr}</p>
-        <DataFreshness />
-      </div>
-
-      {/* Error State */}
-      {error && (
-        <div className="bg-red-500/[0.08] border border-red-500/20 rounded-[4px] p-4 mb-8">
-          <p className="text-sm text-red-400 font-medium">{error}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="text-red-400/80 text-xs mt-2 underline hover:text-red-400 transition-colors"
-          >
-            Try refreshing
-          </button>
-        </div>
-      )}
-
-      {/* Today's Slate */}
-      <section className="mb-10">
-        <SectionHeading title="Today's Slate" />
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {loading
-            ? ['mlb', 'nfl', 'nhl'].map((sport) => (
-                <div key={sport} className="bg-surface border border-white/[0.06] rounded-[4px] p-4 animate-pulse">
-                  <div className="h-4 w-12 bg-elevated rounded-[3px] mb-3" />
-                  <div className="h-8 w-10 bg-elevated rounded-[3px] mb-1" />
-                  <div className="h-3 w-20 bg-elevated/60 rounded-[3px]" />
-                </div>
-              ))
-            : Object.keys(SPORT_CONFIG).map((sport) => {
-                const cfg = SPORT_CONFIG[sport]
-                return (
-                  <Link key={sport} href={`/games#${sport}`}>
-                    <div className="bg-surface border border-white/[0.06] rounded-[4px] p-4 hover:bg-elevated hover:border-white/[0.10] transition-colors duration-150 cursor-pointer h-full">
-                      <div className="flex items-center justify-between mb-3">
-                        <SportBadge sport={sport} />
-                      </div>
-                      <p className={cn('text-2xl font-semibold tabular-nums font-mono', cfg.text)}>
-                        {games[sport]?.length ?? 0}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-0.5">{SPORT_SUB[sport]}</p>
-                    </div>
-                  </Link>
-                )
-              })}
-        </div>
-      </section>
-
-      {/* What this is for */}
       <section className="mb-10">
         <SectionHeading title="What This Is For" />
         <p className="text-sm text-slate-400 mb-4 max-w-2xl">
@@ -146,7 +62,6 @@ export default function HomeClient() {
         </div>
       </section>
 
-      {/* How It Works */}
       <section className="mb-10">
         <SectionHeading title="How It Works" />
         <div className="space-y-5">
@@ -158,7 +73,6 @@ export default function HomeClient() {
         </div>
       </section>
 
-      {/* Key Concepts */}
       <section className="mb-10">
         <SectionHeading title="Key Concepts" />
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -171,7 +85,6 @@ export default function HomeClient() {
         </dl>
       </section>
 
-      {/* Jump in */}
       <section className="mb-10">
         <SectionHeading title="Jump In" />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -195,7 +108,6 @@ export default function HomeClient() {
           </Link>
         </div>
       </section>
-
     </div>
   )
 }

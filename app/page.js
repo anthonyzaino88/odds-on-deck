@@ -1,11 +1,15 @@
-import Link from 'next/link'
-import HomeClient from './HomeClient'
+import { Suspense } from 'react'
 import HomeHero from '../components/HomeHero'
-import PublishedProofStrip from '../components/PublishedProofStrip'
-import TodaysBoard from '../components/TodaysBoard'
-import { getTodaysGames } from '../lib/todays-games.js'
-import { getHomepageBoard, getHomepageProofStats } from '../lib/homepage-hook.js'
-import { SportBadge, SPORT_CONFIG } from '../components/ui'
+import HomeMarketing from '../components/HomeMarketing'
+import HomeFreshness from '../components/HomeFreshness'
+import {
+  BoardSkeleton,
+  HomeBoard,
+  HomeMatchups,
+  HomeProof,
+  MatchupsSkeleton,
+  ProofStripSkeleton,
+} from './HomeStream'
 
 const SITE_URL = 'https://oddsondeck.com'
 
@@ -24,97 +28,21 @@ export const metadata = {
 
 export const dynamic = 'force-dynamic'
 
-const SPORT_ORDER = ['mlb', 'nfl', 'nhl']
-const SPORT_SUB = { mlb: 'Games Today', nfl: 'Games This Week', nhl: 'Games Today' }
-
-function gameLabel(game) {
-  const away = game.away?.abbr || game.away?.name || 'Away'
-  const home = game.home?.abbr || game.home?.name || 'Home'
-  return `${away} @ ${home}`
-}
-
-function emptyGames() {
-  return { mlb: [], nfl: [], nhl: [] }
-}
-
-export default async function HomePage() {
-  const [gamesResult, proof, board] = await Promise.all([
-    getTodaysGames().catch(() => null),
-    getHomepageProofStats(),
-    getHomepageBoard(),
-  ])
-  const publishedStats = proof?.stats || null
-  const yesterday = proof?.yesterday || null
-
-  const games = gamesResult?.success && gamesResult.data
-    ? {
-        mlb: gamesResult.data.mlb || [],
-        nfl: gamesResult.data.nfl || [],
-        nhl: gamesResult.data.nhl || [],
-      }
-    : emptyGames()
-
-  const total = SPORT_ORDER.reduce((sum, sport) => sum + (games[sport]?.length || 0), 0)
-
+export default function HomePage() {
   return (
     <>
       <HomeHero />
-      <PublishedProofStrip stats={publishedStats} yesterday={yesterday} />
-      <TodaysBoard board={board} />
-
-      <section className="mb-8">
-        <div className="flex items-center gap-3 mb-4">
-          <h2 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 whitespace-nowrap">
-            Today&apos;s Matchups
-          </h2>
-          <div className="flex-1 h-px bg-white/[0.04]" />
-          <span className="text-[11px] text-slate-600 tabular-nums font-mono">
-            {total} games
-          </span>
-        </div>
-
-        <div className="bg-surface border border-white/[0.06] rounded-[4px] p-4 space-y-4">
-          {SPORT_ORDER.map((sport) => {
-            const list = games[sport] || []
-            const cfg = SPORT_CONFIG[sport]
-            return (
-              <div key={sport}>
-                <Link href={`/${sport}`} className="flex items-center gap-2 mb-2 w-fit group">
-                  <SportBadge sport={sport} />
-                  <p className="text-xs text-slate-500 group-hover:text-slate-300 transition-colors">
-                    <span className={`font-semibold tabular-nums font-mono ${cfg.text}`}>{list.length}</span>
-                    {' '}{SPORT_SUB[sport]}
-                  </p>
-                </Link>
-                {list.length > 0 ? (
-                  <ul className="flex flex-wrap gap-1.5">
-                    {list.map((game) => (
-                      <li key={game.id}>
-                        <Link
-                          href={`/game/${game.id}`}
-                          className="inline-flex items-center px-2 py-1 rounded-[3px] text-xs font-medium text-slate-200 bg-bg border border-white/[0.06] hover:bg-elevated hover:border-white/[0.10] transition-colors duration-100 tabular-nums font-mono"
-                        >
-                          {gameLabel(game)}
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-xs text-slate-600">No {cfg.label} games on the slate.</p>
-                )}
-              </div>
-            )
-          })}
-          <Link
-            href="/games"
-            className="inline-flex items-center text-[11px] font-medium text-slate-400 hover:text-slate-100 transition-colors"
-          >
-            Full slate &rarr;
-          </Link>
-        </div>
-      </section>
-
-      <HomeClient />
+      <Suspense fallback={<ProofStripSkeleton />}>
+        <HomeProof />
+      </Suspense>
+      <Suspense fallback={<BoardSkeleton />}>
+        <HomeBoard />
+      </Suspense>
+      <Suspense fallback={<MatchupsSkeleton />}>
+        <HomeMatchups />
+      </Suspense>
+      <HomeFreshness />
+      <HomeMarketing />
     </>
   )
 }
