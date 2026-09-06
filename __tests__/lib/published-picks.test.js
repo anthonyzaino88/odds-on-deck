@@ -12,6 +12,7 @@ import {
   matchesPublishedStatsPrefilter,
   PUBLISHED_MIN_QUALITY,
   PUBLISHED_STATS_PREFILTER,
+  PUBLISHED_STATS_SELECT_FIELDS,
   TODAYS_BOARD_CAP,
 } from '../../lib/published-picks.js'
 import { unitsFromResult } from '../../lib/odds-units.js'
@@ -91,6 +92,21 @@ describe('matchesPublishedStatsPrefilter', () => {
       propType: 'batter_hits',
     }))).toBe(true)
     expect(matchesPublishedStatsPrefilter(publishedBase({ odds: -250 }))).toBe(true)
+  })
+
+  test('Published stats select only real PropValidation columns', () => {
+    expect(PUBLISHED_STATS_SELECT_FIELDS).not.toContain('pick')
+    expect(PUBLISHED_STATS_SELECT_FIELDS).not.toContain('type')
+    expect(PUBLISHED_STATS_SELECT_FIELDS).toEqual(expect.arrayContaining([
+      'prediction',
+      'propType',
+      'odds',
+      'edge',
+      'qualityScore',
+      'sport',
+      'status',
+      'result',
+    ]))
   })
 })
 
