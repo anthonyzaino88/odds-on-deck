@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { SectionHeading, SportBadge } from './ui'
+import { todaysBoardSlateState } from '../lib/published-picks.js'
 
 function lineLabel(row) {
   const pick = row.pick ? String(row.pick) : ''
@@ -16,9 +17,13 @@ function BoardRow({ row }) {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-slate-100 truncate">{row.playerName}</span>
             {row.sport && <SportBadge sport={row.sport} />}
-            {row.source === 'editors' && (
+            {row.source === 'editors' ? (
               <span className="inline-flex items-center px-1.5 py-0.5 rounded-[3px] text-[10px] font-semibold uppercase tracking-wide border border-white/[0.08] bg-white/[0.04] text-slate-400">
                 Editor&apos;s
+              </span>
+            ) : (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded-[3px] text-[10px] font-semibold uppercase tracking-wide border border-white/[0.08] bg-white/[0.04] text-slate-300">
+                Published
               </span>
             )}
           </div>
@@ -74,14 +79,16 @@ function LastNightRow({ row }) {
 }
 
 /**
- * Cap-5 today’s board. Published-eligible first; Editor’s fill is labeled
- * so we never fake the Published cohort.
+ * Cap-5 today’s board. Published / Pile B only. Empty or 1–2 rows is an
+ * honest slate — never invent juice favorites to look busy.
  */
 export default function TodaysBoard({ board }) {
   const rows = board?.rows || []
   const lastNight = board?.lastNight || []
   const nextSlateAt = board?.nextSlateAt
-  const empty = rows.length === 0
+  const slate = board?.slate || todaysBoardSlateState(rows.length)
+  const empty = slate === 'empty'
+  const short = slate === 'short'
 
   return (
     <section id="todays-board" className="mb-8 sm:mb-10 scroll-mt-16">
@@ -106,9 +113,8 @@ export default function TodaysBoard({ board }) {
                 : 'No Published-eligible props on the board yet.'}
             </p>
             <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-              {nextSlateAt
-                ? 'The board fills as the MLB and NFL slate posts and we can line-shop it.'
-                : 'Methodology locked. Sample still building.'}
+              Only MLB + NFL props that pass the Published filters land here.
+              Empty beats padding the board with juice favorites.
             </p>
           </div>
           {lastNight.length > 0 && (
@@ -129,6 +135,14 @@ export default function TodaysBoard({ board }) {
           {rows.map((row) => (
             <BoardRow key={row.key} row={row} />
           ))}
+          {short && (
+            <div className="bg-surface px-3 py-2.5 sm:px-4">
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Short slate — {rows.length === 1 ? '1 Published pick' : `${rows.length} Published picks`}.
+                We don&apos;t pad with juice favorites or no-edge props.
+              </p>
+            </div>
+          )}
         </div>
       )}
     </section>
