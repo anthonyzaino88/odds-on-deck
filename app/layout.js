@@ -6,9 +6,8 @@ import MobileNav from '../components/MobileNav'
 import { OddsOnDeckLogo } from '../components/ui/OddsOnDeckLogo'
 import { Analytics } from '@vercel/analytics/next'
 import { SpeedInsights } from '@vercel/speed-insights/next'
+import { OG_IMAGE, SITE_NAME, SITE_URL } from '../lib/site-meta'
 
-const SITE_URL = 'https://oddsondeck.com'
-const SITE_NAME = 'Odds on Deck'
 const SITE_DESCRIPTION = 'Data-driven sports betting analytics for MLB, NFL & NHL. Real-time odds tracking, player prop rankings, edge detection, parlay generator, and transparent validation — all powered by math, not gut feelings.'
 
 export const metadata = {
@@ -34,11 +33,13 @@ export const metadata = {
     siteName: SITE_NAME,
     title: `${SITE_NAME} — Sports Betting Analytics & Edge Detection`,
     description: SITE_DESCRIPTION,
+    images: [OG_IMAGE],
   },
   twitter: {
     card: 'summary_large_image',
     title: `${SITE_NAME} — Sports Betting Analytics & Edge Detection`,
     description: SITE_DESCRIPTION,
+    images: [OG_IMAGE],
   },
   robots: {
     index: true,

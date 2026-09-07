@@ -1,3 +1,5 @@
+import { OG_IMAGE } from '../../lib/site-meta'
+
 export const metadata = {
   alternates: {
     canonical: 'https://oddsondeck.com/props',
@@ -7,6 +9,7 @@ export const metadata = {
   openGraph: {
     title: 'Player Props — Rankings & Edge Detection | Odds on Deck',
     description: 'Real-time player prop rankings. Find mispriced lines and spot edges with data-driven analysis.',
+    images: [OG_IMAGE],
   },
 }
 

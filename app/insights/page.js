@@ -1,5 +1,7 @@
 // Insights Dashboard - Learn what's working and what's not
 
+import { OG_IMAGE } from '../../lib/site-meta'
+
 export const metadata = {
   alternates: {
     canonical: 'https://oddsondeck.com/insights',
@@ -9,6 +11,7 @@ export const metadata = {
   openGraph: {
     title: 'Insights — Performance Breakdown | Odds on Deck',
     description: 'Deep performance analysis by sport, prop type, and player.',
+    images: [OG_IMAGE],
   },
 }
 
