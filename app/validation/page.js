@@ -6,6 +6,7 @@ import TimeWindowFilter from '../../components/TimeWindowFilter.js'
 import MethodologyPanel from '../../components/MethodologyPanel.js'
 import PublishedPicksCard, { HowPublishedPicks } from '../../components/PublishedPicksCard.js'
 import { SportBadge } from '../../components/ui'
+import { OG_IMAGE } from '../../lib/site-meta'
 
 export const metadata = {
   alternates: {
@@ -16,6 +17,7 @@ export const metadata = {
   openGraph: {
     title: 'Validation — Published Picks & Full Record | Odds on Deck',
     description: 'Public ROI track for published picks, with the full graded archive below. Methodology locked; sample still building.',
+    images: [OG_IMAGE],
   },
 }
 

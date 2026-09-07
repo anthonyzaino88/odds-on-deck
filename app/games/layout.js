@@ -1,3 +1,5 @@
+import { OG_IMAGE } from '../../lib/site-meta'
+
 export const metadata = {
   alternates: {
     canonical: 'https://oddsondeck.com/games',
@@ -7,6 +9,7 @@ export const metadata = {
   openGraph: {
     title: "Today's Slate — Live Games & Scores | Odds on Deck",
     description: "Today's games with live scores, real-time odds, and detailed matchup analytics.",
+    images: [OG_IMAGE],
   },
 }
 

@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { OG_IMAGE } from '../../lib/site-meta'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,6 +13,7 @@ export const metadata = {
   openGraph: {
     title: 'DFS Optimizer — Coming Soon | Odds on Deck',
     description: 'DFS player value rankings and salary-based projections. Coming soon.',
+    images: [OG_IMAGE],
   },
 }
 

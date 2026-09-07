@@ -1,3 +1,5 @@
+import { OG_IMAGE } from '../../lib/site-meta'
+
 export const metadata = {
   alternates: {
     canonical: 'https://oddsondeck.com/parlays',
@@ -7,6 +9,7 @@ export const metadata = {
   openGraph: {
     title: 'Parlay Generator — Smart Correlated Parlays | Odds on Deck',
     description: 'Build smarter parlays with correlated picks and edge-based selection.',
+    images: [OG_IMAGE],
   },
 }
 
