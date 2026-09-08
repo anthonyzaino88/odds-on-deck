@@ -53,9 +53,9 @@ export default function PicksPage() {
           at ROI, not a tour of every interesting line. MLB and NFL only.
           Prices in a sane range, roughly −200 to +250. The model has to show
           a positive edge. Quality score of 40 or better. Same standard as
-          Today&apos;s picks on the homepage and the public record on{' '}
+          Today&apos;s picks on the homepage and the{' '}
           <Link href="/validation" className="text-slate-300 underline decoration-white/15 underline-offset-2 hover:text-slate-100">
-            /validation
+            public track record
           </Link>.
         </p>
         <div className="flex items-center gap-3 mt-2.5">
