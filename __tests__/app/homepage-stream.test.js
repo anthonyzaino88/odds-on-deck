@@ -4,6 +4,7 @@ const path = require('path')
 const pageSrc = fs.readFileSync(path.join(__dirname, '../../app/page.js'), 'utf8')
 const hookSrc = fs.readFileSync(path.join(__dirname, '../../lib/homepage-hook.js'), 'utf8')
 const boardSrc = fs.readFileSync(path.join(__dirname, '../../components/TodaysBoard.js'), 'utf8')
+const streamSrc = fs.readFileSync(path.join(__dirname, '../../app/HomeStream.js'), 'utf8')
 
 describe('homepage first-paint path', () => {
   test('hero is a sync server render and does not wait on board/proof/slate data', () => {
@@ -49,5 +50,20 @@ describe('homepage public board is Published-only', () => {
     expect(boardSrc).not.toMatch(/Published-eligible/)
     expect(boardSrc).not.toMatch(/no-edge fill/)
     expect(boardSrc).not.toMatch(/Editor's desk/)
+  })
+})
+
+describe('homepage Today\'s Matchups cache', () => {
+  test('does not persist a failed or null cache fill as an empty slate', () => {
+    expect(streamSrc).not.toMatch(/getTodaysGames\(\)\.catch\(\(\) => null\)/)
+    expect(streamSrc).toMatch(/homepage-todays-games-v2/)
+    expect(streamSrc).toMatch(/etDateKey\(/)
+    expect(streamSrc).toMatch(/resolveHomepageTodaysGames\(/)
+    expect(streamSrc).toMatch(/throw new Error/)
+  })
+
+  test('prints a stored game total on the chip and leaves missing lines off', () => {
+    expect(streamSrc).toMatch(/formatMatchupChip\(/)
+    expect(streamSrc).toMatch(/O\/U \{total\}/)
   })
 })

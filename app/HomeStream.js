@@ -2,7 +2,14 @@ import Link from 'next/link'
 import { unstable_cache } from 'next/cache'
 import PublishedProofStrip from '../components/PublishedProofStrip'
 import TodaysBoard from '../components/TodaysBoard'
-import { getTodaysGames } from '../lib/todays-games.js'
+import {
+  etDateKey,
+  emptyTodaysGames,
+  formatMatchupChip,
+  getTodaysGames,
+  isSuccessfulTodaysGames,
+  resolveHomepageTodaysGames,
+} from '../lib/todays-games.js'
 import SidesAndTotalsCard from '../components/SidesAndTotalsCard'
 import { getHomepageBoard, getHomepageGameLines, getHomepageProofStats } from '../lib/homepage-hook.js'
 import { SportBadge, SPORT_CONFIG } from '../components/ui'
@@ -10,19 +17,18 @@ import { SportBadge, SPORT_CONFIG } from '../components/ui'
 const SPORT_ORDER = ['mlb', 'nfl', 'nhl']
 const SPORT_SUB = { mlb: 'Games Today', nfl: 'Games This Week', nhl: 'Games Today' }
 
-function gameLabel(game) {
-  const away = game.away?.abbr || game.away?.name || 'Away'
-  const home = game.home?.abbr || game.home?.name || 'Home'
-  return `${away} @ ${home}`
-}
-
-function emptyGames() {
-  return { mlb: [], nfl: [], nhl: [] }
-}
-
+// Date is part of the cache key so a prior day's empty/failed fill cannot
+// stick. Do not catch-to-null here: unstable_cache would persist that miss
+// for the revalidate window (same lesson as the Published proof card).
 const getCachedTodaysGames = unstable_cache(
-  async () => getTodaysGames().catch(() => null),
-  ['homepage-todays-games'],
+  async (_etDate) => {
+    const result = await getTodaysGames()
+    if (!isSuccessfulTodaysGames(result)) {
+      throw new Error(result?.error || 'today\'s games unavailable')
+    }
+    return result
+  },
+  ['homepage-todays-games-v2'],
   { revalidate: 60 },
 )
 
@@ -59,14 +65,17 @@ export async function HomeSidesTotals() {
 }
 
 export async function HomeMatchups() {
-  const gamesResult = await getCachedTodaysGames()
-  const games = gamesResult?.success && gamesResult.data
+  const gamesResult = await resolveHomepageTodaysGames({
+    cached: () => getCachedTodaysGames(etDateKey()),
+    live: getTodaysGames,
+  })
+  const games = isSuccessfulTodaysGames(gamesResult)
     ? {
         mlb: gamesResult.data.mlb || [],
         nfl: gamesResult.data.nfl || [],
         nhl: gamesResult.data.nhl || [],
       }
-    : emptyGames()
+    : emptyTodaysGames()
 
   const total = SPORT_ORDER.reduce((sum, sport) => sum + (games[sport]?.length || 0), 0)
 
@@ -97,16 +106,22 @@ export async function HomeMatchups() {
               </Link>
               {list.length > 0 ? (
                 <ul className="flex flex-wrap gap-1.5">
-                  {list.map((game) => (
-                    <li key={game.id}>
-                      <Link
-                        href={`/game/${game.id}`}
-                        className="inline-flex items-center px-2 py-1 rounded-[3px] text-xs font-medium text-slate-200 bg-bg border border-white/[0.06] hover:bg-elevated hover:border-white/[0.10] transition-colors duration-100 tabular-nums font-mono"
-                      >
-                        {gameLabel(game)}
-                      </Link>
-                    </li>
-                  ))}
+                  {list.map((game) => {
+                    const { matchup, total } = formatMatchupChip(game)
+                    return (
+                      <li key={game.id}>
+                        <Link
+                          href={`/game/${game.id}`}
+                          className="inline-flex items-center px-2 py-1 rounded-[3px] text-xs font-medium text-slate-200 bg-bg border border-white/[0.06] hover:bg-elevated hover:border-white/[0.10] transition-colors duration-100 tabular-nums font-mono"
+                        >
+                          {matchup}
+                          {total ? (
+                            <span className="text-slate-500 ml-1.5">O/U {total}</span>
+                          ) : null}
+                        </Link>
+                      </li>
+                    )
+                  })}
                 </ul>
               ) : (
                 <p className="text-xs text-slate-600">No {cfg.label} games on the slate.</p>
