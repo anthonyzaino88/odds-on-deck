@@ -6,6 +6,7 @@ import {
   summarizePublishedPicks,
   selectTodaysBoardRows,
   summarizeYesterdayPublished,
+  todaysBoardSlateState,
   getEtCalendarDayRange,
   pickWhyChip,
   boardRowKey,
@@ -14,6 +15,7 @@ import {
   PUBLISHED_STATS_PREFILTER,
   PUBLISHED_STATS_SELECT_FIELDS,
   TODAYS_BOARD_CAP,
+  TODAYS_BOARD_MIN_PUBLISHED,
 } from '../../lib/published-picks.js'
 import { unitsFromResult } from '../../lib/odds-units.js'
 
@@ -215,42 +217,59 @@ describe('selectTodaysBoardRows', () => {
     }
   }
 
-  test('prefers Published-eligible rows and caps at 5', () => {
+  test('keeps Published-eligible rows and caps at 5', () => {
     const publishedEligible = [1, 2, 3, 4, 5, 6].map((n) =>
       prop(`P${n}`, { edge: 0.10 - n * 0.01 }),
     )
-    const rows = selectTodaysBoardRows({ publishedEligible, editorsFill: [prop('Editor')] })
+    const rows = selectTodaysBoardRows({ publishedEligible })
     expect(rows).toHaveLength(TODAYS_BOARD_CAP)
     expect(rows.every((row) => row.source === 'published')).toBe(true)
     expect(rows.map((row) => row.prop.playerName)).toEqual(['P1', 'P2', 'P3', 'P4', 'P5'])
   })
 
-  test('fills with Editor’s when fewer than 3 Published-eligible qualify', () => {
-    const publishedEligible = [prop('Keep', { edge: 0.12 })]
-    const editorsFill = [
-      prop('Fill A', { edge: 0, qualityScore: 22 }),
-      prop('Fill B', { edge: 0.01, qualityScore: 18 }),
-      prop('Juice', { pick: 'under', threshold: 0.5, edge: 0.20 }),
-    ]
-    const rows = selectTodaysBoardRows({ publishedEligible, editorsFill })
-    expect(rows).toHaveLength(3)
-    expect(rows[0]).toEqual({ prop: publishedEligible[0], source: 'published' })
-    expect(rows[1].source).toBe('editors')
-    expect(rows[2].source).toBe('editors')
-    expect(rows.map((row) => row.prop.playerName)).toEqual(['Keep', 'Fill B', 'Fill A'])
+  test('never pads an empty or short Pile B with juice / no-edge / Editor fill', () => {
+    const juiceFavorite = prop('Juice Fav', { odds: -250, edge: 0.20, qualityScore: 80 })
+    const juiceTrap = prop('Trap', { pick: 'under', threshold: 0.5, edge: 0.20 })
+    const noEdge = prop('No Edge', { edge: 0, qualityScore: 55 })
+    const lowQs = prop('Low QS', { edge: 0.08, qualityScore: 22 })
+    const decimalJuice = prop('Dec Juice', { odds: 1.40, edge: 0.15, qualityScore: 70 })
+    const nhl = prop('NHL', { sport: 'nhl', edge: 0.12, qualityScore: 60 })
+
+    expect(selectTodaysBoardRows({
+      publishedEligible: [juiceFavorite, juiceTrap, noEdge, lowQs, decimalJuice, nhl],
+    })).toEqual([])
+
+    const keep = prop('Keep', { edge: 0.12, odds: 1.91 })
+    const rows = selectTodaysBoardRows({
+      publishedEligible: [keep, juiceFavorite, noEdge, lowQs],
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toEqual({ prop: keep, source: 'published' })
+    expect(todaysBoardSlateState(rows.length)).toBe('short')
   })
 
-  test('does not relabel a Published-eligible prop as Editor’s', () => {
-    const same = prop('Same Player')
-    const rows = selectTodaysBoardRows({
-      publishedEligible: [same],
-      editorsFill: [same, prop('Other', { edge: 0, qualityScore: 10 })],
-    })
+  test('returns 1–2 Published rows honestly instead of padding to 3+', () => {
+    const one = [prop('Only')]
+    expect(selectTodaysBoardRows({ publishedEligible: one })).toHaveLength(1)
+    expect(todaysBoardSlateState(1)).toBe('short')
+
+    const two = [prop('A', { edge: 0.09 }), prop('B', { edge: 0.04 })]
+    const rows = selectTodaysBoardRows({ publishedEligible: two })
     expect(rows).toHaveLength(2)
+    expect(rows.every((row) => row.source === 'published')).toBe(true)
+    expect(todaysBoardSlateState(rows.length)).toBe('short')
+    expect(todaysBoardSlateState(TODAYS_BOARD_MIN_PUBLISHED)).toBe('full')
+    expect(todaysBoardSlateState(0)).toBe('empty')
+  })
+
+  test('dedupes the same Published prop and keeps American band after decimal convert', () => {
+    const same = prop('Same Player', { odds: 1.50 })
+    const rows = selectTodaysBoardRows({
+      publishedEligible: [same, { ...same }, prop('Out of band', { odds: 1.40 })],
+    })
+    expect(rows).toHaveLength(1)
     expect(rows[0].source).toBe('published')
-    expect(rows[1].prop.playerName).toBe('Other')
-    expect(rows[1].source).toBe('editors')
-    expect(boardRowKey(rows[0].prop)).not.toBe(boardRowKey(rows[1].prop))
+    expect(boardRowKey(rows[0].prop)).toBe(boardRowKey(same))
   })
 })
 
