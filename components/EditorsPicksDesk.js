@@ -9,7 +9,7 @@ const TIER_LEGEND = [
   { dot: 'bg-green-400', label: 'Elite', range: '70+' },
   { dot: 'bg-blue-400', label: 'Premium', range: '55–69' },
   { dot: 'bg-amber-400', label: 'Solid', range: '40–54' },
-  { dot: 'bg-slate-600', label: 'Below bar', range: '<40' },
+  { dot: 'bg-slate-600', label: 'Skip', range: '<40' },
 ]
 
 const TIER_DOT = {
@@ -224,8 +224,8 @@ function SportPicksSection({ sport, count, props }) {
 }
 
 /**
- * Published-shaped Editor's desk. Empty or 1–2 rows is honest —
- * never invent juice favorites or no-edge fill.
+ * Editor's Picks list. Empty or 1–2 rows is honest —
+ * we don't invent extra picks to look busy.
  */
 export default function EditorsPicksDesk({ picks = [], loading = false }) {
   const slate = todaysBoardSlateState(picks.length)
@@ -239,19 +239,24 @@ export default function EditorsPicksDesk({ picks = [], loading = false }) {
     <div className="space-y-6">
       <div className="rounded-[4px] border border-white/[0.06] bg-surface p-4">
         <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-2">
-          Published-shaped bar
+          What makes the list
         </h3>
         <p className="text-sm text-slate-400 leading-relaxed">
-          Same locked filters as Today&apos;s picks and the{' '}
-          <Link href="/validation" className="text-slate-300 underline decoration-white/15 underline-offset-2 hover:text-slate-100">
-            /validation
-          </Link>
-          {' '}Published ROI card: MLB + NFL, American −200…+250, edge &gt; 0,
-          quality ≥ 40, no juice traps. Ranked by line-shop edge, then quality.
+          MLB and NFL player props. Odds roughly −200 to +250 &mdash; no absurd
+          juice. The model has to show a positive edge. Quality score of at
+          least 40. Ranked by how much better the price is than the market,
+          then by quality.
         </p>
         <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-          Short or empty is honest. We never pad this desk with juice favorites
-          or no-edge fill.
+          A short list &mdash; or an empty one &mdash; means nothing cleared
+          today. We don&apos;t pad this page with prices we wouldn&apos;t take.
+        </p>
+        <p className="text-[11px] text-slate-600 mt-2 leading-relaxed">
+          Same filters as Today&apos;s picks on the homepage and the tracked
+          record on{' '}
+          <Link href="/validation" className="text-slate-500 underline decoration-white/10 underline-offset-2 hover:text-slate-300">
+            /validation
+          </Link>.
         </p>
         <div className="mt-3 pt-3 border-t border-white/[0.06]">
           <TierLegend />
@@ -282,12 +287,12 @@ export default function EditorsPicksDesk({ picks = [], loading = false }) {
       {!loading && empty && (
         <div className="rounded-[4px] border border-white/[0.06] bg-surface px-4 py-12 text-center">
           <h3 className="text-sm font-medium text-slate-200 mb-1">
-            No Published-shaped Editor&apos;s picks right now
+            Nothing we&apos;d bet right now
           </h3>
           <p className="text-sm text-slate-500 max-w-lg mx-auto leading-relaxed">
-            Empty beats padding the desk with juice favorites or no-edge props.
-            The bets we&apos;d take for best ROI use the same Pile B bar as the
-            homepage board.
+            That&apos;s the honest count. If no MLB or NFL prop clears the
+            price, edge, and quality bar, this page stays empty. Check back
+            after the next odds refresh.
           </p>
         </div>
       )}
@@ -315,9 +320,8 @@ export default function EditorsPicksDesk({ picks = [], loading = false }) {
               {short && (
                 <div className="bg-surface px-3 py-2.5 sm:px-4">
                   <p className="text-xs text-slate-500 leading-relaxed">
-                    Short slate — {picks.length === 1 ? "1 Editor's pick" : `${picks.length} Editor's picks`}.
-                    Same Published bar as the homepage. We don&apos;t pad with juice
-                    favorites or no-edge props.
+                    Just {picks.length === 1 ? '1 pick' : `${picks.length} picks`} today.
+                    We&apos;d rather show a price we like than invent a longer list.
                   </p>
                 </div>
               )}

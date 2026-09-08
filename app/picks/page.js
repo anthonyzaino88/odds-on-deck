@@ -1,4 +1,4 @@
-// Editor's Picks — Published-shaped bets we'd take for best ROI
+// Editor's Picks — public shortlist of props we'd actually bet
 
 'use client'
 
@@ -49,9 +49,11 @@ export default function PicksPage() {
         </Link>
         <h1 className="text-xl font-semibold text-slate-100">Editor&apos;s Picks</h1>
         <p className="text-sm text-slate-400 mt-1.5 max-w-2xl leading-relaxed">
-          Published-shaped — the bets we&apos;d take to maximize ROI, not juice
-          favorites ranked pretty. Same Pile B bar as Today&apos;s picks on the
-          homepage and the Published card on{' '}
+          These are the props we&apos;d actually bet &mdash; a short list aimed
+          at ROI, not a tour of every interesting line. MLB and NFL only.
+          Prices in a sane range, roughly −200 to +250. The model has to show
+          a positive edge. Quality score of 40 or better. Same standard as
+          Today&apos;s picks on the homepage and the public record on{' '}
           <Link href="/validation" className="text-slate-300 underline decoration-white/15 underline-offset-2 hover:text-slate-100">
             /validation
           </Link>.

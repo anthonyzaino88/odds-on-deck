@@ -4,11 +4,11 @@ export const metadata = {
   alternates: {
     canonical: 'https://oddsondeck.com/picks',
   },
-  title: "Editor's Picks — Published-shaped bets we'd take",
-  description: "Editor's picks use the same Published / Pile B bar as the homepage board: MLB + NFL, American −200 to +250, edge > 0, quality ≥ 40, no juice traps. Short or empty is honest.",
+  title: "Editor's Picks — Props we'd actually bet",
+  description: "A short MLB and NFL list we'd actually bet — prices roughly −200 to +250, a model edge, quality of at least 40. Same standard as Today's picks and the public record. Short or empty is the honest count.",
   openGraph: {
-    title: "Editor's Picks — Published-shaped bets we'd take | Odds on Deck",
-    description: "The bets we'd take for best ROI — same Published filters as Today's picks and the validation ROI card. We don't pad with juice favorites.",
+    title: "Editor's Picks — Props we'd actually bet | Odds on Deck",
+    description: "Curated player props we'd put money on. Same standard as Today's picks and the public track record — we don't pad the list with bad prices.",
     images: [OG_IMAGE],
   },
 }
