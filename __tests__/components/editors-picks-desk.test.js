@@ -44,7 +44,7 @@ describe("EditorsPicksDesk honest Published-shaped UI", () => {
     expect(html).toContain('Only Pick')
     expect(html).toContain('Published')
     expect(html).toContain('Short slate')
-    expect(html).toContain("1 Editor's pick")
+    expect(html).toContain('1 Editor&#x27;s pick')
     expect(html).not.toContain('Juice Fav')
     expect(html).not.toContain('NHL')
   })
