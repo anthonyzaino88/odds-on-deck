@@ -34,10 +34,36 @@ describe('TodaysBoard honest slate UI', () => {
         }}
       />,
     )
-    expect(html).toContain('No Published-eligible props on the board yet.')
-    expect(html).toContain('juice favorites')
+    expect(html).toContain('Slate')
+    expect(html).toContain('locked')
+    expect(html).toContain('nothing we')
+    expect(html).toContain('morning odds pull')
+    expect(html).toContain('bad prices')
+    expect(html).not.toContain('Published-eligible')
+    expect(html).not.toContain('Published filters')
     expect(html).not.toMatch(/Short slate/)
     expect(html).not.toContain('Juice Fav')
+    expect(html).not.toContain('Pile B')
+    expect(html).not.toContain('no-edge fill')
+  })
+
+  test('empty slate with upcoming games says nothing cleared, not filter jargon', () => {
+    const html = renderToStaticMarkup(
+      <TodaysBoard
+        board={{
+          rows: [],
+          lastNight: [],
+          nextSlateAt: 'Wed, Sep 9, 7:05 PM ET',
+          slate: todaysBoardSlateState(0),
+          cohort: 'published',
+        }}
+      />,
+    )
+    expect(html).toContain('Nothing cleared we')
+    expect(html).toContain('Next games Wed, Sep 9, 7:05 PM ET')
+    expect(html).toContain('bad prices')
+    expect(html).not.toContain('Published-eligible')
+    expect(html).not.toContain('Next slate locks')
   })
 
   test('short slate (1–2) shows the real picks and says it will not pad', () => {
@@ -56,8 +82,10 @@ describe('TodaysBoard honest slate UI', () => {
     expect(html).toContain('Only Pick')
     expect(html).toContain('Published')
     expect(html).toContain('Short slate')
-    expect(html).toContain('1 Published pick')
+    expect(html).toContain('1 pick')
+    expect(html).toContain('bad prices')
     expect(html).not.toContain('Juice Fav')
+    expect(html).not.toContain('no-edge')
   })
 
   test('full slate labels Published and omits the short-slate note', () => {
