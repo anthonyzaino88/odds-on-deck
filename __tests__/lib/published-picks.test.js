@@ -5,6 +5,7 @@ import {
   filterPublishedPicks,
   summarizePublishedPicks,
   selectTodaysBoardRows,
+  rankEditorsPicks,
   summarizeYesterdayPublished,
   todaysBoardSlateState,
   getEtCalendarDayRange,
@@ -182,22 +183,85 @@ describe('isPublishedEligibleProp', () => {
 })
 
 describe('isEditorsBoardFill', () => {
-  test('allows a no-juice MLB/NFL prop in the odds band without QS or edge floors', () => {
-    expect(isEditorsBoardFill({
+  test('matches isPublishedEligibleProp — same Pile B bar, not a looser fill list', () => {
+    const keep = {
       pick: 'over',
       type: 'batter_hits',
       threshold: 1.5,
       odds: -110,
-      edge: 0,
-      qualityScore: 20,
+      edge: 0.04,
+      qualityScore: 42,
       sport: 'nfl',
-    })).toBe(true)
-  })
+    }
+    expect(isEditorsBoardFill(keep)).toBe(true)
+    expect(isEditorsBoardFill(keep)).toBe(isPublishedEligibleProp(keep))
 
-  test('still rejects juice traps, odds outside the band, and NHL', () => {
+    expect(isEditorsBoardFill({ ...keep, edge: 0, qualityScore: 20 })).toBe(false)
     expect(isEditorsBoardFill(publishedBase({ prediction: 'under', threshold: 0.5 }))).toBe(false)
     expect(isEditorsBoardFill(publishedBase({ odds: 300 }))).toBe(false)
+    expect(isEditorsBoardFill(publishedBase({ odds: 1.40 }))).toBe(false)
     expect(isEditorsBoardFill(publishedBase({ sport: 'nhl' }))).toBe(false)
+    expect(isEditorsBoardFill(publishedBase({ qualityScore: 39 }))).toBe(false)
+  })
+})
+
+describe('rankEditorsPicks', () => {
+  function prop(name, overrides = {}) {
+    return {
+      playerName: name,
+      gameId: `g-${name}`,
+      pick: 'over',
+      type: 'batter_hits',
+      threshold: 1.5,
+      odds: -110,
+      edge: 0.05,
+      qualityScore: 50,
+      sport: 'mlb',
+      ...overrides,
+    }
+  }
+
+  test('keeps only Pile B and ranks by edge then qualityScore', () => {
+    const rows = [
+      prop('Low edge', { edge: 0.02, qualityScore: 80 }),
+      prop('High edge', { edge: 0.12, qualityScore: 41 }),
+      prop('Tie edge better QS', { edge: 0.08, qualityScore: 70 }),
+      prop('Tie edge worse QS', { edge: 0.08, qualityScore: 45 }),
+      prop('Juice trap', { pick: 'under', threshold: 0.5, edge: 0.20 }),
+      prop('Juice price', { odds: -250, edge: 0.18, qualityScore: 90 }),
+      prop('Decimal juice', { odds: 1.40, edge: 0.15, qualityScore: 70 }),
+      prop('No edge', { edge: 0, qualityScore: 80 }),
+      prop('Low QS', { edge: 0.10, qualityScore: 22 }),
+      prop('NHL', { sport: 'nhl', edge: 0.14, qualityScore: 60 }),
+    ]
+
+    const ranked = rankEditorsPicks(rows)
+    expect(ranked.map((row) => row.playerName)).toEqual([
+      'High edge',
+      'Tie edge better QS',
+      'Tie edge worse QS',
+      'Low edge',
+    ])
+  })
+
+  test('never pads empty or short Pile B', () => {
+    expect(rankEditorsPicks([
+      prop('Juice Fav', { odds: -250 }),
+      prop('No Edge', { edge: 0 }),
+    ])).toEqual([])
+
+    const one = rankEditorsPicks([prop('Only'), prop('NHL', { sport: 'nhl' })])
+    expect(one).toHaveLength(1)
+    expect(one[0].playerName).toBe('Only')
+  })
+
+  test('keeps decimal odds that convert into the American band', () => {
+    const ranked = rankEditorsPicks([
+      prop('Keep', { odds: 1.50 }),
+      prop('Out', { odds: 1.40 }),
+    ])
+    expect(ranked).toHaveLength(1)
+    expect(ranked[0].playerName).toBe('Keep')
   })
 })
 
