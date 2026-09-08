@@ -103,7 +103,7 @@ export default function HomeMarketing() {
           <Link href="/picks">
             <div className="bg-surface border border-white/[0.06] rounded-[4px] p-4 hover:bg-elevated hover:border-white/[0.10] transition-colors duration-150 cursor-pointer h-full">
               <h3 className="text-sm font-semibold text-slate-100 mb-0.5">Editor&apos;s Picks</h3>
-              <p className="text-xs text-slate-500">Published-shaped bets we&apos;d take</p>
+              <p className="text-xs text-slate-500">Props we&apos;d actually bet</p>
             </div>
           </Link>
         </div>

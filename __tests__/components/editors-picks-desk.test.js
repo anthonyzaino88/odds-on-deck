@@ -28,13 +28,17 @@ function publishedPick(name, overrides = {}) {
   }
 }
 
-describe("EditorsPicksDesk honest Published-shaped UI", () => {
+describe("EditorsPicksDesk honest public copy", () => {
   test('empty slate does not invent filler rows', () => {
     const html = renderToStaticMarkup(<EditorsPicksDesk picks={[]} loading={false} />)
-    expect(html).toContain("No Published-shaped Editor")
-    expect(html).toContain('juice favorites')
-    expect(html).not.toMatch(/Short slate/)
+    expect(html).toContain("Nothing we")
+    expect(html).toContain('bet right now')
+    expect(html).toContain('honest count')
+    expect(html).not.toMatch(/Just 1 pick/)
     expect(html).not.toContain('Juice Fav')
+    expect(html).not.toContain('Pile B')
+    expect(html).not.toContain('Published-shaped')
+    expect(html).not.toContain('no-edge fill')
   })
 
   test('short slate (1–2) shows the real picks and says it will not pad', () => {
@@ -43,10 +47,12 @@ describe("EditorsPicksDesk honest Published-shaped UI", () => {
     )
     expect(html).toContain('Only Pick')
     expect(html).toContain('Published')
-    expect(html).toContain('Short slate')
-    expect(html).toContain('1 Editor&#x27;s pick')
+    expect(html).toContain('Just 1 pick today')
+    expect(html).toContain('invent a longer list')
     expect(html).not.toContain('Juice Fav')
     expect(html).not.toContain('NHL')
+    expect(html).not.toContain('Pile B')
+    expect(html).not.toContain('Published-shaped')
   })
 
   test('full slate labels Published and omits NHL / short-slate note', () => {
@@ -60,8 +66,11 @@ describe("EditorsPicksDesk honest Published-shaped UI", () => {
     expect(html).toContain('>B<')
     expect(html).toContain('>C<')
     expect(html).toContain('Published')
-    expect(html).toContain('Published-shaped bar')
-    expect(html).not.toMatch(/Short slate/)
+    expect(html).toContain('What makes the list')
+    expect(html).toContain('Skip')
+    expect(html).not.toMatch(/Just \d+ pick/)
     expect(html).not.toContain('NHL Picks')
+    expect(html).not.toContain('Pile B')
+    expect(html).not.toContain('Published-shaped')
   })
 })
