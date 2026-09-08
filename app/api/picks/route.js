@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { generateEditorPicks } from '../../../lib/picks.js'
 import { generateQuickInsight } from '../../../lib/pick-insights.js'
 import { supabase } from '../../../lib/supabase.js'
+import { todaysBoardSlateState } from '../../../lib/published-picks.js'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -65,7 +66,9 @@ export async function GET(request) {
       success: true,
       picks,
       count: picks.length,
-      mode: filterMode
+      mode: filterMode,
+      cohort: 'published',
+      slate: todaysBoardSlateState(picks.length),
     })
     
   } catch (error) {
