@@ -1,9 +1,10 @@
 // Editor's Picks API - Fetch recommended picks with insights
 import { NextResponse } from 'next/server'
-import { generateEditorPicks } from '../../../lib/picks.js'
+import { generateEditorPicks, generateGameLines } from '../../../lib/picks.js'
 import { generateQuickInsight } from '../../../lib/pick-insights.js'
 import { supabase } from '../../../lib/supabase.js'
 import { todaysBoardSlateState } from '../../../lib/published-picks.js'
+import { getSidesTotalsStats } from '../../../lib/validation.js'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -24,6 +25,8 @@ export async function GET(request) {
     
     // Generate picks with the selected filter mode
     const picks = await generateEditorPicks(filterMode)
+    const gameLines = await generateGameLines()
+    const sidesTotals = await getSidesTotalsStats()
     
     // Add quick insights to each pick
     if (includeInsights && picks.length > 0) {
@@ -66,6 +69,8 @@ export async function GET(request) {
       success: true,
       picks,
       count: picks.length,
+      gameLines,
+      sidesTotals,
       mode: filterMode,
       cohort: 'published',
       slate: todaysBoardSlateState(picks.length),

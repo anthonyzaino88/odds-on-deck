@@ -48,6 +48,35 @@ describe('selectEditorPicks', () => {
     expect(selectEditorPicks(null)).toEqual([])
   })
 
+  test('does not mix moneyline or game totals into the props board', () => {
+    const rows = [
+      cacheRow('Keep prop', { edge: 0.08 }),
+      {
+        gameId: 'g-ml',
+        type: 'moneyline',
+        pick: 'NYY',
+        team: 'NYY',
+        odds: -110,
+        edge: 0.12,
+        qualityScore: 80,
+        sport: 'mlb',
+      },
+      {
+        gameId: 'g-ou',
+        type: 'total',
+        pick: 'over',
+        threshold: 8.5,
+        odds: -105,
+        edge: 0.10,
+        qualityScore: 70,
+        sport: 'nfl',
+      },
+    ]
+    const picks = selectEditorPicks(rows)
+    expect(picks.map((p) => p.playerName)).toEqual(['Keep prop'])
+    expect(picks.every((p) => p.type === 'player_prop')).toBe(true)
+  })
+
   test('mapped player_prop wrap still drops counting-stat under 0.5', () => {
     const mapped = mapCachePropToEditorPick(cacheRow('Trap', {
       pick: 'under',

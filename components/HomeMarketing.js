@@ -87,7 +87,7 @@ export default function HomeMarketing() {
 
       <section className="mb-10">
         <SectionHeading title="Jump In" />
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <Link href="/props">
             <div className="bg-surface border border-white/[0.06] rounded-[4px] p-4 hover:bg-elevated hover:border-white/[0.10] transition-colors duration-150 cursor-pointer h-full">
               <h3 className="text-sm font-semibold text-slate-100 mb-0.5">Player Props</h3>
@@ -104,6 +104,12 @@ export default function HomeMarketing() {
             <div className="bg-surface border border-white/[0.06] rounded-[4px] p-4 hover:bg-elevated hover:border-white/[0.10] transition-colors duration-150 cursor-pointer h-full">
               <h3 className="text-sm font-semibold text-slate-100 mb-0.5">Editor&apos;s Picks</h3>
               <p className="text-xs text-slate-500">Props we&apos;d actually bet</p>
+            </div>
+          </Link>
+          <Link href="/#sides-and-totals">
+            <div className="bg-surface border border-white/[0.06] rounded-[4px] p-4 hover:bg-elevated hover:border-white/[0.10] transition-colors duration-150 cursor-pointer h-full">
+              <h3 className="text-sm font-semibold text-slate-100 mb-0.5">Sides &amp; totals</h3>
+              <p className="text-xs text-slate-500">Moneylines and overs/unders with an edge</p>
             </div>
           </Link>
         </div>

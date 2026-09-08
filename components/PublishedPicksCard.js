@@ -95,6 +95,78 @@ export default function PublishedPicksCard({ stats, windowLabel }) {
   )
 }
 
+export function SidesTotalsTrackCard({ stats, windowLabel }) {
+  const hasSample = (stats?.graded || 0) > 0
+  const roiClass = !hasSample
+    ? 'text-slate-100'
+    : stats.roi >= 0
+      ? 'text-green-400'
+      : 'text-red-400'
+  const unitsClass = !hasSample
+    ? 'text-slate-300'
+    : stats.units >= 0
+      ? 'text-green-400'
+      : 'text-red-400'
+  const avgOdds = hasSample ? formatAmericanOdds(stats.avgDecimal ?? stats.avgAmerican) : null
+
+  return (
+    <section className="rounded-[4px] border border-white/[0.08] bg-surface overflow-hidden">
+      <div className="px-4 sm:px-6 pt-5 pb-4 border-b border-white/[0.06]">
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-100">Sides &amp; totals</h2>
+            <p className="text-sm text-slate-400 mt-1 max-w-2xl leading-relaxed">
+              Game moneylines and overs/unders with a model edge. Graded from final
+              scores. Not part of the Published props track above.
+            </p>
+          </div>
+          <p className="text-[11px] uppercase tracking-widest text-slate-500 font-medium">
+            MLB + NFL · {windowLabel}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-white/[0.06]">
+        <StatCell
+          label="ROI"
+          value={hasSample ? formatROI(stats.roi) : '—'}
+          hint="flat 1u · pushes excluded"
+          valueClass={`text-3xl sm:text-4xl ${roiClass}`}
+        />
+        <StatCell
+          label="Units"
+          value={hasSample ? `${formatUnits(stats.units)}u` : '—'}
+          hint="profit / loss at recorded odds"
+          valueClass={`text-2xl sm:text-3xl ${unitsClass}`}
+        />
+        <StatCell
+          label="Sample"
+          value={hasSample ? String(stats.graded) : '0'}
+          hint={hasSample
+            ? `${stats.decided} decided${stats.pushes > 0 ? ` · ${stats.pushes} push` : ''}`
+            : 'no graded sides or totals yet'}
+          valueClass="text-2xl sm:text-3xl text-slate-100"
+        />
+        <StatCell
+          label="Avg odds"
+          value={avgOdds || '—'}
+          hint="mean price, shown American"
+          valueClass="text-2xl sm:text-3xl text-slate-100"
+        />
+      </div>
+
+      <div className="px-4 sm:px-6 py-4">
+        <p className="text-sm text-slate-500">
+          Record (secondary)
+          <span className="ml-2 text-slate-200 tabular-nums font-mono font-medium">
+            {hasSample ? stats.record : '—'}
+          </span>
+        </p>
+      </div>
+    </section>
+  )
+}
+
 function StatCell({ label, value, hint, valueClass }) {
   return (
     <div className="bg-bg p-4 sm:p-5">
@@ -139,6 +211,10 @@ export function HowPublishedPicks() {
         <li>
           <span className="text-slate-200 font-medium">MLB and NFL only</span> &mdash; NHL stays
           in the full archive for now.
+        </li>
+        <li>
+          <span className="text-slate-200 font-medium">Player props only</span> &mdash;
+          moneylines and game totals have their own track below.
         </li>
       </ul>
       <p className="text-sm text-slate-400 leading-relaxed mt-3">
