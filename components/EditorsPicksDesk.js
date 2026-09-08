@@ -252,10 +252,9 @@ export default function EditorsPicksDesk({ picks = [], loading = false }) {
           today. We don&apos;t pad this page with prices we wouldn&apos;t take.
         </p>
         <p className="text-[11px] text-slate-600 mt-2 leading-relaxed">
-          Same filters as Today&apos;s picks on the homepage and the tracked
-          record on{' '}
+          Same bar as Today&apos;s picks on the homepage and the{' '}
           <Link href="/validation" className="text-slate-500 underline decoration-white/10 underline-offset-2 hover:text-slate-300">
-            /validation
+            public track record
           </Link>.
         </p>
         <div className="mt-3 pt-3 border-t border-white/[0.06]">
@@ -290,9 +289,9 @@ export default function EditorsPicksDesk({ picks = [], loading = false }) {
             Nothing we&apos;d bet right now
           </h3>
           <p className="text-sm text-slate-500 max-w-lg mx-auto leading-relaxed">
-            That&apos;s the honest count. If no MLB or NFL prop clears the
-            price, edge, and quality bar, this page stays empty. Check back
-            after the next odds refresh.
+            Slate&apos;s locked &mdash; nothing cleared the bar. Next board
+            after the morning odds pull. We don&apos;t pad this page with
+            prices we wouldn&apos;t take.
           </p>
         </div>
       )}

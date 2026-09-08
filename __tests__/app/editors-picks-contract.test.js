@@ -38,11 +38,16 @@ describe("Editor's desk stays on the Published / Pile B bar", () => {
     expect(picksLayout).not.toMatch(/Published-shaped/)
     expect(deskSrc).toMatch(/What makes the list/)
     expect(deskSrc).toMatch(/Nothing we/)
+    expect(deskSrc).toMatch(/morning odds pull/)
     expect(deskSrc).toMatch(/Just \{picks\.length === 1 \? '1 pick'/)
+    expect(deskSrc).toMatch(/public track record/)
     expect(deskSrc).not.toMatch(/Pile B/)
     expect(deskSrc).not.toMatch(/Published-shaped/)
     expect(deskSrc).not.toMatch(/no-edge fill/)
     expect(deskSrc).not.toMatch(/NHL/)
+    expect(deskSrc).not.toMatch(/>\s*\/validation\s*</)
+    expect(picksPage).toMatch(/public track record/)
+    expect(picksPage).not.toMatch(/>\s*\/validation\s*</)
   })
 
   test('API reports the published cohort and does not require a mode to loosen filters', () => {

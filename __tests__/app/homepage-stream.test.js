@@ -37,7 +37,12 @@ describe('homepage public board is Published-only', () => {
   test('board UI labels Published and tells an honest short/empty story', () => {
     expect(boardSrc).toMatch(/Published/)
     expect(boardSrc).toMatch(/Short slate/)
-    expect(boardSrc).toMatch(/juice favorites/)
+    expect(boardSrc).toMatch(/bad prices/)
+    expect(boardSrc).toMatch(/morning odds pull/)
+    expect(boardSrc).toMatch(/Nothing cleared we'd bet/)
     expect(boardSrc).not.toMatch(/Editor's fill/)
+    expect(boardSrc).not.toMatch(/Published-eligible/)
+    expect(boardSrc).not.toMatch(/no-edge fill/)
+    expect(boardSrc).not.toMatch(/Editor's desk/)
   })
 })

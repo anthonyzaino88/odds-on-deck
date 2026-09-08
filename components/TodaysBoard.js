@@ -99,7 +99,7 @@ export default function TodaysBoard({ board }) {
             href="/picks"
             className="text-[11px] font-medium text-slate-400 hover:text-slate-100 transition-colors whitespace-nowrap"
           >
-            Editor&apos;s desk &rarr;
+            Editor&apos;s Picks &rarr;
           </Link>
         }
       />
@@ -109,12 +109,13 @@ export default function TodaysBoard({ board }) {
           <div className="px-4 py-5">
             <p className="text-sm text-slate-300">
               {nextSlateAt
-                ? `Next slate locks at ${nextSlateAt}`
-                : 'No Published-eligible props on the board yet.'}
+                ? `Nothing cleared we'd bet. Next games ${nextSlateAt}.`
+                : "Slate's locked — nothing we'd bet."}
             </p>
             <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-              Only MLB + NFL props that pass the Published filters land here.
-              Empty beats padding the board with juice favorites.
+              {nextSlateAt
+                ? "We don't pad this board with bad prices."
+                : "Next board after the morning odds pull. We don't pad with bad prices."}
             </p>
           </div>
           {lastNight.length > 0 && (
@@ -138,8 +139,8 @@ export default function TodaysBoard({ board }) {
           {short && (
             <div className="bg-surface px-3 py-2.5 sm:px-4">
               <p className="text-xs text-slate-500 leading-relaxed">
-                Short slate — {rows.length === 1 ? '1 Published pick' : `${rows.length} Published picks`}.
-                We don&apos;t pad with juice favorites or no-edge props.
+                Short slate — {rows.length === 1 ? '1 pick' : `${rows.length} picks`}.
+                We don&apos;t pad with bad prices.
               </p>
             </div>
           )}
