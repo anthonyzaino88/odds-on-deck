@@ -6,6 +6,7 @@ import {
   summarizePublishedPicks,
   selectTodaysBoardRows,
   rankEditorsPicks,
+  summarizeSidesTotals,
   summarizeYesterdayPublished,
   todaysBoardSlateState,
   getEtCalendarDayRange,
@@ -74,6 +75,27 @@ describe('isPublishedPick', () => {
     expect(isPublishedPick(publishedBase({ sport: 'nhl' }))).toBe(false)
     expect(isPublishedPick(publishedBase({ sport: 'nfl' }))).toBe(true)
   })
+
+  test('excludes moneyline and game totals even when they look Published-shaped', () => {
+    expect(isPublishedPick(publishedBase({
+      propType: 'moneyline',
+      prediction: 'NYY',
+      qualityScore: 80,
+      edge: 0.12,
+    }))).toBe(false)
+    expect(isPublishedPick(publishedBase({
+      propType: 'total',
+      prediction: 'over',
+      threshold: 8.5,
+      source: 'game_line',
+    }))).toBe(false)
+    expect(isPublishedEligibleProp(publishedBase({
+      type: 'moneyline',
+      pick: 'NYY',
+      qualityScore: 80,
+      edge: 0.10,
+    }))).toBe(false)
+  })
 })
 
 describe('matchesPublishedStatsPrefilter', () => {
@@ -107,6 +129,7 @@ describe('matchesPublishedStatsPrefilter', () => {
       'edge',
       'qualityScore',
       'sport',
+      'source',
       'status',
       'result',
     ]))
@@ -140,6 +163,50 @@ describe('summarizePublishedPicks', () => {
     expect(summary.sample).toBe(0)
     expect(summary.roi).toBe(0)
     expect(summary.avgAmerican).toBeNull()
+  })
+
+  test('does not fold graded sides & totals into Published ROI', () => {
+    const propsWin = publishedBase({ result: 'correct', odds: 110 })
+    const mlWin = publishedBase({
+      result: 'correct',
+      odds: 150,
+      propType: 'moneyline',
+      prediction: 'NYY',
+      source: 'game_line',
+      qualityScore: 80,
+      edge: 0.10,
+    })
+    const summary = summarizePublishedPicks([propsWin, mlWin])
+    expect(summary.correct).toBe(1)
+    expect(summary.graded).toBe(1)
+  })
+})
+
+describe('summarizeSidesTotals', () => {
+  test('tracks graded ML / totals separately and stays honest at zero', () => {
+    expect(summarizeSidesTotals([]).graded).toBe(0)
+    expect(summarizeSidesTotals([]).record).toBe('0–0')
+
+    const summary = summarizeSidesTotals([
+      publishedBase({
+        result: 'correct',
+        odds: 110,
+        propType: 'moneyline',
+        prediction: 'NYY',
+        source: 'game_line',
+      }),
+      publishedBase({
+        result: 'incorrect',
+        odds: -110,
+        propType: 'total',
+        prediction: 'over',
+        source: 'game_line',
+      }),
+      publishedBase({ result: 'correct', odds: 110 }),
+    ])
+    expect(summary.correct).toBe(1)
+    expect(summary.incorrect).toBe(1)
+    expect(summary.graded).toBe(2)
   })
 })
 

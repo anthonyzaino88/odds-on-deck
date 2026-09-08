@@ -7,8 +7,10 @@ import {
   HomeBoard,
   HomeMatchups,
   HomeProof,
+  HomeSidesTotals,
   MatchupsSkeleton,
   ProofStripSkeleton,
+  SidesTotalsSkeleton,
 } from './HomeStream'
 import { OG_IMAGE, SITE_URL } from '../lib/site-meta'
 
@@ -45,6 +47,9 @@ export default function HomePage() {
       </Suspense>
       <Suspense fallback={<BoardSkeleton />}>
         <HomeBoard />
+      </Suspense>
+      <Suspense fallback={<SidesTotalsSkeleton />}>
+        <HomeSidesTotals />
       </Suspense>
       <Suspense fallback={<MatchupsSkeleton />}>
         <HomeMatchups />

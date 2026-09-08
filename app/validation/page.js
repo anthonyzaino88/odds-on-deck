@@ -1,10 +1,10 @@
 import Link from 'next/link'
 import { Suspense } from 'react'
-import { getValidationStats, getValidationRecords, getValidationCounts, getPublishedPicksStats } from '../../lib/validation.js'
+import { getValidationStats, getValidationRecords, getValidationCounts, getPublishedPicksStats, getSidesTotalsStats } from '../../lib/validation.js'
 import CompletedPropsTable from '../../components/CompletedPropsTable.js'
 import TimeWindowFilter from '../../components/TimeWindowFilter.js'
 import MethodologyPanel from '../../components/MethodologyPanel.js'
-import PublishedPicksCard, { HowPublishedPicks } from '../../components/PublishedPicksCard.js'
+import PublishedPicksCard, { HowPublishedPicks, SidesTotalsTrackCard } from '../../components/PublishedPicksCard.js'
 import { SportBadge } from '../../components/ui'
 import { OG_IMAGE } from '../../lib/site-meta'
 
@@ -76,9 +76,10 @@ export default async function ValidationDashboard({ searchParams }) {
   if (sourceFilter === 'user') statsOpts.sourceGroup = 'user'
   else if (sourceFilter === 'system') statsOpts.sourceGroup = 'system'
 
-  const [stats, publishedStats, recentRecords, validationCounts, nflStats, nhlStats, mlbStats] = await Promise.all([
+  const [stats, publishedStats, sidesTotalsStats, recentRecords, validationCounts, nflStats, nhlStats, mlbStats] = await Promise.all([
     getValidationStats(statsOpts),
     getPublishedPicksStats({ days }),
+    getSidesTotalsStats({ days }),
     getValidationRecords({ limit: 50 }),
     getValidationCounts(),
     getValidationStats({ ...statsOpts, sport: 'nfl' }),
@@ -133,6 +134,7 @@ export default async function ValidationDashboard({ searchParams }) {
 
       <PublishedPicksCard stats={publishedStats} windowLabel={windowLabel(window)} />
       <HowPublishedPicks />
+      <SidesTotalsTrackCard stats={sidesTotalsStats} windowLabel={windowLabel(window)} />
 
       {/* Full graded archive — bulk tracked, not the brand picks */}
       <div>

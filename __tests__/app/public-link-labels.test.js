@@ -4,11 +4,14 @@ const path = require('path')
 const PUBLIC_UI = [
   'app/picks/page.js',
   'app/page.js',
+  'app/validation/page.js',
   'components/EditorsPicksDesk.js',
   'components/TodaysBoard.js',
   'components/HomeMarketing.js',
   'components/HomeHero.js',
   'components/PublishedProofStrip.js',
+  'components/PublishedPicksCard.js',
+  'components/SidesAndTotalsCard.js',
   'app/glossary/GlossaryArticle.js',
 ]
 

@@ -7,9 +7,12 @@ import { format } from 'date-fns'
 import { useState, useEffect } from 'react'
 import DataFreshness from '../../components/DataFreshness.js'
 import EditorsPicksDesk from '../../components/EditorsPicksDesk.js'
+import SidesAndTotalsCard from '../../components/SidesAndTotalsCard.js'
 
 export default function PicksPage() {
   const [picks, setPicks] = useState([])
+  const [gameLines, setGameLines] = useState([])
+  const [sidesTotals, setSidesTotals] = useState(null)
   const [loading, setLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
 
@@ -25,14 +28,20 @@ export default function PicksPage() {
 
       if (data.success) {
         setPicks(data.picks || [])
+        setGameLines(data.gameLines || [])
+        setSidesTotals(data.sidesTotals || null)
         setLastUpdated(new Date())
       } else {
         console.error('Failed to fetch picks:', data.error)
         setPicks([])
+        setGameLines([])
+        setSidesTotals(null)
       }
     } catch (err) {
       console.error('Error fetching picks:', err)
       setPicks([])
+      setGameLines([])
+      setSidesTotals(null)
     } finally {
       setLoading(false)
     }
@@ -69,6 +78,8 @@ export default function PicksPage() {
       </div>
 
       <EditorsPicksDesk picks={picks} loading={loading} />
+
+      <SidesAndTotalsCard lines={gameLines} loading={loading} summary={sidesTotals} />
 
       <div className="p-4 bg-amber-500/[0.08] border border-amber-500/20 rounded-[4px]">
         <p className="text-xs text-amber-400/90 leading-relaxed">

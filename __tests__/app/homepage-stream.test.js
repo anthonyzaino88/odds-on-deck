@@ -20,8 +20,10 @@ describe('homepage first-paint path', () => {
   test('Published proof and today\'s board stay on the page behind Suspense', () => {
     expect(pageSrc).toMatch(/<HomeProof/)
     expect(pageSrc).toMatch(/<HomeBoard/)
+    expect(pageSrc).toMatch(/<HomeSidesTotals/)
     expect(pageSrc).toMatch(/ProofStripSkeleton/)
     expect(pageSrc).toMatch(/BoardSkeleton/)
+    expect(pageSrc).toMatch(/SidesTotalsSkeleton/)
   })
 })
 
@@ -32,6 +34,9 @@ describe('homepage public board is Published-only', () => {
     expect(hookSrc).toMatch(/homepage-board-published-only/)
     expect(hookSrc).toMatch(/todaysBoardSlateState/)
     expect(hookSrc).toMatch(/PUBLISHED_STATS_PREFILTER/)
+    expect(hookSrc).toMatch(/generateGameLines/)
+    expect(hookSrc).toMatch(/homepage-sides-totals/)
+    expect(hookSrc).not.toMatch(/gameLines.*selectTodaysBoardRows/)
   })
 
   test('board UI labels Published and tells an honest short/empty story', () => {

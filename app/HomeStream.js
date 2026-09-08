@@ -3,7 +3,8 @@ import { unstable_cache } from 'next/cache'
 import PublishedProofStrip from '../components/PublishedProofStrip'
 import TodaysBoard from '../components/TodaysBoard'
 import { getTodaysGames } from '../lib/todays-games.js'
-import { getHomepageBoard, getHomepageProofStats } from '../lib/homepage-hook.js'
+import SidesAndTotalsCard from '../components/SidesAndTotalsCard'
+import { getHomepageBoard, getHomepageGameLines, getHomepageProofStats } from '../lib/homepage-hook.js'
 import { SportBadge, SPORT_CONFIG } from '../components/ui'
 
 const SPORT_ORDER = ['mlb', 'nfl', 'nhl']
@@ -43,6 +44,18 @@ export async function HomeProof() {
 export async function HomeBoard() {
   const board = await getHomepageBoard()
   return <TodaysBoard board={board} />
+}
+
+export async function HomeSidesTotals() {
+  const data = await getHomepageGameLines()
+  return (
+    <div className="mb-8 sm:mb-10">
+      <SidesAndTotalsCard
+        lines={data?.lines || []}
+        summary={data?.summary || null}
+      />
+    </div>
+  )
 }
 
 export async function HomeMatchups() {
@@ -148,6 +161,29 @@ export function BoardSkeleton() {
           <div key={key} className="bg-surface px-3 py-2.5 sm:px-4">
             <div className="h-4 w-40 bg-elevated rounded-[3px]" />
             <div className="h-3 w-28 bg-elevated/60 rounded-[3px] mt-2" />
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+export function SidesTotalsSkeleton() {
+  return (
+    <section id="sides-and-totals" className="mb-8 sm:mb-10 scroll-mt-16" aria-hidden="true">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="h-3 w-28 bg-elevated rounded-[3px]" />
+        <div className="flex-1 h-px bg-white/[0.04]" />
+      </div>
+      <div className="rounded-[4px] border border-white/[0.06] bg-surface overflow-hidden">
+        <div className="px-3 sm:px-4 pt-4 pb-3 border-b border-white/[0.06]">
+          <div className="h-3 w-full max-w-md bg-elevated/60 rounded-[3px]" />
+          <div className="h-3 w-64 bg-elevated/40 rounded-[3px] mt-2" />
+        </div>
+        {[1, 2, 3].map((key) => (
+          <div key={key} className="px-3 py-3 sm:px-4 border-t border-white/[0.04]">
+            <div className="h-4 w-36 bg-elevated rounded-[3px]" />
+            <div className="h-3 w-48 bg-elevated/60 rounded-[3px] mt-2" />
           </div>
         ))}
       </div>
