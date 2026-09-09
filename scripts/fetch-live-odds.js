@@ -22,6 +22,7 @@ import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
 import { calculateQualityScore } from '../lib/quality-score.js'
 import { isJuiceTrap, attachNumBooks } from '../lib/juice-traps.js'
+import { isPublishedEligibleProp } from '../lib/published-picks.js'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -1604,6 +1605,40 @@ async function autoSaveTopPropsForValidation(sport) {
   console.log(`  ✅ Saved ${saved} props for validation (${skipped} already tracked)`)
 }
 
+async function autoSavePublishedPropsForValidation(sport) {
+  if (sport !== 'mlb' && sport !== 'nfl') return
+
+  console.log(`\n📌 Recording Published-eligible ${sport.toUpperCase()} props for tomorrow's grades...`)
+
+  try {
+    const { persistPublishedEligibleProps } = await import('../lib/validation.js')
+    // Sport-scoped cache read so we do not double-scan NHL / other oceans.
+    const now = new Date().toISOString()
+    const { data, error } = await supabase
+      .from('PlayerPropCache')
+      .select('*')
+      .eq('sport', sport)
+      .eq('isStale', false)
+      .gte('expiresAt', now)
+      .gt('edge', 0)
+      .gte('qualityScore', 40)
+      .order('edge', { ascending: false })
+      .limit(200)
+
+    if (error) {
+      console.log(`  ⚠️ Published persist fetch failed: ${error.message}`)
+      return
+    }
+
+    const eligible = (data || []).filter((prop) => isPublishedEligibleProp(prop))
+    const saved = await persistPublishedEligibleProps(eligible)
+    console.log(`  ✅ Published track: ${saved.length} recorded (${eligible.length} cleared the bar)`)
+    return saved
+  } catch (error) {
+    console.log(`  ⚠️ Published persist failed: ${error.message}`)
+  }
+}
+
 // ============================================================================
 // MAIN
 // ============================================================================
@@ -1643,6 +1678,12 @@ async function main() {
         
         // 3. Auto-save top props for validation tracking
         await autoSaveTopPropsForValidation(s)
+      }
+
+      // Published track: record bar-clearing MLB/NFL props even on a
+      // cache-hit morning. Reads PlayerPropCache only — no Odds API.
+      if (!dryRun) {
+        await autoSavePublishedPropsForValidation(s)
       }
     }
     

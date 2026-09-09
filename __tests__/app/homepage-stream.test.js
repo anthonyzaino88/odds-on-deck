@@ -36,6 +36,9 @@ describe('homepage public board is Published-only', () => {
     expect(hookSrc).toMatch(/PUBLISHED_STATS_PREFILTER/)
     expect(hookSrc).toMatch(/generateGameLines/)
     expect(hookSrc).toMatch(/homepage-sides-totals/)
+    expect(hookSrc).toMatch(/persistPublishedEligibleProps/)
+    expect(hookSrc).toMatch(/attachGameDates/)
+    expect(hookSrc).toMatch(/getEtCalendarDayRange\(-2\)/)
     expect(hookSrc).not.toMatch(/gameLines.*selectTodaysBoardRows/)
   })
 

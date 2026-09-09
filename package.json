@@ -19,6 +19,7 @@
     "validate": "node scripts/validate-pending-props.js",
     "validate:parlays": "node scripts/auto-validate-parlays.js",
     "validate:all": "node scripts/auto-validate-parlays.js && node scripts/run-validation-check.js",
+    "record:published": "node scripts/record-published-props.js",
     "check-validations": "node scripts/check-pending-validations.js",
     "export:csv": "curl http://localhost:3000/api/export/parlays?format=csv",
     "export:stats": "curl http://localhost:3000/api/export/stats"

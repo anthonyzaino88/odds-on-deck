@@ -13,6 +13,12 @@ import {
   pickWhyChip,
   boardRowKey,
   matchesPublishedStatsPrefilter,
+  toPublishedValidationFields,
+  publishedPropId,
+  publishedSlateInstant,
+  publishedValidationWritePlan,
+  PUBLISHED_COHORT_TAG,
+  PUBLISHED_SOURCE,
   PUBLISHED_MIN_QUALITY,
   PUBLISHED_STATS_PREFILTER,
   PUBLISHED_STATS_SELECT_FIELDS,
@@ -469,6 +475,167 @@ describe('summarizeYesterdayPublished', () => {
     expect(yesterday.empty).toBe(true)
     expect(yesterday.decided).toBe(0)
     expect(yesterday.line).toBe('No Published grades yesterday.')
+  })
+
+  test('morning-graded Sep 8 slate still counts as yesterday on Sep 9', () => {
+    const wedAfternoonEt = new Date('2026-09-09T20:12:00.000Z') // 4:12pm ET
+    const { start, end } = getEtCalendarDayRange(-1, wedAfternoonEt)
+    expect(start.toISOString()).toBe('2026-09-08T04:00:00.000Z')
+    expect(end.toISOString()).toBe('2026-09-09T04:00:00.000Z')
+
+    const yesterday = summarizeYesterdayPublished([
+      publishedBase({
+        result: 'correct',
+        odds: 110,
+        gameDate: '2026-09-08T23:05:00.000Z', // first pitch Tue ET
+        timestamp: '2026-09-08T15:00:00.000Z',
+        completedAt: '2026-09-09T11:10:00.000Z', // morning validate:all
+      }),
+      publishedBase({
+        result: 'incorrect',
+        odds: -110,
+        gameDate: '2026-09-08T17:10:00.000Z',
+        completedAt: '2026-09-09T11:12:00.000Z',
+      }),
+      publishedBase({
+        result: 'correct',
+        odds: 150,
+        gameDate: '2026-09-09T17:05:00.000Z', // today's slate
+        completedAt: '2026-09-09T18:00:00.000Z',
+      }),
+    ], wedAfternoonEt)
+
+    expect(yesterday.empty).toBe(false)
+    expect(yesterday.correct).toBe(1)
+    expect(yesterday.incorrect).toBe(1)
+    expect(yesterday.decided).toBe(2)
+    expect(yesterday.line).toMatch(/^Yesterday: 1–1, /)
+  })
+
+  test('does not fold a graded game line into yesterday Published', () => {
+    const yesterday = summarizeYesterdayPublished([
+      publishedBase({
+        result: 'correct',
+        odds: 150,
+        propType: 'moneyline',
+        prediction: 'NYY',
+        source: 'game_line',
+        gameDate: '2026-09-04T23:00:00.000Z',
+        completedAt: '2026-09-05T11:00:00.000Z',
+      }),
+    ], now)
+    expect(yesterday.empty).toBe(true)
+    expect(yesterday.line).toBe('No Published grades yesterday.')
+  })
+})
+
+describe('publishedSlateInstant', () => {
+  test('prefers gameDate over completedAt so next-morning grades stay on the slate day', () => {
+    const at = publishedSlateInstant({
+      gameDate: '2026-09-08T23:05:00.000Z',
+      timestamp: '2026-09-08T15:00:00.000Z',
+      completedAt: '2026-09-09T11:10:00.000Z',
+    })
+    expect(at.toISOString()).toBe('2026-09-08T23:05:00.000Z')
+  })
+
+  test('falls back to timestamp, then completedAt', () => {
+    expect(publishedSlateInstant({
+      timestamp: '2026-09-08T15:00:00.000Z',
+      completedAt: '2026-09-09T11:10:00.000Z',
+    }).toISOString()).toBe('2026-09-08T15:00:00.000Z')
+    expect(publishedSlateInstant({
+      completedAt: '2026-09-09T11:10:00.000Z',
+    }).toISOString()).toBe('2026-09-09T11:10:00.000Z')
+    expect(publishedSlateInstant({})).toBeNull()
+  })
+})
+
+describe('toPublishedValidationFields', () => {
+  test('keeps cache qualityScore / edge / odds and tags the Published cohort', () => {
+    const fields = toPublishedValidationFields({
+      propId: 'yelich-tb-15',
+      gameId: 'game-1',
+      playerName: 'Christian Yelich',
+      type: 'batter_total_bases',
+      pick: 'over',
+      threshold: 1.5,
+      odds: 188,
+      edge: 0.06,
+      qualityScore: 42,
+      sport: 'mlb',
+      numBooks: 4,
+      projection: 1.8,
+    })
+    expect(fields).toMatchObject({
+      propId: 'yelich-tb-15',
+      gameIdRef: 'game-1',
+      playerName: 'Christian Yelich',
+      propType: 'batter_total_bases',
+      prediction: 'over',
+      threshold: 1.5,
+      odds: 188,
+      edge: 0.06,
+      qualityScore: 42,
+      source: PUBLISHED_SOURCE,
+      notes: PUBLISHED_COHORT_TAG,
+      status: 'pending',
+      sport: 'mlb',
+      numBooks: 4,
+    })
+    expect(fields.source).not.toBe('game_line')
+    expect(publishedPropId({ propId: 'yelich-tb-15' })).toBe('yelich-tb-15')
+  })
+
+  test('rejects edge-0 juice, juice traps, game lines, NHL, and low QS', () => {
+    const keep = {
+      propId: 'p1',
+      gameId: 'g1',
+      playerName: 'A',
+      type: 'batter_hits',
+      pick: 'over',
+      threshold: 0.5,
+      odds: -110,
+      edge: 0.04,
+      qualityScore: 42,
+      sport: 'mlb',
+    }
+    expect(toPublishedValidationFields({ ...keep, edge: 0 })).toBeNull()
+    expect(toPublishedValidationFields({ ...keep, pick: 'under', threshold: 0.5 })).toBeNull()
+    expect(toPublishedValidationFields({
+      ...keep,
+      type: 'moneyline',
+      pick: 'NYY',
+      source: 'game_line',
+    })).toBeNull()
+    expect(toPublishedValidationFields({ ...keep, sport: 'nhl' })).toBeNull()
+    expect(toPublishedValidationFields({ ...keep, qualityScore: 39 })).toBeNull()
+    expect(toPublishedValidationFields({ ...keep, odds: -250 })).toBeNull()
+  })
+
+  test('maps Editor desk player_prop wraps back to the market type', () => {
+    const fields = toPublishedValidationFields({
+      propId: 'stowers-1',
+      gameId: 'g2',
+      playerName: 'Kyle Stowers',
+      type: 'player_prop',
+      propType: 'batter_total_bases',
+      pick: 'over',
+      threshold: 1.5,
+      odds: 125,
+      edge: 0.05,
+      qualityScore: 44,
+      sport: 'mlb',
+    })
+    expect(fields.propType).toBe('batter_total_bases')
+  })
+})
+
+describe('publishedValidationWritePlan', () => {
+  test('inserts new, updates pending, skips completed', () => {
+    expect(publishedValidationWritePlan(null)).toBe('insert')
+    expect(publishedValidationWritePlan({ status: 'pending' })).toBe('update')
+    expect(publishedValidationWritePlan({ status: 'completed', result: 'correct' })).toBe('skip')
   })
 })
 
