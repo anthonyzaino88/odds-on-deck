@@ -8,6 +8,7 @@ config({ path: '.env.local' })
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import { isJuiceTrap, attachNumBooks } from '../lib/juice-traps.js'
+import { isPublishedEligibleProp } from '../lib/published-picks.js'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -79,6 +80,22 @@ async function saveTopPropsForValidation() {
       .order('qualityScore', { ascending: false })
       .limit(200)
     
+    // Published-eligible first: QS ≥ 40 + edge > 0 can miss the elite
+    // tier when probability < 0.60. Do not recalculate their QS.
+    const { data: publishedProps } = await supabase
+      .from('PlayerPropCache')
+      .select('*')
+      .eq('isStale', false)
+      .gte('expiresAt', now)
+      .in('sport', ['mlb', 'nfl'])
+      .gt('edge', 0)
+      .gte('qualityScore', 40)
+      .order('edge', { ascending: false })
+      .limit(200)
+
+    const publishedClean = (publishedProps || []).filter((prop) => isPublishedEligibleProp(prop))
+    const publishedIds = new Set(publishedClean.map((prop) => prop.propId))
+
     // Drop juice traps first, then re-apply original per-tier caps
     const eliteClean = (eliteProps || []).filter((prop) => !isJuiceTrap(prop)).slice(0, 50)
     const eliteIds = new Set(eliteClean.map((prop) => prop.propId))
@@ -87,9 +104,10 @@ async function saveTopPropsForValidation() {
     const goodClean = (goodProps || []).filter((prop) => !isJuiceTrap(prop) && !eliteIds.has(prop.propId) && !highIds.has(prop.propId)).slice(0, 75)
 
     const allProps = [
-      ...eliteClean,
-      ...highClean,
-      ...goodClean
+      ...publishedClean,
+      ...eliteClean.filter((prop) => !publishedIds.has(prop.propId)),
+      ...highClean.filter((prop) => !publishedIds.has(prop.propId)),
+      ...goodClean.filter((prop) => !publishedIds.has(prop.propId)),
     ]
     
     if (allProps.length === 0) {
@@ -98,6 +116,7 @@ async function saveTopPropsForValidation() {
     }
     
     console.log('📊 Props by tier:')
+    console.log(`   📌 Published (edge>0, Q40+, odds band): ${publishedClean.length}`)
     console.log(`   🏆 Elite (Q40+, P60+): ${eliteClean.length}`)
     console.log(`   ⭐ High (Q35-39, P55+): ${highClean.length}`)
     console.log(`   ✅ Good (Q30-34, P52+): ${goodClean.length}`)
@@ -153,8 +172,18 @@ async function saveTopPropsForValidation() {
         }
         
         // Determine which tier this prop belongs to
-        const tier = eliteClean.some(p => p.propId === prop.propId) ? 'elite' :
+        const isPublished = publishedIds.has(prop.propId)
+        const tier = isPublished ? 'published' :
+                     eliteClean.some(p => p.propId === prop.propId) ? 'elite' :
                      highClean.some(p => p.propId === prop.propId) ? 'high' : 'good'
+        const cachedQuality = Number(prop.qualityScore)
+        const qualityScore = Number.isFinite(cachedQuality)
+          ? cachedQuality
+          : calculateQualityScore({
+              probability: prop.probability,
+              edge: prop.edge,
+              confidence: prop.confidence
+            })
         
         // Save to validation system directly
         const validationData = attachNumBooks({
@@ -170,17 +199,13 @@ async function saveTopPropsForValidation() {
           edge: prop.edge || 0,
           odds: prop.odds || null,
           probability: prop.probability || null,
-          qualityScore: calculateQualityScore({
-            probability: prop.probability,
-            edge: prop.edge,
-            confidence: prop.confidence
-          }),
+          qualityScore,
           source: 'system_generated',
           parlayId: null,
           status: 'pending',
           sport: prop.sport,
           timestamp: new Date().toISOString(),
-          notes: `tier:${tier}` // Track which tier for analysis
+          notes: isPublished ? 'cohort:published' : `tier:${tier}`
         }, prop)
         
         const { data: validation, error: saveError } = await supabase

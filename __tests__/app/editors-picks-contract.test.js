@@ -21,6 +21,7 @@ describe("Editor's desk stays on the Published / Pile B bar", () => {
     expect(picksLib).toMatch(/rankEditorsPicks/)
     expect(picksLib).toMatch(/PUBLISHED_SPORTS/)
     expect(picksLib).toMatch(/PUBLISHED_STATS_PREFILTER/)
+    expect(picksLib).toMatch(/persistPublishedEligibleProps/)
     expect(picksLib).not.toMatch(/generatePicksFromSupabase\('nhl'/)
     expect(picksLib).not.toMatch(/filterMode === 'all'/)
     expect(picksLib).not.toMatch(/\.gte\('probability', 0\.50\)/)
