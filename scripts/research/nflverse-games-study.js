@@ -142,7 +142,7 @@ export async function runStudyCli(argv = process.argv.slice(2), { stdout = conso
     minSeason: Number.isFinite(args.minSeason) ? args.minSeason : null,
     maxSeason: Number.isFinite(args.maxSeason) ? args.maxSeason : null,
     minTeamGames: Number.isFinite(args.minTeamGames) ? args.minTeamGames : 4,
-    sourceUrl: loaded.sourceUrl || args.url,
+    sourceUrl: loaded.downloaded ? loaded.sourceUrl : null,
     sourcePath: loaded.sourcePath || args.input,
   })
 
