@@ -362,6 +362,38 @@ describe('Featured quality — Published-eligible 3-leg or empty', () => {
     expect(isFeaturedWorthyParlay(parlays[0])).toBe(true)
   })
 
+  test('does not apply explorer maxOdds caps to Featured', () => {
+    const legs = [
+      mapCachePropToParlayBet(publishedProp('Geno Smith', {
+        odds: 3.0,
+        probability: 0.40,
+        edge: 0.06,
+      })),
+      mapCachePropToParlayBet(publishedProp('Cam Ward', {
+        odds: 3.0,
+        probability: 0.40,
+        edge: 0.05,
+      })),
+      mapCachePropToParlayBet(publishedProp('Tony Pollard', {
+        type: 'player_rush_yds',
+        threshold: 64.5,
+        odds: 3.0,
+        probability: 0.40,
+        edge: 0.04,
+      })),
+    ]
+    const featured = assembleParlays(legs, {
+      legCount: 3,
+      type: 'single_game',
+      featured: true,
+      filterMode: 'safe',
+      maxParlays: 1,
+    })
+    expect(featured).toHaveLength(1)
+    expect(featured[0].totalOdds).toBeGreaterThan(10)
+    expect(featured[0].legs.every(isFeaturedQualityLeg)).toBe(true)
+  })
+
   test('does not keep a looser prob/EV Featured bar — Published eligibility is the only filter', () => {
     // Old #20 bar rejected probability > 0.67. A Published-eligible 70%
     // favorite in-band must still ship when the other two legs clear too.
