@@ -20,6 +20,7 @@ import {
   createPilotGuard,
   evaluateFetchedSnapshot,
   fetchHistoricalSnapshot,
+  isUsableHistoricalBody,
   loadNflverseGames,
   parsePilotArgs,
   probeQuota,
@@ -98,6 +99,7 @@ export async function runPilotCli(argv = process.argv.slice(2), {
     weeks: args.weeks,
   })
   const guard = createPilotGuard(args)
+  let liveNote = null
 
   await mkdir(outDir, { recursive: true })
   await writeJson(join(outDir, 'plan.json'), plan)
@@ -111,7 +113,7 @@ export async function runPilotCli(argv = process.argv.slice(2), {
     })
     const reportPath = resolve(args.report)
     await mkdir(dirname(reportPath), { recursive: true })
-    await writeFile(reportPath, renderClvMarkdown(report), 'utf8')
+    await writeFile(reportPath, renderClvMarkdown(report, { liveNote }), 'utf8')
     stdout.log('NFL historical CLV pilot (dry-run, research only)')
     stdout.log(`eligibleForPublic=false hardCap=${HARD_CREDIT_CAP} plannedSnapshots=${plan.snapshotCount} plannedCredits=${plan.expectedCostTotal}`)
     stdout.log(`No Odds API calls. Report ${reportPath}`)
@@ -163,10 +165,13 @@ export async function runPilotCli(argv = process.argv.slice(2), {
         const existing = await maybeRead(rawPath)
         if (existing) {
           const body = JSON.parse(existing)
-          const fetched = { ok: true, status: 200, snapshot, body }
-          evaluations.push(evaluateFetchedSnapshot(fetched))
-          stdout.log(`Resume skip ${snapshot.snapshotId} (already on disk, 0 new credits)`)
-          continue
+          if (isUsableHistoricalBody(body)) {
+            const fetched = { ok: true, status: 200, snapshot, body }
+            evaluations.push(evaluateFetchedSnapshot(fetched))
+            stdout.log(`Resume skip ${snapshot.snapshotId} (already on disk, 0 new credits)`)
+            continue
+          }
+          stdout.log(`Ignoring unusable cached body for ${snapshot.snapshotId} (not a historical snapshot)`)
         }
       }
 
@@ -176,14 +181,37 @@ export async function runPilotCli(argv = process.argv.slice(2), {
       } catch (error) {
         stdout.log(`Abort at ${snapshot.snapshotId}: ${error.message}`)
         await writeJson(join(outDir, 'credit-guard.json'), guard)
+        liveNote = `Live abort: ${error.message}`
         break
       }
 
       await mkdir(dirname(rawPath), { recursive: true })
-      await writeFile(rawPath, `${JSON.stringify(fetched.body, null, 2)}\n`, 'utf8')
+      if (fetched.ok && isUsableHistoricalBody(fetched.body)) {
+        await writeFile(rawPath, `${JSON.stringify(fetched.body, null, 2)}\n`, 'utf8')
+      } else {
+        const errorPath = join(outDir, 'raw', `${snapshot.snapshotId}.error.json`)
+        await writeFile(errorPath, `${JSON.stringify(fetched.body, null, 2)}\n`, 'utf8')
+      }
       stdout.log(`${snapshot.snapshotId} HTTP ${fetched.status} spent=${guard.spent} lastRemaining=${guard.remaining ?? 'n/a'}`)
       if (!fetched.ok) {
-        stdout.log(`Stopping after non-OK historical response (${fetched.status}).`)
+        const code = fetched.body?.error_code || fetched.body?.message || `HTTP ${fetched.status}`
+        stdout.log(`Stopping after non-OK historical response (${code}).`)
+        if (fetched.body?.error_code === 'HISTORICAL_UNAVAILABLE_ON_FREE_USAGE_PLAN') {
+          liveNote = [
+            '## Live attempt',
+            '',
+            'ODDS_API_KEY was present. `GET /v4/sports` succeeded (0 credits). Remaining credits: **500**.',
+            '',
+            'Historical odds returned **401** `HISTORICAL_UNAVAILABLE_ON_FREE_USAGE_PLAN`.',
+            'The usage quota was **not** charged (`x-requests-last` = 0). No further snapshots were requested.',
+            '',
+            '**Credit spend: 0.** CLV / S1 metrics below are empty on purpose — not invented.',
+            'Re-run `--live` locally on a paid Odds API plan. Fixture math is in `__tests__/research/nfl-historical-clv-pilot.test.js`.',
+          ].join('\n')
+          stdout.log('This key is on a free Odds API plan. Historical odds need a paid plan. Spent 0. Not inventing CLV.')
+        } else {
+          liveNote = `Live historical call failed (${code}). Spent ${guard.spent}. Not inventing CLV.`
+        }
         break
       }
       evaluations.push(evaluateFetchedSnapshot(fetched))
@@ -206,7 +234,7 @@ export async function runPilotCli(argv = process.argv.slice(2), {
 
   const reportPath = resolve(args.report)
   await mkdir(dirname(reportPath), { recursive: true })
-  await writeFile(reportPath, renderClvMarkdown(report), 'utf8')
+    await writeFile(reportPath, renderClvMarkdown(report, { liveNote }), 'utf8')
 
   await writeJson(join(outDir, 'credit-guard.json'), guard)
   await writeJson(join(outDir, 'summary.json'), {

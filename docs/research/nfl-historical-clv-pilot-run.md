@@ -11,24 +11,35 @@ This artifact is a budgeted Odds API historical pull plus a model-free cross-boo
 | Regrade picks | `false` |
 | Merge | `false` |
 | Hard credit cap | `3000` |
-| Mode | `dry-run` |
+| Mode | `live` |
 
-Generated at: `2026-09-10T02:38:51.504Z`
+Generated at: `2026-09-10T02:40:51.171Z`
 
 ## Credit spend
 
 | Field | Value |
 | --- | --- |
 | Spent | `0` |
-| Remaining (API) | `n/a` |
+| Remaining (API) | `500` |
 | Hard cap | `3000` |
-| Calls | `0` |
+| Calls | `2` |
 | Aborted | `false` |
 | Abort reason | none |
-| Planned snapshots | `36` |
-| Planned cost | `720` |
+| Planned snapshots | `2` |
+| Planned cost | `40` |
 
 If mode is `dry-run` or `fixture`, spent is 0 and no Odds API historical credits were used.
+
+## Live attempt
+
+ODDS_API_KEY was present. `GET /v4/sports` succeeded (0 credits). Remaining credits: **500**.
+
+Historical odds returned **401** `HISTORICAL_UNAVAILABLE_ON_FREE_USAGE_PLAN`.
+The usage quota was **not** charged (`x-requests-last` = 0). No further snapshots were requested.
+
+**Credit spend: 0.** CLV / S1 metrics below are empty on purpose — not invented.
+Re-run `--live` locally on a paid Odds API plan. Fixture math is in `__tests__/research/nfl-historical-clv-pilot.test.js`.
+
 
 ## Pre-registered rule S1
 

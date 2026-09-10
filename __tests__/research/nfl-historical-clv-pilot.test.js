@@ -8,6 +8,7 @@ import {
   build2024RegSnapshotPlan,
   clvFromPair,
   computeClvReport,
+  isUsableHistoricalBody,
   loadNflverseGames,
   parsePilotArgs,
   selectedByS1,
@@ -113,6 +114,14 @@ describe('NFL historical CLV pilot (research only)', () => {
     expect(parsePilotArgs(['--live']).live).toBe(true)
     expect(parsePilotArgs(['--max-credits', '9000']).maxCredits).toBe(3000)
     expect(parsePilotArgs(['--max-snapshots', '200']).maxSnapshots).toBe(140)
+  })
+
+  test('rejects Odds API error bodies as unusable snapshots', () => {
+    expect(isUsableHistoricalBody({
+      error_code: 'HISTORICAL_UNAVAILABLE_ON_FREE_USAGE_PLAN',
+      message: 'Historical odds are only available on paid usage plans.',
+    })).toBe(false)
+    expect(isUsableHistoricalBody({ timestamp: '2024-09-03T17:55:00Z', data: [] })).toBe(true)
   })
 
   test('does not call fetch when scoring fixtures', () => {

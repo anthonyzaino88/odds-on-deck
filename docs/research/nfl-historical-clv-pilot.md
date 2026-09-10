@@ -131,6 +131,7 @@ Record honest header totals from `--live` in the run report. If the key is missi
 | Planned snapshots | `36` |
 | Planned cost | `720` |
 | Hard cap | `3000` |
+| Agent VM `--live` (2026-09-10) | Key present. `GET /v4/sports` remaining **500**. Historical `h2h,totals` **401** `HISTORICAL_UNAVAILABLE_ON_FREE_USAGE_PLAN`. **Spent 0.** |
 
 ## Recommendation
 
