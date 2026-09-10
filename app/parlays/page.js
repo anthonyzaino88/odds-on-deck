@@ -84,7 +84,7 @@ function ParlayOfTheDay() {
 
   useEffect(() => {
     async function fetchFeatured() {
-      const sports = ['mlb', 'nhl', 'nfl']
+      const sports = ['mlb', 'nfl']
       const results = []
 
       await Promise.all(sports.flatMap(s => [
@@ -116,7 +116,7 @@ function ParlayOfTheDay() {
         }
       }
       deduped.sort((a, b) => {
-        const sportOrder = { mlb: 0, nhl: 1, nfl: 2 }
+        const sportOrder = { mlb: 0, nfl: 1 }
         const sd = (sportOrder[a.sport] ?? 9) - (sportOrder[b.sport] ?? 9)
         if (sd !== 0) return sd
         return a.type === 'sgp' ? -1 : 1
@@ -153,7 +153,7 @@ function ParlayOfTheDay() {
       <div>
         <SectionHeading title="Today's Featured Parlays" />
         <p className="text-sm text-slate-500">
-          None cleared the quality bar today — empty is better than a juice or contradictory card.
+          No Published-eligible 3-leg card today. Empty when the slate is thin — we do not fill with juice, sides, or 2-leg leftovers.
         </p>
       </div>
     )
@@ -163,7 +163,7 @@ function ParlayOfTheDay() {
     <div>
       <SectionHeading
         title="Today's Featured Parlays"
-        action={<span className="text-[11px] text-slate-600">Auto-generated from best lines</span>}
+        action={<span className="text-[11px] text-slate-600">Published-eligible 3-leg props only</span>}
       />
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {cards.map((c, i) => (
@@ -217,7 +217,7 @@ export default function ParlaysPage() {
       <div className="rounded-[4px] border border-white/[0.06] bg-surface p-4">
         <h4 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-2">How It Works</h4>
         <ul className="text-sm text-slate-400 space-y-1.5">
-          <li>&bull; <span className="text-slate-200 font-medium">Featured Parlays</span> are auto-generated daily from the best available lines</li>
+          <li>&bull; <span className="text-slate-200 font-medium">Featured Parlays</span> are 3-leg MLB/NFL cards from Published-eligible props only. Empty when the slate is thin</li>
           <li>&bull; <span className="text-slate-200 font-medium">Build Your Own</span> by selecting sport, strategy, and leg count below</li>
           <li>&bull; <span className="text-slate-200 font-medium">Same-Game Parlays (SGPs)</span> stack multiple props from a single game</li>
           <li>&bull; <span className="text-slate-200 font-medium">Save &amp; Track</span> any parlay to monitor results when games complete</li>
