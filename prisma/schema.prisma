@@ -25,11 +25,18 @@ model Team {
   
   // Sport-agnostic form tracking
   parkFactor           Float? // 1.00 neutral, >1 favors offense (MLB: hitters, NFL: offense)
-  last10Record         String? // "7-3" format
-  avgPointsLast10      Float? // Average points/runs scored last 10 games
-  avgPointsAllowedLast10 Float? // Average points/runs allowed last 10 games
+  last10Record         String? // "7-3" format — ESPN fetch stores season record, not last-10
+  avgPointsLast10      Float? // Average points/runs scored last 10 games — ESPN fetch stores season PPG
+  avgPointsAllowedLast10 Float? // Average points/runs allowed last 10 games — ESPN fetch stores season PAPG
   homeRecord           String? // "45-36" format
   awayRecord           String? // "42-39" format
+
+  // Season / freshness metadata (shared Team write path; see scripts/migrations/004)
+  season           String? // e.g. "2025" — ESPN season year, not Game.season
+  gamesPlayed      Int?
+  statsKind        String? // "season" (ESPN team endpoint) or "last10" (true window; not written today)
+  statsCapturedAt  DateTime? // when this fetch wrote a full present-stats extract
+  statsDataThrough DateTime? // last completed game date from ESPN, when present
 
   players   Player[]
   homeGames Game[]   @relation("homeTeam")
@@ -202,6 +209,15 @@ model EdgeSnapshot {
   ourTotal   Float? // modeled game total (for display)
   modelRun   String // version hash
   ts         DateTime @default(now())
+
+  // Prediction ↔ quote pairing (NFL selection writes these; MLB/NHL omit)
+  payload           Json? // calculateNFLSelection contract
+  oddsSnapshotId    String?
+  inputSnapshotId   String?
+  quotedAt          DateTime?
+  eligibleForPublic Boolean @default(false)
+
+  @@index([modelRun])
 }
 
 model Lineup {

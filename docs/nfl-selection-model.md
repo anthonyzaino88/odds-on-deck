@@ -30,7 +30,7 @@ Missing, stale, mismatched, or insufficient data returns an unavailable result w
 | `missing_team_data` | No usable season record / games played |
 | `missing_season` | Season id missing on a team or the game |
 | `season_mismatch` | Team season ≠ game season |
-| `unknown_data_freshness` | No `statsCapturedAt` (current Team table has no such column) |
+| `unknown_data_freshness` | No `statsCapturedAt` (column exists; fetch writes it only on a full extract) |
 | `stale_team_data` | Captured-at older than 7 days, in the future, or unparseable |
 | `missing_data_through` | No data-through date |
 | `invalid_data_through` | Data-through is not a real timestamp |
@@ -113,11 +113,11 @@ Do not treat that helper as a validated NFL scoring model. No σ was estimated f
 
 Each research evaluation carries model version, input snapshot, event, market, line, sportsbook, decimal/American odds, and timestamps. Public output must reuse that prediction and quote. A later Odds row is rejected.
 
-`EdgeSnapshot` today stores only `edgeMl*` / `edgeTotal*` / `modelRun`. NFL writes `modelRun = nfl-selection-v1.0.1` and **null** edges so the public board cannot read a phantom gap. A payload JSON column is proposed, not applied (see `docs/migrations/004_edge_snapshot_traceability.md`).
+`EdgeSnapshot` stores `edgeMl*` / `edgeTotal*` / `modelRun` plus pairing columns (`payload`, `oddsSnapshotId`, `inputSnapshotId`, `quotedAt`, `eligibleForPublic`). NFL writes `modelRun = nfl-selection-v1.0.1`, **null** edge floats, the selection payload, and the quote used at prediction time. `eligibleForPublic` stays false. Apply the SQL in `scripts/migrations/004_team_freshness_and_edge_traceability.sql` before relying on those columns in a database. See `docs/migrations/004_edge_snapshot_traceability.md`.
 
 ## Validation blockers
 
-No chronological out-of-sample study is in this repo. Do not invent calibration, CLV, or ROI. Closing-line comparison is unavailable (quotes are not stored with the prediction today).
+No chronological out-of-sample study is in this repo. Do not invent calibration, CLV, or ROI. Closing-line comparison can use the stored quote pairing after the 004 columns are applied; it is not computed here.
 
 Ask before adding paid data services.
 
@@ -125,6 +125,6 @@ Ask before adding paid data services.
 
 **Keep public NFL selections disabled** until:
 
-1. Team freshness / season / data-through columns exist and are populated.
+1. Team freshness / season / data-through columns are applied in the target database and populated by a full ESPN extract (`statsDataThrough` still requires a last completed game in the ESPN payload).
 2. A chronological out-of-sample evaluation reports sample size, calibration, probability score vs the market, and a defined staking rule.
 3. Totals have a fitted or empirically validated mapping that handles NFL scoring variance and integer pushes.
