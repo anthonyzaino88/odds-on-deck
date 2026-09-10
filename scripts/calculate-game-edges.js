@@ -4,7 +4,8 @@
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
 import { calculateGameEdges } from '../lib/edge.js' // MLB model
-import { calculateNFLNHLEdges } from '../lib/edge-nfl-nhl.js' // NFL/NHL model
+import { calculateNHLEdges } from '../lib/edge-nfl-nhl.js' // NHL heuristic (unchanged)
+import { calculateNFLEdges } from '../lib/edge-nfl.js' // isolated NFL model
 import crypto from 'crypto'
 
 config({ path: '.env.local' })
@@ -128,9 +129,11 @@ async function calculateEdgesForToday() {
         if (game.sport === 'mlb') {
           // Use MLB-specific model with pitchers, park factors, etc.
           edges = calculateGameEdges(game, odds)
-        } else if (game.sport === 'nfl' || game.sport === 'nhl') {
-          // Use NFL/NHL model based on team performance and recent form
-          edges = calculateNFLNHLEdges(game, odds)
+        } else if (game.sport === 'nfl') {
+          // Isolated NFL model. Public edges stay null until validated.
+          edges = calculateNFLEdges(game, odds)
+        } else if (game.sport === 'nhl') {
+          edges = calculateNHLEdges(game, odds)
         } else {
           console.log(`  ⚠️  No model available for sport: ${game.sport}`)
           continue
