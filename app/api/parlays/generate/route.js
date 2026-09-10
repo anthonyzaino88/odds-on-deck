@@ -6,6 +6,7 @@ export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { generateSimpleParlays } from '../../../../lib/simple-parlay-generator.js'
+import { FEATURED_LEG_COUNT } from '../../../../lib/parlay-integrity.js'
 
 // Note: Saving parlays to database is temporarily disabled during Supabase migration
 // Parlays are still generated and returned, just not persisted
@@ -50,17 +51,20 @@ export async function POST(request) {
       )
     }
 
+    const isFeatured = featured === true || featured === '1' || featured === 'true'
+
     // Generate parlays
     const parlays = await generateSimpleParlays({
       sport,
       type,
-      legCount,
+      // Featured is exactly FEATURED_LEG_COUNT Published-eligible legs or empty.
+      legCount: isFeatured ? FEATURED_LEG_COUNT : legCount,
       minEdge,
       maxParlays,
       minConfidence,
       filterMode, // Pass filter mode to generator
       gameId,
-      featured: featured === true || featured === '1' || featured === 'true',
+      featured: isFeatured,
     })
 
     // Save parlays to database if requested
@@ -102,11 +106,12 @@ export async function GET(request) {
     const gameId = searchParams.get('gameId') || null
     const featuredParam = searchParams.get('featured')
     const featured = featuredParam === '1' || featuredParam === 'true'
+    const featuredLegCount = featured ? FEATURED_LEG_COUNT : legCount
 
     const parlays = await generateSimpleParlays({
       sport,
       type,
-      legCount,
+      legCount: featuredLegCount,
       minEdge,
       maxParlays,
       filterMode,
