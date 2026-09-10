@@ -2,7 +2,7 @@
 
 Status: **unvalidated research heuristic**. Public NFL sides and totals stay disabled.
 
-Model version: `nfl-selection-v1.0.0`  
+Model version: `nfl-selection-v1.0.1`  
 Legacy heuristic (do not present as this model): `nfl-nhl-v0.1.0`
 
 ## What this model uses
@@ -31,14 +31,28 @@ Missing, stale, mismatched, or insufficient data returns an unavailable result w
 | `missing_season` | Season id missing on a team or the game |
 | `season_mismatch` | Team season ≠ game season |
 | `unknown_data_freshness` | No `statsCapturedAt` (current Team table has no such column) |
-| `stale_team_data` | Captured-at older than 7 days or in the future |
+| `stale_team_data` | Captured-at older than 7 days, in the future, or unparseable |
 | `missing_data_through` | No data-through date |
+| `invalid_data_through` | Data-through is not a real timestamp |
 | `data_through_in_future` | Data-through is after evaluation time |
+| `stale_data_through` | Data-through is older than 7 days relative to prediction time |
+| `data_through_older_than_fetch_window` | A recent fetch timestamp cannot make older statistics current |
+| `data_through_season_mismatch` | Data-through is outside the game's NFL season year |
 | `early_season_insufficient_sample` | Either team has fewer than 4 season games |
 | `missing_validated_scoring_distribution` | NFL totals have no fitted P(total) |
 | `unvalidated_heuristic` | Research numbers may exist; public board stays empty |
 
 Moneyline and totals are evaluated independently. Missing moneyline odds do not disable totals.
+
+### Freshness policy
+
+A statistic is eligible only when every check below passes. A later `statsCapturedAt` does **not** refresh an old `dataThrough`.
+
+1. `dataThrough` and `statsCapturedAt` must parse as real timestamps. Invalid strings are rejected (`invalid_data_through` / `stale_team_data`), not ignored.
+2. Neither timestamp may be after prediction time.
+3. Both must be within 7 days of prediction time (`NFL_STATS_MAX_AGE_MS`). That window is operational, not a fitted parameter.
+4. `dataThrough` must fall in the game's NFL season year, or January–February of the next calendar year (regular-season / playoff spillover).
+5. If `statsCapturedAt − dataThrough` exceeds 7 days, the row is ineligible (`data_through_older_than_fetch_window`). Fetching yesterday cannot make last month's record current.
 
 ### Early-season policy
 
@@ -65,15 +79,22 @@ P(tie)  = 0
 
 De-vig: proportional, `lib/implied.js` `removeMlVig`.
 
-Model-versus-market gap: `P(win) - fair market probability` (uncapped).
+Two-way posted markets are conditional on a decisive result. The model-versus-market gap therefore uses:
 
-Estimated EV at decimal odds `d`:
+```
+P(win | decisive) = P(win) / (1 − P(push))
+gap = P(win | decisive) − fair two-way market
+```
+
+If `P(push) = 1`, the decisive mass is zero and the gap is unavailable (`zero_decisive_probability`). The gap is uncapped.
+
+Estimated EV stays on the unconditional probabilities (a refunded push contributes 0):
 
 ```
 EV = P(win) × (d − 1) − P(loss)
 ```
 
-A refunded push contributes 0. Display caps are UI-only and are never stored as the model estimate.
+Display caps are UI-only and are never stored as the model estimate.
 
 ## Totals
 
@@ -92,7 +113,7 @@ Do not treat that helper as a validated NFL scoring model. No σ was estimated f
 
 Each research evaluation carries model version, input snapshot, event, market, line, sportsbook, decimal/American odds, and timestamps. Public output must reuse that prediction and quote. A later Odds row is rejected.
 
-`EdgeSnapshot` today stores only `edgeMl*` / `edgeTotal*` / `modelRun`. NFL writes `modelRun = nfl-selection-v1.0.0` and **null** edges so the public board cannot read a phantom gap. A payload JSON column is proposed, not applied (see `docs/migrations/004_edge_snapshot_traceability.md`).
+`EdgeSnapshot` today stores only `edgeMl*` / `edgeTotal*` / `modelRun`. NFL writes `modelRun = nfl-selection-v1.0.1` and **null** edges so the public board cannot read a phantom gap. A payload JSON column is proposed, not applied (see `docs/migrations/004_edge_snapshot_traceability.md`).
 
 ## Validation blockers
 

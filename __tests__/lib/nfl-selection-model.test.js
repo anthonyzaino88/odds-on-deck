@@ -4,12 +4,16 @@ import {
   NFL_SELECTION_MODEL_VERSION,
   NFL_TOTALS_INELIGIBLE_REASON,
   calculateNFLSelection,
+  decisiveConditionalProbability,
   displayCappedGap,
   estimatedEvAtDecimalOdds,
+  evaluateDataThroughDate,
   evaluateNflDataEligibility,
   evaluateQuotedPrice,
   isQualifyingNflSelection,
+  modelVersusTwoWayMarketGap,
   nflTotalOutcomeProbabilities,
+  selectCompatibleQuote,
   shrinkSeasonWinPct,
   snapshotsAreCompatible,
   toPublicNflGameLines,
@@ -343,6 +347,216 @@ describe('price, edge, and display-cap separation', () => {
     const { displayGap, isCapped } = displayCappedGap(0.18)
     expect(displayGap).toBeCloseTo(0.10, 8)
     expect(isCapped).toBe(true)
+  })
+})
+
+describe('snapshot matching', () => {
+  const quotedAt = '2025-12-15T17:00:00.000Z'
+  const basePred = {
+    gameId: 'g-1',
+    market: 'totals',
+    book: 'DraftKings',
+    line: 44.5,
+    oddsSnapshotId: 'odd-tot-1',
+    quotedAt,
+    requiresQuoteMatch: true,
+    priceOver: -110,
+    priceUnder: -110,
+  }
+  const baseQuote = {
+    id: 'odd-tot-1',
+    gameId: 'g-1',
+    market: 'totals',
+    book: 'DraftKings',
+    total: 44.5,
+    ts: quotedAt,
+    priceAway: -110,
+    priceHome: -110,
+  }
+
+  test('normalizes quote.total and quote.line before comparison', () => {
+    expect(snapshotsAreCompatible(basePred, baseQuote).ok).toBe(true)
+    expect(snapshotsAreCompatible(
+      { ...basePred, line: undefined, total: 44.5 },
+      { ...baseQuote, total: undefined, line: 44.5 },
+    ).ok).toBe(true)
+  })
+
+  test('rejects mismatched totals, books, events, and prices', () => {
+    expect(snapshotsAreCompatible(basePred, { ...baseQuote, total: 45 })).toEqual({
+      ok: false,
+      reason: 'line_mismatch',
+    })
+    expect(snapshotsAreCompatible(basePred, { ...baseQuote, book: 'FanDuel' })).toEqual({
+      ok: false,
+      reason: 'book_mismatch',
+    })
+    expect(snapshotsAreCompatible(basePred, { ...baseQuote, gameId: 'g-2' })).toEqual({
+      ok: false,
+      reason: 'event_mismatch',
+    })
+    expect(snapshotsAreCompatible(basePred, { ...baseQuote, market: 'h2h' })).toEqual({
+      ok: false,
+      reason: 'market_mismatch',
+    })
+    expect(snapshotsAreCompatible(basePred, { ...baseQuote, priceAway: -130 })).toEqual({
+      ok: false,
+      reason: 'price_mismatch',
+    })
+  })
+
+  test('rejects missing metadata and does not let an ID bypass freshness', () => {
+    expect(snapshotsAreCompatible(
+      { ...basePred, quotedAt: undefined },
+      { ...baseQuote, ts: undefined },
+    ).reason).toBe('missing_quote_timestamp')
+
+    expect(snapshotsAreCompatible(basePred, {
+      ...baseQuote,
+      total: undefined,
+      line: undefined,
+    }).reason).toBe('missing_line')
+
+    const staleSameId = selectCompatibleQuote(
+      [{ ...baseQuote, ts: '2025-12-15T20:00:00.000Z' }],
+      basePred,
+    )
+    expect(staleSameId).toBeNull()
+    expect(snapshotsAreCompatible(
+      basePred,
+      { ...baseQuote, ts: '2025-12-15T20:00:00.000Z' },
+    ).reason).toBe('stale_or_mismatched_quote')
+  })
+
+  test('incompatible snapshots stay rejected even when the id matches', () => {
+    expect(selectCompatibleQuote(
+      [{ ...baseQuote, total: 47.5 }],
+      basePred,
+    )).toBeNull()
+  })
+})
+
+describe('data-through freshness', () => {
+  const now = NOW
+
+  test('rejects invalid, missing, future, and stale data-through values', () => {
+    expect(evaluateDataThroughDate({
+      dataThrough: null,
+      season: '2025',
+      now,
+    }).reason).toBe('missing_data_through')
+    expect(evaluateDataThroughDate({
+      dataThrough: 'not-a-date',
+      season: '2025',
+      now,
+    }).reason).toBe('invalid_data_through')
+    expect(evaluateDataThroughDate({
+      dataThrough: '2025-12-16T00:00:00.000Z',
+      season: '2025',
+      now,
+    }).reason).toBe('data_through_in_future')
+    expect(evaluateDataThroughDate({
+      dataThrough: '2025-11-01T00:00:00.000Z',
+      season: '2025',
+      now,
+    }).reason).toBe('stale_data_through')
+  })
+
+  test('a recent fetch cannot make old statistics current', () => {
+    expect(evaluateDataThroughDate({
+      dataThrough: '2025-11-01T00:00:00.000Z',
+      capturedAt: '2025-12-14T00:00:00.000Z',
+      season: '2025',
+      now,
+    }).reason).toBe('stale_data_through')
+    expect(evaluateDataThroughDate({
+      dataThrough: '2025-12-09T00:00:00.000Z',
+      capturedAt: '2025-12-16T12:00:00.000Z',
+      season: '2025',
+      now,
+    }).reason).toBe('data_through_older_than_fetch_window')
+  })
+
+  test('rejects data-through that is not in the game season', () => {
+    expect(evaluateDataThroughDate({
+      dataThrough: '2025-12-12T00:00:00.000Z',
+      capturedAt: '2025-12-12T00:00:00.000Z',
+      season: '2024',
+      now,
+    }).reason).toBe('data_through_season_mismatch')
+  })
+
+  test('accepts a current in-season data-through', () => {
+    expect(evaluateDataThroughDate({
+      dataThrough: '2025-12-12T00:00:00.000Z',
+      capturedAt: '2025-12-12T00:00:00.000Z',
+      season: '2025',
+      now,
+    })).toEqual({ ok: true, reason: null })
+  })
+})
+
+describe('integer-total gap uses conditional model probability', () => {
+  test('compares P(win|decisive) to the two-way market and keeps EV unconditional', () => {
+    const integer = nflTotalOutcomeProbabilities({ mean: 44, variance: 64, line: 44 })
+    const half = nflTotalOutcomeProbabilities({ mean: 44, variance: 64, line: 44.5 })
+    expect(integer.pPush).toBeGreaterThan(0)
+    expect(half.pPush).toBeCloseTo(0, 8)
+
+    const integerCond = decisiveConditionalProbability(integer.pOver, integer.pPush)
+    expect(integerCond.ok).toBe(true)
+    expect(integerCond.value).toBeGreaterThan(integer.pOver)
+    expect(integerCond.value + decisiveConditionalProbability(integer.pUnder, integer.pPush).value)
+      .toBeCloseTo(1, 8)
+
+    const integerGap = modelVersusTwoWayMarketGap({
+      pWin: integer.pOver,
+      pPush: integer.pPush,
+      marketFairProb: 0.5,
+    })
+    expect(integerGap.gap).toBeCloseTo(integerCond.value - 0.5, 8)
+    expect(integerGap.gap).not.toBeCloseTo(integer.pOver - 0.5, 5)
+
+    const ev = estimatedEvAtDecimalOdds(integer.pOver, integer.pUnder, 2)
+    expect(ev).toBeCloseTo(integer.pOver * 1 - integer.pUnder, 8)
+
+    const halfCond = decisiveConditionalProbability(half.pOver, half.pPush)
+    expect(halfCond.value).toBeCloseTo(half.pOver, 8)
+    expect(modelVersusTwoWayMarketGap({
+      pWin: half.pOver,
+      pPush: half.pPush,
+      marketFairProb: 0.5,
+    }).gap).toBeCloseTo(half.pOver - 0.5, 8)
+  })
+
+  test('zero decisive probability leaves the gap unavailable', () => {
+    expect(decisiveConditionalProbability(0, 1)).toEqual({
+      ok: false,
+      reason: 'zero_decisive_probability',
+      value: null,
+    })
+    expect(modelVersusTwoWayMarketGap({
+      pWin: 0,
+      pPush: 1,
+      marketFairProb: 0.5,
+    }).reason).toBe('zero_decisive_probability')
+  })
+
+  test('production totals stay disabled even when the library can score an integer line', () => {
+    const selection = calculateNFLSelection({
+      sport: 'nfl',
+      season: '2025',
+      home: eligibleTeam('KC', '12-4'),
+      away: eligibleTeam('DEN', '4-12'),
+    }, [evenTotals({ total: 44 })], {
+      now: NOW,
+      totalsDistribution: { mean: 44, variance: 64, line: 44 },
+    })
+    expect(selection.totals.eligibility.eligibleForPublic).toBe(false)
+    expect(selection.totals.reason).toBe('unvalidated_heuristic')
+    expect(selection.totals.over.evaluation.conditionalPWin)
+      .toBeGreaterThan(selection.totals.over.model.pWin)
+    expect(toPublicNflGameLines(selection)).toEqual([])
   })
 })
 

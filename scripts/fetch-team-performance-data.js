@@ -4,7 +4,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
-import { extractEspnTeamPerformance } from '../lib/team-performance-stats.js'
+import { extractEspnTeamPerformance, teamPerformanceWritePayload } from '../lib/team-performance-stats.js'
 
 config({ path: '.env.local' })
 
@@ -110,12 +110,17 @@ async function fetchTeamPerformanceData() {
           continue
         }
 
-        const { meta, ...performanceData } = extracted
+        const { meta } = extracted
+        const write = teamPerformanceWritePayload(extracted)
+        if (write.written.length === 0) {
+          console.log(`  ⚠️  Partial ESPN payload had no usable fields — existing Team row left unchanged`)
+          continue
+        }
         
-        // Update team record in database (existing columns only — do not invent schema)
+        // Update only present columns. Omitted fields stay as stored.
         const { error: updateError } = await supabase
           .from('Team')
-          .update(performanceData)
+          .update(write.payload)
           .eq('id', team.id)
         
         if (updateError) {
@@ -124,22 +129,24 @@ async function fetchTeamPerformanceData() {
           continue
         }
         
-        // Log what we got — label season stats honestly
-        console.log(`  ✅ Updated (season stats, not last-10):`)
-        if (performanceData.last10Record) {
-          console.log(`     Season record (last10Record column): ${performanceData.last10Record}`)
+        console.log(`  ✅ Wrote present season fields only: ${write.written.join(', ')}`)
+        if (write.retained.length) {
+          console.log(`     Retained prior values (not marked fresh): ${write.retained.join(', ')}`)
         }
-        if (performanceData.homeRecord) {
-          console.log(`     Home: ${performanceData.homeRecord}`)
+        if (write.payload.last10Record) {
+          console.log(`     Season record (last10Record column): ${write.payload.last10Record}`)
         }
-        if (performanceData.awayRecord) {
-          console.log(`     Away: ${performanceData.awayRecord}`)
+        if (write.payload.homeRecord) {
+          console.log(`     Home: ${write.payload.homeRecord}`)
         }
-        if (performanceData.avgPointsLast10) {
-          console.log(`     Season pts/game (avgPointsLast10 column): ${performanceData.avgPointsLast10.toFixed(1)}`)
+        if (write.payload.awayRecord) {
+          console.log(`     Away: ${write.payload.awayRecord}`)
         }
-        if (performanceData.avgPointsAllowedLast10) {
-          console.log(`     Season pts allowed (avgPointsAllowedLast10 column): ${performanceData.avgPointsAllowedLast10.toFixed(1)}`)
+        if (write.payload.avgPointsLast10) {
+          console.log(`     Season pts/game (avgPointsLast10 column): ${write.payload.avgPointsLast10.toFixed(1)}`)
+        }
+        if (write.payload.avgPointsAllowedLast10) {
+          console.log(`     Season pts allowed (avgPointsAllowedLast10 column): ${write.payload.avgPointsAllowedLast10.toFixed(1)}`)
         }
         if (meta?.gamesPlayed != null) {
           console.log(`     Games played (not persisted — schema proposal only): ${meta.gamesPlayed}`)

@@ -92,6 +92,21 @@ describe('buildGameLinePicksFromSnapshots', () => {
     expect(picks).toEqual([])
   })
 
+  test('the same quote id with a stale timestamp is rejected', () => {
+    const selection = validatedNflSelection()
+    const picks = buildGameLinePicksFromSnapshots({
+      game: {
+        id: 'g-nfl-1',
+        sport: 'nfl',
+        home: { abbr: 'KC' },
+        away: { abbr: 'DEN' },
+      },
+      edge: { modelRun: NFL_SELECTION_MODEL_VERSION, payload: selection },
+      oddsRows: [{ ...quote, ts: '2025-12-15T20:00:00.000Z' }],
+    })
+    expect(picks).toEqual([])
+  })
+
   test('a later odds snapshot is rejected instead of being paired with the prediction', () => {
     const selection = validatedNflSelection()
     const picks = buildGameLinePicksFromSnapshots({
@@ -151,5 +166,57 @@ describe('buildGameLinePicksFromSnapshots', () => {
     })
     expect(selection.moneyline.eligibility.eligibleForPublic).toBe(false)
     expect(picks).toEqual([])
+  })
+
+  test('a mismatched totals quote does not disable an independently valid moneyline', () => {
+    const selection = calculateNFLSelection({
+      id: 'g-nfl-1',
+      sport: 'nfl',
+      season: '2025',
+      date: '2025-12-21T18:00:00.000Z',
+      home: eligibleTeam('KC', '12-4'),
+      away: eligibleTeam('DEN', '4-12'),
+    }, [quote, {
+      id: 'odd-tot-1',
+      gameId: 'g-nfl-1',
+      book: 'DraftKings',
+      market: 'totals',
+      total: 44.5,
+      priceHome: -110,
+      priceAway: -110,
+      ts: '2025-12-15T17:00:00.000Z',
+    }], {
+      now: NOW,
+      modelValidationStatus: 'validated',
+      totalsDistribution: { mean: 47, variance: 64, line: 44.5 },
+    })
+
+    const picks = buildGameLinePicksFromSnapshots({
+      game: {
+        id: 'g-nfl-1',
+        sport: 'nfl',
+        date: '2025-12-21T18:00:00.000Z',
+        status: 'scheduled',
+        home: { abbr: 'KC' },
+        away: { abbr: 'DEN' },
+      },
+      edge: { modelRun: NFL_SELECTION_MODEL_VERSION, payload: selection },
+      oddsRows: [
+        quote,
+        {
+          id: 'odd-tot-1',
+          gameId: 'g-nfl-1',
+          book: 'DraftKings',
+          market: 'totals',
+          total: 47.5,
+          priceHome: -110,
+          priceAway: -110,
+          ts: '2025-12-15T17:00:00.000Z',
+        },
+      ],
+    })
+
+    expect(picks.some((pick) => pick.type === 'moneyline' && pick.pick === 'KC')).toBe(true)
+    expect(picks.some((pick) => pick.type === 'total')).toBe(false)
   })
 })

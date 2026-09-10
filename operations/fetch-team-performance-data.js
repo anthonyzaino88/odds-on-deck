@@ -4,7 +4,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
-import { extractEspnTeamPerformance } from '../lib/team-performance-stats.js'
+import { extractEspnTeamPerformance, teamPerformanceWritePayload } from '../lib/team-performance-stats.js'
 
 config({ path: '.env.local' })
 
@@ -68,12 +68,16 @@ async function fetchTeamPerformanceData() {
           continue
         }
 
-        const { meta, ...performanceData } = extracted
+        const { meta } = extracted
+        const write = teamPerformanceWritePayload(extracted)
+        if (write.written.length === 0) {
+          console.log(`  ⚠️  Partial ESPN payload had no usable fields — existing Team row left unchanged`)
+          continue
+        }
         
-        // Update team record in database (existing columns only)
         const { error: updateError } = await supabase
           .from('Team')
-          .update(performanceData)
+          .update(write.payload)
           .eq('id', team.id)
         
         if (updateError) {
@@ -82,24 +86,27 @@ async function fetchTeamPerformanceData() {
           continue
         }
         
-        console.log(`  ✅ Updated (season stats, not last-10):`)
+        console.log(`  ✅ Wrote present season fields only: ${write.written.join(', ')}`)
+        if (write.retained.length) {
+          console.log(`     Retained prior values (not marked fresh): ${write.retained.join(', ')}`)
+        }
         if (meta?.gamesPlayed != null) {
           console.log(`     Games played (not persisted): ${meta.gamesPlayed}`)
         }
-        if (performanceData.last10Record) {
-          console.log(`     Season record (last10Record column): ${performanceData.last10Record}`)
+        if (write.payload.last10Record) {
+          console.log(`     Season record (last10Record column): ${write.payload.last10Record}`)
         }
-        if (performanceData.homeRecord) {
-          console.log(`     Home: ${performanceData.homeRecord}`)
+        if (write.payload.homeRecord) {
+          console.log(`     Home: ${write.payload.homeRecord}`)
         }
-        if (performanceData.awayRecord) {
-          console.log(`     Away: ${performanceData.awayRecord}`)
+        if (write.payload.awayRecord) {
+          console.log(`     Away: ${write.payload.awayRecord}`)
         }
-        if (performanceData.avgPointsLast10) {
-          console.log(`     Pts/Game: ${performanceData.avgPointsLast10.toFixed(1)}`)
+        if (write.payload.avgPointsLast10) {
+          console.log(`     Pts/Game: ${write.payload.avgPointsLast10.toFixed(1)}`)
         }
-        if (performanceData.avgPointsAllowedLast10) {
-          console.log(`     Pts Allowed: ${performanceData.avgPointsAllowedLast10.toFixed(1)}`)
+        if (write.payload.avgPointsAllowedLast10) {
+          console.log(`     Pts Allowed: ${write.payload.avgPointsAllowedLast10.toFixed(1)}`)
         }
         
         updated++
