@@ -51,6 +51,31 @@ Default report: `docs/research/nflverse-games-study.md`.
 
 Ask before adding any paid data feed.
 
+## Cross-book NFL sides (Plan B)
+
+Model-free moneyline / totals price gap that mirrors props:
+
+`price_gap = (consensus_fair − best_implied) / consensus_fair`
+
+```bash
+node scripts/research/nfl-cross-book-sides.js --fixture
+npm run research:nfl-cross-book -- --fixture
+```
+
+Design: `docs/research/nfl-cross-book-sides.md`. Does not call The Odds API. `eligibleForPublic` stays false.
+
+## Historical CLV pilot (budgeted Odds API)
+
+2024 REG weekly slate snapshots (`us` + `h2h,totals` = 20 credits each). Hard cap **3000**. Default is dry-run.
+
+```bash
+node scripts/research/nfl-historical-clv-pilot.js --dry-run
+node scripts/research/nfl-historical-clv-pilot.js --fixture
+ODDS_API_KEY=your_key node scripts/research/nfl-historical-clv-pilot.js --live --nflverse /path/to/games.csv
+```
+
+Design: `docs/research/nfl-historical-clv-pilot.md`. Last run: `docs/research/nfl-historical-clv-pilot-run.md`. Raw pulls stay under `scripts/research/out/` (gitignored). Do not invent results if the key is missing.
+
 ### CI
 
 `npm test` runs `__tests__/research/nflverse-games-study.test.js` against `scripts/research/fixtures/nflverse-games-snippet.csv`. That test does not use the network.

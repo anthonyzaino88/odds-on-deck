@@ -63,7 +63,11 @@ manual-*.js
 !README.md
 !docs/**/*.md
 
-# Offline nflverse research fixtures (csv is ignored above)
+# Offline research fixtures (csv/json are ignored above)
 !scripts/research/fixtures/
 !scripts/research/fixtures/**/*.csv
+!scripts/research/fixtures/**/*.json
+
+# Live Odds API dumps and tidy tables stay local
+scripts/research/out/
 

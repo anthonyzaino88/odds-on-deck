@@ -209,8 +209,10 @@ npm run backup       # Export all data (CSV/JSON)
 npm run export:csv   # Export parlays to CSV
 npm run export:stats # Export performance stats
 
-# Research only (no Odds API, no production DB writes, public NFL board stays off)
+# Research only (public NFL board stays off; no production DB writes)
 npm run research:nflverse -- --input /path/to/games.csv
+npm run research:nfl-cross-book -- --fixture
+npm run research:nfl-clv -- --dry-run
 ```
 
 ### NFL research (public board stays off)
@@ -222,9 +224,11 @@ A read-only offline study can score that heuristic against free [nflverse / Lee 
 ```bash
 node scripts/research/nflverse-games-study.js --input /path/to/games.csv
 node scripts/research/nflverse-rich-features-study.js --input /path/to/games.csv
+node scripts/research/nfl-cross-book-sides.js --fixture
+node scripts/research/nfl-historical-clv-pilot.js --dry-run
 ```
 
-Details: `docs/research/README.md`. CI uses the embedded fixtures (no network). Ask before adding paid data, and ask again before enabling live public ML/totals. MLB, NHL, and player props are unchanged.
+The historical CLV pilot may call The Odds API only with `--live` and a hard **3000-credit** cap. Details: `docs/research/README.md`. CI uses the embedded fixtures (no network). Ask before adding paid data, and ask again before enabling live public ML/totals. MLB, NHL, and player props are unchanged.
 
 ---
 

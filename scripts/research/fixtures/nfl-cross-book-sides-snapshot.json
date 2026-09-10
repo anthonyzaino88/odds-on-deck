@@ -1,0 +1,76 @@
+{
+  "timestamp": "2024-09-03T17:55:00Z",
+  "previous_timestamp": "2024-09-03T17:50:00Z",
+  "next_timestamp": "2024-09-03T18:00:00Z",
+  "data": [
+    {
+      "id": "fixture-kc-bal-2024w1",
+      "sport_key": "americanfootball_nfl",
+      "commence_time": "2024-09-06T00:20:00Z",
+      "home_team": "Kansas City Chiefs",
+      "away_team": "Baltimore Ravens",
+      "bookmakers": [
+        {
+          "key": "draftkings",
+          "title": "DraftKings",
+          "markets": [
+            {
+              "key": "h2h",
+              "outcomes": [
+                { "name": "Kansas City Chiefs", "price": -130 },
+                { "name": "Baltimore Ravens", "price": 110 }
+              ]
+            },
+            {
+              "key": "totals",
+              "outcomes": [
+                { "name": "Over", "price": -110, "point": 47.5 },
+                { "name": "Under", "price": -110, "point": 47.5 }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "fanduel",
+          "title": "FanDuel",
+          "markets": [
+            {
+              "key": "h2h",
+              "outcomes": [
+                { "name": "Kansas City Chiefs", "price": -140 },
+                { "name": "Baltimore Ravens", "price": 120 }
+              ]
+            },
+            {
+              "key": "totals",
+              "outcomes": [
+                { "name": "Over", "price": -115, "point": 47.5 },
+                { "name": "Under", "price": -105, "point": 47.5 }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "betrivers",
+          "title": "BetRivers",
+          "markets": [
+            {
+              "key": "h2h",
+              "outcomes": [
+                { "name": "Kansas City Chiefs", "price": 105 },
+                { "name": "Baltimore Ravens", "price": -125 }
+              ]
+            },
+            {
+              "key": "totals",
+              "outcomes": [
+                { "name": "Over", "price": -102, "point": 47.5 },
+                { "name": "Under", "price": -118, "point": 47.5 }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
