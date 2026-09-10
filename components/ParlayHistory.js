@@ -103,12 +103,12 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
       <div className="flex items-start justify-between mb-5 gap-4">
         <div className="flex-1 min-w-0">
           <h2 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-            Your Saved Parlays
+            Featured Parlay Track
           </h2>
           <p className="text-sm text-slate-400 mt-1.5 leading-relaxed max-w-2xl">
-            <span className="text-slate-200 font-medium">Track the full record, not just the good ones.</span>{' '}
-            Saved parlays stay here so you can review results over time and build a clearer
-            picture of how your combinations are actually performing.
+            <span className="text-slate-200 font-medium">Published-eligible 3-leg cards only.</span>{' '}
+            This is the graded Featured cohort — not explorer Builder juice. Empty when nothing
+            has cleared the bar.
           </p>
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
@@ -129,10 +129,11 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
 
       {/* Info Banner */}
       <div className="bg-bg border border-white/[0.06] rounded-[4px] p-3 mb-5">
-        <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-1">Quick Bet Reference</h3>
+        <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-1">Featured-cleared only</h3>
         <p className="text-sm text-slate-400">
-          This is your bet sheet &mdash; parlays you&apos;ve saved for placing bets.
-          For detailed performance analysis, visit the{' '}
+          First Featured card for each sport and type (SGP / multi) on the ET slate day is snapped here.
+          Explorer Builder parlays do not enter this track. Prop grades reuse the Published validation rows.
+          For the props ROI card, visit the{' '}
           <Link href="/validation" className="underline font-medium text-slate-300 hover:text-slate-100">Validation Dashboard</Link>.
         </p>
       </div>
@@ -141,8 +142,8 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
       {performance && performance.totalParlays > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
           <div className="bg-bg border border-white/[0.06] rounded-[4px] p-3">
-            <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Total Saved</div>
-            <div className="mt-1 text-2xl font-semibold text-slate-100 tabular-nums font-mono">{parlays.length}</div>
+            <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Featured Cards</div>
+            <div className="mt-1 text-2xl font-semibold text-slate-100 tabular-nums font-mono">{performance.totalParlays}</div>
           </div>
           <div className="bg-bg border border-white/[0.06] rounded-[4px] p-3">
             <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Win Rate</div>
@@ -163,8 +164,8 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
       {/* Parlays List */}
       {parlays.length === 0 ? (
         <div className="text-center py-12">
-          <p className="text-sm text-slate-300 mb-1">No saved parlays yet</p>
-          <p className="text-sm text-slate-500">Generate and save parlays above to track them here</p>
+          <p className="text-sm text-slate-300 mb-1">No Featured-cleared parlays yet</p>
+          <p className="text-sm text-slate-500">Empty until a Published-eligible 3-leg card clears Featured</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -173,6 +174,9 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
               {/* Parlay Header */}
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-[3px] text-[10px] font-semibold uppercase tracking-wide border bg-blue-500/10 text-blue-400 border-blue-500/20">
+                    Featured
+                  </span>
                   <span className={cn('inline-flex items-center px-1.5 py-0.5 rounded-[3px] text-[10px] font-semibold uppercase tracking-wide border', getStatusColor(parlay.status))}>
                     {parlay.status}
                   </span>

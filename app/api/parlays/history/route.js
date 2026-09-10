@@ -1,10 +1,14 @@
-// Parlay History API Endpoint
+// Featured-cleared parlay history. Explorer Builder rows stay out.
 
-// Force dynamic rendering (required for Vercel deployment)
 export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import {
+  FEATURED_COHORT_TAG,
+  filterFeaturedCohortRows,
+  summarizeFeaturedParlays,
+} from '../../../../lib/featured-parlays.js'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -18,113 +22,78 @@ export async function GET(request) {
     const sport = searchParams.get('sport')
     const status = searchParams.get('status')
 
-    console.log(`📊 Fetching parlay history (limit: ${limit})`)
+    console.log(`📊 Fetching Featured parlay history (limit: ${limit})`)
 
-    // Build query
     let query = supabase
       .from('Parlay')
       .select('*, legs:ParlayLeg(*)')
+      .ilike('notes', `%${FEATURED_COHORT_TAG}%`)
       .order('createdAt', { ascending: false })
       .limit(limit)
 
-    // Filter by sport if specified
     if (sport) {
       query = query.eq('sport', sport)
     }
 
-    // Filter by status if specified
     if (status) {
       query = query.eq('status', status)
     }
 
-    const { data: parlays, error } = await query
+    const { data: rows, error } = await query
 
     if (error) {
       throw new Error(`Database query failed: ${error.message}`)
     }
-    
-    console.log(`✅ Found ${parlays?.length || 0} parlays in database`)
 
-    // Fetch validation results for each parlay's legs
-    for (const parlay of parlays || []) {
-      const { data: validations } = await supabase
+    // Belt-and-suspenders: never let untagged Builder rows into the track.
+    const parlays = filterFeaturedCohortRows(rows || [])
+
+    console.log(`✅ Found ${parlays.length} Featured-cleared parlays`)
+
+    const playerNames = [...new Set(parlays.flatMap((parlay) =>
+      (parlay.legs || []).map((leg) => leg.playerName).filter(Boolean)
+    ))]
+
+    let validations = []
+    if (playerNames.length > 0) {
+      const { data } = await supabase
         .from('PropValidation')
-        .select('playerName, propType, prediction, threshold, actualValue, result, status')
-        .eq('parlayId', parlay.id)
-      
-      // Map validations to legs
-      if (parlay.legs && validations) {
-        parlay.legs = parlay.legs.map(leg => {
-          const validation = validations.find(v => 
-            v.playerName === leg.playerName && 
-            v.propType === leg.propType
-          )
-          const actualFromResult = String(leg.actualResult || '').match(/Actual:\s*(\d+(?:\.\d+)?)/i)
-          return {
-            ...leg,
-            validationResult: validation?.result || (leg.outcome === 'won' ? 'correct' : leg.outcome === 'lost' ? 'incorrect' : leg.outcome === 'push' ? 'push' : null),
-            validationStatus: validation?.status || null,
-            actualValue: validation?.actualValue ?? (actualFromResult ? Number(actualFromResult[1]) : null)
-          }
-        })
-      }
+        .select('playerName, propType, prediction, threshold, actualValue, result, status, gameIdRef, parlayId')
+        .in('playerName', playerNames)
+      validations = data || []
     }
 
-    // Calculate performance metrics
-    const performance = calculatePerformanceMetrics(parlays || [])
+    for (const parlay of parlays) {
+      if (!parlay.legs) continue
+      parlay.legs = parlay.legs.map((leg) => {
+        const validation = validations.find((row) =>
+          row.playerName === leg.playerName
+          && row.propType === leg.propType
+        )
+        const actualFromResult = String(leg.actualResult || '').match(/Actual:\s*(\d+(?:\.\d+)?)/i)
+        return {
+          ...leg,
+          validationResult: validation?.result || (leg.outcome === 'won' ? 'correct' : leg.outcome === 'lost' ? 'incorrect' : leg.outcome === 'push' ? 'push' : null),
+          validationStatus: validation?.status || null,
+          actualValue: validation?.actualValue ?? (actualFromResult ? Number(actualFromResult[1]) : null)
+        }
+      })
+    }
 
     return NextResponse.json({
       success: true,
-      parlays: parlays || [],
-      count: parlays?.length || 0,
-      performance: performance,
+      parlays,
+      count: parlays.length,
+      performance: summarizeFeaturedParlays(parlays),
+      cohort: 'featured',
       fetchedAt: new Date().toISOString()
     })
 
   } catch (error) {
-    console.error('❌ Error fetching parlay history:', error)
+    console.error('❌ Error fetching Featured parlay history:', error)
     return NextResponse.json(
       { error: 'Failed to fetch parlay history', details: error.message },
       { status: 500 }
     )
-  }
-}
-
-/**
- * Calculate performance metrics for parlays
- */
-function calculatePerformanceMetrics(parlays) {
-  const completedParlays = parlays.filter(p => p.outcome && p.outcome !== 'pending')
-  const wonParlays = completedParlays.filter(p => p.outcome === 'won')
-  const lostParlays = completedParlays.filter(p => p.outcome === 'lost')
-  const pushParlays = completedParlays.filter(p => p.outcome === 'push')
-  const decidedParlays = wonParlays.length + lostParlays.length
-
-  const totalParlays = completedParlays.length
-  const winRate = decidedParlays > 0 ? (wonParlays.length / decidedParlays) * 100 : 0
-
-  // Calculate average edge and expected value
-  const avgEdge = parlays.length > 0 
-    ? parlays.reduce((sum, p) => sum + p.edge, 0) / parlays.length 
-    : 0
-
-  const avgExpectedValue = parlays.length > 0 
-    ? parlays.reduce((sum, p) => sum + p.expectedValue, 0) / parlays.length 
-    : 0
-
-  // Calculate ROI (simplified)
-  const totalWagered = totalParlays * 100 // Assuming $100 per parlay
-  const totalWon = wonParlays.reduce((sum, p) => sum + (p.totalOdds * 100), 0)
-  const roi = totalWagered > 0 ? ((totalWon - totalWagered) / totalWagered) * 100 : 0
-
-  return {
-    totalParlays: totalParlays,
-    wonParlays: wonParlays.length,
-    lostParlays: lostParlays.length,
-    pushParlays: pushParlays.length,
-    winRate: Math.round(winRate * 100) / 100,
-    avgEdge: Math.round(avgEdge * 1000) / 1000,
-    avgExpectedValue: Math.round(avgExpectedValue * 1000) / 1000,
-    roi: Math.round(roi * 100) / 100
   }
 }
