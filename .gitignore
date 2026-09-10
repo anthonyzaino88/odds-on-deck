@@ -61,4 +61,9 @@ manual-*.js
 # Personal reference docs — keep local only (README files stay tracked)
 *.md
 !README.md
+!docs/**/*.md
+
+# Offline nflverse research fixtures (csv is ignored above)
+!scripts/research/fixtures/
+!scripts/research/fixtures/**/*.csv
 

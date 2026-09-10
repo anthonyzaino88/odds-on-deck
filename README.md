@@ -208,7 +208,22 @@ npm run backup       # Export all data (CSV/JSON)
 # Export
 npm run export:csv   # Export parlays to CSV
 npm run export:stats # Export performance stats
+
+# Research only (no Odds API, no production DB writes, public NFL board stays off)
+npm run research:nflverse -- --input /path/to/games.csv
 ```
+
+### NFL research (public board stays off)
+
+The live NFL moneyline / totals path is an **unvalidated heuristic**. Public NFL selections stay disabled (`eligibleForPublic = false`).
+
+A read-only offline study can score that heuristic against free [nflverse / Lee Sharpe `games.csv`](https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv) without burning The Odds API or writing Supabase:
+
+```bash
+node scripts/research/nflverse-games-study.js --input /path/to/games.csv
+```
+
+Details: `docs/research/README.md`. CI uses `scripts/research/fixtures/nflverse-games-snippet.csv` (no network). Ask before adding paid data. MLB, NHL, and player props are unchanged.
 
 ---
 

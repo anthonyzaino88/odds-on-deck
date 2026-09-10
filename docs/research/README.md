@@ -1,0 +1,56 @@
+# Offline research studies
+
+These paths are **research only**. They do not enable the public NFL board, call The Odds API, write production Supabase, regrade picks, or merge.
+
+Public NFL sides and totals stay off (`eligibleForPublic = false`) until Anthony explicitly enables them after a reviewed out-of-sample study. See `docs/nfl-selection-model.md`.
+
+## nflverse / Lee Sharpe games study
+
+Free historical file: [nflverse `games.csv`](https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv) (Lee Sharpe / nflverse).
+
+The script downloads that CSV **or** reads a local path, filters regular season (playoffs optional), walks season-to-date records with no future leakage, fits an empirical game-total distribution, and scores a shrinkage moneyline baseline against nflverse **closing** moneylines.
+
+```bash
+# Local file — no network (preferred for CI / air-gapped runs)
+node scripts/research/nflverse-games-study.js --input /path/to/games.csv
+
+# Embedded fixture used by Jest
+node scripts/research/nflverse-games-study.js \
+  --input scripts/research/fixtures/nflverse-games-snippet.csv \
+  --report /tmp/nflverse-fixture-report.md
+
+# Optional download of the public nflverse file (not The Odds API)
+node scripts/research/nflverse-games-study.js --cache /tmp/nflverse-games.csv
+
+# Include playoffs
+node scripts/research/nflverse-games-study.js --input /path/to/games.csv --include-playoffs
+```
+
+npm alias:
+
+```bash
+npm run research:nflverse -- --input /path/to/games.csv
+```
+
+Default report: `docs/research/nflverse-games-study.md`.
+
+### What it computes
+
+- Sample sizes by season (scheduled, completed, closing ML, evaluable ML, total lines, ties)
+- Empirical Normal(\(\mu, \sigma^2\)) of completed game totals, plus KS / histogram / integer-line push diagnostics — **labeled empirical from nflverse, not production-validated for betting**
+- Chronological totals OOS: fit on seasons \(< S\), score season \(S\)
+- Season-to-date win% + production shrinkage / HFA vs nflverse closing moneylines: log-loss, Brier, and a defined 1-unit flat-stake ROI
+
+### What it does not do
+
+- Does not set `eligibleForPublic`
+- Does not call The Odds API or burn quota
+- Does not write Supabase / Prisma
+- Does not regrade production picks
+- Does not inject the totals fit into live `calculateNFLSelection` (production totals stay `missing_validated_scoring_distribution`)
+
+Ask before adding any paid data feed.
+
+### CI
+
+`npm test` runs `__tests__/research/nflverse-games-study.test.js` against `scripts/research/fixtures/nflverse-games-snippet.csv`. That test does not use the network.

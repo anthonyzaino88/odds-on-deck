@@ -117,9 +117,13 @@ Each research evaluation carries model version, input snapshot, event, market, l
 
 ## Validation blockers
 
-No chronological out-of-sample study is in this repo. Do not invent calibration, CLV, or ROI. Closing-line comparison can use the stored quote pairing after the 004 columns are applied; it is not computed here.
+A **read-only** chronological study lives under `scripts/research/nflverse-games-study.js` and `lib/research/nflverse-games-study.js`. It uses free nflverse / Lee Sharpe `games.csv`, not The Odds API, and does not write production Supabase, regrade picks, or merge.
 
-Ask before adding paid data services.
+That study reports sample sizes, an empirical totals distribution (**empirical from nflverse, not production-validated for betting**), and log-loss / Brier / flat-stake ROI for the shrinkage moneyline baseline versus nflverse closing moneylines. It does **not** flip `eligibleForPublic`. Production totals still return `missing_validated_scoring_distribution` because the fitted Normal is not injected into live selection.
+
+Do not invent additional calibration, CLV, or ROI. Site-book closing-line comparison can use the stored quote pairing after the 004 columns are applied; that is a separate path from nflverse consensus closes.
+
+Ask before adding paid data services. See `docs/research/README.md`.
 
 ## Recommendation
 
