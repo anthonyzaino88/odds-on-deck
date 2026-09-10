@@ -61,4 +61,8 @@ manual-*.js
 # Personal reference docs — keep local only (README files stay tracked)
 *.md
 !README.md
+!research/archive/README.md
+
+# Local Path B JSONL archives (do not commit dump data)
+research/archive/**/*.jsonl
 

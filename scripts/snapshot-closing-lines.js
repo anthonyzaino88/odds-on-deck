@@ -15,6 +15,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
+import { appendJsonl, resolvePropLinesDir } from '../lib/local-archive.js'
 
 config({ path: '.env.local' })
 
@@ -142,17 +143,18 @@ async function main() {
 
     for (let i = 0; i < propRows.length; i += 200) {
       const batch = propRows.slice(i, i + 200)
-      const { error } = await supabase
-        .from('ArchivedPropLine')
-        .insert(batch)
-      if (!error) propsArchived += batch.length
+      try {
+        propsArchived += appendJsonl(resolvePropLinesDir(), 'prop-lines', batch)
+      } catch (err) {
+        console.error(`  ⚠️  Prop snapshot write error: ${err.message}`)
+      }
     }
   }
 
   console.log('\n' + '='.repeat(60))
   console.log('📸 SNAPSHOT COMPLETE')
   console.log(`  ✅ Closing odds:    ${saved} lines across ${games.length} games`)
-  console.log(`  ✅ Prop snapshots:  ${propsArchived} props`)
+  console.log(`  ✅ Prop snapshots:  ${propsArchived} props → ${resolvePropLinesDir()}`)
   console.log('='.repeat(60) + '\n')
 }
 
