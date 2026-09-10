@@ -90,8 +90,24 @@ async function fetchTeamPerformanceData() {
         if (write.retained.length) {
           console.log(`     Retained prior values (not marked fresh): ${write.retained.join(', ')}`)
         }
-        if (meta?.gamesPlayed != null) {
-          console.log(`     Games played (not persisted): ${meta.gamesPlayed}`)
+        if (write.payload.season) {
+          console.log(`     Season: ${write.payload.season}`)
+        }
+        if (write.payload.gamesPlayed != null) {
+          console.log(`     Games played: ${write.payload.gamesPlayed}`)
+        }
+        if (write.payload.statsKind) {
+          console.log(`     statsKind: ${write.payload.statsKind}`)
+        }
+        if (write.payload.statsCapturedAt) {
+          console.log(`     statsCapturedAt: ${write.payload.statsCapturedAt}`)
+        }
+        if (write.payload.statsDataThrough) {
+          console.log(`     statsDataThrough: ${write.payload.statsDataThrough}`)
+        } else if (write.representsFullRefresh && meta?.dataThrough == null) {
+          console.log(`     statsDataThrough omitted (ESPN payload had no last completed game)`)
+        } else if (!write.freshnessTimestampsWritten) {
+          console.log(`     Freshness timestamps retained (partial extract, not marked fresh)`)
         }
         if (write.payload.last10Record) {
           console.log(`     Season record (last10Record column): ${write.payload.last10Record}`)

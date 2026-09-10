@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
 import { calculateGameEdges } from '../lib/edge.js' // MLB model
 import { calculateNHLEdges } from '../lib/edge-nfl-nhl.js' // NHL heuristic (unchanged)
-import { calculateNFLEdges } from '../lib/edge-nfl.js' // isolated NFL model
+import { calculateNFLEdges, toNflEdgeSnapshotInsert } from '../lib/edge-nfl.js' // isolated NFL model
 import crypto from 'crypto'
 
 config({ path: '.env.local' })
@@ -139,16 +139,19 @@ async function calculateEdgesForToday() {
           continue
         }
         
-        // Store in EdgeSnapshot table (use only columns that exist)
-        const edgeSnapshot = {
-          id: generateId(),
-          gameId: game.id,
-          edgeMlHome: edges.edgeMlHome,
-          edgeMlAway: edges.edgeMlAway,
-          edgeTotalO: edges.edgeTotalO,
-          edgeTotalU: edges.edgeTotalU,
-          modelRun: edges.modelRun || 'v0.1.0'
-        }
+        // NFL writes pairing columns from the 004 schema. MLB/NHL keep the
+        // original float + modelRun shape so their heuristic rows stay unchanged.
+        const edgeSnapshot = game.sport === 'nfl'
+          ? toNflEdgeSnapshotInsert(edges.selection, { id: generateId() })
+          : {
+            id: generateId(),
+            gameId: game.id,
+            edgeMlHome: edges.edgeMlHome,
+            edgeMlAway: edges.edgeMlAway,
+            edgeTotalO: edges.edgeTotalO,
+            edgeTotalU: edges.edgeTotalU,
+            modelRun: edges.modelRun || 'v0.1.0',
+          }
         
         const { error: insertError } = await supabase
           .from('EdgeSnapshot')
@@ -161,7 +164,13 @@ async function calculateEdgesForToday() {
         }
         
         // Log results
-        if (!edges.edgeMlHome && !edges.edgeMlAway && !edges.edgeTotalO && !edges.edgeTotalU) {
+        if (game.sport === 'nfl') {
+          console.log(`  ℹ️  NFL research snapshot stored (eligibleForPublic=false)`)
+          console.log(`     modelRun: ${edgeSnapshot.modelRun}`)
+          console.log(`     inputSnapshotId: ${edgeSnapshot.inputSnapshotId || 'null'}`)
+          console.log(`     oddsSnapshotId: ${edgeSnapshot.oddsSnapshotId || 'null'}`)
+          console.log(`     quotedAt: ${edgeSnapshot.quotedAt || 'null'}`)
+        } else if (!edges.edgeMlHome && !edges.edgeMlAway && !edges.edgeTotalO && !edges.edgeTotalU) {
           console.log(`  ℹ️  No significant edges found (all below 2% threshold)`)
         } else {
           console.log(`  ✅ Edges calculated and saved:`)

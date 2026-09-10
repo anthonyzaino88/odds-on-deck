@@ -12,10 +12,14 @@ import {
   evaluateQuotedPrice,
   isQualifyingNflSelection,
   modelVersusTwoWayMarketGap,
+  nflGameLineSnapshotIsPublic,
+  nflPredictionQuotePairing,
   nflTotalOutcomeProbabilities,
   selectCompatibleQuote,
   shrinkSeasonWinPct,
   snapshotsAreCompatible,
+  toNflEdgeSnapshotInsert,
+  toPersistedNflEdgeSnapshot,
   toPublicNflGameLines,
   twoWayHomeWinProbability,
 } from '../../lib/nfl-selection-model.js'
@@ -570,5 +574,91 @@ describe('shared entry point routes NFL away from the NHL heuristic', () => {
     expect(result.modelRun).toBe(NFL_SELECTION_MODEL_VERSION)
     expect(result.edgeMlHome).toBeNull()
     expect(result.selection.moneyline.reason).toBeTruthy()
+  })
+})
+
+describe('prediction ↔ quote pairing on persist', () => {
+  test('stores model version, snapshot ids, event, book, decimal odds, and timestamps', () => {
+    const selection = calculateNFLSelection({
+      id: 'g-nfl-1',
+      sport: 'nfl',
+      season: '2025',
+      home: eligibleTeam('KC', '12-4'),
+      away: eligibleTeam('DEN', '4-12'),
+    }, [evenH2h(), evenTotals()], { now: NOW })
+
+    expect(selection.inputSnapshot.id).toBe(`nfl-input:g-nfl-1:${NOW.toISOString()}`)
+    expect(selection.moneyline.quote.oddsSnapshotId).toBe('odd-h2h-1')
+    expect(selection.moneyline.quote.book).toBe('DraftKings')
+    expect(selection.moneyline.quote.decimalOddsHome).toBeCloseTo(1.909090909, 8)
+    expect(selection.moneyline.quote.decimalOddsAway).toBeCloseTo(1.909090909, 8)
+    expect(selection.moneyline.quote.quotedAt).toBe('2025-12-15T17:00:00.000Z')
+    expect(selection.totals.quote.oddsSnapshotId).toBe('odd-tot-1')
+    expect(selection.totals.quote.line).toBe(44.5)
+    expect(selection.totals.quote.decimalOddsOver).toBeCloseTo(1.909090909, 8)
+
+    const pairing = nflPredictionQuotePairing(selection)
+    expect(pairing.modelVersion).toBe(NFL_SELECTION_MODEL_VERSION)
+    expect(pairing.inputSnapshotId).toBe(selection.inputSnapshot.id)
+    expect(pairing.oddsSnapshotId).toBe('odd-h2h-1')
+    expect(pairing.quotedAt).toBe('2025-12-15T17:00:00.000Z')
+    expect(pairing.eventId).toBe('g-nfl-1')
+    expect(pairing.book).toBe('DraftKings')
+    expect(pairing.market).toBe('h2h')
+
+    const persisted = toPersistedNflEdgeSnapshot(selection)
+    expect(persisted.modelRun).toBe(NFL_SELECTION_MODEL_VERSION)
+    expect(persisted.edgeMlHome).toBeNull()
+    expect(persisted.payload.gameId).toBe(selection.gameId)
+    expect(persisted.payload.eligibility.eligibleForPublic).toBe(false)
+    expect(persisted.oddsSnapshotId).toBe('odd-h2h-1')
+    expect(persisted.inputSnapshotId).toBe(selection.inputSnapshot.id)
+    expect(persisted.quotedAt).toBe('2025-12-15T17:00:00.000Z')
+    expect(persisted.eligibleForPublic).toBe(false)
+    expect(nflGameLineSnapshotIsPublic(persisted)).toBe(false)
+  })
+
+  test('production insert forces public-ineligible even if research status was injected', () => {
+    const selection = calculateNFLSelection({
+      id: 'g-nfl-1',
+      sport: 'nfl',
+      season: '2025',
+      home: eligibleTeam('KC', '12-4'),
+      away: eligibleTeam('DEN', '4-12'),
+    }, [evenH2h()], {
+      now: NOW,
+      modelValidationStatus: 'validated',
+    })
+    expect(selection.moneyline.eligibility.eligibleForPublic).toBe(true)
+
+    const row = toNflEdgeSnapshotInsert(selection, { id: 'edge-1' })
+    expect(row.id).toBe('edge-1')
+    expect(row.gameId).toBe('g-nfl-1')
+    expect(row.eligibleForPublic).toBe(false)
+    expect(row.payload.eligibility.eligibleForPublic).toBe(false)
+    expect(row.payload.moneyline.eligibility.eligibleForPublic).toBe(false)
+    expect(row.oddsSnapshotId).toBe('odd-h2h-1')
+    expect(row.quotedAt).toBe('2025-12-15T17:00:00.000Z')
+    expect(row.edgeMlHome).toBeNull()
+    expect(nflGameLineSnapshotIsPublic(row)).toBe(false)
+    expect(toPublicNflGameLines(row.payload)).toEqual([])
+  })
+
+  test('calculateNFLEdges includes pairing columns and stays off the public board', () => {
+    const persisted = calculateNFLEdges({
+      id: 'g-nfl-1',
+      sport: 'nfl',
+      season: '2025',
+      home: eligibleTeam('KC', '12-4'),
+      away: eligibleTeam('DEN', '4-12'),
+    }, [evenH2h()], { now: NOW })
+
+    expect(persisted.modelRun).toBe(NFL_SELECTION_MODEL_VERSION)
+    expect(persisted.oddsSnapshotId).toBe('odd-h2h-1')
+    expect(persisted.inputSnapshotId).toMatch(/^nfl-input:g-nfl-1:/)
+    expect(persisted.quotedAt).toBe('2025-12-15T17:00:00.000Z')
+    expect(persisted.eligibleForPublic).toBe(false)
+    expect(persisted.payload.moneyline.quote.decimalOddsHome).toBeCloseTo(1.909090909, 8)
+    expect(toPublicNflGameLines(persisted.payload)).toEqual([])
   })
 })
