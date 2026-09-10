@@ -7,9 +7,20 @@ export const runtime = 'nodejs'
 import { NextResponse } from 'next/server'
 import { generateSimpleParlays } from '../../../../lib/simple-parlay-generator.js'
 import { FEATURED_LEG_COUNT } from '../../../../lib/parlay-integrity.js'
+import { persistFeaturedClearedParlays } from '../../../../lib/featured-parlay-persist.js'
 
-// Note: Saving parlays to database is temporarily disabled during Supabase migration
-// Parlays are still generated and returned, just not persisted
+async function persistFeaturedIfNeeded(parlays, isFeatured) {
+  if (!isFeatured || !Array.isArray(parlays) || parlays.length === 0) {
+    return []
+  }
+  try {
+    const results = await persistFeaturedClearedParlays(parlays)
+    return results.filter((row) => row.ok).map((row) => row.parlay).filter(Boolean)
+  } catch (error) {
+    console.error('⚠️ Featured persist failed (generate still returns the live card):', error)
+    return []
+  }
+}
 
 export async function POST(request) {
   try {
@@ -21,15 +32,13 @@ export async function POST(request) {
       minEdge = 0.05,
       maxParlays = 10,
       minConfidence = 'medium',
-      filterMode = 'balanced', // New: betting strategy filter
-      saveToDatabase = true,
+      filterMode = 'balanced',
       gameId = null,
       featured = false,
     } = body
 
     console.log(`🎯 Generating parlays: ${legCount}-leg ${sport} (${type})${gameId ? ` for game ${gameId}` : ''}`)
 
-    // Validate input
     if (legCount < 2 || legCount > 10) {
       return NextResponse.json(
         { error: 'Leg count must be between 2 and 10' },
@@ -53,7 +62,6 @@ export async function POST(request) {
 
     const isFeatured = featured === true || featured === '1' || featured === 'true'
 
-    // Generate parlays
     const parlays = await generateSimpleParlays({
       sport,
       type,
@@ -62,20 +70,14 @@ export async function POST(request) {
       minEdge,
       maxParlays,
       minConfidence,
-      filterMode, // Pass filter mode to generator
+      filterMode,
       gameId,
       featured: isFeatured,
     })
 
-    // Save parlays to database if requested
-    // NOTE: Temporarily disabled during Supabase migration
-    // TODO: Re-implement using Supabase when Parlay table is migrated
-    const savedParlays = []
-    if (saveToDatabase && parlays.length > 0) {
-      console.log(`⚠️  Parlay saving temporarily disabled during Supabase migration`)
-      // TODO: Re-implement with Supabase
-      // const savedParlays = await saveParlaysToSupabase(parlays)
-    }
+    // Explorer generate never writes. Featured-cleared cards snapshot
+    // to the tracked cohort (first write for the slate slot wins).
+    const savedParlays = await persistFeaturedIfNeeded(parlays, isFeatured)
 
     return NextResponse.json({
       success: true,
@@ -119,9 +121,12 @@ export async function GET(request) {
       featured,
     })
 
+    const savedParlays = await persistFeaturedIfNeeded(parlays, featured)
+
     return NextResponse.json({
       success: true,
       parlays: parlays,
+      savedParlays: savedParlays,
       count: parlays.length,
       generatedAt: new Date().toISOString()
     })

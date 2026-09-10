@@ -78,7 +78,7 @@ function SectionHeading({ title, action }) {
   )
 }
 
-function ParlayOfTheDay() {
+function ParlayOfTheDay({ onFeaturedReady }) {
   const [cards, setCards] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -123,8 +123,11 @@ function ParlayOfTheDay() {
       })
       setCards(deduped)
       setLoading(false)
+      if (typeof onFeaturedReady === 'function') onFeaturedReady()
     }
     fetchFeatured()
+    // One snapshot attempt per page load. onFeaturedReady refreshes history.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   if (loading) {
@@ -193,13 +196,13 @@ export default function ParlaysPage() {
         </Link>
         <h1 className="text-xl font-semibold text-slate-100">Parlay Builder</h1>
         <p className="text-sm text-slate-400 mt-1.5 max-w-2xl leading-relaxed">
-          A practical way to build and follow parlays. Assemble parlays from the current slate,
-          save the ones you want to track, and review what happened later &mdash; all in one place.
+          Featured snaps Published-eligible 3-leg MLB/NFL cards onto a graded track.
+          The builder below stays exploratory &mdash; those combinations are not the Featured cohort.
         </p>
       </div>
 
-      {/* Parlay of the Day */}
-      <ParlayOfTheDay />
+      {/* Parlay of the Day — generate GET also snapshots Featured-cleared cards */}
+      <ParlayOfTheDay onFeaturedReady={handleParlaySaved} />
 
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -220,7 +223,7 @@ export default function ParlaysPage() {
           <li>&bull; <span className="text-slate-200 font-medium">Featured Parlays</span> are 3-leg MLB/NFL cards from Published-eligible props only. Empty when the slate is thin</li>
           <li>&bull; <span className="text-slate-200 font-medium">Build Your Own</span> by selecting sport, strategy, and leg count below</li>
           <li>&bull; <span className="text-slate-200 font-medium">Same-Game Parlays (SGPs)</span> stack multiple props from a single game</li>
-          <li>&bull; <span className="text-slate-200 font-medium">Save &amp; Track</span> any parlay to monitor results when games complete</li>
+          <li>&bull; <span className="text-slate-200 font-medium">Featured track</span> persists only Featured-cleared cards and grades them when legs settle</li>
           <li>&bull; <span className="text-slate-200 font-medium">Every leg</span> uses the sharpest line from 10+ sportsbooks</li>
         </ul>
       </div>
