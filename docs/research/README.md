@@ -54,3 +54,17 @@ Ask before adding any paid data feed.
 ### CI
 
 `npm test` runs `__tests__/research/nflverse-games-study.test.js` against `scripts/research/fixtures/nflverse-games-snippet.csv`. That test does not use the network.
+
+## Pass 2: richer free features
+
+Second chronological pass on the same nflverse file. Adds season point differential, rest, division, roof/weather (when present), an optional **market blend** (uses the close; not an independent edge), and a season-to-date PPG totals model with prior-season σ.
+
+```bash
+node scripts/research/nflverse-rich-features-study.js --input /path/to/games.csv
+npm run research:nflverse:rich -- --input /path/to/games.csv
+```
+
+Fixture (no network): `scripts/research/fixtures/nflverse-games-rich-snippet.csv`  
+Report: `docs/research/nflverse-rich-features-study.md`
+
+Fitted coefficients for season S use only seasons before S. The pre-registered stake is **1 unit on +EV at the close**. Do not claim a beat unless log-loss **and** Brier beat the de-vig close **and** that +EV ROI is positive. Public NFL selections stay off. Ask before enabling live ML/totals.

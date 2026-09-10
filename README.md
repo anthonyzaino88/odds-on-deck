@@ -221,9 +221,10 @@ A read-only offline study can score that heuristic against free [nflverse / Lee 
 
 ```bash
 node scripts/research/nflverse-games-study.js --input /path/to/games.csv
+node scripts/research/nflverse-rich-features-study.js --input /path/to/games.csv
 ```
 
-Details: `docs/research/README.md`. CI uses `scripts/research/fixtures/nflverse-games-snippet.csv` (no network). Ask before adding paid data. MLB, NHL, and player props are unchanged.
+Details: `docs/research/README.md`. CI uses the embedded fixtures (no network). Ask before adding paid data, and ask again before enabling live public ML/totals. MLB, NHL, and player props are unchanged.
 
 ---
 
