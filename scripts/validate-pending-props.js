@@ -19,6 +19,7 @@ import { config } from 'dotenv'
 import { getPlayerGameStat as getMLBStat, fetchMLBGameStats } from '../lib/vendors/mlb-game-stats.js'
 import { getPlayerGameStat as getNFLStat } from '../lib/vendors/nfl-game-stats.js'
 import { getPlayerGameStat as getNHLStat } from '../lib/vendors/nhl-game-stats.js'
+import { appendJsonl, loadJsonlFieldSet, resolveBoxScoresDir } from '../lib/local-archive.js'
 
 config({ path: '.env.local' })
 
@@ -237,19 +238,17 @@ async function main() {
   )]
 
   if (completedGameIds.length > 0) {
-    console.log(`\n📦 Archiving box scores for ${completedGameIds.length} games...`)
+    const boxDir = resolveBoxScoresDir()
+    const archivedGameIds = loadJsonlFieldSet(boxDir, 'game_id')
+    console.log(`\n📦 Archiving box scores for ${completedGameIds.length} games → ${boxDir}`)
     let archivedGames = 0
 
     for (const gid of completedGameIds) {
       const game = gameMap.get(gid)
       if (!game) continue
 
-      // Skip if already archived
-      const { count } = await supabase
-        .from('GameBoxScore')
-        .select('*', { count: 'exact', head: true })
-        .eq('game_id', gid)
-      if (count && count > 0) continue
+      // Skip if this game_id is already in a local box-score JSONL
+      if (archivedGameIds.has(gid)) continue
 
       const sport = game.sport || 'mlb'
       try {
@@ -264,9 +263,14 @@ async function main() {
               stats,
             }))
             if (rows.length > 0) {
-              const { error: bsErr } = await supabase.from('GameBoxScore').insert(rows)
-              if (!bsErr) { archivedGames++; console.log(`  ✅ Archived ${rows.length} player stats for ${gid}`) }
-              else console.log(`  ⚠️  ${gid}: ${bsErr.message}`)
+              try {
+                appendJsonl(boxDir, 'box-scores', rows)
+                archivedGameIds.add(gid)
+                archivedGames++
+                console.log(`  ✅ Archived ${rows.length} player stats for ${gid}`)
+              } catch (bsErr) {
+                console.log(`  ⚠️  ${gid}: ${bsErr.message}`)
+              }
             }
           }
         }

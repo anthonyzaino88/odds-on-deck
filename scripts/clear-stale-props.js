@@ -9,6 +9,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
+import { appendJsonl, resolvePropLinesDir } from '../lib/local-archive.js'
 
 config({ path: '.env.local' })
 
@@ -103,11 +104,10 @@ async function main() {
         game_time: p.gameTime,
       }))
 
-      const { error: archErr } = await supabase.from('ArchivedPropLine').insert(rows)
-      if (archErr) {
+      try {
+        archived += appendJsonl(resolvePropLinesDir(), 'prop-lines', rows)
+      } catch (archErr) {
         console.error(`  ⚠️  Archive batch error: ${archErr.message}`)
-      } else {
-        archived += rows.length
       }
       if (data.length < pageSize) break
       page++
@@ -118,7 +118,7 @@ async function main() {
   totalArchived += await archiveBatch({ field: 'lt', col: 'expiresAt', val: nowIso })
   totalArchived += await archiveBatch({ field: 'eq', col: 'isStale', val: true })
   totalArchived += await archiveBatch({ field: 'lt', col: 'gameTime', val: nowIso })
-  console.log(`  ✅ Archived ${totalArchived} prop lines to ArchivedPropLine`)
+  console.log(`  ✅ Archived ${totalArchived} prop lines to local JSONL (${resolvePropLinesDir()})`)
 
   // ── Now delete ───────────────────────────────────────────────────────
   console.log('\n🗑️  Deleting stale props using server-side filters...')
