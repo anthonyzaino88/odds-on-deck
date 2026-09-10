@@ -24,8 +24,8 @@ function eligibleTeam(abbr, record, extras = {}) {
     last10Record: record,
     season: '2025',
     statsKind: 'season',
-    statsCapturedAt: '2025-12-01T00:00:00.000Z',
-    dataThrough: '2025-11-30T00:00:00.000Z',
+    statsCapturedAt: '2025-12-12T00:00:00.000Z',
+    dataThrough: '2025-12-12T00:00:00.000Z',
     ...extras,
   }
 }
@@ -230,8 +230,8 @@ function interpretEligible(abbr, record, extras = {}) {
     abbr,
     statsKind: 'season',
     season: extras.season || '2025',
-    capturedAt: extras.capturedAt || '2025-12-01T00:00:00.000Z',
-    dataThrough: extras.dataThrough || '2025-11-30T00:00:00.000Z',
+    capturedAt: extras.capturedAt || '2025-12-12T00:00:00.000Z',
+    dataThrough: extras.dataThrough || '2025-12-12T00:00:00.000Z',
     wins: Number(record.split('-')[0]),
     losses: Number(record.split('-')[1]),
     gamesPlayed: Number(record.split('-')[0]) + Number(record.split('-')[1]),

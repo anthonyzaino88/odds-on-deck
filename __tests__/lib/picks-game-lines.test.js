@@ -12,8 +12,8 @@ function eligibleTeam(abbr, record) {
     last10Record: record,
     season: '2025',
     statsKind: 'season',
-    statsCapturedAt: '2025-12-01T00:00:00.000Z',
-    dataThrough: '2025-11-30T00:00:00.000Z',
+    statsCapturedAt: '2025-12-12T00:00:00.000Z',
+    dataThrough: '2025-12-12T00:00:00.000Z',
   }
 }
 
