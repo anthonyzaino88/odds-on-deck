@@ -88,7 +88,7 @@ function ParlayOfTheDay() {
       const results = []
 
       await Promise.all(sports.flatMap(s => [
-        fetch(`/api/parlays/generate?sport=${s}&legs=3&maxParlays=1&type=single_game`)
+        fetch(`/api/parlays/generate?sport=${s}&legs=3&maxParlays=1&type=single_game&featured=1`)
           .then(r => r.json())
           .then(data => {
             if (data.success && data.parlays?.length > 0) {
@@ -96,7 +96,7 @@ function ParlayOfTheDay() {
             }
           })
           .catch(() => {}),
-        fetch(`/api/parlays/generate?sport=${s}&legs=3&maxParlays=1`)
+        fetch(`/api/parlays/generate?sport=${s}&legs=3&maxParlays=1&featured=1`)
           .then(r => r.json())
           .then(data => {
             if (data.success && data.parlays?.length > 0) {
@@ -148,7 +148,16 @@ function ParlayOfTheDay() {
     )
   }
 
-  if (cards.length === 0) return null
+  if (cards.length === 0) {
+    return (
+      <div>
+        <SectionHeading title="Today's Featured Parlays" />
+        <p className="text-sm text-slate-500">
+          None cleared the quality bar today — empty is better than a juice or contradictory card.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div>

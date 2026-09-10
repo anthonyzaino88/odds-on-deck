@@ -22,7 +22,8 @@ export async function POST(request) {
       minConfidence = 'medium',
       filterMode = 'balanced', // New: betting strategy filter
       saveToDatabase = true,
-      gameId = null
+      gameId = null,
+      featured = false,
     } = body
 
     console.log(`🎯 Generating parlays: ${legCount}-leg ${sport} (${type})${gameId ? ` for game ${gameId}` : ''}`)
@@ -58,7 +59,8 @@ export async function POST(request) {
       maxParlays,
       minConfidence,
       filterMode, // Pass filter mode to generator
-      gameId
+      gameId,
+      featured: featured === true || featured === '1' || featured === 'true',
     })
 
     // Save parlays to database if requested
@@ -98,6 +100,8 @@ export async function GET(request) {
     const maxParlays = parseInt(searchParams.get('maxParlays')) || 10
     const filterMode = searchParams.get('filterMode') || 'safe'
     const gameId = searchParams.get('gameId') || null
+    const featuredParam = searchParams.get('featured')
+    const featured = featuredParam === '1' || featuredParam === 'true'
 
     const parlays = await generateSimpleParlays({
       sport,
@@ -106,7 +110,8 @@ export async function GET(request) {
       minEdge,
       maxParlays,
       filterMode,
-      gameId
+      gameId,
+      featured,
     })
 
     return NextResponse.json({
