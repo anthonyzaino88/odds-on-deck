@@ -6,6 +6,7 @@ import {
   removeMlVig,
   removeTotalVig,
   calculateEV,
+  estimatedEvAtDecimalOdds,
   formatOdds,
   formatProbability,
   formatEdge,
@@ -74,6 +75,25 @@ describe('calculateEV', () => {
   test('calculates negative expected value', () => {
     const result = calculateEV(0.4, 100, 100) // 40% chance, +100 odds
     expect(result.evPercentage).toBeLessThan(0)
+  })
+})
+
+describe('estimatedEvAtDecimalOdds', () => {
+  test('uses P(win)×(d-1) − P(loss) and ignores a refunded push', () => {
+    // +100 decimal 2.00: 0.55 * 1 - 0.45 = 0.10
+    expect(estimatedEvAtDecimalOdds(0.55, 0.45, 2)).toBeCloseTo(0.10, 8)
+    // -110 decimal ~1.909: smaller EV than even money at the same probabilities
+    const evMinus110 = estimatedEvAtDecimalOdds(0.55, 0.45, 1 + 100 / 110)
+    expect(evMinus110).toBeLessThan(0.10)
+    expect(evMinus110).toBeGreaterThan(0)
+    // Push mass is omitted — not treated as a loss
+    expect(estimatedEvAtDecimalOdds(0.50, 0.45, 2)).toBeCloseTo(0.05, 8)
+  })
+
+  test('handles American-converted decimal and rejects invalid prices', () => {
+    expect(estimatedEvAtDecimalOdds(0.40, 0.60, 3)).toBeCloseTo(0.20, 8) // +200
+    expect(estimatedEvAtDecimalOdds(0.50, 0.50, 1)).toBeNull()
+    expect(estimatedEvAtDecimalOdds(0.50, 0.50, null)).toBeNull()
   })
 })
 

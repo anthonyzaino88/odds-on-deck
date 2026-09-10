@@ -4,6 +4,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
+import { extractEspnTeamPerformance, teamPerformanceWritePayload } from '../lib/team-performance-stats.js'
 
 config({ path: '.env.local' })
 
@@ -100,18 +101,26 @@ async function fetchTeamPerformanceData() {
         
         const data = await response.json()
         
-        // Extract team performance data
-        const performanceData = extractPerformanceData(data, sport)
+        // Extract team performance data.
+        // last10* columns are season aggregates — see extractEspnTeamPerformance.
+        const extracted = extractEspnTeamPerformance(data, sport)
         
-        if (!performanceData) {
+        if (!extracted) {
           console.log(`  ⚠️  No performance data available`)
           continue
         }
+
+        const { meta } = extracted
+        const write = teamPerformanceWritePayload(extracted)
+        if (write.written.length === 0) {
+          console.log(`  ⚠️  Partial ESPN payload had no usable fields — existing Team row left unchanged`)
+          continue
+        }
         
-        // Update team record in database
+        // Update only present columns. Omitted fields stay as stored.
         const { error: updateError } = await supabase
           .from('Team')
-          .update(performanceData)
+          .update(write.payload)
           .eq('id', team.id)
         
         if (updateError) {
@@ -120,22 +129,27 @@ async function fetchTeamPerformanceData() {
           continue
         }
         
-        // Log what we got
-        console.log(`  ✅ Updated:`)
-        if (performanceData.last10Record) {
-          console.log(`     Record: ${performanceData.last10Record}`)
+        console.log(`  ✅ Wrote present season fields only: ${write.written.join(', ')}`)
+        if (write.retained.length) {
+          console.log(`     Retained prior values (not marked fresh): ${write.retained.join(', ')}`)
         }
-        if (performanceData.homeRecord) {
-          console.log(`     Home: ${performanceData.homeRecord}`)
+        if (write.payload.last10Record) {
+          console.log(`     Season record (last10Record column): ${write.payload.last10Record}`)
         }
-        if (performanceData.awayRecord) {
-          console.log(`     Away: ${performanceData.awayRecord}`)
+        if (write.payload.homeRecord) {
+          console.log(`     Home: ${write.payload.homeRecord}`)
         }
-        if (performanceData.avgPointsLast10) {
-          console.log(`     Pts/Game: ${performanceData.avgPointsLast10.toFixed(1)}`)
+        if (write.payload.awayRecord) {
+          console.log(`     Away: ${write.payload.awayRecord}`)
         }
-        if (performanceData.avgPointsAllowedLast10) {
-          console.log(`     Pts Allowed: ${performanceData.avgPointsAllowedLast10.toFixed(1)}`)
+        if (write.payload.avgPointsLast10) {
+          console.log(`     Season pts/game (avgPointsLast10 column): ${write.payload.avgPointsLast10.toFixed(1)}`)
+        }
+        if (write.payload.avgPointsAllowedLast10) {
+          console.log(`     Season pts allowed (avgPointsAllowedLast10 column): ${write.payload.avgPointsAllowedLast10.toFixed(1)}`)
+        }
+        if (meta?.gamesPlayed != null) {
+          console.log(`     Games played (not persisted — schema proposal only): ${meta.gamesPlayed}`)
         }
         
         updated++
@@ -156,88 +170,6 @@ async function fetchTeamPerformanceData() {
     
   } catch (error) {
     console.error('❌ Fatal error:', error)
-  }
-}
-
-/**
- * Extract performance data from ESPN team response
- */
-function extractPerformanceData(data, sport) {
-  try {
-    const team = data.team
-    if (!team) return null
-    
-    const performanceData = {}
-    
-    // Get overall record
-    if (team.record && team.record.items) {
-      const overallRecord = team.record.items.find(item => item.type === 'total' || item.type === 'overall')
-      const homeRecord = team.record.items.find(item => item.type === 'home')
-      const awayRecord = team.record.items.find(item => item.type === 'road' || item.type === 'away')
-      
-      if (overallRecord && overallRecord.summary) {
-        performanceData.last10Record = overallRecord.summary // e.g., "7-2"
-      }
-      
-      if (homeRecord && homeRecord.summary) {
-        performanceData.homeRecord = homeRecord.summary
-      }
-      
-      if (awayRecord && awayRecord.summary) {
-        performanceData.awayRecord = awayRecord.summary
-      }
-      
-      // Extract stats from the overall record
-      // ESPN provides both avgPointsFor (per-game) and pointsFor (season total).
-      // Always prefer the per-game average; only fall back to total if avg is missing.
-      if (overallRecord && overallRecord.stats) {
-        let totalFor = null, totalAgainst = null, gamesPlayed = null
-
-        for (const stat of overallRecord.stats) {
-          const name = stat.name || ''
-          const value = parseFloat(stat.value)
-          
-          if (name === 'avgPointsFor') performanceData.avgPointsLast10 = value
-          else if (name === 'pointsFor') totalFor = value
-
-          if (name === 'avgPointsAgainst') performanceData.avgPointsAllowedLast10 = value
-          else if (name === 'pointsAgainst') totalAgainst = value
-
-          if (name === 'gamesPlayed') gamesPlayed = value
-        }
-
-        // Fall back to computing avg from totals if ESPN didn't provide avg fields
-        if (!performanceData.avgPointsLast10 && totalFor && gamesPlayed) {
-          performanceData.avgPointsLast10 = totalFor / gamesPlayed
-        }
-        if (!performanceData.avgPointsAllowedLast10 && totalAgainst && gamesPlayed) {
-          performanceData.avgPointsAllowedLast10 = totalAgainst / gamesPlayed
-        }
-      }
-    }
-    
-    // If we didn't get avgPoints, try team.statistics
-    if (!performanceData.avgPointsLast10 && team.statistics) {
-      for (const stat of team.statistics) {
-        if (stat.name === 'avgPointsFor' || stat.name === 'pointsPerGame') {
-          performanceData.avgPointsLast10 = parseFloat(stat.value)
-        }
-        if (stat.name === 'avgPointsAgainst' || stat.name === 'pointsAllowedPerGame') {
-          performanceData.avgPointsAllowedLast10 = parseFloat(stat.value)
-        }
-      }
-    }
-    
-    // Return null if we got no useful data
-    if (!performanceData.last10Record && !performanceData.avgPointsLast10 && !performanceData.homeRecord) {
-      return null
-    }
-    
-    return performanceData
-    
-  } catch (error) {
-    console.error('Error extracting performance data:', error.message)
-    return null
   }
 }
 

@@ -4,11 +4,16 @@ import {
   decorateGameLine,
   gameLineEdgeWhy,
   gradeGameLineFromScores,
+  isApprovedNflGameLine,
   isGameLineRecord,
   isPublicGameLine,
   partitionGameLines,
   selectGameLines,
 } from '../../lib/game-lines.js'
+import {
+  NFL_SELECTION_MODEL_VERSION,
+  nflGameLineSnapshotIsPublic,
+} from '../../lib/nfl-selection-model.js'
 
 function futureTime(hours = 3) {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString()
@@ -59,16 +64,81 @@ describe('selectGameLines', () => {
     ])).toEqual([])
   })
 
-  test('holds NHL off the public section', () => {
+  test('holds NHL and unapproved NFL off the public section', () => {
     const rows = [
       line({ sport: 'nhl', edge: 0.20, pick: 'BOS' }),
       line({ sport: 'mlb', edge: 0.08, pick: 'NYY' }),
       line({ sport: 'nfl', type: 'total', pick: 'under', threshold: 44.5, edge: 0.06 }),
+      line({
+        sport: 'nfl',
+        type: 'moneyline',
+        pick: 'KC',
+        edge: 0.09,
+        eligibleForPublic: true,
+        modelRun: NFL_SELECTION_MODEL_VERSION,
+      }),
     ]
     const selected = selectGameLines(rows)
     expect(selected.every((row) => row.sport === 'mlb' || row.sport === 'nfl')).toBe(true)
     expect(selected.some((row) => row.sport === 'nhl')).toBe(false)
-    expect(selected.map((row) => row.pick)).toEqual(['NYY', 'under'])
+    expect(selected.map((row) => row.pick)).toEqual(['KC', 'NYY'])
+    expect(selected.some((row) => row.pick === 'under')).toBe(false)
+  })
+
+  test('rejects legacy NFL heuristic rows even with a large stored edge', () => {
+    expect(isPublicGameLine(line({
+      sport: 'nfl',
+      edge: 0.20,
+      modelRun: 'nfl-nhl-v0.1.0',
+      eligibleForPublic: true,
+    }))).toBe(false)
+  })
+
+  test('isApprovedNflGameLine matches nflGameLineSnapshotIsPublic gates', () => {
+    const currentPick = line({
+      sport: 'nfl',
+      edge: 0.09,
+      modelRun: NFL_SELECTION_MODEL_VERSION,
+      eligibleForPublic: true,
+    })
+    const currentPayload = {
+      sport: 'nfl',
+      modelRun: NFL_SELECTION_MODEL_VERSION,
+      payload: { eligibility: { eligibleForPublic: true } },
+    }
+    const staleModel = line({
+      sport: 'nfl',
+      edge: 0.20,
+      modelRun: 'nfl-selection-v1.0.0',
+      eligibleForPublic: true,
+    })
+    const currentButIneligible = line({
+      sport: 'nfl',
+      edge: 0.20,
+      modelRun: NFL_SELECTION_MODEL_VERSION,
+      eligibleForPublic: false,
+      payload: { eligibility: { eligibleForPublic: false } },
+    })
+    const payloadFalseTopTrue = {
+      sport: 'nfl',
+      modelRun: NFL_SELECTION_MODEL_VERSION,
+      eligibleForPublic: true,
+      payload: { eligibility: { eligibleForPublic: false } },
+    }
+
+    expect(isApprovedNflGameLine(currentPick)).toBe(true)
+    expect(nflGameLineSnapshotIsPublic(currentPick)).toBe(true)
+    expect(isApprovedNflGameLine(currentPayload)).toBe(true)
+    expect(nflGameLineSnapshotIsPublic(currentPayload)).toBe(true)
+
+    expect(isApprovedNflGameLine(staleModel)).toBe(false)
+    expect(nflGameLineSnapshotIsPublic(staleModel)).toBe(false)
+    expect(isApprovedNflGameLine(currentButIneligible)).toBe(false)
+    expect(nflGameLineSnapshotIsPublic(currentButIneligible)).toBe(false)
+    expect(isApprovedNflGameLine(payloadFalseTopTrue)).toBe(false)
+    expect(nflGameLineSnapshotIsPublic(payloadFalseTopTrue)).toBe(false)
+
+    expect(isApprovedNflGameLine(line({ sport: 'mlb', edge: 0.09 }))).toBe(false)
   })
 
   test('drops final / live games and ranks by edge with a short cap', () => {
@@ -147,5 +217,12 @@ describe('gradeGameLineFromScores', () => {
       result: 'push',
       actualValue: 8,
     })
+  })
+
+  test('NFL moneyline ties settle as pushes', () => {
+    expect(gradeGameLineFromScores(
+      { type: 'moneyline', pick: 'KC' },
+      { homeScore: 17, awayScore: 17, home: { abbr: 'KC' }, away: { abbr: 'DEN' } },
+    )).toEqual({ result: 'push', actualValue: 17 })
   })
 })
