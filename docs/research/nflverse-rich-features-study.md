@@ -12,7 +12,7 @@ This is a second chronological pass on free nflverse fields. It does **not** ena
 | Regrade picks | `false` |
 | Merge | `false` |
 
-Generated at: `2026-09-10T02:28:51.033Z`
+Generated at: `2026-09-10T02:35:59.520Z`
 
 ## Data
 
@@ -109,7 +109,7 @@ No independent candidate beat the close on the pre-registered rule (lower log-lo
 
 ## Totals vs closing total_line
 
-Overall: n=5205, MAE vs model mean 10.90, MAE vs closing line 10.61, log-loss 0.7103 vs market 0.6932, Brier 0.2581 vs market 0.2500, primary +EV ROI -2.17% (n=3397).
+Overall: n=5205 projected games; **3821** decisive games with a closing O/U (the vs-market sample). MAE vs model mean 10.90, MAE vs closing line 10.61, log-loss 0.7085 vs market 0.6932, Brier 0.2573 vs market 0.2500, primary +EV ROI -2.21% (n=3342). Probability scores and +EV ROI use only that paired sample.
 
 Beats close on the pooled sample? **no (worse_or_equal_probability_scores)**
 
@@ -117,32 +117,32 @@ Single-season "yes" cells below are not a public-board enable. The pre-registere
 
 | Season | n | MAE | LL | LL mkt | +EV ROI | +EV n | Calib | Beats? |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1999 | 184 | 11.83 | 0.6977 | — | — | 0 | identity_fallback | no |
-| 2000 | 183 | 11.41 | 0.7082 | — | — | 0 | identity_fallback | no |
-| 2001 | 184 | 11.35 | 0.7239 | — | — | 0 | expanding_prior_seasons | no |
-| 2002 | 188 | 10.83 | 0.7271 | — | — | 0 | expanding_prior_seasons | no |
-| 2003 | 189 | 11.14 | 0.7169 | — | — | 0 | expanding_prior_seasons | no |
-| 2004 | 189 | 11.85 | 0.7206 | — | — | 0 | expanding_prior_seasons | no |
-| 2005 | 190 | 10.59 | 0.7077 | — | — | 0 | expanding_prior_seasons | no |
-| 2006 | 189 | 11.00 | 0.6916 | 0.6952 | 7.09% | 172 | expanding_prior_seasons | yes |
-| 2007 | 190 | 11.63 | 0.7021 | 0.6943 | 5.25% | 172 | expanding_prior_seasons | no |
-| 2008 | 190 | 10.64 | 0.7111 | 0.6945 | 4.39% | 166 | expanding_prior_seasons | no |
-| 2009 | 190 | 10.48 | 0.6931 | 0.6944 | 9.62% | 167 | expanding_prior_seasons | yes |
-| 2010 | 190 | 11.06 | 0.6900 | 0.6900 | -6.20% | 171 | expanding_prior_seasons | no |
-| 2011 | 192 | 9.64 | 0.7114 | 0.6949 | -5.03% | 168 | expanding_prior_seasons | no |
-| 2012 | 191 | 10.75 | 0.7187 | 0.6936 | -4.93% | 165 | expanding_prior_seasons | no |
-| 2013 | 191 | 10.94 | 0.6814 | 0.6938 | 10.89% | 174 | expanding_prior_seasons | yes |
-| 2014 | 190 | 12.02 | 0.7302 | 0.6934 | -21.22% | 162 | expanding_prior_seasons | no |
-| 2015 | 191 | 10.60 | 0.7080 | 0.6929 | -11.95% | 171 | expanding_prior_seasons | no |
+| 1999 | 184 | 11.83 | — | — | — | 0 | identity_fallback | no |
+| 2000 | 183 | 11.41 | — | — | — | 0 | identity_fallback | no |
+| 2001 | 184 | 11.35 | — | — | — | 0 | expanding_prior_seasons | no |
+| 2002 | 188 | 10.83 | — | — | — | 0 | expanding_prior_seasons | no |
+| 2003 | 189 | 11.14 | — | — | — | 0 | expanding_prior_seasons | no |
+| 2004 | 189 | 11.85 | — | — | — | 0 | expanding_prior_seasons | no |
+| 2005 | 190 | 10.59 | — | — | — | 0 | expanding_prior_seasons | no |
+| 2006 | 189 | 11.00 | 0.6899 | 0.6952 | 7.48% | 163 | expanding_prior_seasons | yes |
+| 2007 | 190 | 11.63 | 0.7021 | 0.6943 | 5.38% | 168 | expanding_prior_seasons | no |
+| 2008 | 190 | 10.64 | 0.7044 | 0.6945 | 4.64% | 157 | expanding_prior_seasons | no |
+| 2009 | 190 | 10.48 | 0.6939 | 0.6944 | 9.79% | 164 | expanding_prior_seasons | yes |
+| 2010 | 190 | 11.06 | 0.6900 | 0.6900 | -6.35% | 167 | expanding_prior_seasons | no |
+| 2011 | 192 | 9.64 | 0.7114 | 0.6949 | -5.06% | 167 | expanding_prior_seasons | no |
+| 2012 | 191 | 10.75 | 0.7187 | 0.6936 | -4.96% | 164 | expanding_prior_seasons | no |
+| 2013 | 191 | 10.94 | 0.6814 | 0.6938 | 11.08% | 171 | expanding_prior_seasons | yes |
+| 2014 | 190 | 12.02 | 0.7302 | 0.6934 | -21.48% | 160 | expanding_prior_seasons | no |
+| 2015 | 191 | 10.60 | 0.7080 | 0.6929 | -12.23% | 167 | expanding_prior_seasons | no |
 | 2016 | 191 | 9.50 | 0.7018 | 0.6936 | 3.90% | 168 | expanding_prior_seasons | no |
 | 2017 | 191 | 11.21 | 0.7169 | 0.6926 | -6.28% | 175 | expanding_prior_seasons | no |
-| 2018 | 191 | 10.87 | 0.7074 | 0.6936 | 1.82% | 173 | expanding_prior_seasons | no |
-| 2019 | 191 | 10.53 | 0.6913 | 0.6913 | 8.07% | 160 | expanding_prior_seasons | no |
-| 2020 | 191 | 10.83 | 0.7259 | 0.6951 | -12.28% | 161 | expanding_prior_seasons | no |
-| 2021 | 208 | 11.40 | 0.7188 | 0.6897 | -6.28% | 184 | expanding_prior_seasons | no |
-| 2022 | 207 | 10.92 | 0.7353 | 0.6925 | -13.77% | 183 | expanding_prior_seasons | no |
-| 2023 | 208 | 10.80 | 0.7163 | 0.6934 | -5.60% | 164 | expanding_prior_seasons | no |
-| 2024 | 208 | 10.06 | 0.7029 | 0.6923 | 4.65% | 169 | expanding_prior_seasons | no |
+| 2018 | 191 | 10.87 | 0.7074 | 0.6936 | 1.85% | 170 | expanding_prior_seasons | no |
+| 2019 | 191 | 10.53 | 0.6913 | 0.6913 | 8.12% | 159 | expanding_prior_seasons | no |
+| 2020 | 191 | 10.83 | 0.7259 | 0.6951 | -12.43% | 159 | expanding_prior_seasons | no |
+| 2021 | 208 | 11.40 | 0.7188 | 0.6897 | -6.34% | 182 | expanding_prior_seasons | no |
+| 2022 | 207 | 10.92 | 0.7353 | 0.6925 | -13.93% | 181 | expanding_prior_seasons | no |
+| 2023 | 208 | 10.80 | 0.7163 | 0.6934 | -5.67% | 162 | expanding_prior_seasons | no |
+| 2024 | 208 | 10.06 | 0.7029 | 0.6923 | 4.73% | 166 | expanding_prior_seasons | no |
 | 2025 | 208 | 10.61 | 0.7172 | 0.6937 | -5.26% | 172 | expanding_prior_seasons | no |
 
 ## Limitations

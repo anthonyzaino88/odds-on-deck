@@ -7,6 +7,7 @@ import {
   RICH_STUDY_PUBLIC_ELIGIBLE,
   beatsClosingMarket,
   buildMlFeatures,
+  pairedTotalsComparable,
   parseRichStudyArgs,
   projectGameTotal,
   renderRichStudyMarkdown,
@@ -135,6 +136,25 @@ describe('nflverse rich-features study (research only, pass 2)', () => {
       && result.totals.overall.beatsClosingMarket.profitable,
     )
     expect(result.totals.disclaimer).toMatch(/not production-validated/i)
+  })
+
+  test('totals vs-market scores use only rows that have a closing O/U', () => {
+    const mixed = [
+      { y: 1, pOverDecisive: 0.6, marketPOver: 0.52, primaryProfit: 0.91 },
+      { y: 0, pOverDecisive: 0.4, marketPOver: 0.48, primaryProfit: -1 },
+      { y: 1, pOverDecisive: 0.9, marketPOver: null, primaryProfit: null },
+    ]
+    const paired = pairedTotalsComparable(mixed)
+    expect(paired.n).toBe(2)
+    expect(paired.primary.n).toBe(2)
+    expect(paired.model.logLoss).toBeCloseTo(
+      (-Math.log(0.6) + -Math.log(0.6)) / 2,
+      5,
+    )
+    expect(paired.market.logLoss).toBeCloseTo(
+      (-Math.log(0.52) + -Math.log(0.52)) / 2,
+      5,
+    )
   })
 
   test('beatsClosingMarket requires better scores and positive primary ROI', () => {
