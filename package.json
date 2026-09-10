@@ -22,7 +22,9 @@
     "record:published": "node scripts/record-published-props.js",
     "check-validations": "node scripts/check-pending-validations.js",
     "export:csv": "curl http://localhost:3000/api/export/parlays?format=csv",
-    "export:stats": "curl http://localhost:3000/api/export/stats"
+    "export:stats": "curl http://localhost:3000/api/export/stats",
+    "research:nflverse": "node scripts/research/nflverse-games-study.js",
+    "research:nflverse:rich": "node scripts/research/nflverse-rich-features-study.js"
   },
   "dependencies": {
     "@prisma/client": "5.22.0",
