@@ -27,18 +27,20 @@ config({ path: '.env.local' })
 
 const PAGE_SIZE = 1000
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+function createArchiveClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  )
+}
 
-async function fetchAllRows(table) {
+async function fetchAllRows(supabase, table, columns = '*') {
   const all = []
   let from = 0
   while (true) {
     const { data, error } = await supabase
       .from(table)
-      .select('*')
+      .select(columns)
       .range(from, from + PAGE_SIZE - 1)
     if (error) throw new Error(`${table}: ${error.message}`)
     if (!data || data.length === 0) break
@@ -74,19 +76,29 @@ async function main() {
   console.log('This script never TRUNCATEs or DELETEs Supabase rows.')
   console.log('='.repeat(70))
 
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-    console.error('\n❌ Missing NEXT_PUBLIC_SUPABASE_URL (check .env.local)')
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !(process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)) {
+    console.error('\n❌ Missing NEXT_PUBLIC_SUPABASE_URL or secret/anon key (check .env.local)')
     process.exit(1)
   }
 
+  const supabase = createArchiveClient()
+
   console.log('\n📥 Reading ArchivedPropLine...')
-  const propRows = await fetchAllRows('ArchivedPropLine')
+  const propRows = await fetchAllRows(
+    supabase,
+    'ArchivedPropLine',
+    dryRun ? 'archived_at, game_time' : '*'
+  )
   const propGroups = groupRowsByUtcDay(propRows, ['archived_at', 'game_time'])
   console.log(`   ${propRows.length} rows`)
   printDayCounts('ArchivedPropLine', propGroups)
 
   console.log('\n📥 Reading GameBoxScore...')
-  const boxRows = await fetchAllRows('GameBoxScore')
+  const boxRows = await fetchAllRows(
+    supabase,
+    'GameBoxScore',
+    dryRun ? 'fetched_at' : '*'
+  )
   const boxGroups = groupRowsByUtcDay(boxRows, ['fetched_at'])
   console.log(`   ${boxRows.length} rows`)
   printDayCounts('GameBoxScore', boxGroups)
