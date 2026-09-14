@@ -54,6 +54,7 @@ describe('Featured parlay persist contract — Phase B', () => {
     expect(history).toMatch(/No Featured-cleared parlays yet/)
     expect(history).toMatch(/Empty until a Published-eligible 3-leg card clears Featured/)
     expect(history).toMatch(/resolveFeaturedHistoryLegOutcome/)
+    expect(history).toMatch(/featuredHistoryLegActual/)
     expect(history).not.toMatch(/legResult === 'correct'/)
     expect(history).not.toMatch(/No saved parlays yet/)
     expect(page).toMatch(/onFeaturedReady/)

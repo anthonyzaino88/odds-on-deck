@@ -401,6 +401,30 @@ describe('Featured history leg display', () => {
     }, 'lost')).toBe('lost')
   })
 
+  test('regraded ParlayLeg.outcome wins over a disagreeing PropValidation join', () => {
+    // Otton: PV correct + actual 2 vs leg lost / Actual 3
+    expect(resolveFeaturedHistoryLegOutcome({
+      playerName: 'Cade Otton',
+      selection: 'over',
+      threshold: 3.5,
+      actualValue: 2,
+      actualResult: 'Actual: 3',
+      validationResult: 'correct',
+      outcome: 'lost',
+    }, 'lost')).toBe('lost')
+
+    // Goff: PV incorrect on a cashed o1.5
+    expect(resolveFeaturedHistoryLegOutcome({
+      playerName: 'Jared Goff',
+      selection: 'over',
+      threshold: 1.5,
+      actualValue: 1,
+      actualResult: 'Actual: 2',
+      validationResult: 'incorrect',
+      outcome: 'won',
+    }, 'won')).toBe('won')
+  })
+
   test('UNDER above the line is a miss; push and void stay honest', () => {
     expect(resolveFeaturedHistoryLegOutcome({
       selection: 'under',
@@ -467,8 +491,8 @@ describe('Featured history leg display', () => {
     }, 'lost')).toBe('lost')
   })
 
-  test('history attach prefers actual-vs-line over the first stale PropValidation result', () => {
-    const leg = {
+  test('history attach follows ParlayLeg.outcome and stored Actual, not the PV join', () => {
+    const otton = attachFeaturedHistoryLegDisplay({
       playerName: 'Cade Otton',
       propType: 'player_receptions',
       selection: 'over',
@@ -477,32 +501,35 @@ describe('Featured history leg display', () => {
       gameIdRef: 'tb-game',
       outcome: 'lost',
       actualResult: 'Actual: 3',
-    }
-    const validations = [
-      {
-        playerName: 'Cade Otton',
-        propType: 'player_receptions',
-        status: 'completed',
-        result: 'correct',
-        actualValue: 8,
-        parlayId: 'other-card',
-        gameIdRef: 'other-game',
-      },
-      {
-        playerName: 'Cade Otton',
-        propType: 'player_receptions',
-        status: 'completed',
-        result: 'correct',
-        actualValue: 3,
-        parlayId: 'feat-otton',
-        gameIdRef: 'tb-game',
-        threshold: 3.5,
-      },
-    ]
-    const attached = attachFeaturedHistoryLegDisplay(leg, validations)
-    expect(attached.actualValue).toBe(3)
-    expect(attached.displayOutcome).toBe('lost')
-    expect(attached.validationResult).toBe('incorrect')
+    }, [{
+      playerName: 'Cade Otton',
+      propType: 'player_receptions',
+      status: 'completed',
+      result: 'correct',
+      actualValue: 2,
+      parlayId: 'other-card',
+    }])
+    expect(otton.actualValue).toBe(3)
+    expect(otton.displayOutcome).toBe('lost')
+    expect(otton.validationResult).toBe('incorrect')
+
+    const goff = attachFeaturedHistoryLegDisplay({
+      playerName: 'Jared Goff',
+      propType: 'player_pass_tds',
+      selection: 'over',
+      threshold: 1.5,
+      outcome: 'won',
+      actualResult: 'Actual: 2',
+    }, [{
+      playerName: 'Jared Goff',
+      propType: 'player_pass_tds',
+      status: 'completed',
+      result: 'incorrect',
+      actualValue: 1,
+    }])
+    expect(goff.actualValue).toBe(2)
+    expect(goff.displayOutcome).toBe('won')
+    expect(goff.validationResult).toBe('correct')
 
     const pasquantino = attachFeaturedHistoryLegDisplay({
       playerName: 'Vinnie Pasquantino',

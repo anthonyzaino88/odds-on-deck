@@ -25,7 +25,7 @@ function featuredCard({ id, status, legs }) {
   }
 }
 
-function propLeg({ name, selection, threshold, actualValue, validationResult, outcome, propType = 'batter_hits' }) {
+function propLeg({ name, selection, threshold, actualValue, actualResult, validationResult, outcome, propType = 'batter_hits' }) {
   return {
     id: `leg-${name}`,
     playerName: name,
@@ -33,6 +33,7 @@ function propLeg({ name, selection, threshold, actualValue, validationResult, ou
     selection,
     threshold,
     actualValue,
+    actualResult,
     validationResult,
     outcome,
   }
@@ -51,7 +52,8 @@ describe('Featured history leg dots', () => {
                 name: 'Cade Otton',
                 selection: 'over',
                 threshold: 3.5,
-                actualValue: 3,
+                actualValue: 2,
+                actualResult: 'Actual: 3',
                 validationResult: 'correct',
                 outcome: 'lost',
                 propType: 'player_receptions',
@@ -108,7 +110,10 @@ describe('Featured history leg dots', () => {
                 name: 'Jared Goff',
                 selection: 'over',
                 threshold: 1.5,
-                actualValue: 2,
+                actualValue: 1,
+                actualResult: 'Actual: 2',
+                validationResult: 'incorrect',
+                outcome: 'won',
                 propType: 'player_pass_tds',
               }),
             ],
@@ -121,6 +126,8 @@ describe('Featured history leg dots', () => {
     expect(html).toContain('Dalton Schultz')
     expect(html).toContain('Kyler Murray')
     expect(html).toContain('Jared Goff')
+    expect(html).toContain('Actual: 2')
+    expect(html).not.toContain('Actual: 1')
     expect(html).toContain('title="Won"')
     expect(html).not.toContain('title="Lost"')
     expect(html).toMatch(/bg-green-400/)

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { cn } from '../lib/utils'
-import { resolveFeaturedHistoryLegOutcome } from '../lib/featured-parlays.js'
+import { featuredHistoryLegActual, resolveFeaturedHistoryLegOutcome } from '../lib/featured-parlays.js'
 
 export default function ParlayHistory({ refreshTrigger = 0, initialParlays, initialPerformance = null }) {
   const seeded = Array.isArray(initialParlays)
@@ -252,10 +252,10 @@ export default function ParlayHistory({ refreshTrigger = 0, initialParlays, init
                         .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase to spaces
                     }
                     
-                    // Same grade truth as the card badge: actual vs line,
-                    // then stored outcome. Stale validationResult "correct"
-                    // cannot paint a miss green. actualValue 0 is a real miss.
+                    // Regraded ParlayLeg.outcome is the card truth after #23.
+                    // Stale PropValidation.result / actualValue cannot override it.
                     const displayOutcome = resolveFeaturedHistoryLegOutcome(leg, parlay.status)
+                    const displayActual = featuredHistoryLegActual(leg)
                     const isWon = displayOutcome === 'won'
                     const isLost = displayOutcome === 'lost'
                     const isPush = displayOutcome === 'push'
@@ -297,9 +297,9 @@ export default function ParlayHistory({ refreshTrigger = 0, initialParlays, init
                                 {leg.selection?.toUpperCase()} {leg.threshold}
                               </div>
                             )}
-                            {leg.actualValue !== null && leg.actualValue !== undefined && (
+                            {displayActual !== null && (
                               <div className="text-[11px] text-slate-500 tabular-nums font-mono">
-                                Actual: {leg.actualValue}
+                                Actual: {displayActual}
                               </div>
                             )}
                           </div>
