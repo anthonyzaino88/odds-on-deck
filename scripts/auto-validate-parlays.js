@@ -7,14 +7,51 @@
  * 2. Game totals - Game homeScore+awayScore, no moneyline sibling required
  * 3. Player props - PropValidation by player+type+game (any parlayId)
  *
- * Run this a few hours after games finish:
- *   node scripts/auto-validate-parlays.js
+ * Featured cards use the same fail-closed helpers as /api/parlays/validate.
+ * Pending / missing numeric PropValidation actuals stay pending — never
+ * assume actual=0.
+ *
+ * Run AFTER player props are graded (`validate` / `validate:all` does
+ * props first). Regrade already-written Featured cards locally:
+ *   node scripts/auto-validate-parlays.js --regrade
+ *   node scripts/auto-validate-parlays.js --regrade --id ed1be445a5284504
  */
 
-const path = require('path')
-require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') })
-const { PrismaClient } = require('@prisma/client')
+import path from 'path'
+import { fileURLToPath } from 'url'
+import dotenv from 'dotenv'
+import { PrismaClient } from '@prisma/client'
+import {
+  FEATURED_COHORT_TAG,
+  featuredLegGradePatch,
+  featuredLegPendingResetPatch,
+  featuredParlayGradePatch,
+  featuredRegradeParlayPatch,
+  gradeFeaturedParlayFromValidations,
+  gradePropLegFromValidation,
+  isFeaturedCohortRow,
+} from '../lib/featured-parlays.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+dotenv.config({ path: path.join(__dirname, '..', '.env.local') })
 const prisma = new PrismaClient()
+
+function parseArgs(argv) {
+  const regrade = argv.includes('--regrade')
+  const ids = []
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i]
+    if (arg === '--id' && argv[i + 1]) {
+      ids.push(argv[i + 1])
+      i += 1
+    } else if (arg.startsWith('--id=')) {
+      ids.push(arg.slice(5))
+    }
+  }
+  return { regrade, ids: ids.filter(Boolean) }
+}
+
+const { regrade: REGRADE, ids: TARGET_IDS } = parseArgs(process.argv.slice(2))
 
 const TEAM_VARIATIONS = {
   'JAX': 'JAC', 'JAC': 'JAX',
@@ -106,13 +143,6 @@ function gameDateIsPast(game) {
 
 function canGradeFromGame(game) {
   if (!game || !gameHasScores(game)) return false
-  if (isGameFinal(game)) return true
-  if (isLiveOrUpcoming(game)) return false
-  return gameDateIsPast(game)
-}
-
-function canAssumeFinished(game) {
-  if (!game) return false
   if (isGameFinal(game)) return true
   if (isLiveOrUpcoming(game)) return false
   return gameDateIsPast(game)
@@ -283,20 +313,91 @@ function lookupEspnGame(game, espnResults) {
   return null
 }
 
-async function autoValidateParlays() {
-  console.log('\n🤖 AUTO-VALIDATE PARLAYS')
-  console.log('='.repeat(60))
+function isSettledStatus(status) {
+  return ['won', 'lost', 'push'].includes(String(status || '').toLowerCase())
+}
+
+async function loadParlays() {
+  if (TARGET_IDS.length) {
+    return prisma.parlay.findMany({
+      where: { id: { in: TARGET_IDS } },
+      include: { legs: { orderBy: { legOrder: 'asc' } } },
+      orderBy: { createdAt: 'desc' },
+    })
+  }
 
   const pendingParlays = await prisma.parlay.findMany({
     where: { status: 'pending' },
     include: { legs: { orderBy: { legOrder: 'asc' } } },
-    orderBy: { createdAt: 'desc' }
+    orderBy: { createdAt: 'desc' },
   })
 
-  console.log(`📋 Found ${pendingParlays.length} pending parlays\n`)
+  if (!REGRADE) return pendingParlays
+
+  const settledFeatured = await prisma.parlay.findMany({
+    where: {
+      status: { in: ['won', 'lost', 'push'] },
+      notes: { contains: FEATURED_COHORT_TAG },
+    },
+    include: { legs: { orderBy: { legOrder: 'asc' } } },
+    orderBy: { createdAt: 'desc' },
+  })
+
+  const seen = new Set(pendingParlays.map((parlay) => parlay.id))
+  return [...pendingParlays, ...settledFeatured.filter((parlay) => !seen.has(parlay.id))]
+}
+
+async function applyFeaturedGrade(parlay, validations) {
+  const grade = gradeFeaturedParlayFromValidations(parlay.legs, validations)
+  const now = new Date()
+
+  for (const legOutcome of grade.legOutcomes) {
+    const leg = legOutcome.leg
+    if (!leg?.id) continue
+    const patch = featuredLegGradePatch(legOutcome, now)
+    if (patch) {
+      await prisma.parlayLeg.update({ where: { id: leg.id }, data: patch })
+      const actual = Number.isFinite(Number(legOutcome.actualValue))
+        ? ` (Actual: ${legOutcome.actualValue})`
+        : ''
+      console.log(`    ✅ ${leg.playerName} ${leg.propType}: ${legOutcome.outcome}${actual}`)
+      continue
+    }
+
+    const stale = isSettledStatus(leg.outcome)
+    if (REGRADE || stale) {
+      await prisma.parlayLeg.update({
+        where: { id: leg.id },
+        data: featuredLegPendingResetPatch(now),
+      })
+    }
+    console.log(`    ⏳ ${leg.playerName} ${leg.propType}: Pending prop validation (no numeric actual)`)
+  }
+
+  const parlayPatch = REGRADE
+    ? featuredRegradeParlayPatch(grade, parlay.status, now)
+    : featuredParlayGradePatch(grade, now)
+
+  if (parlayPatch) {
+    await prisma.parlay.update({ where: { id: parlay.id }, data: parlayPatch })
+    console.log(`    → Parlay marked as: ${String(parlayPatch.status).toUpperCase()}`)
+  } else {
+    console.log('    → Parlay still pending (some legs unresolved)')
+  }
+}
+
+async function autoValidateParlays() {
+  console.log('\n🤖 AUTO-VALIDATE PARLAYS')
+  console.log('='.repeat(60))
+  if (REGRADE) console.log('Mode: --regrade (Featured settled cards included; fail-closed on missing actuals)')
+  if (TARGET_IDS.length) console.log(`Targets: ${TARGET_IDS.join(', ')}`)
+
+  const pendingParlays = await loadParlays()
+
+  console.log(`📋 Found ${pendingParlays.length} parlays to grade\n`)
 
   if (pendingParlays.length === 0) {
-    console.log('✨ No pending parlays to validate!')
+    console.log('✨ No parlays to validate!')
     await prisma.$disconnect()
     return
   }
@@ -333,13 +434,18 @@ async function autoValidateParlays() {
   }
 
   for (const parlay of pendingParlays) {
-    if (['won', 'lost', 'push'].includes(parlay.status)) {
+    if (isSettledStatus(parlay.status) && (!REGRADE || !isFeaturedCohortRow(parlay))) {
       console.log(`\n⏭️  Parlay ${parlay.id} already ${parlay.status} — skipping`)
       continue
     }
 
     console.log(`\n📝 Parlay ${parlay.id}`)
     console.log(`   sport=${parlay.sport} type=${parlay.type} status=${parlay.status} legs=${parlay.legs.length}`)
+
+    if (isFeaturedCohortRow(parlay)) {
+      await applyFeaturedGrade(parlay, validations)
+      continue
+    }
 
     const gradedLegs = []
 
@@ -446,27 +552,17 @@ async function autoValidateParlays() {
           console.log(`    ⏳ ${skipReason}`)
         }
       } else if (isPropLeg(leg)) {
-        const line = isNumeric(leg.threshold) ? Number(leg.threshold) : null
-        const side = String(leg.selection || 'over').toLowerCase()
         const pv = pickPropValidation(leg, validations)
-        const usable = pv && (pv.status === 'completed' || pv.status === 'manual_closed') && isNumeric(pv.actualValue)
-
-        if (usable) {
-          actualValue = Number(pv.actualValue)
-          outcome = gradeOverUnder(actualValue, line, side)
-          const otherParlay = pv.parlayId && pv.parlayId !== parlay.id ? `; copied from parlay ${pv.parlayId}` : ''
-          notes = `From PropValidation: ${actualValue} (${pv.status}${otherParlay})`
-          console.log(`    ✅ ${leg.playerName} ${leg.propType}: ${outcome} (Actual: ${actualValue})`)
-        } else if (canAssumeFinished(game) || (pv && pv.status === 'manual_closed' && !isNumeric(pv.actualValue))) {
-          actualValue = 0
-          outcome = gradeOverUnder(0, line, side)
-          const why = !pv
-            ? 'missing box-score / DNP'
-            : `PropValidation ${pv.status} without numeric actual`
-          notes = `Actual: 0 (${why})`
-          console.log(`    ✅ ${leg.playerName} ${leg.propType}: ${outcome} (assumed 0 — ${why})`)
+        outcome = gradePropLegFromValidation(leg, pv)
+        if (outcome) {
+          actualValue = isNumeric(pv?.actualValue) ? Number(pv.actualValue) : null
+          const otherParlay = pv?.parlayId && pv.parlayId !== parlay.id ? `; copied from parlay ${pv.parlayId}` : ''
+          notes = actualValue != null
+            ? `From PropValidation: ${actualValue} (${pv.status}${otherParlay})`
+            : `From PropValidation result: ${pv?.result} (${pv?.status}${otherParlay})`
+          console.log(`    ✅ ${leg.playerName} ${leg.propType}: ${outcome}${actualValue != null ? ` (Actual: ${actualValue})` : ''}`)
         } else {
-          skipReason = `${leg.playerName} ${leg.propType}: Pending prop validation`
+          skipReason = `${leg.playerName} ${leg.propType}: Pending prop validation (no numeric actual)`
           console.log(`    ⏳ ${skipReason}`)
         }
       } else {
@@ -485,14 +581,23 @@ async function autoValidateParlays() {
     const parlayOutcome = aggregateParlay(gradedLegs.map((row) => row.outcome))
 
     for (const graded of gradedLegs) {
-      if (!graded.outcome) continue
-      await prisma.parlayLeg.update({
-        where: { id: graded.leg.id },
-        data: {
-          outcome: graded.outcome,
-          actualResult: graded.notes || `Actual: ${graded.actualValue}`,
-        },
-      })
+      if (graded.outcome) {
+        await prisma.parlayLeg.update({
+          where: { id: graded.leg.id },
+          data: {
+            outcome: graded.outcome,
+            actualResult: graded.notes || `Actual: ${graded.actualValue}`,
+          },
+        })
+        continue
+      }
+
+      if (isPropLeg(graded.leg) && isSettledStatus(graded.leg.outcome)) {
+        await prisma.parlayLeg.update({
+          where: { id: graded.leg.id },
+          data: { outcome: 'pending', actualResult: null },
+        })
+      }
     }
 
     if (parlayOutcome !== 'pending') {

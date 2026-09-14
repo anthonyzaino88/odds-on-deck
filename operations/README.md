@@ -35,8 +35,13 @@ node scripts/update-scores-safely.js all
 
 ### After Games
 ```bash
+# Props first (box-score actuals), then parlays/Featured.
+# Do not reverse this — parlays read PropValidation.actualValue.
 npm run validate:all
 node scripts/check-validation-status.js
+
+# Local only: rewrite Featured pending/wrong cards from current PropValidation
+npm run regrade:featured
 ```
 
 ### End of Day

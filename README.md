@@ -201,8 +201,9 @@ npm run test         # Run Jest tests
 
 # Validation & Data
 npm run validate     # Validate pending props
-npm run validate:parlays  # Validate saved parlays
-npm run validate:all      # Run all validations
+npm run validate:parlays  # Validate saved parlays (after props)
+npm run validate:all      # Props first, then parlays
+npm run regrade:featured  # Regrade Featured from current PropValidation
 npm run backup       # Export all data (CSV/JSON)
 
 # Export

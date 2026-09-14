@@ -26,13 +26,41 @@ No schema migration. `Parlay.notes` is the cohort tag, same pattern as
 
 ## How it is graded
 
-`/api/parlays/validate` (admin) and the existing `validate:parlays` script
-settle legs from `PropValidation`. Featured does **not** insert a second
+`validate:all` grades **player props first** (`validate` /
+`run-validation-check.js` → `validate-pending-props.js`), then parlays
+(`validate:parlays` / `auto-validate-parlays.js`). Featured needs a
+numeric `PropValidation.actualValue` before a leg can settle.
+
+`/api/parlays/validate` (admin) and `validate:parlays` settle Featured
+legs from `PropValidation` via `gradeFeaturedParlayFromValidations`
+(`lib/featured-parlays.js`). Featured does **not** insert a second
 prop row — that would double-count the Published ROI card. Grades reuse
 the Published persist (`record:published` / odds-fetch sweep).
 
+Fail-closed: pending, `needs_review`, or a completed row without a
+numeric actual (and without a settled result) leaves the card
+**pending**. Do not treat “pending” as actual 0. A real DNP / zero
+from the box score is only used when Published validation wrote
+`status=completed` with `actualValue=0`. Missing box / `needs_review`
+stays honestly empty until a number exists.
+
 A lost leg settles the parlay immediately. Push only when every leg is
 decided and at least one pushed.
+
+### Regrade already-written Featured cards (local)
+
+After a bad run (parlays before props, or assumed-0 legs), recompute
+from current `PropValidation` without hitting a remote agent DB:
+
+```bash
+npm run regrade:featured
+# or one card:
+node scripts/auto-validate-parlays.js --regrade --id <parlayId>
+```
+
+`--regrade` includes settled Featured rows so a false loss can be
+corrected. Cards that still lack numeric actuals stay (or return to)
+pending.
 
 ## Honest empty
 

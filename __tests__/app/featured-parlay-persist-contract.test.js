@@ -31,6 +31,10 @@ describe('Featured parlay persist contract — Phase B', () => {
     expect(validate).toMatch(/FEATURED_COHORT_TAG/)
     expect(validate).toMatch(/gradeFeaturedParlayFromValidations/)
     expect(validate).toMatch(/filterFeaturedCohortRows/)
+
+    const autoValidate = read('scripts/auto-validate-parlays.js')
+    expect(autoValidate).toMatch(/gradeFeaturedParlayFromValidations/)
+    expect(autoValidate).toMatch(/isFeaturedCohortRow/)
   })
 
   test('persist layer does not write extra PropValidation rows', () => {
