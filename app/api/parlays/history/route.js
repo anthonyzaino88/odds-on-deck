@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import {
   FEATURED_COHORT_TAG,
+  attachFeaturedHistoryLegDisplay,
   filterFeaturedCohortRows,
   summarizeFeaturedParlays,
 } from '../../../../lib/featured-parlays.js'
@@ -65,19 +66,7 @@ export async function GET(request) {
 
     for (const parlay of parlays) {
       if (!parlay.legs) continue
-      parlay.legs = parlay.legs.map((leg) => {
-        const validation = validations.find((row) =>
-          row.playerName === leg.playerName
-          && row.propType === leg.propType
-        )
-        const actualFromResult = String(leg.actualResult || '').match(/Actual:\s*(\d+(?:\.\d+)?)/i)
-        return {
-          ...leg,
-          validationResult: validation?.result || (leg.outcome === 'won' ? 'correct' : leg.outcome === 'lost' ? 'incorrect' : leg.outcome === 'push' ? 'push' : null),
-          validationStatus: validation?.status || null,
-          actualValue: validation?.actualValue ?? (actualFromResult ? Number(actualFromResult[1]) : null)
-        }
-      })
+      parlay.legs = parlay.legs.map((leg) => attachFeaturedHistoryLegDisplay(leg, validations))
     }
 
     return NextResponse.json({

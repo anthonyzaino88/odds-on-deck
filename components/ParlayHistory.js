@@ -3,11 +3,13 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { cn } from '../lib/utils'
+import { resolveFeaturedHistoryLegOutcome } from '../lib/featured-parlays.js'
 
-export default function ParlayHistory({ refreshTrigger = 0 }) {
-  const [parlays, setParlays] = useState([])
-  const [performance, setPerformance] = useState(null)
-  const [loading, setLoading] = useState(true)
+export default function ParlayHistory({ refreshTrigger = 0, initialParlays, initialPerformance = null }) {
+  const seeded = Array.isArray(initialParlays)
+  const [parlays, setParlays] = useState(seeded ? initialParlays : [])
+  const [performance, setPerformance] = useState(initialPerformance)
+  const [loading, setLoading] = useState(!seeded)
   const [error, setError] = useState(null)
 
   useEffect(() => {
@@ -250,26 +252,14 @@ export default function ParlayHistory({ refreshTrigger = 0 }) {
                         .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase to spaces
                     }
                     
-                    // Determine leg result - check multiple fields
-                    // Priority: validationResult > outcome > status > inferred from parlay
-                    const legResult = leg.validationResult || 
-                      (leg.outcome === 'won' ? 'correct' : leg.outcome === 'lost' ? 'incorrect' : null) ||
-                      (leg.status === 'won' ? 'correct' : leg.status === 'lost' ? 'incorrect' : null)
-                    
-                    // INFERENCE LOGIC:
-                    // - If parlay WON → ALL legs must have won (we can infer this for any leg type)
-                    // - If parlay LOST → at least one leg lost, but we don't know which
-                    //   - For ML/Total without individual data, assume this leg lost (often the case)
-                    //   - For player props without data, leave as pending (we genuinely don't know)
-                    const parlayCompleted = parlay.status === 'won' || parlay.status === 'lost'
-                    const canInferWon = !legResult && parlayCompleted && parlay.status === 'won'
-                    const canInferLost = !legResult && parlayCompleted && parlay.status === 'lost' && 
-                      (isMoneyline || isTotal) // Only infer lost for ML/Total (not player props)
-                    
-                    const isWon = legResult === 'correct' || leg.outcome === 'won' || leg.status === 'won' || canInferWon
-                    const isLost = legResult === 'incorrect' || leg.outcome === 'lost' || leg.status === 'lost' || canInferLost
-                    const isPush = legResult === 'push' || leg.outcome === 'push' || leg.status === 'push'
-                    const isPending = !isWon && !isLost && !isPush
+                    // Same grade truth as the card badge: actual vs line,
+                    // then stored outcome. Stale validationResult "correct"
+                    // cannot paint a miss green. actualValue 0 is a real miss.
+                    const displayOutcome = resolveFeaturedHistoryLegOutcome(leg, parlay.status)
+                    const isWon = displayOutcome === 'won'
+                    const isLost = displayOutcome === 'lost'
+                    const isPush = displayOutcome === 'push'
+                    const isPending = displayOutcome == null
                     
                     const dotColor = isWon ? 'bg-green-400' : isLost ? 'bg-red-400' : isPush ? 'bg-amber-400' : 'bg-slate-600'
                     const dotTitle = isWon ? 'Won' : isLost ? 'Lost' : isPush ? 'Push' : 'Pending'

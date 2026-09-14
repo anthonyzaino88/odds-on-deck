@@ -8,6 +8,7 @@ import {
   featuredLegGradePatch,
   featuredParlayGradePatch,
   featuredPersistWritePlan,
+  attachFeaturedHistoryLegDisplay,
   featuredRegradeParlayPatch,
   featuredSnapshotKey,
   filterFeaturedCohortRows,
@@ -16,7 +17,9 @@ import {
   gradePropLegFromValidation,
   isFeaturedClearedParlay,
   isFeaturedCohortRow,
+  isNumericFeaturedActual,
   isUsablePropValidation,
+  resolveFeaturedHistoryLegOutcome,
   summarizeFeaturedParlays,
   toFeaturedParlayRow,
 } from '../../lib/featured-parlays.js'
@@ -356,6 +359,168 @@ describe('Featured grading', () => {
       result: 'correct',
     })))
     expect(featuredRegradeParlayPatch(wonGrade, 'lost').status).toBe('won')
+  })
+})
+
+describe('Featured history leg display', () => {
+  test('0 is a real actual — null / empty are missing', () => {
+    expect(isNumericFeaturedActual(0)).toBe(true)
+    expect(isNumericFeaturedActual('0')).toBe(true)
+    expect(isNumericFeaturedActual(null)).toBe(false)
+    expect(isNumericFeaturedActual(undefined)).toBe(false)
+    expect(isNumericFeaturedActual('')).toBe(false)
+  })
+
+  test('OVER below the line is a miss even when validationResult is stale correct', () => {
+    // Live: Otton o3.5 rec actual 3 — card LOST, dots were green
+    expect(resolveFeaturedHistoryLegOutcome({
+      playerName: 'Cade Otton',
+      selection: 'over',
+      threshold: 3.5,
+      actualValue: 3,
+      validationResult: 'correct',
+      outcome: 'lost',
+    }, 'lost')).toBe('lost')
+
+    // Live: Pasquantino / Sogard o1.5 TB actual 0
+    expect(resolveFeaturedHistoryLegOutcome({
+      playerName: 'Vinnie Pasquantino',
+      selection: 'over',
+      threshold: 1.5,
+      actualValue: 0,
+      validationResult: 'correct',
+      outcome: 'lost',
+    }, 'lost')).toBe('lost')
+
+    expect(resolveFeaturedHistoryLegOutcome({
+      playerName: 'Nick Sogard',
+      selection: 'over',
+      threshold: 1.5,
+      actualValue: 0,
+      validationResult: 'correct',
+    }, 'lost')).toBe('lost')
+  })
+
+  test('UNDER above the line is a miss; push and void stay honest', () => {
+    expect(resolveFeaturedHistoryLegOutcome({
+      selection: 'under',
+      threshold: 1.5,
+      actualValue: 2,
+      validationResult: 'correct',
+    }, 'lost')).toBe('lost')
+
+    expect(resolveFeaturedHistoryLegOutcome({
+      selection: 'over',
+      threshold: 3.5,
+      actualValue: 3.5,
+      validationResult: 'incorrect',
+    })).toBe('push')
+
+    expect(resolveFeaturedHistoryLegOutcome({
+      selection: 'over',
+      threshold: 3.5,
+      validationResult: 'void',
+    })).toBe('push')
+  })
+
+  test('Schultz / Murray / Goff hits stay green and match a WON card', () => {
+    expect(resolveFeaturedHistoryLegOutcome({
+      playerName: 'Dalton Schultz',
+      selection: 'over',
+      threshold: 3.5,
+      actualValue: 4,
+    }, 'won')).toBe('won')
+    expect(resolveFeaturedHistoryLegOutcome({
+      playerName: 'Kyler Murray',
+      selection: 'under',
+      threshold: 1.5,
+      actualValue: 0,
+    }, 'won')).toBe('won')
+    expect(resolveFeaturedHistoryLegOutcome({
+      playerName: 'Jared Goff',
+      selection: 'over',
+      threshold: 1.5,
+      actualValue: 2,
+    }, 'won')).toBe('won')
+  })
+
+  test('missing actual does not invent 0; stored outcome still wins', () => {
+    expect(resolveFeaturedHistoryLegOutcome({
+      selection: 'over',
+      threshold: 3.5,
+      actualValue: null,
+      outcome: 'pending',
+    }, 'pending')).toBeNull()
+
+    expect(resolveFeaturedHistoryLegOutcome({
+      selection: 'over',
+      threshold: 3.5,
+      actualResult: 'Actual: 0',
+      validationResult: 'correct',
+    }, 'lost')).toBe('lost')
+
+    expect(resolveFeaturedHistoryLegOutcome({
+      selection: 'over',
+      threshold: 3.5,
+      outcome: 'lost',
+      validationResult: 'correct',
+    }, 'lost')).toBe('lost')
+  })
+
+  test('history attach prefers actual-vs-line over the first stale PropValidation result', () => {
+    const leg = {
+      playerName: 'Cade Otton',
+      propType: 'player_receptions',
+      selection: 'over',
+      threshold: 3.5,
+      parlayId: 'feat-otton',
+      gameIdRef: 'tb-game',
+      outcome: 'lost',
+      actualResult: 'Actual: 3',
+    }
+    const validations = [
+      {
+        playerName: 'Cade Otton',
+        propType: 'player_receptions',
+        status: 'completed',
+        result: 'correct',
+        actualValue: 8,
+        parlayId: 'other-card',
+        gameIdRef: 'other-game',
+      },
+      {
+        playerName: 'Cade Otton',
+        propType: 'player_receptions',
+        status: 'completed',
+        result: 'correct',
+        actualValue: 3,
+        parlayId: 'feat-otton',
+        gameIdRef: 'tb-game',
+        threshold: 3.5,
+      },
+    ]
+    const attached = attachFeaturedHistoryLegDisplay(leg, validations)
+    expect(attached.actualValue).toBe(3)
+    expect(attached.displayOutcome).toBe('lost')
+    expect(attached.validationResult).toBe('incorrect')
+
+    const pasquantino = attachFeaturedHistoryLegDisplay({
+      playerName: 'Vinnie Pasquantino',
+      propType: 'batter_total_bases',
+      selection: 'over',
+      threshold: 1.5,
+      outcome: 'lost',
+      actualResult: 'Actual: 0',
+    }, [{
+      playerName: 'Vinnie Pasquantino',
+      propType: 'batter_total_bases',
+      status: 'completed',
+      result: 'correct',
+      actualValue: 0,
+    }])
+    expect(pasquantino.actualValue).toBe(0)
+    expect(pasquantino.displayOutcome).toBe('lost')
+    expect(pasquantino.validationResult).toBe('incorrect')
   })
 })
 
