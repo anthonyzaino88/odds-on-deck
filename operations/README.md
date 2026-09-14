@@ -41,10 +41,12 @@ npm run validate:all
 node scripts/check-validation-status.js
 
 # Independent NFL outcome archive (ESPN public endpoints, no Odds API).
+# Recurring postgame/correction routine — a one-time backfill is not a substitute.
+# --from/--to are inclusive UTC days. 8:15 PM ET on an Eastern date is the next UTC day.
 # Safe to re-run later the same week for stat corrections (identical hashes are no-ops).
 npm run archive:nfl
-# or: node scripts/archive-nfl-box-scores.js --season 2026
-# Coverage only: npm run archive:nfl:audit
+# or: node scripts/archive-nfl-box-scores.js --season 2026 --week <n>
+# Coverage only (file-level, exits 2 on integrity failure): npm run archive:nfl:audit
 
 # Local only: rewrite Featured pending/wrong cards from current PropValidation
 npm run regrade:featured

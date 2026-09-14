@@ -116,7 +116,34 @@ export function correctedNflSummaryFixture() {
   return data
 }
 
+export function oneTeamBoxScoreSummaryFixture() {
+  const data = completedNflSummaryFixture()
+  data.boxscore.players = data.boxscore.players.filter((block) => block.team.id === '12')
+  return data
+}
+
+export function emptyAwayTeamBlockSummaryFixture() {
+  const data = completedNflSummaryFixture()
+  data.boxscore.players[1].statistics = []
+  return data
+}
+
+export function mismatchedBoxscoreTeamSummaryFixture() {
+  const data = completedNflSummaryFixture()
+  data.boxscore.players[0].team.id = '99'
+  data.boxscore.players[1].team.id = '98'
+  return data
+}
+
+export function completedNflSummaryWithoutWeekFixture() {
+  const data = completedNflSummaryFixture()
+  delete data.header.week
+  delete data.header.season
+  return data
+}
+
 export const TO_DAY_EVENT_ID = '401772514'
+export const SNF_ET_EVENT_ID = '401772599'
 
 function completedScoreboardEvent({ id, date, name, season = 2026, week = 2, home, away }) {
   return {
@@ -155,14 +182,14 @@ export function dateRangeScoreboardFixture() {
       completedScoreboardEvent({
         id: TO_DAY_EVENT_ID,
         date: '2026-09-14T20:15:00.000Z',
-        name: 'Sunday 4:15 PM ET (20:15Z) on --to day',
+        name: 'Sunday 4:15 PM ET (20:15Z) — same UTC day as --to 2026-09-14',
         home: { id: '1', abbr: 'ATL' },
         away: { id: '2', abbr: 'TB' },
       }),
       completedScoreboardEvent({
-        id: '401772599',
-        date: '2026-09-15T00:20:00.000Z',
-        name: 'Monday after --to UTC day',
+        id: SNF_ET_EVENT_ID,
+        date: '2026-09-15T00:15:00.000Z',
+        name: 'Sunday Night Football 8:15 PM ET on 2026-09-14 Eastern (00:15Z next UTC day)',
         week: 2,
         home: { id: '3', abbr: 'CHI' },
         away: { id: '4', abbr: 'GB' },

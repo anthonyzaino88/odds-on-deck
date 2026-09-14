@@ -9,7 +9,11 @@
  *   node scripts/archive-nfl-box-scores.js --audit --season 2026
  *   node scripts/archive-nfl-box-scores.js --season 2026 --from 2026-09-04 --to 2026-09-14
  *
- * --from/--to are inclusive UTC calendar days (a 8:15 PM ET game on --to counts).
+ * --from/--to are inclusive UTC calendar days, not Eastern calendar days.
+ * An 8:15 PM ET kickoff on the named Eastern date is the *next* UTC day
+ * (EDT: 00:15Z, EST: 01:15Z) and is NOT included in `--to` of that Eastern date.
+ * Example: Sunday 2026-09-14 8:15 PM ET → `--to 2026-09-15`.
+ * A 4:15 PM ET kickoff is 20:15Z the same UTC day and *is* included in `--to 2026-09-14`.
  * Default without --week/--from/--to walks regular-season weeks 1–18 and
  * re-fetches each completed summary (identical hashes are no-ops). Prefer
  * --week or --from/--to for a postgame run.
@@ -23,7 +27,7 @@
  */
 
 import { config } from 'dotenv'
-import { formatNflCoverageReport, parseArchiveNflArgs, runNflBoxScoreJob } from '../lib/nfl-archive-job.js'
+import { formatNflCoverageReport, nflArchiveJobExitCode, parseArchiveNflArgs, runNflBoxScoreJob } from '../lib/nfl-archive-job.js'
 
 config({ path: '.env.local' })
 
@@ -60,10 +64,7 @@ async function main() {
   console.log('\nThis job never deletes PlayerPropCache or archive files.')
   console.log('='.repeat(70) + '\n')
 
-  const missing = result.coverage?.missing_games?.length || 0
-  const failedFetches = result.coverage?.failed_fetches?.length || 0
-  if (opts.audit) process.exit(missing || failedFetches ? 2 : 0)
-  if (failedFetches && missing) process.exit(2)
+  process.exit(nflArchiveJobExitCode(result))
 }
 
 main().catch((err) => {
