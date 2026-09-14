@@ -5,14 +5,18 @@ jest.mock('../../lib/supabase-admin.js', () => ({
 import {
   FEATURED_COHORT_TAG,
   aggregateFeaturedParlayOutcome,
+  featuredLegGradePatch,
   featuredParlayGradePatch,
   featuredPersistWritePlan,
+  featuredRegradeParlayPatch,
   featuredSnapshotKey,
   filterFeaturedCohortRows,
   gradeFeaturedParlayFromValidations,
   gradePropLegFromActual,
+  gradePropLegFromValidation,
   isFeaturedClearedParlay,
   isFeaturedCohortRow,
+  isUsablePropValidation,
   summarizeFeaturedParlays,
   toFeaturedParlayRow,
 } from '../../lib/featured-parlays.js'
@@ -243,6 +247,115 @@ describe('Featured grading', () => {
       legOutcomes: [],
     })).toBeNull()
     expect(aggregateFeaturedParlayOutcome(['won', null, 'won'])).toBe('pending')
+  })
+
+  test('pending PropValidation keeps the parlay pending and does not assume 0', () => {
+    const validations = legs.map((leg) => ({
+      playerName: leg.playerName,
+      propType: leg.propType,
+      threshold: leg.threshold,
+      status: 'pending',
+      result: null,
+      actualValue: null,
+      gameIdRef: leg.gameIdRef,
+    }))
+    const grade = gradeFeaturedParlayFromValidations(legs, validations)
+    expect(grade.parlayOutcome).toBe('pending')
+    expect(grade.legOutcomes.every((row) => row.outcome == null)).toBe(true)
+    expect(grade.legOutcomes.every((row) => row.actualValue == null)).toBe(true)
+    expect(grade.legOutcomes.some((row) => row.actualValue === 0)).toBe(false)
+    expect(featuredParlayGradePatch(grade)).toBeNull()
+    expect(grade.legOutcomes.every((row) => featuredLegGradePatch(row) == null)).toBe(true)
+    expect(isUsablePropValidation(validations[0])).toBe(false)
+    expect(gradePropLegFromValidation(legs[0], validations[0])).toBeNull()
+  })
+
+  test('needs_review or pending-with-leftover-number is still not actual 0', () => {
+    expect(gradePropLegFromValidation(legs[0], {
+      status: 'needs_review',
+      actualValue: null,
+      result: null,
+    })).toBeNull()
+    expect(isUsablePropValidation({ status: 'needs_review', actualValue: 0 })).toBe(false)
+
+    const leftover = {
+      playerName: legs[0].playerName,
+      propType: legs[0].propType,
+      status: 'pending',
+      actualValue: 0,
+      result: null,
+      gameIdRef: legs[0].gameIdRef,
+    }
+    const grade = gradeFeaturedParlayFromValidations([legs[0]], [leftover])
+    expect(grade.parlayOutcome).toBe('pending')
+    expect(grade.legOutcomes[0].outcome).toBeNull()
+    expect(grade.legOutcomes[0].actualValue).toBeNull()
+    expect(featuredLegGradePatch(grade.legOutcomes[0])).toBeNull()
+  })
+
+  test('completed numeric actual grades over/under vs threshold', () => {
+    expect(gradePropLegFromActual({ threshold: 3.5, selection: 'over' }, 4)).toBe('won')
+    expect(gradePropLegFromActual({ threshold: 3.5, selection: 'over' }, 3)).toBe('lost')
+    expect(gradePropLegFromActual({ threshold: 1.5, selection: 'under' }, 0)).toBe('won')
+    expect(gradePropLegFromActual({ threshold: 1.5, selection: 'under' }, 2)).toBe('lost')
+    expect(gradePropLegFromActual({ threshold: 3.5, selection: 'over' }, 3.5)).toBe('push')
+
+    const schultz = { playerName: 'Dalton Schultz', propType: 'player_receptions', selection: 'over', threshold: 3.5, parlayId: 'ed1be445a5284504' }
+    const murray = { playerName: 'Kyler Murray', propType: 'player_pass_tds', selection: 'under', threshold: 1.5, parlayId: 'ed1be445a5284504' }
+    const goff = { playerName: 'Jared Goff', propType: 'player_pass_tds', selection: 'over', threshold: 1.5, parlayId: 'ed1be445a5284504' }
+    const sundayLegs = [schultz, murray, goff]
+    const sundayActuals = [
+      { playerName: 'Dalton Schultz', propType: 'player_receptions', status: 'completed', actualValue: 4, result: 'correct' },
+      { playerName: 'Kyler Murray', propType: 'player_pass_tds', status: 'completed', actualValue: 0, result: 'correct' },
+      { playerName: 'Jared Goff', propType: 'player_pass_tds', status: 'completed', actualValue: 2, result: 'correct' },
+    ]
+    const hit = gradeFeaturedParlayFromValidations(sundayLegs, sundayActuals)
+    expect(hit.parlayOutcome).toBe('won')
+    expect(hit.legOutcomes.map((row) => row.outcome)).toEqual(['won', 'won', 'won'])
+    expect(hit.legOutcomes.map((row) => row.actualValue)).toEqual([4, 0, 2])
+
+    const pendingSunday = gradeFeaturedParlayFromValidations(sundayLegs, sundayLegs.map((leg) => ({
+      playerName: leg.playerName,
+      propType: leg.propType,
+      status: 'pending',
+      actualValue: null,
+    })))
+    expect(pendingSunday.parlayOutcome).toBe('pending')
+    expect(pendingSunday.legOutcomes.every((row) => row.actualValue == null)).toBe(true)
+
+    expect(gradePropLegFromActual({ threshold: 3.5, selection: 'over' }, 3)).toBe('lost') // Cade Otton
+    expect(gradePropLegFromActual({ threshold: 3.5, selection: 'over' }, 5)).toBe('won') // Chase Brown
+    expect(gradePropLegFromActual({ threshold: 1.5, selection: 'under' }, 2)).toBe('lost') // Iosivas
+  })
+
+  test('numeric actual beats a stale result on the same PropValidation row', () => {
+    const grade = gradeFeaturedParlayFromValidations(legs, [{
+      playerName: legs[0].playerName,
+      propType: legs[0].propType,
+      status: 'completed',
+      result: 'incorrect',
+      actualValue: Number(legs[0].threshold) + 5,
+      gameIdRef: legs[0].gameIdRef,
+    }])
+    expect(grade.legOutcomes[0].outcome).toBe('won')
+    expect(grade.parlayOutcome).toBe('pending')
+  })
+
+  test('regrade patch resets a false settle when props are still pending', () => {
+    const pendingGrade = {
+      parlayOutcome: 'pending',
+      legOutcomes: [],
+    }
+    expect(featuredRegradeParlayPatch(pendingGrade, 'lost').status).toBe('pending')
+    expect(featuredRegradeParlayPatch(pendingGrade, 'pending')).toBeNull()
+    const wonGrade = gradeFeaturedParlayFromValidations(legs, legs.map((leg) => ({
+      playerName: leg.playerName,
+      propType: leg.propType,
+      status: 'completed',
+      actualValue: Number(leg.threshold) + 1,
+      result: 'correct',
+    })))
+    expect(featuredRegradeParlayPatch(wonGrade, 'lost').status).toBe('won')
   })
 })
 
