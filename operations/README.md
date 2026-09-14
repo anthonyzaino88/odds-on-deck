@@ -16,9 +16,11 @@ This directory contains operational scripts that are **NOT** pushed to GitHub. T
 ### Morning Routine
 ```bash
 # 1. FIRST: Clear stale props (prevents yesterday's data from showing)
+# Read-only probe (no deletes): node scripts/clear-stale-props.js --dry-run
 node scripts/clear-stale-props.js
 
 # 2. Fetch fresh games from ESPN
+# Continue even if cleanup exited 1. Independent slate-refresh must still run.
 node scripts/fetch-fresh-games.js all
 
 # 3. Fetch odds with proper gameTime mapping
@@ -26,6 +28,60 @@ node scripts/fetch-live-odds.js all --cache-fresh
 
 # 4. (Optional) Calculate game edges
 node scripts/calculate-game-edges.js   # Requires SUPABASE_SECRET_KEY
+```
+
+**Cleanup failure is not overall OK.** `clear-stale-props.js` exits `1` when candidate reads or archive writes fail, and it deletes nothing. Later ESPN/odds steps may still succeed. Label that morning run **DEGRADED / PARTIAL SUCCESS**, not OK. Parse the `CLEANUP_STATUS=` footer (`ok` or `fail`) plus `CANDIDATES`, `ARCHIVED`, `DELETED`, `SKIPPED_REFETCH`, `SKIPPED_DELETE`, `REMAINING_EXPIRED`, `REMAINING_STALE`, `REMAINING_PAST_GAME`.
+
+There is **no in-repo wrapper** that aggregates morning status. The Grok Bot morning-ops routine (outside this repo) must apply the prompt change below. This agent does not modify live automation.
+
+### Stale-prop cleanup reads (timeouts)
+
+Morning ops 2026-09-14 failed during Supabase candidate collection: `cleanup read failed: Gateway Timeout`. Abort-on-failure worked (zero deletes). Candidate reads now:
+
+- select an **explicit column list** (archive mapping + `id`/`fetchedAt` concurrency fields; not `select(*)`)
+- use **keyset pagination** (`order id`, `gt(id, cursor)`, conservative default page size 50, configurable via `--page-size` / `CLEANUP_PAGE_SIZE`, max 200)
+- retry **bounded** transient failures (504/503/502/429/timeouts/network) with exponential backoff + jitter
+- do **not** retry auth/schema errors
+- keep the candidate **cutoff fixed** for the whole run
+- print diagnostics: filter, cursor, page size, attempt, elapsed ms, HTTP/error code (never credentials or row payloads)
+
+**Why keyset instead of raising offsets:** PostgREST `range(from,to)` still scans skipped rows, gets slower on large caches, and skips/duplicates rows if earlier matches disappear or appear mid-walk. Keyset `WHERE id > cursor` is stable for already-seen ids. Remaining concurrent-update limits: a row whose `id` is already behind the cursor and only later becomes expired/stale is missed until the next run; a row refreshed after capture is not deleted (`id` + exact `fetchedAt` match). This patch does **not** chunk-delete.
+
+Read-only verification:
+
+```
+node scripts/clear-stale-props.js --help
+node scripts/clear-stale-props.js --dry-run
+node scripts/clear-stale-props.js --collect-only --page-size 50
+```
+
+`--help` prints usage and exits 0 with no DB/archive activity. Unknown args exit 2 before any side effects. Read failures in `--dry-run` / `--collect-only` exit **1**.
+
+Do **not** treat a drop in expired counts as explained by elapsed time alone. A failed collect deletes nothing; counts can also move because of other writers, expiry, or a later successful cleanup.
+
+### Proposed Grok Bot morning-ops prompt change (do not apply from this cloud agent)
+
+Replace overall-success logic. Exact proposed change:
+
+```
+Morning ops status (required):
+
+1. Run `node scripts/clear-stale-props.js` first. Record cleanup_exit (process exit code)
+   and parse the CLEANUP_STATUS / CANDIDATES / ARCHIVED / DELETED / SKIPPED_REFETCH /
+   SKIPPED_DELETE / REMAINING_EXPIRED / REMAINING_STALE / REMAINING_PAST_GAME footer.
+2. Always continue independent slate-refresh steps even when cleanup_exit != 0:
+   `node scripts/fetch-fresh-games.js all`
+   `node scripts/fetch-live-odds.js all --cache-fresh`
+   optional `node scripts/calculate-game-edges.js`
+3. Overall run status:
+   - OK only if cleanup_exit == 0 AND every required later step succeeded.
+   - DEGRADED / PARTIAL SUCCESS if cleanup_exit != 0 and later required steps succeeded.
+   - FAIL if any required slate-refresh step failed.
+4. Never label the run OK because later steps succeeded after a cleanup abort.
+5. Do not treat "database already clean" or a lower expired count as proof that
+   cleanup ran. If CLEANUP_STATUS=fail, candidates/archived/deleted are 0 and
+   remaining-expired is the pre-run count (or unavailable).
+6. Include those cleanup fields in the morning report every time.
 ```
 
 ### During Games (Every 15-30 min)

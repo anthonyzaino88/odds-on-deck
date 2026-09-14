@@ -1,6 +1,7 @@
 import {
   cacheCaptureTimestamp,
   mapPropCacheToArchiveRow,
+  preserveDbTimestamp,
   sourceQuoteTimestamp,
 } from '../../lib/prop-line-archive.js'
 
@@ -99,5 +100,21 @@ describe('prop-line odds format provenance', () => {
     const archived = mapPropCacheToArchiveRow(BASE_ROW, { archivedAt: '2026-09-14T20:00:00.000Z' })
     expect(archived.odds_format).toBe('unknown')
     expect(archived.odds).toBe(-110)
+  })
+})
+
+describe('timestamp precision', () => {
+  test('does not truncate Postgres microsecond timestamps through Date', () => {
+    const raw = '2026-09-10T12:00:00.123456+00:00'
+    expect(preserveDbTimestamp(raw)).toBe(raw)
+    expect(new Date(raw).toISOString()).toBe('2026-09-10T12:00:00.123Z')
+
+    const archived = mapPropCacheToArchiveRow(
+      { ...BASE_ROW, fetchedAt: raw, expiresAt: '2026-09-10T16:00:00.654321+00:00' },
+      { archivedAt: '2026-09-14T20:00:00.000Z' }
+    )
+    expect(archived.fetched_at).toBe(raw)
+    expect(archived.expires_at).toBe('2026-09-10T16:00:00.654321+00:00')
+    expect(cacheCaptureTimestamp({ fetchedAt: raw })).toBe(raw)
   })
 })

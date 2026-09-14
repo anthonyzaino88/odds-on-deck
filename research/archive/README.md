@@ -37,7 +37,7 @@ NFL_ARCHIVE_SEASON=2026
 
 ## What writes here
 
-- `scripts/clear-stale-props.js` — stale/expired/past-game `PlayerPropCache` rows. Archive write is verified first; **deletion is aborted if archive read/write fails**. Deletes match `id` + `fetchedAt` so a refresh between capture and delete is left alone.
+- `scripts/clear-stale-props.js` — stale/expired/past-game `PlayerPropCache` rows. Archive write is verified first; **deletion is aborted if archive read/write fails**, including when candidate collection exhausts retries (zero deletes). Deletes match `id` + the **exact** `fetchedAt` string from the DB (Postgres fractional seconds are not truncated through `Date`). Candidate reads use an explicit column list, conservative **keyset** pages (`id > cursor`, default 50), and bounded retries on 504/503/network errors. Offset pages are not used: they get slower on large caches and skip rows if earlier matches disappear mid-walk. Remaining limit: a row that only becomes eligible after its `id` has passed the cursor is left for the next run; a refresh after capture is skipped at refetch or delete-time and those skips are reported separately. `--dry-run` / `--collect-only` are read-only and exit 1 on read failure. `--help` does no DB/archive work.
 - `scripts/snapshot-closing-lines.js` — prop snapshot section only. **ClosingOdds still inserts into Supabase** (needed by `close-stuck-parlays`).
 - `scripts/validate-pending-props.js` — MLB box-score archive after grading. Grading itself still uses ESPN/MLB vendor APIs, not these files. NFL/NHL games are **not** archived from pending props (games without pending rows would be missed).
 - `scripts/archive-nfl-box-scores.js` — independent NFL outcome archive from public ESPN endpoints.
