@@ -39,7 +39,7 @@ describe('prop-line archive timestamps', () => {
     expect(archived.quote_ts_status).toBe('source')
     expect(archived.fetched_at).toBe('2026-09-14T11:00:00.000Z')
     expect(archived.archived_at).toBe('2026-09-14T20:00:00.000Z')
-    expect(archived.odds_format).toBe('american')
+    expect(archived.odds_format).toBe('unknown')
     expect(archived.num_books).toBe(4)
     expect(new Set([archived.quote_ts, archived.fetched_at, archived.archived_at]).size).toBe(3)
   })
@@ -57,5 +57,47 @@ describe('prop-line archive timestamps', () => {
     const archived = mapPropCacheToArchiveRow(BASE_ROW, { archivedAt: '2026-09-15T08:00:00.000Z' })
     expect(archived.quote_ts).not.toBe(archived.archived_at)
     expect(archived.quote_ts_status).toBe('unknown')
+  })
+})
+
+describe('prop-line odds format provenance', () => {
+  test('current-writer decimal rows keep decimal format and the original price', () => {
+    const archived = mapPropCacheToArchiveRow(
+      { ...BASE_ROW, odds: 1.88 },
+      { archivedAt: '2026-09-14T20:00:00.000Z', writer: 'fetch-live-odds' }
+    )
+    expect(archived.odds_format).toBe('decimal')
+    expect(archived.odds).toBe(1.88)
+  })
+
+  test('explicit American format is preserved with the original price', () => {
+    const archived = mapPropCacheToArchiveRow(
+      { ...BASE_ROW, odds: -110, oddsFormat: 'american' },
+      { archivedAt: '2026-09-14T20:00:00.000Z' }
+    )
+    expect(archived.odds_format).toBe('american')
+    expect(archived.odds).toBe(-110)
+  })
+
+  test('large decimal is not labeled American from magnitude', () => {
+    const archived = mapPropCacheToArchiveRow(
+      { ...BASE_ROW, odds: 150, oddsFormat: 'decimal' },
+      { archivedAt: '2026-09-14T20:00:00.000Z' }
+    )
+    expect(archived.odds_format).toBe('decimal')
+    expect(archived.odds).toBe(150)
+
+    const unlabeled = mapPropCacheToArchiveRow(
+      { ...BASE_ROW, odds: 150 },
+      { archivedAt: '2026-09-14T20:00:00.000Z' }
+    )
+    expect(unlabeled.odds_format).toBe('unknown')
+    expect(unlabeled.odds).toBe(150)
+  })
+
+  test('unknown legacy rows stay unknown and keep the numeric price', () => {
+    const archived = mapPropCacheToArchiveRow(BASE_ROW, { archivedAt: '2026-09-14T20:00:00.000Z' })
+    expect(archived.odds_format).toBe('unknown')
+    expect(archived.odds).toBe(-110)
   })
 })

@@ -202,8 +202,83 @@ describe('deletion protection', () => {
     expect(line.quote_ts_status).toBe('unknown')
     expect(line.fetched_at).toBe('2026-09-10T12:00:00.000Z')
     expect(line.archived_at).toBe('2026-09-14T00:00:00.000Z')
-    expect(line.odds_format).toBe('american')
+    expect(line.odds_format).toBe('unknown')
+    expect(line.odds).toBe(-115)
     expect(line.num_books).toBe(3)
+  })
+
+  test('truncated archive file aborts deletion and preserves damaged bytes', async () => {
+    const file = path.join(dir, 'prop-lines-2026-09-14.jsonl')
+    fs.writeFileSync(file, '{"interrupted":', 'utf8')
+    const deleted = []
+    const result = await runPropCacheCleanup({
+      fetchPage: async ({ from }) => (from === 0 ? [cacheRow()] : []),
+      refetchByIds: async () => [cacheRow()],
+      deleteExact: async (snapshot) => {
+        deleted.push(snapshot.id)
+        return 1
+      },
+      nowIso: '2026-09-14T00:00:00.000Z',
+      archiveDir: dir,
+      archivedAt: '2026-09-14T00:00:00.000Z',
+    })
+    expect(result.abort).toBe(true)
+    expect(result.deleted).toBe(0)
+    expect(deleted).toEqual([])
+    expect(fs.readFileSync(file, 'utf8')).toBe('{"interrupted":')
+  })
+
+  test('corrupt archive file aborts deletion and preserves damaged bytes', async () => {
+    const file = path.join(dir, 'prop-lines-2026-09-14.jsonl')
+    const damaged = '{"ok":true}\nnot-json\n'
+    fs.writeFileSync(file, damaged, 'utf8')
+    const deleted = []
+    const result = await runPropCacheCleanup({
+      fetchPage: async ({ from }) => (from === 0 ? [cacheRow()] : []),
+      refetchByIds: async () => [cacheRow()],
+      deleteExact: async (snapshot) => {
+        deleted.push(snapshot.id)
+        return 1
+      },
+      nowIso: '2026-09-14T00:00:00.000Z',
+      archiveDir: dir,
+      archivedAt: '2026-09-14T00:00:00.000Z',
+    })
+    expect(result.abort).toBe(true)
+    expect(result.deleted).toBe(0)
+    expect(deleted).toEqual([])
+    expect(fs.readFileSync(file, 'utf8')).toBe(damaged)
+  })
+
+  test('partial archive write aborts deletion and does not rewrite the file', async () => {
+    const first = appendJsonlVerified(dir, 'prop-lines', [{ prop_id: 'kept' }], '2026-09-14T00:00:00.000Z')
+    const before = fs.readFileSync(first.file, 'utf8')
+    const realAppend = fs.appendFileSync.bind(fs)
+    const spy = jest.spyOn(fs, 'appendFileSync').mockImplementation((p, data, enc) => {
+      realAppend(p, String(data).slice(0, 10), enc)
+    })
+    const deleted = []
+    try {
+      const result = await runPropCacheCleanup({
+        fetchPage: async ({ from }) => (from === 0 ? [cacheRow()] : []),
+        refetchByIds: async () => [cacheRow()],
+        deleteExact: async (snapshot) => {
+          deleted.push(snapshot.id)
+          return 1
+        },
+        nowIso: '2026-09-14T00:00:00.000Z',
+        archiveDir: dir,
+        archivedAt: '2026-09-14T00:00:00.000Z',
+      })
+      expect(result.abort).toBe(true)
+      expect(result.deleted).toBe(0)
+    } finally {
+      spy.mockRestore()
+    }
+    expect(deleted).toEqual([])
+    const after = fs.readFileSync(first.file, 'utf8')
+    expect(after.startsWith(before)).toBe(true)
+    expect(JSON.parse(after.split('\n')[0])).toEqual({ prop_id: 'kept' })
   })
 })
 
