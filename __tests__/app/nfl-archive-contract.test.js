@@ -10,6 +10,12 @@ describe('NFL archive operator wiring', () => {
     expect(pkg.scripts['archive:nfl:audit']).toBe('node scripts/archive-nfl-box-scores.js --audit')
   })
 
+  test('Jest collects *.test.js so archive fixtures are not empty suites', () => {
+    const jestConfig = read('jest.config.js')
+    expect(jestConfig).toMatch('**/__tests__/**/*.test.(js|jsx)')
+    expect(jestConfig).not.toMatch("**/__tests__/**/*.(js|jsx)'")
+  })
+
   test('CLI is archive-only and documents ESPN (not Odds API)', () => {
     const src = read('scripts/archive-nfl-box-scores.js')
     expect(src).toMatch(/No Odds API/)
