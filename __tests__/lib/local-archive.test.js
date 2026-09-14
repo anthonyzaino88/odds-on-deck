@@ -2,11 +2,13 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import {
+  ArchiveWriteError,
   appendJsonl,
   appendJsonlRecords,
   appendJsonlVerified,
   dailyJsonlFilename,
   groupRowsByUtcDay,
+  inspectJsonlText,
   loadJsonlFieldSet,
   resolveBoxScoresDir,
   resolveNflBoxScoresDir,
@@ -113,14 +115,61 @@ describe('appendJsonl', () => {
     expect(JSON.parse(lines[1]).stats).toEqual({ hits: 2 })
   })
 
-  test('appendJsonlVerified rejects a corrupted tail', () => {
-    const rows = [{ game_id: 'g1', stats: { hits: 1 } }]
-    const result = appendJsonlVerified(dir, 'box-scores', rows, '2026-09-10')
-    expect(result.written).toBe(1)
-    const kept = appendJsonlRecords(result.file, [{ game_id: 'g2' }])
-    expect(kept.written).toBe(1)
-    const text = fs.readFileSync(result.file, 'utf8')
-    expect(text.trim().split('\n')).toHaveLength(2)
+  test('appendJsonlVerified rejects a truncated tail without modifying it', () => {
+    const file = path.join(dir, 'box-scores-2026-09-10.jsonl')
+    fs.writeFileSync(file, '{"interrupted":', 'utf8')
+    expect(() => appendJsonlVerified(dir, 'box-scores', [{ game_id: 'g2' }], '2026-09-10')).toThrow(
+      ArchiveWriteError
+    )
+    expect(fs.readFileSync(file, 'utf8')).toBe('{"interrupted":')
+    expect(inspectJsonlText('{"interrupted":').appendable).toBe(false)
+  })
+
+  test('appendJsonlVerified rejects a corrupt existing file without rewriting it', () => {
+    const file = path.join(dir, 'box-scores-2026-09-10.jsonl')
+    const damaged = '{"ok":true}\nnot-json\n'
+    fs.writeFileSync(file, damaged, 'utf8')
+    expect(() => appendJsonlVerified(dir, 'box-scores', [{ game_id: 'g2' }], '2026-09-10')).toThrow(
+      ArchiveWriteError
+    )
+    expect(fs.readFileSync(file, 'utf8')).toBe(damaged)
+  })
+
+  test('appendJsonlRecords has the same truncated-tail protection', () => {
+    const file = path.join(dir, 'index.jsonl')
+    fs.writeFileSync(file, '{"interrupted":', 'utf8')
+    expect(() => appendJsonlRecords(file, [{ provider_event_id: 'x' }])).toThrow(ArchiveWriteError)
+    expect(fs.readFileSync(file, 'utf8')).toBe('{"interrupted":')
+  })
+
+  test('partial write is detected from on-disk bytes and not truncated back', () => {
+    const first = appendJsonlVerified(dir, 'box-scores', [{ game_id: 'g1' }], '2026-09-10')
+    const before = fs.readFileSync(first.file, 'utf8')
+    const realAppend = fs.appendFileSync.bind(fs)
+    const spy = jest.spyOn(fs, 'appendFileSync').mockImplementation((p, data, enc) => {
+      realAppend(p, String(data).slice(0, 8), enc)
+    })
+    try {
+      expect(() => appendJsonlVerified(dir, 'box-scores', [{ game_id: 'g2' }], '2026-09-10')).toThrow(
+        ArchiveWriteError
+      )
+    } finally {
+      spy.mockRestore()
+    }
+    const after = fs.readFileSync(first.file, 'utf8')
+    expect(after.startsWith(before)).toBe(true)
+    expect(after.length).toBeGreaterThan(before.length)
+    expect(JSON.parse(after.split('\n')[0])).toEqual({ game_id: 'g1' })
+  })
+
+  test('valid appends preserve existing records', () => {
+    const first = appendJsonlVerified(dir, 'box-scores', [{ game_id: 'g1' }], '2026-09-10')
+    const second = appendJsonlVerified(dir, 'box-scores', [{ game_id: 'g2' }], '2026-09-10')
+    expect(second.written).toBe(1)
+    const lines = fs.readFileSync(first.file, 'utf8').trim().split('\n')
+    expect(lines).toHaveLength(2)
+    expect(JSON.parse(lines[0])).toEqual({ game_id: 'g1' })
+    expect(JSON.parse(lines[1])).toEqual({ game_id: 'g2' })
   })
 })
 
