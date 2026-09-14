@@ -40,6 +40,12 @@ node scripts/update-scores-safely.js all
 npm run validate:all
 node scripts/check-validation-status.js
 
+# Independent NFL outcome archive (ESPN public endpoints, no Odds API).
+# Safe to re-run later the same week for stat corrections (identical hashes are no-ops).
+npm run archive:nfl
+# or: node scripts/archive-nfl-box-scores.js --season 2026
+# Coverage only: npm run archive:nfl:audit
+
 # Local only: rewrite Featured pending/wrong cards from current PropValidation
 npm run regrade:featured
 ```
@@ -75,7 +81,8 @@ ODDS_API_KEY=your_odds_api_key
 
 ```
 scripts/
-├── clear-stale-props.js        # Remove past/expired props (RUN DAILY!)
+├── clear-stale-props.js        # Archive then delete past/expired props (RUN DAILY!)
+├── archive-nfl-box-scores.js   # Independent NFL box-score archive / coverage audit
 ├── fetch-fresh-games.js        # Fetch games from ESPN (FREE)
 ├── fetch-live-odds.js          # Fetch odds/props from Odds API (PAID)
 ├── update-scores-safely.js     # Live score updates (FREE)

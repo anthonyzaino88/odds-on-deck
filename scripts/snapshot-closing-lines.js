@@ -16,6 +16,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
 import { appendJsonl, resolvePropLinesDir } from '../lib/local-archive.js'
+import { mapPropCacheToArchiveRow } from '../lib/prop-line-archive.js'
 
 config({ path: '.env.local' })
 
@@ -122,24 +123,8 @@ async function main() {
   const { data: props } = await propQuery
   let propsArchived = 0
   if (props && props.length > 0) {
-    const propRows = props.map(p => ({
-      prop_id: p.propId,
-      game_id: p.gameId,
-      sport: p.sport,
-      player_name: p.playerName,
-      team: p.team,
-      prop_type: p.type,
-      pick: p.pick,
-      threshold: p.threshold,
-      odds: p.odds,
-      probability: p.probability,
-      edge: p.edge,
-      confidence: p.confidence,
-      quality_score: p.qualityScore,
-      bookmaker: p.bookmaker,
-      projection: p.projection,
-      game_time: p.gameTime,
-    }))
+    const archivedAt = new Date().toISOString()
+    const propRows = props.map(p => mapPropCacheToArchiveRow(p, { archivedAt }))
 
     for (let i = 0; i < propRows.length; i += 200) {
       const batch = propRows.slice(i, i + 200)

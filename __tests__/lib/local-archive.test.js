@@ -3,10 +3,13 @@ import os from 'os'
 import path from 'path'
 import {
   appendJsonl,
+  appendJsonlRecords,
+  appendJsonlVerified,
   dailyJsonlFilename,
   groupRowsByUtcDay,
   loadJsonlFieldSet,
   resolveBoxScoresDir,
+  resolveNflBoxScoresDir,
   resolvePropLinesDir,
   toUtcDayStamp,
 } from '../../lib/local-archive.js'
@@ -28,30 +31,39 @@ describe('toUtcDayStamp / dailyJsonlFilename', () => {
   })
 })
 
-describe('resolvePropLinesDir / resolveBoxScoresDir', () => {
+describe('resolvePropLinesDir / resolveBoxScoresDir / resolveNflBoxScoresDir', () => {
   const prevProp = process.env.ARCHIVE_PROP_LINES_DIR
   const prevBox = process.env.ARCHIVE_BOX_SCORES_DIR
+  const prevNfl = process.env.ARCHIVE_NFL_BOX_SCORES_DIR
 
   afterEach(() => {
     if (prevProp === undefined) delete process.env.ARCHIVE_PROP_LINES_DIR
     else process.env.ARCHIVE_PROP_LINES_DIR = prevProp
     if (prevBox === undefined) delete process.env.ARCHIVE_BOX_SCORES_DIR
     else process.env.ARCHIVE_BOX_SCORES_DIR = prevBox
+    if (prevNfl === undefined) delete process.env.ARCHIVE_NFL_BOX_SCORES_DIR
+    else process.env.ARCHIVE_NFL_BOX_SCORES_DIR = prevNfl
   })
 
   test('defaults are repo-relative under research/archive', () => {
     delete process.env.ARCHIVE_PROP_LINES_DIR
     delete process.env.ARCHIVE_BOX_SCORES_DIR
+    delete process.env.ARCHIVE_NFL_BOX_SCORES_DIR
     const root = '/tmp/ood-checkout'
     expect(resolvePropLinesDir(root)).toBe(path.join(root, 'research', 'archive', 'prop-lines'))
     expect(resolveBoxScoresDir(root)).toBe(path.join(root, 'research', 'archive', 'box-scores'))
+    expect(resolveNflBoxScoresDir(root)).toBe(
+      path.join(root, 'research', 'archive', 'box-scores', 'nfl')
+    )
   })
 
   test('env overrides win when set', () => {
     process.env.ARCHIVE_PROP_LINES_DIR = 'C:\\Users\\zaino\\Desktop\\Odds on Deck\\research\\archive\\prop-lines'
     process.env.ARCHIVE_BOX_SCORES_DIR = 'C:\\Users\\zaino\\Desktop\\Odds on Deck\\research\\archive\\box-scores'
+    process.env.ARCHIVE_NFL_BOX_SCORES_DIR = 'C:\\Users\\zaino\\Desktop\\Odds on Deck\\research\\archive\\box-scores\\nfl'
     expect(resolvePropLinesDir('/ignored')).toBe(process.env.ARCHIVE_PROP_LINES_DIR)
     expect(resolveBoxScoresDir('/ignored')).toBe(process.env.ARCHIVE_BOX_SCORES_DIR)
+    expect(resolveNflBoxScoresDir('/ignored')).toBe(process.env.ARCHIVE_NFL_BOX_SCORES_DIR)
   })
 })
 
@@ -99,6 +111,16 @@ describe('appendJsonl', () => {
     expect(lines).toHaveLength(2)
     expect(JSON.parse(lines[0]).game_id).toBe('g1')
     expect(JSON.parse(lines[1]).stats).toEqual({ hits: 2 })
+  })
+
+  test('appendJsonlVerified rejects a corrupted tail', () => {
+    const rows = [{ game_id: 'g1', stats: { hits: 1 } }]
+    const result = appendJsonlVerified(dir, 'box-scores', rows, '2026-09-10')
+    expect(result.written).toBe(1)
+    const kept = appendJsonlRecords(result.file, [{ game_id: 'g2' }])
+    expect(kept.written).toBe(1)
+    const text = fs.readFileSync(result.file, 'utf8')
+    expect(text.trim().split('\n')).toHaveLength(2)
   })
 })
 

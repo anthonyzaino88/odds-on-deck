@@ -19,6 +19,8 @@
     "validate": "node scripts/validate-pending-props.js",
     "validate:parlays": "node scripts/auto-validate-parlays.js",
     "validate:all": "node scripts/run-validation-check.js && node scripts/auto-validate-parlays.js",
+    "archive:nfl": "node scripts/archive-nfl-box-scores.js",
+    "archive:nfl:audit": "node scripts/archive-nfl-box-scores.js --audit",
     "regrade:featured": "node scripts/auto-validate-parlays.js --regrade",
     "record:published": "node scripts/record-published-props.js",
     "record:featured": "node scripts/record-featured-parlays.js",

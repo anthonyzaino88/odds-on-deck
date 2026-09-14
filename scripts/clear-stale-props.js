@@ -2,18 +2,27 @@
 
 /**
  * CLEAR STALE PROPS
- * 
- * Removes old, expired, or stale props from the database
- * This helps keep the database clean and queries fast
+ *
+ * Archives matching PlayerPropCache rows to local JSONL, then deletes only
+ * the exact versions that were verified on disk. Archive read/write failure
+ * aborts deletion.
+ *
+ *   node scripts/clear-stale-props.js --dry-run
+ *   node scripts/clear-stale-props.js
  */
 
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
-import { appendJsonl, resolvePropLinesDir } from '../lib/local-archive.js'
+import { resolvePropLinesDir } from '../lib/local-archive.js'
+import {
+  createSupabaseExactDeleter,
+  createSupabaseRangeFetcher,
+  refetchPlayerPropCacheByIds,
+  runPropCacheCleanup,
+} from '../lib/prop-cache-cleanup.js'
 
 config({ path: '.env.local' })
 
-// Use secret key for write operations (bypasses RLS)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -21,16 +30,16 @@ const supabase = createClient(
 
 async function main() {
   const dryRun = process.argv.includes('--dry-run')
-  
+
   console.log('\n🗑️  CLEAR STALE PROPS')
   console.log('='.repeat(80))
-  console.log(`Mode: ${dryRun ? '🔍 DRY RUN (preview only)' : '✅ LIVE (will delete)'}`)
+  console.log(`Mode: ${dryRun ? '🔍 DRY RUN (preview only)' : '✅ LIVE (archive, then delete verified rows)'}`)
+  console.log(`Archive dir: ${resolvePropLinesDir()}`)
   console.log('='.repeat(80))
-  
+
   const now = new Date()
   const nowIso = now.toISOString()
-  
-  // Count what we're about to delete using server-side filters
+
   const { count: expiredCount } = await supabase
     .from('PlayerPropCache')
     .select('*', { count: 'exact', head: true })
@@ -61,98 +70,51 @@ async function main() {
   }
 
   if (dryRun) {
-    console.log('\n💡 This is a dry run. Run without --dry-run to delete.')
+    const fetchPage = createSupabaseRangeFetcher(supabase)
+    const result = await runPropCacheCleanup({
+      fetchPage,
+      nowIso,
+      dryRun: true,
+      archiveDir: resolvePropLinesDir(),
+      archivedAt: nowIso,
+    })
+    console.log(`\n💡 Would archive ${result.candidates} unique rows (overlapping filters deduped).`)
+    console.log('💡 This is a dry run. Run without --dry-run to archive + delete verified rows.')
     process.exit(0)
   }
 
-  // ── Archive before deleting ──────────────────────────────────────────
-  console.log('\n📦 Archiving props before deletion...')
-  let totalArchived = 0
+  const fetchPage = createSupabaseRangeFetcher(supabase)
+  const deleteExact = createSupabaseExactDeleter(supabase)
 
-  async function archiveBatch(filter) {
-    let page = 0
-    const pageSize = 500
-    let archived = 0
-    while (true) {
-      let query = supabase
-        .from('PlayerPropCache')
-        .select('*')
-        .range(page * pageSize, (page + 1) * pageSize - 1)
+  console.log('\n📦 Archiving props before deletion (verified write)...')
+  const result = await runPropCacheCleanup({
+    fetchPage,
+    refetchByIds: (ids) => refetchPlayerPropCacheByIds(supabase, ids),
+    deleteExact,
+    nowIso,
+    archiveDir: resolvePropLinesDir(),
+    archivedAt: nowIso,
+    dryRun: false,
+  })
 
-      if (filter.field === 'lt') query = query.lt(filter.col, filter.val)
-      else if (filter.field === 'eq') query = query.eq(filter.col, filter.val)
-
-      const { data } = await query
-      if (!data || data.length === 0) break
-
-      const rows = data.map(p => ({
-        prop_id: p.propId,
-        game_id: p.gameId,
-        sport: p.sport,
-        player_name: p.playerName,
-        team: p.team,
-        prop_type: p.type,
-        pick: p.pick,
-        threshold: p.threshold,
-        odds: p.odds,
-        probability: p.probability,
-        edge: p.edge,
-        confidence: p.confidence,
-        quality_score: p.qualityScore,
-        bookmaker: p.bookmaker,
-        projection: p.projection,
-        game_time: p.gameTime,
-      }))
-
-      try {
-        archived += appendJsonl(resolvePropLinesDir(), 'prop-lines', rows)
-      } catch (archErr) {
-        console.error(`  ⚠️  Archive batch error: ${archErr.message}`)
-      }
-      if (data.length < pageSize) break
-      page++
-    }
-    return archived
+  if (result.abort) {
+    console.error('\n❌ Archive read/write failed — deletion aborted.')
+    if (result.error) console.error(`   ${result.error.message || result.error}`)
+    console.error('   PlayerPropCache was not modified.')
+    process.exit(1)
   }
 
-  totalArchived += await archiveBatch({ field: 'lt', col: 'expiresAt', val: nowIso })
-  totalArchived += await archiveBatch({ field: 'eq', col: 'isStale', val: true })
-  totalArchived += await archiveBatch({ field: 'lt', col: 'gameTime', val: nowIso })
-  console.log(`  ✅ Archived ${totalArchived} prop lines to local JSONL (${resolvePropLinesDir()})`)
+  console.log(`  ✅ Archived ${result.archived} unique prop lines → ${resolvePropLinesDir()}`)
+  console.log(`  ✅ Deleted ${result.deleted} verified cache rows`)
+  if (result.skippedConcurrent) {
+    console.log(`  ⏭️  Skipped ${result.skippedConcurrent} rows that changed between capture and delete`)
+  }
 
-  // ── Now delete ───────────────────────────────────────────────────────
-  console.log('\n🗑️  Deleting stale props using server-side filters...')
-  let totalDeleted = 0
-
-  const { error: err1, count: del1 } = await supabase
-    .from('PlayerPropCache')
-    .delete({ count: 'exact' })
-    .lt('expiresAt', nowIso)
-  if (err1) console.error('❌ Error deleting expired:', err1.message)
-  else { totalDeleted += (del1 || 0); console.log(`  ✅ Deleted ${del1 || 0} expired props`) }
-
-  const { error: err2, count: del2 } = await supabase
-    .from('PlayerPropCache')
-    .delete({ count: 'exact' })
-    .eq('isStale', true)
-  if (err2) console.error('❌ Error deleting stale:', err2.message)
-  else { totalDeleted += (del2 || 0); console.log(`  ✅ Deleted ${del2 || 0} stale props`) }
-
-  const { error: err3, count: del3 } = await supabase
-    .from('PlayerPropCache')
-    .delete({ count: 'exact' })
-    .lt('gameTime', nowIso)
-  if (err3) console.error('❌ Error deleting past game props:', err3.message)
-  else { totalDeleted += (del3 || 0); console.log(`  ✅ Deleted ${del3 || 0} past-game props`) }
-
-  // Verify
   const { count: remaining } = await supabase
     .from('PlayerPropCache')
     .select('*', { count: 'exact', head: true })
 
-  console.log(`\n📊 Total deleted: ${totalDeleted}`)
-  console.log(`📊 Remaining props: ${remaining}`)
-
+  console.log(`\n📊 Remaining props: ${remaining}`)
   console.log('\n' + '='.repeat(80))
   console.log('✅ Cleanup complete')
   console.log('='.repeat(80))
@@ -162,8 +124,7 @@ async function main() {
   console.log('  3. node scripts/update-scores-safely.js all\n')
 }
 
-main().catch(error => {
+main().catch((error) => {
   console.error('❌ Fatal error:', error)
   process.exit(1)
 })
-

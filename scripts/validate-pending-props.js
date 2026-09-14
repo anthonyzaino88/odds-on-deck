@@ -274,13 +274,16 @@ async function main() {
             }
           }
         }
-        // NHL and NFL box score archival can be added when vendor functions support full-game fetch
+        // NFL box scores are archived independently of PropValidation:
+        //   node scripts/archive-nfl-box-scores.js
+        // NHL archival is a documented follow-up (not in this job).
       } catch (bsError) {
         console.log(`  ⚠️  Box score fetch failed for ${gid}: ${bsError.message}`)
       }
       await new Promise(r => setTimeout(r, 200))
     }
-    console.log(`  📦 Archived box scores for ${archivedGames} games`)
+    console.log(`  📦 Archived MLB box scores for ${archivedGames} games`)
+    console.log('  ℹ️  NFL outcomes: node scripts/archive-nfl-box-scores.js (independent of pending props)')
   }
 
   const { count: remainingPending } = await supabase
