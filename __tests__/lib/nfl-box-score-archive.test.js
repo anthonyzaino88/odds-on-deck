@@ -17,8 +17,10 @@ import { fetchNFLGameStats, getPlayerGameStat } from '../../lib/vendors/nfl-game
 import { runNflBoxScoreJob } from '../../lib/nfl-archive-job.js'
 import {
   COMPLETED_EVENT_ID,
+  TO_DAY_EVENT_ID,
   completedNflSummaryFixture,
   correctedNflSummaryFixture,
+  dateRangeScoreboardFixture,
   inProgressNflSummaryFixture,
   nflScoreboardFixture,
 } from '../fixtures/espn-nfl-boxscore.fixture.js'
@@ -124,6 +126,23 @@ describe('completed-game gating', () => {
     expect(completed.map((e) => e.provider_event_id)).toEqual([COMPLETED_EVENT_ID])
     expect(events.find((e) => e.provider_event_id === '401547000').completed).toBe(false)
     expect(events.find((e) => e.provider_event_id === '401547399').completed).toBe(false)
+  })
+
+  test('--to YYYY-MM-DD includes games after midnight UTC on that calendar day', () => {
+    const events = parseEspnNflScoreboardEvents(dateRangeScoreboardFixture())
+    const midnightTo = new Date('2026-09-14').getTime()
+    const lateGame = events.find((e) => e.provider_event_id === TO_DAY_EVENT_ID)
+    expect(lateGame.game_time).toBe('2026-09-14T20:15:00.000Z')
+    expect(new Date(lateGame.game_time).getTime()).toBeGreaterThan(midnightTo)
+
+    const onToDay = filterCompletedNflEvents(events, { from: '2026-09-14', to: '2026-09-14' })
+    expect(onToDay.map((e) => e.provider_event_id)).toEqual([TO_DAY_EVENT_ID])
+
+    const throughToDay = filterCompletedNflEvents(events, { from: '2026-09-13', to: '2026-09-14' })
+    expect(throughToDay.map((e) => e.provider_event_id)).toEqual(['401772500', TO_DAY_EVENT_ID])
+
+    const nextDay = filterCompletedNflEvents(events, { from: '2026-09-15', to: '2026-09-15' })
+    expect(nextDay.map((e) => e.provider_event_id)).toEqual(['401772599'])
   })
 })
 
@@ -290,5 +309,19 @@ describe('NFL archive job (injected fetch)', () => {
     expect(latest.fetched_at).toBe('2026-09-14T15:30:00.000Z')
     expect(latest.game_time).toBe('2025-09-05T00:20:00.000Z')
     expect(latest.fetched_at).not.toBe(latest.game_time)
+  })
+
+  test('audit --from/--to keeps completed games after 00:00Z on the --to day', async () => {
+    const result = await runNflBoxScoreJob(
+      { audit: true, from: '2026-09-14', to: '2026-09-14', archiveRoot: dir },
+      {
+        fetchImpl: mockFetch(dateRangeScoreboardFixture(), {}),
+        sleepImpl: async () => {},
+        requestGapMs: 0,
+      }
+    )
+    expect(result.coverage.expected_games).toBe(1)
+    expect(result.coverage.missing_games.map((g) => g.provider_event_id)).toEqual([TO_DAY_EVENT_ID])
+    expect(result.coverage.expected_date_coverage).toEqual(['2026-09-14'])
   })
 })

@@ -8,6 +8,11 @@
  *   node scripts/archive-nfl-box-scores.js --audit
  *   node scripts/archive-nfl-box-scores.js --audit --season 2026
  *   node scripts/archive-nfl-box-scores.js --season 2026 --from 2026-09-04 --to 2026-09-14
+ *
+ * --from/--to are inclusive UTC calendar days (a 8:15 PM ET game on --to counts).
+ * Default without --week/--from/--to walks regular-season weeks 1–18 and
+ * re-fetches each completed summary (identical hashes are no-ops). Prefer
+ * --week or --from/--to for a postgame run.
  *   node scripts/archive-nfl-box-scores.js --season 2026 --week 2
  *   node scripts/archive-nfl-box-scores.js --event 401772510
  *   node scripts/archive-nfl-box-scores.js --dry-run --season 2026 --week 1

@@ -65,7 +65,10 @@ npm run archive:nfl:audit
 node scripts/archive-nfl-box-scores.js --audit --season 2026
 ```
 
-Archive-only backfill from public ESPN endpoints (no Odds API, no paid historical requests):
+Archive-only backfill from public ESPN endpoints (no Odds API, no paid historical requests).
+`--from` / `--to` are **inclusive UTC calendar days** (a game at 20:15Z on `--to` is in range).
+
+Default `npm run archive:nfl` with no `--week` / `--from` / `--to` walks regular-season weeks 1–18 and re-fetches each completed summary (identical observation hashes are no-ops). Prefer `--week` or a date range for a postgame run.
 
 ```
 npm run archive:nfl -- --season 2026 --from 2026-09-04 --to 2026-09-14

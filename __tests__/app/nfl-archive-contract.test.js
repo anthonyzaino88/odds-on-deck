@@ -36,7 +36,8 @@ describe('NFL archive operator wiring', () => {
     expect(archiveReadme).toMatch(/archive-nfl-box-scores/)
     expect(archiveReadme).toMatch(/quote_ts/)
     expect(archiveReadme).toMatch(/NHL/)
-    expect(archiveReadme).toMatch(/research\/archive\/box-scores\/nfl/)
+    expect(archiveReadme).toMatch(/inclusive UTC calendar days/)
+    expect(archiveReadme).toMatch(/weeks 1–18/)
 
     const ops = read('operations/README.md')
     expect(ops).toMatch(/archive-nfl-box-scores/)

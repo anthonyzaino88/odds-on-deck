@@ -116,6 +116,61 @@ export function correctedNflSummaryFixture() {
   return data
 }
 
+export const TO_DAY_EVENT_ID = '401772514'
+
+function completedScoreboardEvent({ id, date, name, season = 2026, week = 2, home, away }) {
+  return {
+    id,
+    date,
+    name,
+    season: { year: season, type: 2 },
+    week: { number: week },
+    status: { type: { completed: true, state: 'post', name: 'STATUS_FINAL' } },
+    competitions: [
+      {
+        date,
+        status: { type: { completed: true, state: 'post', name: 'STATUS_FINAL' } },
+        competitors: [
+          { homeAway: 'home', team: { id: home.id, abbreviation: home.abbr } },
+          { homeAway: 'away', team: { id: away.id, abbreviation: away.abbr } },
+        ],
+      },
+    ],
+  }
+}
+
+/** Completed games spanning --from/--to UTC days, including after 00:00Z on --to. */
+export function dateRangeScoreboardFixture() {
+  return {
+    season: { year: 2026, type: 2 },
+    week: { number: 2 },
+    events: [
+      completedScoreboardEvent({
+        id: '401772500',
+        date: '2026-09-13T17:00:00.000Z',
+        name: 'Saturday game',
+        home: { id: '12', abbr: 'KC' },
+        away: { id: '9', abbr: 'PHI' },
+      }),
+      completedScoreboardEvent({
+        id: TO_DAY_EVENT_ID,
+        date: '2026-09-14T20:15:00.000Z',
+        name: 'Sunday 4:15 PM ET (20:15Z) on --to day',
+        home: { id: '1', abbr: 'ATL' },
+        away: { id: '2', abbr: 'TB' },
+      }),
+      completedScoreboardEvent({
+        id: '401772599',
+        date: '2026-09-15T00:20:00.000Z',
+        name: 'Monday after --to UTC day',
+        week: 2,
+        home: { id: '3', abbr: 'CHI' },
+        away: { id: '4', abbr: 'GB' },
+      }),
+    ],
+  }
+}
+
 export function nflScoreboardFixture() {
   return {
     season: { year: 2025, type: 2 },
