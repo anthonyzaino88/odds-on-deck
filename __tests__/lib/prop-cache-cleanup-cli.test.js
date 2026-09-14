@@ -193,5 +193,6 @@ describe('script wiring', () => {
     expect(ops).toMatch(/keyset pagination/)
     expect(ops).toMatch(/--collect-only/)
     expect(ops).toMatch(/Never label the run OK because later steps succeeded after a cleanup abort/)
+    expect(ops).toMatch(/pending and has not been applied/)
   })
 })

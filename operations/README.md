@@ -32,7 +32,7 @@ node scripts/calculate-game-edges.js   # Requires SUPABASE_SECRET_KEY
 
 **Cleanup failure is not overall OK.** `clear-stale-props.js` exits `1` when candidate reads or archive writes fail, and it deletes nothing. Later ESPN/odds steps may still succeed. Label that morning run **DEGRADED / PARTIAL SUCCESS**, not OK. Parse the `CLEANUP_STATUS=` footer (`ok` or `fail`) plus `CANDIDATES`, `ARCHIVED`, `DELETED`, `SKIPPED_REFETCH`, `SKIPPED_DELETE`, `REMAINING_EXPIRED`, `REMAINING_STALE`, `REMAINING_PAST_GAME`.
 
-There is **no in-repo wrapper** that aggregates morning status. The Grok Bot morning-ops routine (outside this repo) must apply the prompt change below. This agent does not modify live automation.
+There is **no in-repo wrapper** that aggregates morning status. The Grok Bot morning-ops routine (outside this repo) must apply the prompt change below. **This live morning-routine reporting change is pending and has not been applied.** This agent does not modify live automation.
 
 ### Stale-prop cleanup reads (timeouts)
 
@@ -59,7 +59,7 @@ node scripts/clear-stale-props.js --collect-only --page-size 50
 
 Do **not** treat a drop in expired counts as explained by elapsed time alone. A failed collect deletes nothing; counts can also move because of other writers, expiry, or a later successful cleanup.
 
-### Proposed Grok Bot morning-ops prompt change (do not apply from this cloud agent)
+### Proposed Grok Bot morning-ops prompt change (pending — do not apply from this cloud agent)
 
 Replace overall-success logic. Exact proposed change:
 

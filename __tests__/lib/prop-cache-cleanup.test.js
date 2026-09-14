@@ -10,6 +10,7 @@ import {
   collectCleanupCandidates,
   createSupabaseKeysetFetcher,
   dedupeCleanupCandidates,
+  describeCleanupReadError,
   filterUnchangedSnapshots,
   formatCleanupReadDiagnostic,
   isRetryableCleanupReadError,
@@ -18,6 +19,7 @@ import {
   runPropCacheCleanup,
   sanitizeCleanupLog,
   summarizeCleanupForOps,
+  withCleanupReadRetry,
 } from '../../lib/prop-cache-cleanup.js'
 import { mapPropCacheToArchiveRow, propCacheVersionSnapshot } from '../../lib/prop-line-archive.js'
 
@@ -71,6 +73,33 @@ function gatewayTimeout() {
 
 function noSleep() {
   return jest.fn(async () => {})
+}
+
+function supabaseThenable(resultFactory) {
+  const builder = {
+    select() {
+      return builder
+    },
+    order() {
+      return builder
+    },
+    limit() {
+      return builder
+    },
+    gt() {
+      return builder
+    },
+    lt() {
+      return builder
+    },
+    eq() {
+      return builder
+    },
+    then(resolve, reject) {
+      return Promise.resolve(resultFactory()).then(resolve, reject)
+    },
+  }
+  return { from: jest.fn(() => builder) }
 }
 
 describe('cleanup candidate pagination + dedupe', () => {
@@ -249,6 +278,76 @@ describe('cleanup read retries', () => {
       message: 'Gateway Timeout',
       retryable: true,
     })).toMatch(/filter=expired cursor=none pageSize=50 attempt=2\/4/)
+  })
+
+  test('classifies combined error + response-only 429/502/503/504 through the keyset fetcher', async () => {
+    for (const status of [429, 502, 503, 504]) {
+      let attempts = 0
+      const supabase = supabaseThenable(() => {
+        attempts += 1
+        if (attempts === 1) {
+          return {
+            data: null,
+            error: { message: 'Request failed' },
+            status,
+          }
+        }
+        return { data: [], error: null, status: 200 }
+      })
+      const fetchPage = createSupabaseKeysetFetcher(supabase)
+      const sleep = noSleep()
+      const page = await withCleanupReadRetry(
+        () =>
+          fetchPage({
+            filter: { name: 'expired', op: 'lt', col: 'expiresAt', val: 'CUTOFF' },
+            cursor: null,
+            pageSize: 50,
+          }),
+        { filter: 'expired', cursor: null, pageSize: 50 },
+        { maxAttempts: 4, sleep, random: () => 0 }
+      )
+      expect(page).toEqual([])
+      expect(attempts).toBe(2)
+      expect(sleep).toHaveBeenCalledTimes(1)
+      const described = describeCleanupReadError(
+        { message: 'Request failed' },
+        { status }
+      )
+      expect(described.retryable).toBe(true)
+      expect(described.status).toBe(status)
+    }
+  })
+
+  test('auth and schema errors fail on the first fetcher attempt', async () => {
+    const cases = [
+      { error: { message: 'Request failed' }, status: 401 },
+      { error: { message: 'Invalid API key' }, status: 403 },
+      { error: { message: 'column reasoning does not exist', code: '42703' }, status: 400 },
+      { error: { message: 'schema cache', code: 'PGRST204' }, status: 400 },
+    ]
+    for (const scenario of cases) {
+      let attempts = 0
+      const supabase = supabaseThenable(() => {
+        attempts += 1
+        return { data: null, error: scenario.error, status: scenario.status }
+      })
+      const fetchPage = createSupabaseKeysetFetcher(supabase)
+      const sleep = noSleep()
+      await expect(
+        withCleanupReadRetry(
+          () =>
+            fetchPage({
+              filter: { name: 'expired', op: 'lt', col: 'expiresAt', val: 'CUTOFF' },
+              cursor: null,
+              pageSize: 50,
+            }),
+          { filter: 'expired' },
+          { maxAttempts: 4, sleep, random: () => 0 }
+        )
+      ).rejects.toMatchObject({ retryable: false, status: scenario.status })
+      expect(attempts).toBe(1)
+      expect(sleep).not.toHaveBeenCalled()
+    }
   })
 })
 
