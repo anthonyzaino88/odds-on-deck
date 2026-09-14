@@ -54,7 +54,7 @@ Each successful write stores:
 2. A **versioned normalized** record (`normalized/{eventId}/vN.json`) with provider event/player/team IDs, **season / season type / week carried from scoreboard discovery** (checked against summary header metadata), game time, `fetched_at` (actual capture time), source, and schema version
 3. An append-only `index.jsonl` row — only after (1) and (2) are written **and verified**
 
-Coverage audits **re-read those files**. An index row alone is not a complete archive: the audit checks existence, JSON parseability, event identity, schema, completeness, and a **recomputed** content hash (not a comparison of stored hash strings). A damaged latest version is reported as corrupt/incomplete; an older healthy version is not treated as current.
+Coverage audits **re-read those files**. An index row alone is not a complete archive: the audit checks existence, JSON parseability, event identity, schema, completeness, a **recomputed** normalized content hash, **raw-content integrity** (recomputed raw hash vs stored `raw_hash` when present), and **raw-to-normalized consistency** (re-parse the summary and compare player stats / teams / game identity). Season / week / seasonType may come from scoreboard discovery rather than the summary raw; audits reuse those stored fields so a healthy archive is not rejected for metadata the summary omitted. A damaged latest version is reported as corrupt/incomplete; an older healthy version is not treated as current. Valid raw JSON with one altered player stat is **corrupt**. Prior versions and original `fetched_at` stamps stay in place; corrections write `vN+1` only.
 
 Missing statistics stay `null`. A recorded `0` is a real zero. Absent categories are omitted (not inferred as DNP). Completeness requires player-stat coverage for **both** competitor team IDs; a one-team box score is incomplete and does not overwrite the last complete version.
 
@@ -91,9 +91,9 @@ The audit/archive stdout reports:
 | Field | Meaning |
 | --- | --- |
 | Expected games | Completed ESPN events in the requested season/date range |
-| Healthy archives | Events whose **latest** index version has readable raw + normalized files, matching event IDs, schema, completeness, and a **recomputed** content hash |
+| Healthy archives | Events whose **latest** index version has readable raw + normalized files, matching event IDs, schema, completeness, a **recomputed** content hash, raw-content integrity, and raw-to-normalized stat consistency (scoreboard-sourced season/week/seasonType allowed) |
 | Missing games | Expected completed events with no archive yet |
-| Corrupt archives | Latest version exists but JSON is unreadable, event IDs disagree, or recomputed hash disagrees with stored strings |
+| Corrupt archives | Latest version exists but JSON is unreadable, event IDs disagree, recomputed hashes disagree, or raw player stats do not match the normalized record |
 | Incomplete archives | Latest version parsed but fails both-team completeness (or index `complete` is false) |
 | Missing files | Index claims a version whose raw and/or normalized file is gone |
 | Failed fetches | Scoreboard/summary HTTP failures |
@@ -146,7 +146,7 @@ New prop-line archive rows keep these clocks distinct:
 | `quote_ts_status` | `source` or `unknown` |
 | `fetched_at` | `PlayerPropCache.fetchedAt` (cache capture) |
 | `archived_at` | When this JSONL line was written |
-| `odds_format` | Verified format of the stored numeric price: explicit `odds_format` / `oddsFormat`, else a known writer (`fetch-live-odds` → `decimal`), else `unknown`. Never defaulted to `american`. Magnitude is not used. The original number is preserved. |
+| `odds_format` | Verified format of the stored numeric price: explicit `odds_format` / `oddsFormat`, else a known writer (`fetch-live-odds` → `decimal`), else `unknown`. Cleanup archives unlabeled rows as `unknown` when writer provenance is unavailable. **Do not globally label legacy rows decimal.** Never defaulted to `american`. Magnitude is not used. The original number is preserved. |
 | `num_books` | `numBooks` when known; otherwise omitted/null |
 
 `PlayerPropCache` does not currently persist Odds API `last_update`. When that field is absent, `quote_ts_status` is `unknown`. Archiving an old cached price **now** is not a current or closing quote. This change does not increase odds fetch frequency.

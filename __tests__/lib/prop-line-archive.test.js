@@ -101,6 +101,12 @@ describe('prop-line odds format provenance', () => {
     expect(archived.odds_format).toBe('unknown')
     expect(archived.odds).toBe(-110)
   })
+
+  test('does not globally label unlabeled legacy rows decimal', () => {
+    const archived = mapPropCacheToArchiveRow(BASE_ROW, { archivedAt: '2026-09-14T20:00:00.000Z' })
+    expect(archived.odds_format).not.toBe('decimal')
+    expect(archived.odds_format).toBe('unknown')
+  })
 })
 
 describe('timestamp precision', () => {

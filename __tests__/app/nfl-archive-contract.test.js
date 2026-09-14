@@ -46,6 +46,10 @@ describe('NFL archive operator wiring', () => {
     expect(archiveReadme).toMatch(/one-time backfill is not the recurring archival/)
     expect(archiveReadme).toMatch(/odds_format/)
     expect(archiveReadme).toMatch(/unknown/)
+    expect(archiveReadme).toMatch(/Do not globally label legacy rows decimal/)
+    expect(archiveReadme).toMatch(/raw-to-normalized/)
+    expect(archiveReadme).toMatch(/raw-content integrity/)
+    expect(archiveReadme).toMatch(/scoreboard/)
 
     const cli = read('scripts/archive-nfl-box-scores.js')
     expect(cli).toMatch(/8:15 PM ET/)

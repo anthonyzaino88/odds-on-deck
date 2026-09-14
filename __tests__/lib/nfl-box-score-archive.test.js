@@ -12,6 +12,7 @@ import {
   parseEspnNflScoreboardEvents,
   parseEspnNflSummary,
   parseNullableNumber,
+  rawContentHash,
   summarizeNflCoverage,
   toGradingAdapterPlayerMap,
   utcDay,
@@ -260,6 +261,9 @@ describe('versioned NFL archive writes', () => {
     expect(w1.wrote).toBe(true)
     expect(w1.reason).toBe('new')
     expect(w1.version).toBe(1)
+    const v1Index = loadNflArchiveIndex(dir).records.find((r) => r.version === 1)
+    expect(v1Index.raw_hash).toBe(rawContentHash(raw))
+    expect(v1Index.fetched_at).toBe('2026-09-14T12:00:00.000Z')
 
     const again = parseEspnNflSummary(raw, { fetchedAt: '2026-09-14T18:00:00.000Z' })
     const w2 = writeNflBoxScoreArchive({ archiveRoot: dir, raw, normalized: again })
@@ -288,6 +292,10 @@ describe('versioned NFL archive writes', () => {
     )
     expect(v1.players.find((p) => p.player_name === 'Patrick Mahomes').stats.passingYards).toBe(258)
     expect(v1.fetched_at).toBe('2026-09-14T12:00:00.000Z')
+    expect(v1.raw_hash).toBe(rawContentHash(raw))
+    expect(loadNflArchiveIndex(dir).records.find((r) => r.version === 1).fetched_at).toBe(
+      '2026-09-14T12:00:00.000Z'
+    )
     const v2 = JSON.parse(
       fs.readFileSync(path.join(dir, 'normalized', COMPLETED_EVENT_ID, 'v2.json'), 'utf8')
     )
@@ -584,6 +592,77 @@ describe('file-level coverage audit', () => {
       loadNflArchiveIndex(dir).records.find((r) => r.version === 1)
     )
     expect(v1.healthy).toBe(true)
+  })
+
+  test('valid raw JSON with one changed player stat is rejected', () => {
+    seedCompleteArchive()
+    const file = path.join(dir, 'raw', COMPLETED_EVENT_ID, 'v1.json')
+    const stored = JSON.parse(fs.readFileSync(file, 'utf8'))
+    expect(stored.header.id).toBe(COMPLETED_EVENT_ID)
+    stored.boxscore.players[0].statistics[0].athletes[0].stats[1] = '999'
+    fs.writeFileSync(file, `${JSON.stringify(stored, null, 2)}\n`, 'utf8')
+    JSON.parse(fs.readFileSync(file, 'utf8'))
+
+    const coverage = summarizeNflCoverage({
+      expectedEvents: expectedEvents(),
+      indexRecords: loadNflArchiveIndex(dir).records,
+      archiveRoot: dir,
+    })
+    expect(coverage.complete_archives).toBe(0)
+    const issues = coverage.corrupt_archives[0].issues
+    expect(issues.some((i) => i.kind === 'raw_normalized_mismatch')).toBe(true)
+    expect(issues.some((i) => i.kind === 'raw_hash_mismatch')).toBe(true)
+    const statIssue = issues.find((i) => i.kind === 'raw_normalized_mismatch')
+    expect(statIssue.stat_mismatches.some((m) => m.player === 'Patrick Mahomes' && m.field === 'passingYards')).toBe(
+      true
+    )
+  })
+
+  test('legacy archives without stored raw_hash still fail when one raw player stat changes', () => {
+    seedCompleteArchive()
+    const normPath = path.join(dir, 'normalized', COMPLETED_EVENT_ID, 'v1.json')
+    const normalized = JSON.parse(fs.readFileSync(normPath, 'utf8'))
+    delete normalized.raw_hash
+    fs.writeFileSync(normPath, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8')
+
+    const indexPath = path.join(dir, 'index.jsonl')
+    const indexRows = loadNflArchiveIndex(dir).records.map((row) => {
+      const copy = { ...row }
+      delete copy.raw_hash
+      return copy
+    })
+    fs.writeFileSync(indexPath, `${indexRows.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8')
+
+    const healthy = verifyNflArchiveVersion(dir, loadNflArchiveIndex(dir).records[0])
+    expect(healthy.healthy).toBe(true)
+
+    const rawPath = path.join(dir, 'raw', COMPLETED_EVENT_ID, 'v1.json')
+    const raw = JSON.parse(fs.readFileSync(rawPath, 'utf8'))
+    raw.boxscore.players[0].statistics[0].athletes[0].stats[1] = '999'
+    fs.writeFileSync(rawPath, `${JSON.stringify(raw, null, 2)}\n`, 'utf8')
+
+    const coverage = summarizeNflCoverage({
+      expectedEvents: expectedEvents(),
+      indexRecords: loadNflArchiveIndex(dir).records,
+      archiveRoot: dir,
+    })
+    expect(coverage.complete_archives).toBe(0)
+    expect(coverage.corrupt_archives[0].issues.some((i) => i.kind === 'raw_normalized_mismatch')).toBe(true)
+    expect(coverage.corrupt_archives[0].issues.some((i) => i.kind === 'raw_hash_mismatch')).toBe(false)
+  })
+
+  test('scoreboard-sourced season/week/seasonType still verify against summary raw', () => {
+    const raw = completedNflSummaryWithoutWeekFixture()
+    const normalized = parseEspnNflSummary(raw, {
+      fetchedAt: '2026-09-14T12:00:00.000Z',
+      discovered: { season: '2025', week: 1, season_type: 2 },
+    })
+    writeNflBoxScoreArchive({ archiveRoot: dir, raw, normalized })
+    const latest = latestIndexRow(loadNflArchiveIndex(dir).records, COMPLETED_EVENT_ID)
+    const verified = verifyNflArchiveVersion(dir, latest)
+    expect(verified.healthy).toBe(true)
+    expect(latest.week).toBe(1)
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'raw', COMPLETED_EVENT_ID, 'v1.json'), 'utf8')).header.week).toBeUndefined()
   })
 
   test('incomplete HTTP 200 responses fail the job exit code', async () => {
