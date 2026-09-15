@@ -11,6 +11,13 @@ grade cohort that sits on top of that bar.
 - Tagged `notes = cohort:featured snapshot:featured:{sport}:{sgp|multi}:{YYYY-MM-DD}`.
 - One snapshot slot per sport + kind + ET slate day. First Featured-cleared
   write wins. Later live regenerates do not replace the tracked card.
+- Featured **multi** is actually multi-game (2+ distinct `gameId`s). A
+  same-game trio belongs only in the SGP slot so `/parlays` cannot show
+  two identical SGP cards.
+- Persist re-reads the slot after insert and retracts pending losers so
+  overlapping generates cannot keep two rows for the same key.
+- `/parlays` serves the snapped card for a filled slot (stored
+  `totalOdds`), not a live regenerate. Explorer Builder is unchanged.
 - Explorer Builder combinations are rejected from `/api/parlays/save` and
   never written by `/api/parlays/generate` unless `featured=1`.
 
@@ -70,10 +77,10 @@ not filler.
 
 ## Remaining gaps
 
-1. **Live Featured can still churn.** The `/parlays` Featured section is
-   still generated live. Mid-day line moves can change or empty the card
-   on screen while the tracked snapshot stays the morning write. Serving
-   the snapshot as the public Featured card is not in this phase.
+1. **Snapshot is the public Featured card.** `/parlays` reads the snapped
+   cohort row for a filled sport+kind+ET-day slot. Live generate only
+   fills an empty slot. Mid-day line moves no longer replace the tracked
+   card on screen.
 2. **Snapshot timing.** First visit / `record:featured` after a card
    clears wins that slot. There is no pinned “board lock” clock (e.g.
    10:00 ET). A late first persist uses that later card.
@@ -86,3 +93,18 @@ not filler.
 7. **Public NFL sides/totals.** Still disabled. Featured is props-only.
 8. **Historical untagged parlays.** Pre-Phase-B Builder rows are not
    backfilled and do not appear on this track.
+
+## Duplicate snapshot rows (optional cleanup)
+
+Overlapping Featured writes (page SGP + multi fetch, two visitors)
+could insert two `Parlay` rows with the same `snapshot:featured:...`
+key before the claim-after-insert guard existed. History now hides
+later copies. To remove leftover pending/settled dupes from the DB:
+
+```bash
+node scripts/cleanup-duplicate-featured-parlays.js          # dry-run
+node scripts/cleanup-duplicate-featured-parlays.js --apply  # delete later copies + legs
+```
+
+Keeps the earliest `createdAt` (then `id`) per snapshot key. Does not
+touch unique slots. Not a silent migration — dry-run is the default.

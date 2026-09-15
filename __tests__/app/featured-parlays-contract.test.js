@@ -47,7 +47,7 @@ describe('Featured parlays contract — Phase A Published bar', () => {
     expect(integrity).toMatch(/isPublishedEligibleProp/)
     expect(integrity).toMatch(/TODAYS_BOARD_MIN_PUBLISHED/)
     expect(integrity).toMatch(/export const FEATURED_LEG_COUNT = TODAYS_BOARD_MIN_PUBLISHED/)
-    expect(integrity).toMatch(/return isPublishedEligibleProp\(featuredLegAsPublishedRecord\(leg\)\)/)
+    expect(integrity).toMatch(/matchesFeaturedRequestedType/)
     expect(integrity).not.toMatch(/FEATURED_MAX_LEG_PROBABILITY/)
     expect(integrity).not.toMatch(/FEATURED_MIN_LEG_PROBABILITY/)
     expect(integrity).not.toMatch(/FEATURED_UNDER_15_MAX_PROBABILITY/)

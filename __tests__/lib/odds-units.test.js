@@ -97,5 +97,7 @@ describe('formatAmericanOdds', () => {
     expect(formatAmericanOdds(-110)).toBe('-110')
     expect(formatAmericanOdds(110)).toBe('+110')
     expect(formatAmericanOdds(1.91)).toBe('-110')
+    expect(formatAmericanOdds(24.05135)).toBe('+2305')
+    expect(formatAmericanOdds(3.88)).toBe('+288')
   })
 })

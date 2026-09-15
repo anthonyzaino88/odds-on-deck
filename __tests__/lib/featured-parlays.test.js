@@ -7,10 +7,13 @@ import {
   aggregateFeaturedParlayOutcome,
   featuredLegGradePatch,
   featuredParlayGradePatch,
+  featuredPersistClaim,
   featuredPersistWritePlan,
   attachFeaturedHistoryLegDisplay,
   featuredRegradeParlayPatch,
+  featuredRowToDisplayParlay,
   featuredSnapshotKey,
+  featuredSnapshotWinner,
   filterFeaturedCohortRows,
   gradeFeaturedParlayFromValidations,
   gradePropLegFromActual,
@@ -19,9 +22,12 @@ import {
   isFeaturedCohortRow,
   isNumericFeaturedActual,
   isUsablePropValidation,
+  planFeaturedDuplicateCleanup,
   resolveFeaturedHistoryLegOutcome,
   summarizeFeaturedParlays,
   toFeaturedParlayRow,
+  dedupeFeaturedCohortRows,
+  dedupeFeaturedPageCards,
 } from '../../lib/featured-parlays.js'
 import { persistFeaturedClearedParlay as persistCard } from '../../lib/featured-parlay-persist.js'
 
@@ -140,7 +146,7 @@ describe('persistFeaturedClearedParlay', () => {
   test('inserts a Featured-cleared card and records the cohort tag', async () => {
     const inserted = []
     const result = await persistCard(featuredParlay(), {
-      findSnapshot: async () => null,
+      findSnapshots: async () => [],
       insertParlay: async (row) => {
         inserted.push(row)
         return row
@@ -161,7 +167,7 @@ describe('persistFeaturedClearedParlay', () => {
       ...featuredParlay(),
       legs: featuredParlay().legs.slice(0, 2),
     }, {
-      findSnapshot: async () => { calls.find += 1; return null },
+      findSnapshots: async () => { calls.find += 1; return [] },
       insertParlay: async (row) => { calls.insert += 1; return row },
       insertLegs: async (legs) => legs,
     })
@@ -175,7 +181,7 @@ describe('persistFeaturedClearedParlay', () => {
   test('skips when the slate slot is already snapped', async () => {
     const existing = { id: 'snap-1', notes: `${FEATURED_COHORT_TAG} snapshot:featured:nfl:multi:2026-09-10` }
     const result = await persistCard(featuredParlay(), {
-      findSnapshot: async () => existing,
+      findSnapshots: async () => [existing],
       insertParlay: async () => { throw new Error('should not insert') },
       insertLegs: async () => { throw new Error('should not insert legs') },
     })
@@ -183,6 +189,74 @@ describe('persistFeaturedClearedParlay', () => {
     expect(result.skipped).toBe(true)
     expect(result.reason).toBe('already_snapped')
     expect(result.parlay.id).toBe('snap-1')
+  })
+
+  test('retracts a later insert when another row already won the slot', async () => {
+    const sgp = featuredParlay({
+      sport: 'mlb',
+      type: 'single_game',
+      legs: [
+        publishedLeg('Ernie Clement', { gameId: 'tor-1', sport: 'mlb', propType: 'batter_hits', type: 'batter_hits', threshold: 0.5 }),
+        publishedLeg('Vladimir Guerrero Jr.', { gameId: 'tor-1', sport: 'mlb', propType: 'batter_total_bases', type: 'batter_total_bases', threshold: 1.5 }),
+        publishedLeg('Nathan Lukes', { gameId: 'tor-1', sport: 'mlb', propType: 'batter_hits', type: 'batter_hits', threshold: 1.5 }),
+      ],
+    })
+    const winner = {
+      id: '05ca0083de8e42fe',
+      createdAt: '2026-09-15T14:50:41.123Z',
+      notes: `${FEATURED_COHORT_TAG} snapshot:featured:mlb:sgp:2026-09-15`,
+      status: 'pending',
+    }
+    let inserted = null
+    const deleted = []
+    const result = await persistCard(sgp, {
+      now: new Date('2026-09-15T14:50:42.673Z'),
+      findSnapshots: async () => (inserted ? [winner, inserted] : []),
+      insertParlay: async (row) => {
+        inserted = row
+        return row
+      },
+      insertLegs: async (legs) => legs,
+      deleteParlay: async (id) => { deleted.push(id) },
+    })
+    expect(result.skipped).toBe(true)
+    expect(result.reason).toBe('already_snapped')
+    expect(result.parlay.id).toBe(winner.id)
+    expect(deleted).toContain(inserted.id)
+  })
+
+  test('winner of a race retracts the other pending copy', async () => {
+    const sgp = featuredParlay({
+      sport: 'mlb',
+      type: 'single_game',
+      legs: [
+        publishedLeg('Ernie Clement', { gameId: 'tor-1', sport: 'mlb', propType: 'batter_hits', type: 'batter_hits', threshold: 0.5 }),
+        publishedLeg('Vladimir Guerrero Jr.', { gameId: 'tor-1', sport: 'mlb', propType: 'batter_total_bases', type: 'batter_total_bases', threshold: 1.5 }),
+        publishedLeg('Nathan Lukes', { gameId: 'tor-1', sport: 'mlb', propType: 'batter_hits', type: 'batter_hits', threshold: 1.5 }),
+      ],
+    })
+    const later = {
+      id: '82fb29664d654a6e',
+      createdAt: '2026-09-15T14:50:42.673Z',
+      notes: `${FEATURED_COHORT_TAG} snapshot:featured:mlb:sgp:2026-09-15`,
+      status: 'pending',
+    }
+    let inserted = null
+    const deleted = []
+    const now = new Date('2026-09-15T14:50:41.123Z')
+    const result = await persistCard(sgp, {
+      now,
+      findSnapshots: async () => (inserted ? [inserted, later] : []),
+      insertParlay: async (row) => {
+        inserted = row
+        return row
+      },
+      insertLegs: async (legs) => legs,
+      deleteParlay: async (id) => { deleted.push(id) },
+    })
+    expect(result.reason).toBe('inserted')
+    expect(result.parlay.id).toBe(inserted.id)
+    expect(deleted).toEqual([later.id])
   })
 })
 
@@ -577,6 +651,83 @@ describe('Featured history cohort', () => {
     expect(summary.totalParlays).toBe(1)
     expect(summary.wonParlays).toBe(1)
     expect(summary.winRate).toBe(100)
+  })
+
+  test('duplicate snapshot-key rows count once for ROI and history', () => {
+    const first = {
+      id: '05ca0083de8e42fe',
+      notes: `${FEATURED_COHORT_TAG} snapshot:featured:mlb:sgp:2026-09-15`,
+      outcome: 'lost',
+      status: 'lost',
+      createdAt: '2026-09-15T14:50:41.123Z',
+      edge: 0.1,
+      expectedValue: 0.2,
+      totalOdds: 24.05135,
+    }
+    const copy = {
+      ...first,
+      id: '82fb29664d654a6e',
+      createdAt: '2026-09-15T14:50:42.673Z',
+    }
+    const unique = {
+      id: 'afbdf49c1128438c',
+      notes: `${FEATURED_COHORT_TAG} snapshot:featured:mlb:multi:2026-09-15`,
+      outcome: 'pending',
+      status: 'pending',
+      createdAt: '2026-09-15T14:51:00.000Z',
+      edge: 0.1,
+      expectedValue: 0.2,
+      totalOdds: 8,
+    }
+    expect(dedupeFeaturedCohortRows([copy, first, unique]).map((row) => row.id)).toEqual([
+      first.id,
+      unique.id,
+    ])
+    const summary = summarizeFeaturedParlays([first, copy, unique])
+    expect(summary.totalParlays).toBe(2)
+    expect(summary.lostParlays).toBe(1)
+    expect(summary.pendingParlays).toBe(1)
+  })
+
+  test('page cards drop a multi request that is the same SGP legs', () => {
+    const sgp = featuredParlay({ sport: 'mlb', type: 'single_game' })
+    const cards = dedupeFeaturedPageCards([
+      { sport: 'mlb', type: 'multi', parlay: { ...sgp, notes: `${FEATURED_COHORT_TAG} snapshot:featured:mlb:sgp:2026-09-15` } },
+      { sport: 'mlb', type: 'sgp', parlay: { ...sgp, notes: `${FEATURED_COHORT_TAG} snapshot:featured:mlb:sgp:2026-09-15` } },
+    ])
+    expect(cards).toHaveLength(1)
+    expect(cards[0].type).toBe('sgp')
+  })
+
+  test('snapshot claim keeps the earliest createdAt row', () => {
+    const first = { id: 'a', createdAt: '2026-09-15T14:50:41.123Z', status: 'pending' }
+    const second = { id: 'b', createdAt: '2026-09-15T14:50:42.673Z', status: 'pending' }
+    expect(featuredSnapshotWinner([second, first]).id).toBe('a')
+    const lost = featuredPersistClaim('b', [first, second])
+    expect(lost.keepInserted).toBe(false)
+    expect(lost.retract.map((row) => row.id)).toEqual(['b'])
+    expect(planFeaturedDuplicateCleanup([
+      { ...first, notes: `${FEATURED_COHORT_TAG} snapshot:featured:mlb:sgp:2026-09-15` },
+      { ...second, notes: `${FEATURED_COHORT_TAG} snapshot:featured:mlb:sgp:2026-09-15` },
+    ]).retract.map((row) => row.row.id)).toEqual(['b'])
+  })
+
+  test('display hydrate maps gameIdRef and keeps stored decimal totalOdds', () => {
+    const card = featuredRowToDisplayParlay({
+      id: '05ca',
+      totalOdds: 24.05135,
+      notes: `${FEATURED_COHORT_TAG} snapshot:featured:mlb:sgp:2026-09-15`,
+      type: 'single_game',
+      legs: [
+        { gameIdRef: 'tor-game', playerName: 'Ernie Clement', selection: 'over', threshold: 1.5, odds: -110, legOrder: 2 },
+        { gameIdRef: 'tor-game', playerName: 'Vladimir Guerrero Jr.', selection: 'over', threshold: 1.5, odds: 1.91, legOrder: 1 },
+      ],
+    })
+    expect(card.snapshotKey).toBe('featured:mlb:sgp:2026-09-15')
+    expect(card.totalOdds).toBeCloseTo(24.05135)
+    expect(card.legs[0].playerName).toBe('Vladimir Guerrero Jr.')
+    expect(card.legs[0].gameId).toBe('tor-game')
+    expect(card.legs[1].gameId).toBe('tor-game')
   })
 
   test('honest empty when nothing Featured-cleared exists', () => {

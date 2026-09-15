@@ -7,7 +7,10 @@ export const runtime = 'nodejs'
 import { NextResponse } from 'next/server'
 import { generateSimpleParlays } from '../../../../lib/simple-parlay-generator.js'
 import { FEATURED_LEG_COUNT } from '../../../../lib/parlay-integrity.js'
-import { persistFeaturedClearedParlays } from '../../../../lib/featured-parlay-persist.js'
+import {
+  loadFeaturedSnapshotCard,
+  persistFeaturedClearedParlays,
+} from '../../../../lib/featured-parlay-persist.js'
 
 async function persistFeaturedIfNeeded(parlays, isFeatured) {
   if (!isFeatured || !Array.isArray(parlays) || parlays.length === 0) {
@@ -20,6 +23,37 @@ async function persistFeaturedIfNeeded(parlays, isFeatured) {
     console.error('⚠️ Featured persist failed (generate still returns the live card):', error)
     return []
   }
+}
+
+/**
+ * Public Featured card is the snapped cohort row. Live generate only
+ * fills an empty sport+kind+ET-day slot so /parlays cannot show a
+ * second SGP or a different mid-day line than the tracked card.
+ */
+async function resolveFeaturedGenerate(options) {
+  const { sport, type, generateParlays } = options
+  try {
+    const existing = await loadFeaturedSnapshotCard({ sport, type })
+    if (existing) {
+      return { parlays: [existing], savedParlays: [existing], fromSnapshot: true }
+    }
+  } catch (error) {
+    console.error('⚠️ Featured snapshot load failed (will generate live):', error)
+  }
+
+  const parlays = await generateParlays()
+  const savedParlays = await persistFeaturedIfNeeded(parlays, true)
+
+  try {
+    const snapped = await loadFeaturedSnapshotCard({ sport, type })
+    if (snapped) {
+      return { parlays: [snapped], savedParlays, fromSnapshot: true }
+    }
+  } catch (error) {
+    console.error('⚠️ Featured snapshot reload failed:', error)
+  }
+
+  return { parlays, savedParlays, fromSnapshot: false }
 }
 
 export async function POST(request) {
@@ -62,7 +96,7 @@ export async function POST(request) {
 
     const isFeatured = featured === true || featured === '1' || featured === 'true'
 
-    const parlays = await generateSimpleParlays({
+    const generateParlays = () => generateSimpleParlays({
       sport,
       type,
       // Featured is exactly FEATURED_LEG_COUNT Published-eligible legs or empty.
@@ -77,13 +111,16 @@ export async function POST(request) {
 
     // Explorer generate never writes. Featured-cleared cards snapshot
     // to the tracked cohort (first write for the slate slot wins).
-    const savedParlays = await persistFeaturedIfNeeded(parlays, isFeatured)
+    const resolved = isFeatured
+      ? await resolveFeaturedGenerate({ sport, type, generateParlays })
+      : { parlays: await generateParlays(), savedParlays: [], fromSnapshot: false }
 
     return NextResponse.json({
       success: true,
-      parlays: parlays,
-      savedParlays: savedParlays,
-      count: parlays.length,
+      parlays: resolved.parlays,
+      savedParlays: resolved.savedParlays,
+      fromSnapshot: resolved.fromSnapshot === true,
+      count: resolved.parlays.length,
       generatedAt: new Date().toISOString()
     })
 
@@ -110,7 +147,7 @@ export async function GET(request) {
     const featured = featuredParam === '1' || featuredParam === 'true'
     const featuredLegCount = featured ? FEATURED_LEG_COUNT : legCount
 
-    const parlays = await generateSimpleParlays({
+    const generateParlays = () => generateSimpleParlays({
       sport,
       type,
       legCount: featuredLegCount,
@@ -121,13 +158,16 @@ export async function GET(request) {
       featured,
     })
 
-    const savedParlays = await persistFeaturedIfNeeded(parlays, featured)
+    const resolved = featured
+      ? await resolveFeaturedGenerate({ sport, type, generateParlays })
+      : { parlays: await generateParlays(), savedParlays: [], fromSnapshot: false }
 
     return NextResponse.json({
       success: true,
-      parlays: parlays,
-      savedParlays: savedParlays,
-      count: parlays.length,
+      parlays: resolved.parlays,
+      savedParlays: resolved.savedParlays,
+      fromSnapshot: resolved.fromSnapshot === true,
+      count: resolved.parlays.length,
       generatedAt: new Date().toISOString()
     })
 

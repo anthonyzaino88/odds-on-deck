@@ -24,6 +24,7 @@
     "regrade:featured": "node scripts/auto-validate-parlays.js --regrade",
     "record:published": "node scripts/record-published-props.js",
     "record:featured": "node scripts/record-featured-parlays.js",
+    "cleanup:featured-dupes": "node scripts/cleanup-duplicate-featured-parlays.js",
     "check-validations": "node scripts/check-pending-validations.js",
     "export:csv": "curl http://localhost:3000/api/export/parlays?format=csv",
     "export:stats": "curl http://localhost:3000/api/export/stats"

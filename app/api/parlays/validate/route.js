@@ -11,6 +11,7 @@ import {
   FEATURED_COHORT_TAG,
   featuredLegGradePatch,
   featuredParlayGradePatch,
+  dedupeFeaturedCohortRows,
   filterFeaturedCohortRows,
   gradeFeaturedParlayFromValidations,
   isFeaturedCohortRow,
@@ -147,7 +148,7 @@ export async function GET() {
       throw new Error(`Failed to fetch parlays: ${error.message}`)
     }
 
-    const featured = (allParlays || []).filter(isFeaturedCohortRow)
+    const featured = dedupeFeaturedCohortRows((allParlays || []).filter(isFeaturedCohortRow))
     const summary = summarizeFeaturedParlays(featured)
 
     return NextResponse.json({

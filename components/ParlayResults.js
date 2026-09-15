@@ -5,11 +5,10 @@ import ShareButton from './ShareButton'
 import { cn } from '../lib/utils'
 import { BookBadge } from './ui'
 import { isFeaturedWorthyParlay } from '../lib/parlay-integrity.js'
+import { formatAmericanOdds } from '../lib/odds-units.js'
 
-function formatOdds(decimalOdds) {
-  if (!decimalOdds || decimalOdds <= 1) return '+100'
-  if (decimalOdds >= 2.0) return `+${Math.round((decimalOdds - 1) * 100)}`
-  return `${Math.round(-100 / (decimalOdds - 1))}`
+function formatOdds(odds) {
+  return formatAmericanOdds(odds) || '+100'
 }
 
 function buildParlayText(parlay, index) {
