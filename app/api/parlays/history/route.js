@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js'
 import {
   FEATURED_COHORT_TAG,
   attachFeaturedHistoryLegDisplay,
+  dedupeFeaturedCohortRows,
   filterFeaturedCohortRows,
   summarizeFeaturedParlays,
 } from '../../../../lib/featured-parlays.js'
@@ -47,7 +48,8 @@ export async function GET(request) {
     }
 
     // Belt-and-suspenders: never let untagged Builder rows into the track.
-    const parlays = filterFeaturedCohortRows(rows || [])
+    // Duplicate snapshot-key inserts (race) are hidden; first write wins.
+    const parlays = dedupeFeaturedCohortRows(filterFeaturedCohortRows(rows || []))
 
     console.log(`✅ Found ${parlays.length} Featured-cleared parlays`)
 

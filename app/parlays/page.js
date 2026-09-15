@@ -6,15 +6,16 @@ import ParlayBuilder from '../../components/ParlayBuilder.js'
 import ParlayResults from '../../components/ParlayResults.js'
 import ParlayHistory from '../../components/ParlayHistory.js'
 import { SportBadge, BookBadge } from '../../components/ui'
+import { formatAmericanOdds } from '../../lib/odds-units.js'
+import { dedupeFeaturedPageCards } from '../../lib/featured-parlays.js'
 
-function formatOdds(decimalOdds) {
-  if (!decimalOdds || decimalOdds <= 1) return '+100'
-  if (decimalOdds >= 2.0) return `+${Math.round((decimalOdds - 1) * 100)}`
-  return `${Math.round(-100 / (decimalOdds - 1))}`
+function formatOdds(odds) {
+  return formatAmericanOdds(odds) || '+100'
 }
 
 function FeaturedParlayCard({ parlay, sport, parlayType }) {
-  const gameIds = new Set(parlay.legs.map(l => l.gameId))
+  const legs = Array.isArray(parlay?.legs) ? parlay.legs : []
+  const gameIds = new Set(legs.map(l => l.gameId || l.gameIdRef))
   const actualSGP = gameIds.size === 1
 
   return (
@@ -32,11 +33,13 @@ function FeaturedParlayCard({ parlay, sport, parlayType }) {
         </div>
         <div className="text-right">
           <div className="text-base font-semibold text-green-400 tabular-nums font-mono">{formatOdds(parlay.totalOdds)}</div>
-          <div className="text-[10px] text-slate-500 tabular-nums font-mono">{parlay.totalOdds.toFixed(2)}x</div>
+          <div className="text-[10px] text-slate-500 tabular-nums font-mono">
+            {Number(parlay.totalOdds) > 1 ? `${Number(parlay.totalOdds).toFixed(2)}x` : ''}
+          </div>
         </div>
       </div>
       <div className="space-y-1.5 mb-3">
-        {parlay.legs.map((leg, i) => (
+        {legs.map((leg, i) => (
           <div key={i} className="flex items-center justify-between text-xs">
             <span className="text-slate-300 truncate mr-2">
               {leg.betType === 'prop'
@@ -59,7 +62,7 @@ function FeaturedParlayCard({ parlay, sport, parlayType }) {
           )}
         </div>
         <div className="text-[10px] text-slate-600 tabular-nums font-mono">
-          {parlay.legs.length}-leg &middot; {actualSGP ? 'same game' : `${gameIds.size} games`}
+          {legs.length}-leg &middot; {actualSGP ? 'same game' : `${gameIds.size} games`}
         </div>
       </div>
     </div>
@@ -106,21 +109,7 @@ function ParlayOfTheDay({ onFeaturedReady }) {
           .catch(() => {}),
       ]))
 
-      const deduped = []
-      const seen = new Set()
-      for (const r of results) {
-        const key = `${r.sport}-${r.type}`
-        if (!seen.has(key)) {
-          seen.add(key)
-          deduped.push(r)
-        }
-      }
-      deduped.sort((a, b) => {
-        const sportOrder = { mlb: 0, nfl: 1 }
-        const sd = (sportOrder[a.sport] ?? 9) - (sportOrder[b.sport] ?? 9)
-        if (sd !== 0) return sd
-        return a.type === 'sgp' ? -1 : 1
-      })
+      const deduped = dedupeFeaturedPageCards(results)
       setCards(deduped)
       setLoading(false)
       if (typeof onFeaturedReady === 'function') onFeaturedReady()
@@ -170,7 +159,7 @@ function ParlayOfTheDay({ onFeaturedReady }) {
       />
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {cards.map((c, i) => (
-          <FeaturedParlayCard key={`${c.sport}-${c.type}-${i}`} parlay={c.parlay} sport={c.sport} parlayType={c.type} />
+          <FeaturedParlayCard key={c.parlay?.snapshotKey || `${c.sport}-${c.type}-${i}`} parlay={c.parlay} sport={c.sport} parlayType={c.type} />
         ))}
       </div>
     </div>

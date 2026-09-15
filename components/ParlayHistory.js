@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { cn } from '../lib/utils'
 import { featuredHistoryLegActual, resolveFeaturedHistoryLegOutcome } from '../lib/featured-parlays.js'
+import { formatAmericanOdds } from '../lib/odds-units.js'
 
 export default function ParlayHistory({ refreshTrigger = 0, initialParlays, initialPerformance = null }) {
   const seeded = Array.isArray(initialParlays)
@@ -37,17 +38,7 @@ export default function ParlayHistory({ refreshTrigger = 0, initialParlays, init
     }
   }
 
-  const formatOdds = (decimalOdds) => {
-    if (!decimalOdds || decimalOdds === 1) return '+100'
-    
-    if (decimalOdds >= 2) {
-      const americanOdds = Math.round((decimalOdds - 1) * 100)
-      return `+${americanOdds}`
-    } else {
-      const americanOdds = Math.round(-100 / (decimalOdds - 1))
-      return `${americanOdds}`
-    }
-  }
+  const formatOdds = (odds) => formatAmericanOdds(odds) || '+100'
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-US', {

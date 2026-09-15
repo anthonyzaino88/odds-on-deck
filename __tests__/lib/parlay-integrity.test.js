@@ -362,6 +362,41 @@ describe('Featured quality — Published-eligible 3-leg or empty', () => {
     expect(isFeaturedWorthyParlay(parlays[0])).toBe(true)
   })
 
+  test('Featured multi does not reuse a same-game SGP as a second card', () => {
+    const sgpLegs = [
+      mapCachePropToParlayBet(publishedProp('Ernie Clement')),
+      mapCachePropToParlayBet(publishedProp('Vladimir Guerrero Jr.')),
+      mapCachePropToParlayBet(publishedProp('Nathan Lukes', {
+        type: 'player_rush_yds',
+        threshold: 64.5,
+      })),
+    ]
+    expect(assembleParlays(sgpLegs, {
+      legCount: 3,
+      type: 'multi_game',
+      featured: true,
+      maxParlays: 1,
+    })).toEqual([])
+
+    const multiLegs = [
+      mapCachePropToParlayBet(publishedProp('Ernie Clement', { gameId: 'tor-1' })),
+      mapCachePropToParlayBet(publishedProp('Vladimir Guerrero Jr.', { gameId: 'nyy-1' })),
+      mapCachePropToParlayBet(publishedProp('Nathan Lukes', {
+        gameId: 'bos-1',
+        type: 'player_rush_yds',
+        threshold: 64.5,
+      })),
+    ]
+    const multi = assembleParlays(multiLegs, {
+      legCount: 3,
+      type: 'multi_game',
+      featured: true,
+      maxParlays: 1,
+    })
+    expect(multi).toHaveLength(1)
+    expect(new Set(multi[0].legs.map((leg) => leg.gameId)).size).toBe(3)
+  })
+
   test('does not apply explorer maxOdds caps to Featured', () => {
     const legs = [
       mapCachePropToParlayBet(publishedProp('Geno Smith', {
