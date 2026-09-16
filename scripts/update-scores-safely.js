@@ -10,6 +10,9 @@
  * - Only updates scores/status, preserves all other data
  * - Safe error handling (won't break if API fails)
  * - Supports all sports: NHL, NFL, MLB
+ * - MLB: never treat a live 9th as final; confirm MLB "final" with ESPN
+ * - MLB: re-check games marked final in the last 4 hours so sticky false
+ *   finals can self-heal back to in_progress
  * 
  * Usage:
  *   node scripts/update-scores-safely.js [sport]
@@ -22,6 +25,13 @@ import { config } from 'dotenv'
 import { fetchNHLGameDetail } from '../lib/vendors/nhl-stats.js'
 import { fetchNFLGameDetail } from '../lib/vendors/nfl-stats.js'
 import { fetchLiveGameData } from '../lib/vendors/stats.js'
+import {
+  RECENT_MLB_FINAL_RECHECK_MS,
+  mergeActiveAndRecentFinalGames,
+  parseEspnMlbSummary,
+  reconcileMlbAndEspnStatus,
+  shouldConfirmMlbFinalWithEspn,
+} from '../lib/mlb-live-status.js'
 
 config({ path: '.env.local' })
 
@@ -39,27 +49,7 @@ async function fetchMLBFromESPN(espnGameId) {
     const res = await fetch(url)
     if (!res.ok) return null
     const data = await res.json()
-    
-    const competition = data.header?.competitions?.[0]
-    if (!competition) return null
-    
-    const competitors = competition.competitors || []
-    const home = competitors.find(c => c.homeAway === 'home')
-    const away = competitors.find(c => c.homeAway === 'away')
-    
-    const statusType = competition.status?.type?.name || ''
-    let status = 'scheduled'
-    if (statusType === 'STATUS_FINAL' || competition.status?.type?.completed) status = 'final'
-    else if (statusType === 'STATUS_IN_PROGRESS' || statusType === 'STATUS_RAIN_DELAY') status = 'in_progress'
-    
-    return {
-      homeScore: parseInt(home?.score) || 0,
-      awayScore: parseInt(away?.score) || 0,
-      status,
-      inning: competition.status?.period || null,
-      inningHalf: competition.status?.type?.shortDetail?.includes('Top') ? 'Top' : 
-                  competition.status?.type?.shortDetail?.includes('Bot') ? 'Bottom' : null
-    }
+    return parseEspnMlbSummary(data)
   } catch (err) {
     console.error(`  ❌ ESPN fallback error: ${err.message}`)
     return null
@@ -143,20 +133,59 @@ function printScoreRecap({ live, changes, totalUpdated, totalErrors, duration })
   console.log('----- END RECAP -----\n')
 }
 
-async function updateScoresForSport(sport) {
-  console.log(`\n🔄 Updating ${sport.toUpperCase()} scores...\n`)
-  
+const GAME_SELECT =
+  'id, espnGameId, mlbGameId, homeId, awayId, homeScore, awayScore, status, date, lastUpdate, home:Team!Game_homeId_fkey(abbr), away:Team!Game_awayId_fkey(abbr)'
+
+async function fetchGamesForSport(sport) {
   // Only look at games from the last 3 days (not ancient scheduled games)
   const cutoff = new Date()
   cutoff.setDate(cutoff.getDate() - 3)
-  
-  const { data: games, error } = await supabase
+
+  const { data: activeGames, error } = await supabase
     .from('Game')
-    .select('id, espnGameId, mlbGameId, homeId, awayId, homeScore, awayScore, status, date, home:Team!Game_homeId_fkey(abbr), away:Team!Game_awayId_fkey(abbr)')
+    .select(GAME_SELECT)
     .eq('sport', sport)
     .in('status', ['scheduled', 'in_progress', 'in-progress'])
     .gte('date', cutoff.toISOString())
     .order('date', { ascending: true })
+
+  if (error) {
+    return { games: [], error }
+  }
+
+  if (sport !== 'mlb') {
+    return { games: activeGames || [], error: null }
+  }
+
+  // Sticky-final self-heal: recently finalized MLB rows can be false finals
+  // (live 9th marked final). Re-check them for a short window so ESPN/live
+  // payload can flip them back to in_progress.
+  const recheckAfter = new Date(Date.now() - RECENT_MLB_FINAL_RECHECK_MS).toISOString()
+  const { data: recentFinals, error: finalsError } = await supabase
+    .from('Game')
+    .select(GAME_SELECT)
+    .eq('sport', 'mlb')
+    .eq('status', 'final')
+    .gte('date', cutoff.toISOString())
+    .gte('lastUpdate', recheckAfter)
+
+  if (finalsError) {
+    console.warn(`  ⚠️  Recent-final recheck query failed: ${finalsError.message}`)
+  }
+
+  const games = mergeActiveAndRecentFinalGames(activeGames, recentFinals || [])
+  const recheckCount = games.filter(g => g.status === 'final').length
+  if (recheckCount) {
+    console.log(`  🔁 Re-checking ${recheckCount} recently finalized MLB game(s) for false finals`)
+  }
+
+  return { games, error: null }
+}
+
+async function updateScoresForSport(sport) {
+  console.log(`\n🔄 Updating ${sport.toUpperCase()} scores...\n`)
+  
+  const { games, error } = await fetchGamesForSport(sport)
   
   if (error) {
     console.error(`❌ Error fetching ${sport} games:`, error.message)
@@ -168,7 +197,7 @@ async function updateScoresForSport(sport) {
     return { updated: 0, errors: 0, live: [], changes: [] }
   }
   
-  console.log(`📊 Found ${games.length} active ${sport.toUpperCase()} games\n`)
+  console.log(`📊 Found ${games.length} ${sport.toUpperCase()} game(s) to refresh\n`)
   
   let updated = 0
   let errors = 0
@@ -186,22 +215,34 @@ async function updateScoresForSport(sport) {
       } else if (sport === 'nfl' && game.espnGameId) {
         liveData = await fetchNFLGameDetail(game.espnGameId)
       } else if (sport === 'mlb') {
-        // Try MLB Stats API first, fall back to ESPN
+        // Try MLB Stats API first, fall back to / confirm with ESPN
         if (game.mlbGameId) {
           liveData = await fetchLiveGameData(game.mlbGameId, true)
         }
-        // Fall back to ESPN if MLB API returned no data, or if it says
-        // "scheduled" but the game should have already started (wrong gamePk)
+        // ESPN when: no MLB data, MLB still "scheduled" after start, or MLB
+        // says final (confirm — do not trust a false 9th-inning final).
         const gameStarted = new Date(game.date) < Date.now()
         const mlbStillScheduled = liveData && liveData.status === 'scheduled' && gameStarted
-        if ((!liveData || mlbStillScheduled) && game.espnGameId) {
+        const needsEspn = game.espnGameId && (
+          !liveData || mlbStillScheduled || shouldConfirmMlbFinalWithEspn(liveData)
+        )
+        if (needsEspn) {
           const espnData = await fetchMLBFromESPN(game.espnGameId)
-          if (espnData && (espnData.status === 'final' || espnData.homeScore > 0 || espnData.awayScore > 0)) {
-            liveData = espnData
-            if (mlbStillScheduled) {
+          if (!liveData) {
+            if (espnData && (espnData.status === 'final' || espnData.status === 'in_progress' || espnData.homeScore > 0 || espnData.awayScore > 0)) {
+              liveData = espnData
+            }
+          } else {
+            const previousStatus = liveData.status
+            liveData = reconcileMlbAndEspnStatus(liveData, espnData)
+            if (previousStatus === 'final' && liveData?.status === 'in_progress') {
+              console.log(`  ℹ️  MLB API said final but ESPN/live payload is in_progress — keeping in_progress`)
+            } else if (mlbStillScheduled && espnData) {
               console.log(`  ℹ️  MLB API said scheduled but ESPN says ${espnData.status} — using ESPN`)
             }
           }
+        } else if (liveData?.status === 'final') {
+          liveData = reconcileMlbAndEspnStatus(liveData, null)
         }
       }
       

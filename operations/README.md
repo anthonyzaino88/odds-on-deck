@@ -88,6 +88,11 @@ Morning ops status (required):
 ```bash
 node scripts/update-scores-safely.js all
 ```
+MLB: `lib/mlb-live-status.js` maps Live/In Progress (including 9th inning) to
+`in_progress` and only marks `final` on true Final/F/Game Over. If MLB returns
+`final` but ESPN is still in progress — or the MLB payload still looks live
+without an explicit Final — the updater keeps `in_progress`. Recently finalized
+MLB rows (last 4 hours) are re-checked so a sticky false final can self-heal.
 
 ### After Games
 ```bash
