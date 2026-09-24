@@ -10,9 +10,12 @@
  * - Only updates scores/status, preserves all other data
  * - Safe error handling (won't break if API fails)
  * - Supports all sports: NHL, NFL, MLB
- * - MLB: never treat a live 9th as final; confirm MLB "final" with ESPN
+ * - MLB: one schedule?hydrate=linescore call per date range (status + linescore)
+ * - MLB: never treat a live 9th as final; missing status is unknown
+ * - MLB: confirm finals / 9th+ / unknown with ESPN; ESPN may upgrade to
+ *   final only when STATUS_FINAL and completed=true
  * - MLB: re-check games marked final in the last 4 hours so sticky false
- *   finals can self-heal back to in_progress
+ *   finals can self-heal back to in_progress (real Final/F must stay final)
  * 
  * Usage:
  *   node scripts/update-scores-safely.js [sport]
@@ -24,12 +27,13 @@ import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
 import { fetchNHLGameDetail } from '../lib/vendors/nhl-stats.js'
 import { fetchNFLGameDetail } from '../lib/vendors/nfl-stats.js'
-import { fetchLiveGameData } from '../lib/vendors/stats.js'
+import { fetchLiveGameData, fetchLiveGamesByDateRange, mlbScheduleDateWindow } from '../lib/vendors/stats.js'
 import {
   RECENT_MLB_FINAL_RECHECK_MS,
   mergeActiveAndRecentFinalGames,
   parseEspnMlbSummary,
   reconcileMlbAndEspnStatus,
+  resolveMlbStatusForUpdate,
   shouldConfirmMlbFinalWithEspn,
 } from '../lib/mlb-live-status.js'
 
@@ -203,6 +207,19 @@ async function updateScoresForSport(sport) {
   let errors = 0
   const live = []
   const changes = []
+  let mlbLiveByPk = null
+
+  if (sport === 'mlb') {
+    const window = mlbScheduleDateWindow(games)
+    if (window) {
+      try {
+        mlbLiveByPk = await fetchLiveGamesByDateRange(window.startDate, window.endDate, true)
+        console.log(`📡 MLB schedule hydrate ${window.startDate}..${window.endDate}: ${mlbLiveByPk.size} game(s)\n`)
+      } catch (err) {
+        console.warn(`  ⚠️  Hydrated schedule fetch failed (${err.message}); falling back to per-gamePk schedule`)
+      }
+    }
+  }
   
   for (const game of games) {
     try {
@@ -215,12 +232,16 @@ async function updateScoresForSport(sport) {
       } else if (sport === 'nfl' && game.espnGameId) {
         liveData = await fetchNFLGameDetail(game.espnGameId)
       } else if (sport === 'mlb') {
-        // Try MLB Stats API first, fall back to / confirm with ESPN
-        if (game.mlbGameId) {
+        // Prefer the one-call-per-date schedule map; per-gamePk schedule
+        // still has status if the range fetch missed this row.
+        if (game.mlbGameId && mlbLiveByPk) {
+          liveData = mlbLiveByPk.get(String(game.mlbGameId)) || null
+        }
+        if (!liveData && game.mlbGameId) {
           liveData = await fetchLiveGameData(game.mlbGameId, true)
         }
-        // ESPN when: no MLB data, MLB still "scheduled" after start, or MLB
-        // says final (confirm — do not trust a false 9th-inning final).
+        // ESPN when: no MLB data, MLB still "scheduled" after start,
+        // status unknown, inning >= 9, or MLB says final.
         const gameStarted = new Date(game.date) < Date.now()
         const mlbStillScheduled = liveData && liveData.status === 'scheduled' && gameStarted
         const needsEspn = game.espnGameId && (
@@ -237,12 +258,20 @@ async function updateScoresForSport(sport) {
             liveData = reconcileMlbAndEspnStatus(liveData, espnData)
             if (previousStatus === 'final' && liveData?.status === 'in_progress') {
               console.log(`  ℹ️  MLB API said final but ESPN/live payload is in_progress — keeping in_progress`)
+            } else if (previousStatus !== 'final' && liveData?.status === 'final' && liveData?.source === 'espn-upgrade') {
+              console.log(`  ℹ️  ESPN STATUS_FINAL/completed — marking final`)
             } else if (mlbStillScheduled && espnData) {
               console.log(`  ℹ️  MLB API said scheduled but ESPN says ${espnData.status} — using ESPN`)
             }
           }
         } else if (liveData?.status === 'final') {
           liveData = reconcileMlbAndEspnStatus(liveData, null)
+        }
+        if (liveData) {
+          liveData = {
+            ...liveData,
+            status: resolveMlbStatusForUpdate(liveData, game.status),
+          }
         }
       }
       
