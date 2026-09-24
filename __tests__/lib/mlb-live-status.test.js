@@ -2,14 +2,25 @@ import { mapLiveGameData } from '../../lib/vendors/stats.js'
 import {
   hasExplicitMlbFinalStatus,
   hasExplicitMlbLiveStatus,
+  isEspnCompletedFinal,
   isRecentMlbFinalForRecheck,
   mergeActiveAndRecentFinalGames,
   mlbPayloadLooksLive,
   parseEspnMlbSummary,
   reconcileMlbAndEspnStatus,
   resolveMlbLinescoreStatus,
+  resolveMlbStatusForUpdate,
   shouldConfirmMlbFinalWithEspn,
 } from '../../lib/mlb-live-status.js'
+import {
+  ESPN_SUMMARY_LAA_ATH_LIVE,
+  ESPN_SUMMARY_TOR_BAL_FINAL,
+  LINESCORE_ONLY_TOR_BAL,
+  SCHEDULE_GAME_CIN_ATL_WALKOFF_FINAL,
+  SCHEDULE_GAME_LAA_ATH_LIVE,
+  SCHEDULE_GAME_TOR_BAL_FINAL,
+  SCHEDULE_GAME_TOR_BAL_POSTPONED,
+} from '../fixtures/mlb-schedule-linescore.fixture.js'
 
 function liveNinth({ status, inningHalf = 'Bottom', inningState, outs = 2, balls = 1, strikes = 2 } = {}) {
   return {
@@ -81,22 +92,62 @@ describe('resolveMlbLinescoreStatus — 9th inning live never becomes final', ()
     expect(mapped.inningHalf).toBe('Middle')
   })
 
-  test('unknown 9th-inning state without final signals stays in_progress', () => {
+  test('unknown 9th-inning state without status signals is unknown, not in_progress', () => {
     const payload = liveNinth({
       status: {},
     })
-    expect(resolveMlbLinescoreStatus(payload)).toBe('in_progress')
-    expect(mapLiveGameData(payload).status).toBe('in_progress')
+    expect(resolveMlbLinescoreStatus(payload)).toBe('unknown')
+    expect(mapLiveGameData(payload).status).toBe('unknown')
   })
 
-  test('no status object at all in the 9th stays in_progress', () => {
+  test('no status object at all in the 9th is unknown, not in_progress', () => {
     const payload = liveNinth()
     delete payload.status
-    expect(resolveMlbLinescoreStatus(payload)).toBe('in_progress')
+    expect(resolveMlbLinescoreStatus(payload)).toBe('unknown')
+    expect(mapLiveGameData(payload).status).toBe('unknown')
   })
 })
 
-describe('resolveMlbLinescoreStatus — true finals', () => {
+describe('resolveMlbLinescoreStatus — real Final and Live payloads', () => {
+  test('TOR@BAL 824785 schedule Final is final despite leftover balls/strikes', () => {
+    const mapped = mapLiveGameData(SCHEDULE_GAME_TOR_BAL_FINAL)
+    expect(mapped.status).toBe('final')
+    expect(mapped.inning).toBe(9)
+    expect(mapped.outs).toBe(3)
+    expect(mapped.balls).toBe(2)
+    expect(mapped.strikes).toBe(3)
+    expect(mapped.awayScore).toBe(2)
+    expect(mapped.homeScore).toBe(4)
+    expect(mapped.mlbStatus.codedGameState).toBe('F')
+  })
+
+  test('CIN@ATL 824868 walk-off Final in the 10th stays final', () => {
+    const mapped = mapLiveGameData(SCHEDULE_GAME_CIN_ATL_WALKOFF_FINAL)
+    expect(mapped.status).toBe('final')
+    expect(mapped.inning).toBe(10)
+    expect(mapped.outs).toBe(1)
+    expect(mapped.homeScore).toBe(3)
+    expect(mapped.awayScore).toBe(2)
+  })
+
+  test('LAA@ATH 824951 Live payload stays in_progress', () => {
+    const mapped = mapLiveGameData(SCHEDULE_GAME_LAA_ATH_LIVE)
+    expect(mapped.status).toBe('in_progress')
+    expect(mapped.inning).toBe(6)
+    expect(mapped.inningHalf).toBe('Bottom')
+    expect(mapped.outs).toBe(0)
+    expect(mapped.homeScore).toBe(5)
+    expect(mapped.awayScore).toBe(3)
+  })
+
+  test('per-game linescore without status cannot pass as in_progress', () => {
+    expect(LINESCORE_ONLY_TOR_BAL.status).toBeUndefined()
+    expect(resolveMlbLinescoreStatus(LINESCORE_ONLY_TOR_BAL)).toBe('unknown')
+    expect(mapLiveGameData(LINESCORE_ONLY_TOR_BAL).status).toBe('unknown')
+  })
+})
+
+describe('resolveMlbLinescoreStatus — true finals and terminal codes', () => {
   test('coded F + detailed Final is final', () => {
     const payload = liveNinth({
       outs: 3,
@@ -142,6 +193,25 @@ describe('resolveMlbLinescoreStatus — true finals', () => {
       status: { abstractGameState: 'Final', detailedState: 'Final' },
     })).toBe('final')
   })
+
+  test('postponed is postponed even when abstractGameCode is F', () => {
+    expect(resolveMlbLinescoreStatus({
+      status: SCHEDULE_GAME_TOR_BAL_POSTPONED.status,
+    })).toBe('postponed')
+    expect(hasExplicitMlbFinalStatus(SCHEDULE_GAME_TOR_BAL_POSTPONED.status)).toBe(false)
+  })
+
+  test('suspended is suspended, not inferred in_progress or final', () => {
+    expect(resolveMlbLinescoreStatus({
+      currentInning: 6,
+      outs: 1,
+      status: {
+        codedGameState: 'U',
+        abstractGameState: 'Live',
+        detailedState: 'Suspended',
+      },
+    })).toBe('suspended')
+  })
 })
 
 describe('explicit live / final helpers', () => {
@@ -150,7 +220,7 @@ describe('explicit live / final helpers', () => {
     expect(hasExplicitMlbFinalStatus({ abstractGameState: 'Live' })).toBe(false)
   })
 
-  test('mlbPayloadLooksLive detects count / half / runners', () => {
+  test('mlbPayloadLooksLive detects in-inning state but ignores leftover count at outs=3', () => {
     expect(mlbPayloadLooksLive({
       inning: 9,
       inningHalf: 'Bottom',
@@ -171,6 +241,15 @@ describe('explicit live / final helpers', () => {
       outs: 3,
       balls: 0,
       strikes: 0,
+    })).toBe(false)
+    expect(mlbPayloadLooksLive({
+      inning: 9,
+      inningHalf: 'Top',
+      outs: 3,
+      balls: 2,
+      strikes: 3,
+      currentBatterId: '664770',
+      currentPitcherId: '552640',
     })).toBe(false)
   })
 })
@@ -197,6 +276,8 @@ describe('ESPN summary parse', () => {
     })
     expect(parsed).toMatchObject({
       status: 'in_progress',
+      completed: false,
+      statusType: 'STATUS_IN_PROGRESS',
       inning: 9,
       inningHalf: 'Bottom',
       homeScore: 1,
@@ -205,23 +286,39 @@ describe('ESPN summary parse', () => {
   })
 
   test('STATUS_FINAL completed=true is final', () => {
+    const parsed = parseEspnMlbSummary(ESPN_SUMMARY_TOR_BAL_FINAL)
+    expect(parsed.status).toBe('final')
+    expect(parsed.completed).toBe(true)
+    expect(parsed.statusType).toBe('STATUS_FINAL')
+    expect(parsed.homeScore).toBe(4)
+    expect(parsed.awayScore).toBe(2)
+    expect(isEspnCompletedFinal(parsed)).toBe(true)
+  })
+
+  test('completed alone without STATUS_FINAL is not final', () => {
     const parsed = parseEspnMlbSummary({
       header: {
         competitions: [{
           status: {
-            period: 9,
-            type: { name: 'STATUS_FINAL', completed: true, shortDetail: 'Final' },
+            period: 0,
+            type: { name: 'STATUS_POSTPONED', completed: true, shortDetail: 'Postponed' },
           },
           competitors: [
-            { homeAway: 'away', score: '3' },
-            { homeAway: 'home', score: '5' },
+            { homeAway: 'away', score: '0' },
+            { homeAway: 'home', score: '0' },
           ],
         }],
       },
     })
-    expect(parsed.status).toBe('final')
-    expect(parsed.homeScore).toBe(5)
-    expect(parsed.awayScore).toBe(3)
+    expect(parsed.status).not.toBe('final')
+    expect(isEspnCompletedFinal(parsed)).toBe(false)
+  })
+
+  test('real ESPN live header stays in_progress', () => {
+    const parsed = parseEspnMlbSummary(ESPN_SUMMARY_LAA_ATH_LIVE)
+    expect(parsed.status).toBe('in_progress')
+    expect(parsed.inning).toBe(6)
+    expect(parsed.inningHalf).toBe('Bottom')
   })
 })
 
@@ -271,7 +368,7 @@ describe('reconcileMlbAndEspnStatus', () => {
         outs: 3,
         mlbStatus: { codedGameState: 'F', detailedState: 'Final' },
       },
-      { status: 'final', inning: 9 },
+      { status: 'final', inning: 9, statusType: 'STATUS_FINAL', completed: true },
     )
     expect(reconciled.status).toBe('final')
   })
@@ -294,6 +391,41 @@ describe('reconcileMlbAndEspnStatus', () => {
     )
     expect(reconciled.status).toBe('in_progress')
     expect(reconciled.awayScore).toBe(1)
+  })
+
+  test('ESPN upgrades unknown MLB status only when STATUS_FINAL and completed', () => {
+    const mapped = mapLiveGameData(LINESCORE_ONLY_TOR_BAL)
+    expect(mapped.status).toBe('unknown')
+    const espn = parseEspnMlbSummary(ESPN_SUMMARY_TOR_BAL_FINAL)
+    const upgraded = reconcileMlbAndEspnStatus(mapped, espn)
+    expect(upgraded.status).toBe('final')
+    expect(upgraded.source).toBe('espn-upgrade')
+
+    const refused = reconcileMlbAndEspnStatus(mapped, {
+      status: 'final',
+      completed: true,
+      statusType: 'STATUS_POSTPONED',
+    })
+    expect(refused.status).toBe('unknown')
+  })
+
+  test('ESPN does not upgrade an explicit live 9th to final', () => {
+    const live = mapLiveGameData(liveNinth({
+      status: {
+        codedGameState: 'I',
+        abstractGameState: 'Live',
+        detailedState: 'In Progress',
+      },
+    }))
+    const reconciled = reconcileMlbAndEspnStatus(live, {
+      status: 'final',
+      statusType: 'STATUS_FINAL',
+      completed: true,
+      homeScore: 1,
+      awayScore: 1,
+      inning: 9,
+    })
+    expect(reconciled.status).toBe('in_progress')
   })
 })
 
@@ -325,10 +457,46 @@ describe('recent-final self-heal window', () => {
     expect(merged.map(g => g.id)).toEqual(['live-1', 'sticky-1'])
   })
 
-  test('shouldConfirmMlbFinalWithEspn is true only for final', () => {
+  test('shouldConfirmMlbFinalWithEspn is true for final, unknown, and 9th+', () => {
     expect(shouldConfirmMlbFinalWithEspn({ status: 'final' })).toBe(true)
-    expect(shouldConfirmMlbFinalWithEspn({ status: 'in_progress' })).toBe(false)
+    expect(shouldConfirmMlbFinalWithEspn({ status: 'unknown' })).toBe(true)
+    expect(shouldConfirmMlbFinalWithEspn({ status: 'in_progress', inning: 9 })).toBe(true)
+    expect(shouldConfirmMlbFinalWithEspn({ status: 'in_progress', inning: 10 })).toBe(true)
+    expect(shouldConfirmMlbFinalWithEspn({ status: 'in_progress', inning: 6 })).toBe(false)
     expect(shouldConfirmMlbFinalWithEspn({ status: 'scheduled' })).toBe(false)
+  })
+
+  test('recheck does not flip a real Final with leftover balls/strikes back to in_progress', () => {
+    const mapped = mapLiveGameData(SCHEDULE_GAME_TOR_BAL_FINAL)
+    const espn = parseEspnMlbSummary(ESPN_SUMMARY_TOR_BAL_FINAL)
+    expect(reconcileMlbAndEspnStatus(mapped, espn).status).toBe('final')
+    expect(reconcileMlbAndEspnStatus(mapped, null).status).toBe('final')
+  })
+
+  test('recheck does not flip a walk-off Final back to in_progress when ESPN is final', () => {
+    const mapped = mapLiveGameData(SCHEDULE_GAME_CIN_ATL_WALKOFF_FINAL)
+    const espn = parseEspnMlbSummary({
+      header: {
+        competitions: [{
+          status: {
+            period: 10,
+            type: { name: 'STATUS_FINAL', completed: true, shortDetail: 'Final/10' },
+          },
+          competitors: [
+            { homeAway: 'away', score: '2' },
+            { homeAway: 'home', score: '3' },
+          ],
+        }],
+      },
+    })
+    expect(mapped.outs).toBe(1)
+    expect(reconcileMlbAndEspnStatus(mapped, espn).status).toBe('final')
+    expect(reconcileMlbAndEspnStatus(mapped, null).status).toBe('final')
+  })
+
+  test('unknown status keeps the previous DB status so the row stays selectable', () => {
+    expect(resolveMlbStatusForUpdate({ status: 'unknown' }, 'in_progress')).toBe('in_progress')
+    expect(resolveMlbStatusForUpdate({ status: 'final' }, 'in_progress')).toBe('final')
   })
 })
 
