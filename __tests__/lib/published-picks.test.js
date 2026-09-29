@@ -2,6 +2,7 @@ import {
   isPublishedPick,
   isPublishedEligibleProp,
   isEditorsBoardFill,
+  isPublishedTrackSource,
   filterPublishedPicks,
   summarizePublishedPicks,
   selectTodaysBoardRows,
@@ -38,6 +39,7 @@ function publishedBase(overrides = {}) {
     edge: 0.04,
     qualityScore: 42,
     sport: 'mlb',
+    source: PUBLISHED_SOURCE,
     ...overrides,
   }
 }
@@ -82,6 +84,15 @@ describe('isPublishedPick', () => {
     expect(isPublishedPick(publishedBase({ sport: 'nfl' }))).toBe(true)
   })
 
+  test('excludes user_saved and other non-system sources from the public record', () => {
+    expect(isPublishedPick(publishedBase({ source: 'user_saved' }))).toBe(false)
+    expect(isPublishedPick(publishedBase({ source: 'parlay_leg' }))).toBe(false)
+    expect(isPublishedPick(publishedBase({ source: 'api_generated' }))).toBe(false)
+    expect(isPublishedPick(publishedBase({ source: '' }))).toBe(false)
+    expect(isPublishedTrackSource(publishedBase())).toBe(true)
+    expect(isPublishedTrackSource({ source: 'user_saved' })).toBe(false)
+  })
+
   test('excludes moneyline and game totals even when they look Published-shaped', () => {
     expect(isPublishedPick(publishedBase({
       propType: 'moneyline',
@@ -109,11 +120,13 @@ describe('matchesPublishedStatsPrefilter', () => {
     expect(PUBLISHED_STATS_PREFILTER.sports).toEqual(['mlb', 'nfl'])
     expect(PUBLISHED_STATS_PREFILTER.minQuality).toBe(PUBLISHED_MIN_QUALITY)
     expect(PUBLISHED_STATS_PREFILTER.edgeGreaterThan).toBe(0)
+    expect(PUBLISHED_STATS_PREFILTER.source).toBe(PUBLISHED_SOURCE)
 
     expect(matchesPublishedStatsPrefilter(publishedBase())).toBe(true)
     expect(matchesPublishedStatsPrefilter(publishedBase({ sport: 'nhl' }))).toBe(false)
     expect(matchesPublishedStatsPrefilter(publishedBase({ edge: 0 }))).toBe(false)
     expect(matchesPublishedStatsPrefilter(publishedBase({ qualityScore: 39.9 }))).toBe(false)
+    expect(matchesPublishedStatsPrefilter(publishedBase({ source: 'user_saved' }))).toBe(false)
   })
 
   test('does not replace juice-trap or odds-band checks — those stay in JS', () => {
@@ -151,6 +164,7 @@ describe('summarizePublishedPicks', () => {
       publishedBase({ result: 'correct', odds: -250, qualityScore: 80 }), // juice price — excluded
       publishedBase({ sport: 'nhl', result: 'correct', odds: -110 }),
       publishedBase({ status: 'pending', result: null }),
+      publishedBase({ result: 'correct', odds: 150, source: 'user_saved' }), // visitor save — excluded
     ]
 
     const summary = summarizePublishedPicks(records)
@@ -214,6 +228,19 @@ describe('summarizeSidesTotals', () => {
     expect(summary.incorrect).toBe(1)
     expect(summary.graded).toBe(2)
   })
+
+  test('user_saved moneyline does not enter sides & totals even with edge', () => {
+    const summary = summarizeSidesTotals([
+      publishedBase({
+        result: 'correct',
+        odds: 110,
+        propType: 'moneyline',
+        prediction: 'NYY',
+        source: 'user_saved',
+      }),
+    ])
+    expect(summary.graded).toBe(0)
+  })
 })
 
 describe('filterPublishedPicks', () => {
@@ -221,6 +248,7 @@ describe('filterPublishedPicks', () => {
     const rows = [
       publishedBase({ playerName: 'keep' }),
       publishedBase({ playerName: 'trap', prediction: 'under', threshold: 0.5 }),
+      publishedBase({ playerName: 'visitor', source: 'user_saved' }),
     ]
     const kept = filterPublishedPicks(rows)
     expect(kept).toHaveLength(1)
@@ -244,6 +272,20 @@ describe('isPublishedEligibleProp', () => {
   test('does not require a graded result — pending can sit on today’s board', () => {
     expect(isPublishedEligibleProp(publishedBase({ status: 'pending', result: null }))).toBe(true)
     expect(isPublishedPick(publishedBase({ status: 'pending', result: null }))).toBe(false)
+  })
+
+  test('cache rows without source still clear the live board bar', () => {
+    const cacheRow = {
+      pick: 'over',
+      type: 'batter_hits',
+      threshold: 1.5,
+      odds: -110,
+      edge: 0.04,
+      qualityScore: 42,
+      sport: 'mlb',
+    }
+    expect(isPublishedEligibleProp(cacheRow)).toBe(true)
+    expect(isPublishedPick({ ...cacheRow, status: 'completed', result: 'correct' })).toBe(false)
   })
 
   test('still drops juice traps, juice prices, flat edge, low QS, and NHL', () => {

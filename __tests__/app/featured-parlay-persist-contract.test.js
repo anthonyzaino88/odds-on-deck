@@ -15,11 +15,11 @@ describe('Featured parlay persist contract — Phase B', () => {
     expect(route).not.toMatch(/saveParlaysToSupabase/)
   })
 
-  test('save rejects non-Featured from the tracked cohort', () => {
+  test('save is a retired 410 no-op and never persists Featured from the client', () => {
     const save = read('app/api/parlays/save/route.js')
-    expect(save).toMatch(/persistFeaturedClearedParlay/)
-    expect(save).toMatch(/Only Featured-cleared parlays enter the tracked cohort/)
-    expect(save).toMatch(/result\.rejected/)
+    expect(save).toMatch(/gone\(/)
+    expect(save).toMatch(/Client parlay saves are retired/)
+    expect(save).not.toMatch(/persistFeaturedClearedParlay/)
     expect(save).not.toMatch(/User saved parlay with/)
   })
 
@@ -70,6 +70,9 @@ describe('Featured parlay persist contract — Phase B', () => {
     expect(page).not.toMatch(/Save &amp; Track<\/span> any parlay/)
     expect(results).toMatch(/isFeaturedWorthyParlay/)
     expect(results).toMatch(/Explorer — not tracked/)
+    expect(results).toMatch(/Featured track is filled at generate/)
+    expect(results).not.toMatch(/\/api\/parlays\/save/)
+    expect(results).not.toMatch(/Save to Featured track/)
   })
 
   test('ops script snapshots Featured without calling The Odds API', () => {
