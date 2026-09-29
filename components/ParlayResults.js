@@ -30,19 +30,14 @@ const BET_TYPE_LABEL = {
   prop: 'PROP',
 }
 
-export default function ParlayResults({ generatedParlays = null, onParlaySaved = null }) {
+export default function ParlayResults({ generatedParlays = null }) {
   const [parlays, setParlays] = useState([])
-  const [savingIndex, setSavingIndex] = useState(null)
-  const [savedIndexes, setSavedIndexes] = useState(new Set())
   const [copiedIndex, setCopiedIndex] = useState(null)
-  const [saveError, setSaveError] = useState(null)
   const [showHelp, setShowHelp] = useState(false)
 
   useEffect(() => {
     if (generatedParlays) {
       setParlays(generatedParlays)
-      setSavedIndexes(new Set())
-      setSaveError(null)
     }
   }, [generatedParlays])
 
@@ -60,31 +55,6 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
     }
     setCopiedIndex(index)
     setTimeout(() => setCopiedIndex(null), 2000)
-  }
-
-  const saveParlay = async (parlay, index) => {
-    setSavingIndex(index)
-    setSaveError(null)
-    try {
-      const response = await fetch('/api/parlays/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ parlay })
-      })
-      const data = await response.json()
-      if (data.success) {
-        setSavedIndexes(prev => new Set(prev).add(index))
-        if (onParlaySaved) onParlaySaved()
-      } else {
-        setSaveError(`Failed to save: ${data.error}`)
-        setTimeout(() => setSaveError(null), 4000)
-      }
-    } catch (err) {
-      setSaveError(`Error: ${err.message}`)
-      setTimeout(() => setSaveError(null), 4000)
-    } finally {
-      setSavingIndex(null)
-    }
   }
 
   const formatProbability = (prob) => `${(prob * 100).toFixed(1)}%`
@@ -148,13 +118,6 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
               Tip: Each leg is selected from the best available line across 10+ sportsbooks. Higher combined win chance means a safer parlay.
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Save feedback toast */}
-      {saveError && (
-        <div className="mb-4 p-3 bg-red-500/[0.08] border border-red-500/20 rounded-[4px] text-sm text-red-400">
-          {saveError}
         </div>
       )}
 
@@ -307,21 +270,10 @@ export default function ParlayResults({ generatedParlays = null, onParlaySaved =
                       'Copy'
                     )}
                   </button>
-                  {savedIndexes.has(index) ? (
-                    <span className="text-green-400 text-xs font-medium flex items-center gap-1">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      On Featured track
+                  {isFeaturedWorthyParlay(parlay) ? (
+                    <span className="text-[11px] text-slate-500">
+                      Featured track is filled at generate
                     </span>
-                  ) : isFeaturedWorthyParlay(parlay) ? (
-                    <button
-                      onClick={() => saveParlay(parlay, index)}
-                      disabled={savingIndex === index}
-                      className="text-xs font-medium text-green-400 hover:text-green-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {savingIndex === index ? 'Saving...' : 'Save to Featured track'}
-                    </button>
                   ) : (
                     <span className="text-[11px] text-slate-600">
                       Explorer — not tracked

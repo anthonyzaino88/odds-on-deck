@@ -18,8 +18,10 @@ grade cohort that sits on top of that bar.
   overlapping generates cannot keep two rows for the same key.
 - `/parlays` serves the snapped card for a filled slot (stored
   `totalOdds`), not a live regenerate. Explorer Builder is unchanged.
-- Explorer Builder combinations are rejected from `/api/parlays/save` and
-  never written by `/api/parlays/generate` unless `featured=1`.
+- Client `POST /api/parlays/save` is retired (410 no-op). Explorer
+  Builder combinations are never written. Featured persist is
+  server-side `/api/parlays/generate` with `featured=1` and
+  `npm run record:featured`.
 
 No schema migration. `Parlay.notes` is the cohort tag, same pattern as
 `cohort:published` on `PropValidation`.
@@ -27,9 +29,8 @@ No schema migration. `Parlay.notes` is the cohort tag, same pattern as
 ## How a card lands on the track
 
 1. Visiting `/parlays` (Featured GET generate) or `npm run record:featured`.
-2. Explicit save of a card that still clears the Featured bar.
-3. Persist does **not** call The Odds API. It reads the same PlayerPropCache
-   Featured already uses.
+2. Persist does **not** call The Odds API. It reads the same PlayerPropCache
+   Featured already uses. Client save is not a persist path.
 
 ## How it is graded
 
