@@ -357,24 +357,20 @@ export default async function ValidationDashboard({ searchParams }) {
           <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-4">Source Tracking</h3>
           <div className="space-y-3 text-sm">
             <div className="flex justify-between items-center">
-              <span className="text-slate-400">Individual Props</span>
+              <span className="text-slate-400">Historical visitor saves</span>
               <span className="font-semibold text-blue-400 tabular-nums font-mono">{sourceCounts.user_saved}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-slate-400">Saved Parlays</span>
+              <span className="text-slate-400">Historical parlay legs</span>
               <span className="font-semibold text-slate-300 tabular-nums font-mono">{sourceCounts.parlay_leg}</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-slate-400">Auto-Generated</span>
               <span className="font-semibold text-slate-400 tabular-nums font-mono">{sourceCounts.system_generated}</span>
             </div>
-            <div className="flex justify-between items-center pt-3 border-t border-white/[0.06]">
-              <span className="font-semibold text-slate-200">Your Saved Picks</span>
-              <span className="font-semibold text-green-400 tabular-nums font-mono">{sourceCounts.user_saved + sourceCounts.parlay_leg}</span>
-            </div>
           </div>
           <div className="mt-4 pt-4 border-t border-white/[0.06] text-[11px] text-slate-500 leading-relaxed">
-            &ldquo;Saved Parlays&rdquo; = legs from parlays you saved. &ldquo;Auto-Generated&rdquo; = system-tracked for accuracy analysis.
+            Visitor saves now live in the browser only. Historical counts above are leftover archive rows and will not grow.
           </div>
         </div>
       </div>

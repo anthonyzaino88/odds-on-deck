@@ -433,7 +433,7 @@ function PlayerPropCard({ prop, rank }) {
             <button
               onClick={handleSaveProp}
               disabled={isSaving || isSaved}
-              title={isSaved ? 'Saved in this browser' : 'Save this prop in this browser — not part of the public record'}
+            title={isSaved ? 'Saved (this browser only)' : 'Save in this browser only — not part of the public record'}
               className={cn(
                 'px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors border disabled:opacity-50',
                 isSaved
@@ -441,7 +441,7 @@ function PlayerPropCard({ prop, rank }) {
                   : 'bg-elevated hover:bg-[#283548] text-slate-100 border-white/[0.12]',
               )}
             >
-              {isSaved ? '✓ Tracking' : isSaving ? '...' : 'Track'}
+              {isSaved ? '✓ Saved' : isSaving ? '...' : 'Save'}
             </button>
           </div>
         </div>
@@ -526,7 +526,7 @@ function PropRow({ prop }) {
           <button
             onClick={handleSaveProp}
             disabled={isSaving || isSaved}
-            title={isSaved ? 'Saved in this browser' : 'Save this prop in this browser — not part of the public record'}
+            title={isSaved ? 'Saved (this browser only)' : 'Save in this browser only — not part of the public record'}
             className={cn(
               'px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors border disabled:opacity-50',
               isSaved
@@ -534,7 +534,7 @@ function PropRow({ prop }) {
                 : 'bg-elevated hover:bg-[#283548] text-slate-100 border-white/[0.12]',
             )}
           >
-            {isSaved ? '✓' : isSaving ? '...' : 'Track'}
+            {isSaved ? '✓ Saved' : isSaving ? '...' : 'Save'}
           </button>
         </div>
       </div>

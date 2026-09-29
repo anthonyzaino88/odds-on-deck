@@ -6,7 +6,7 @@ export const metadata = {
   description: 'How Odds on Deck collects, uses, and protects information.',
 }
 
-const UPDATED = 'June 9, 2026'
+const UPDATED = 'September 29, 2026'
 
 function Section({ title, children }) {
   return (
@@ -41,14 +41,10 @@ export default function PrivacyPolicy() {
           address. This data is used in aggregate and is not used to identify you.
         </p>
         <p>
-          <span className="text-slate-100 font-medium">Local storage.</span> When you save a prop or
-          pick, that selection is stored in your browser&apos;s local storage on your own device. It
-          is not linked to your identity and is not transmitted to us as personal data.
-        </p>
-        <p>
-          <span className="text-slate-100 font-medium">Saved picks &amp; parlays.</span> Picks and
-          parlays you choose to save are stored anonymously in our database for accuracy tracking.
-          They are not associated with any personal identifier.
+          <span className="text-slate-100 font-medium">Local storage.</span> When you save a prop,
+          that selection is stored only in your browser&apos;s local storage on your own device. It
+          is not sent to our database, is not linked to your identity, and is not part of the public
+          track record. Parlays you generate in the explorer are not saved from the browser.
         </p>
       </Section>
 
