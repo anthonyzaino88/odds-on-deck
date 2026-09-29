@@ -7,6 +7,7 @@ export const runtime = 'nodejs'
 import { NextResponse } from 'next/server'
 import { generateSimpleParlays } from '../../../../lib/simple-parlay-generator.js'
 import { FEATURED_LEG_COUNT } from '../../../../lib/parlay-integrity.js'
+import { parseFeaturedGenerateInput } from '../../../../lib/featured-parlays.js'
 import {
   loadFeaturedSnapshotCard,
   persistFeaturedClearedParlays,
@@ -59,16 +60,18 @@ async function resolveFeaturedGenerate(options) {
 export async function POST(request) {
   try {
     const body = await request.json()
+    const parsed = parseFeaturedGenerateInput(body)
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 })
+    }
+    const { sport, type, featured } = parsed
     const {
-      sport = 'mlb',
-      type = 'multi_game',
       legCount = 3,
       minEdge = 0.05,
       maxParlays = 10,
       minConfidence = 'medium',
       filterMode = 'balanced',
       gameId = null,
-      featured = false,
     } = body
 
     console.log(`🎯 Generating parlays: ${legCount}-leg ${sport} (${type})${gameId ? ` for game ${gameId}` : ''}`)
@@ -80,21 +83,7 @@ export async function POST(request) {
       )
     }
 
-    if (!['mlb', 'nfl', 'nhl', 'mixed'].includes(sport)) {
-      return NextResponse.json(
-        { error: 'Sport must be mlb, nfl, nhl, or mixed' },
-        { status: 400 }
-      )
-    }
-
-    if (!['single_game', 'multi_game', 'cross_sport'].includes(type)) {
-      return NextResponse.json(
-        { error: 'Type must be single_game, multi_game, or cross_sport' },
-        { status: 400 }
-      )
-    }
-
-    const isFeatured = featured === true || featured === '1' || featured === 'true'
+    const isFeatured = featured
 
     const generateParlays = () => generateSimpleParlays({
       sport,
@@ -136,15 +125,20 @@ export async function POST(request) {
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url)
-    const sport = searchParams.get('sport') || 'mlb'
-    const type = searchParams.get('type') || 'multi_game'
+    const parsed = parseFeaturedGenerateInput({
+      sport: searchParams.get('sport'),
+      type: searchParams.get('type'),
+      featured: searchParams.get('featured'),
+    })
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 })
+    }
+    const { sport, type, featured } = parsed
     const legCount = parseInt(searchParams.get('legs')) || 3
     const minEdge = parseFloat(searchParams.get('minEdge')) || 0.05
     const maxParlays = parseInt(searchParams.get('maxParlays')) || 10
     const filterMode = searchParams.get('filterMode') || 'safe'
     const gameId = searchParams.get('gameId') || null
-    const featuredParam = searchParams.get('featured')
-    const featured = featuredParam === '1' || featuredParam === 'true'
     const featuredLegCount = featured ? FEATURED_LEG_COUNT : legCount
 
     const generateParlays = () => generateSimpleParlays({

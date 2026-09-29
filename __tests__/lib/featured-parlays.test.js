@@ -28,6 +28,11 @@ import {
   toFeaturedParlayRow,
   dedupeFeaturedCohortRows,
   dedupeFeaturedPageCards,
+  matchValidationToLeg,
+  matchValidationToLegLegacy,
+  parseFeaturedGenerateInput,
+  reportFeaturedGameMismatchGrades,
+  featuredLegKickoff,
 } from '../../lib/featured-parlays.js'
 import { persistFeaturedClearedParlay as persistCard } from '../../lib/featured-parlay-persist.js'
 
@@ -418,6 +423,105 @@ describe('Featured grading', () => {
     expect(grade.parlayOutcome).toBe('pending')
   })
 
+  test('does not grade a Featured leg from a different game\'s PropValidation', () => {
+    // Week 2 Goff o1.5 — this week's game has no usable row yet.
+    // Week 1 Goff o1.5 already completed with 4 TDs.
+    const week2 = {
+      playerName: 'Jared Goff',
+      propType: 'player_pass_tds',
+      selection: 'over',
+      threshold: 1.5,
+      parlayId: 'feat-week-2',
+      gameIdRef: 'DET_at_CHI_2026-09-20',
+    }
+    const week1Hit = {
+      playerName: 'Jared Goff',
+      propType: 'player_pass_tds',
+      status: 'completed',
+      result: 'correct',
+      actualValue: 4,
+      gameIdRef: 'DET_at_GB_2026-09-13',
+      parlayId: 'feat-week-1',
+    }
+    const stolen = gradeFeaturedParlayFromValidations([week2], [week1Hit])
+    expect(matchValidationToLegLegacy(week2, [week1Hit])?.actualValue).toBe(4)
+    expect(matchValidationToLeg(week2, [week1Hit])).toBeNull()
+    expect(stolen.legOutcomes[0].outcome).toBeNull()
+    expect(stolen.parlayOutcome).toBe('pending')
+
+    const week2Miss = {
+      playerName: 'Jared Goff',
+      propType: 'player_pass_tds',
+      status: 'completed',
+      result: 'incorrect',
+      actualValue: 0,
+      gameIdRef: 'DET_at_CHI_2026-09-20',
+      parlayId: 'feat-week-2',
+    }
+    const honest = gradeFeaturedParlayFromValidations([week2], [week1Hit, week2Miss])
+    expect(honest.legOutcomes[0].outcome).toBe('lost')
+    expect(honest.legOutcomes[0].actualValue).toBe(0)
+    expect(honest.parlayOutcome).toBe('lost')
+  })
+
+  test('does not prefer a usable other-game row over a pending same-game row', () => {
+    const week2 = {
+      playerName: 'Jared Goff',
+      propType: 'player_pass_tds',
+      selection: 'over',
+      threshold: 1.5,
+      parlayId: 'feat-week-2',
+      gameIdRef: 'DET_at_CHI_2026-09-20',
+    }
+    const week1Hit = {
+      playerName: 'Jared Goff',
+      propType: 'player_pass_tds',
+      status: 'completed',
+      result: 'correct',
+      actualValue: 4,
+      gameIdRef: 'DET_at_GB_2026-09-13',
+    }
+    const week2Pending = {
+      playerName: 'Jared Goff',
+      propType: 'player_pass_tds',
+      status: 'pending',
+      actualValue: null,
+      gameIdRef: 'DET_at_CHI_2026-09-20',
+    }
+    const grade = gradeFeaturedParlayFromValidations([week2], [week1Hit, week2Pending])
+    expect(matchValidationToLegLegacy(week2, [week1Hit, week2Pending])?.actualValue).toBe(4)
+    expect(grade.parlayOutcome).toBe('pending')
+    expect(grade.legOutcomes[0].actualValue).toBeNull()
+  })
+
+  test('read-only mismatch report flags a stored win that used the other game', () => {
+    const parlay = {
+      id: 'feat-week-2',
+      sport: 'nfl',
+      outcome: 'won',
+      status: 'won',
+      legs: [{
+        playerName: 'Jared Goff',
+        propType: 'player_pass_tds',
+        selection: 'over',
+        threshold: 1.5,
+        gameIdRef: 'DET_at_CHI_2026-09-20',
+      }],
+    }
+    const report = reportFeaturedGameMismatchGrades([parlay], [{
+      playerName: 'Jared Goff',
+      propType: 'player_pass_tds',
+      status: 'completed',
+      result: 'correct',
+      actualValue: 4,
+      gameIdRef: 'DET_at_GB_2026-09-13',
+    }])
+    expect(report).toHaveLength(1)
+    expect(report[0].legacyOutcome).toBe('won')
+    expect(report[0].nextOutcome).toBe('pending')
+    expect(report[0].wouldChangeStored).toBe(false)
+  })
+
   test('regrade patch resets a false settle when props are still pending', () => {
     const pendingGrade = {
       parlayOutcome: 'pending',
@@ -431,6 +535,7 @@ describe('Featured grading', () => {
       status: 'completed',
       actualValue: Number(leg.threshold) + 1,
       result: 'correct',
+      gameIdRef: leg.gameIdRef,
     })))
     expect(featuredRegradeParlayPatch(wonGrade, 'lost').status).toBe('won')
   })
@@ -728,6 +833,24 @@ describe('Featured history cohort', () => {
     expect(card.legs[0].playerName).toBe('Vladimir Guerrero Jr.')
     expect(card.legs[0].gameId).toBe('tor-game')
     expect(card.legs[1].gameId).toBe('tor-game')
+  })
+
+  test('GET/POST generate input rejects unlisted sport and type', () => {
+    expect(parseFeaturedGenerateInput({ sport: 'mlb', type: 'multi_game' }).ok).toBe(true)
+    expect(parseFeaturedGenerateInput({ sport: 'nba', featured: '1' })).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/Sport must be/),
+    })
+    expect(parseFeaturedGenerateInput({ sport: 'mlb', type: 'sgp' }).ok).toBe(false)
+    expect(parseFeaturedGenerateInput({ featured: '1' }).featured).toBe(true)
+  })
+
+  test('slate kickoff prefers Game.date over a drifted cache gameTime', () => {
+    const db = featuredLegKickoff({
+      gameTime: '2026-09-21T00:00:00.000Z',
+      dbGameTime: '2026-09-20T17:00:00.000Z',
+    })
+    expect(db.toISOString()).toBe('2026-09-20T17:00:00.000Z')
   })
 
   test('honest empty when nothing Featured-cleared exists', () => {

@@ -32,6 +32,8 @@ describe('Featured parlays contract — Phase A Published bar', () => {
     expect(route).toMatch(/FEATURED_LEG_COUNT/)
     expect(route).toMatch(/legCount: isFeatured \? FEATURED_LEG_COUNT : legCount/)
     expect(route).toMatch(/const featuredLegCount = featured \? FEATURED_LEG_COUNT : legCount/)
+    expect(route).toMatch(/parseFeaturedGenerateInput/)
+    expect(route).toMatch(/searchParams\.get\('sport'\)/)
   })
 
   test('generator never assigns playerId from propId', () => {
@@ -62,6 +64,8 @@ describe('Featured parlays contract — Phase A Published bar', () => {
     expect(generator).toMatch(/\.gt\('gameTime', now\)/)
     expect(generator).toMatch(/\.eq\('isStale', false\)/)
     expect(generator).toMatch(/\.gte\('expiresAt', now\)/)
+    expect(generator).toMatch(/attachDbGameClock/)
+    expect(generator).toMatch(/dbGameTime/)
   })
 
   test('builder stays exploratory — no Published-mode toggle, no featured flag', () => {

@@ -4,6 +4,7 @@ import {
   FEATURED_LEG_COUNT,
   hasSameMarketConflict,
   hasSamePlayerConflict,
+  isFeaturedFreshLeg,
   isFeaturedQualityLeg,
   isFeaturedWorthyParlay,
   mapCachePropToParlayBet,
@@ -189,6 +190,43 @@ describe('Geno-style same-player / same-market conflicts', () => {
       { legCount: 3, type: 'single_game', featured: false, maxParlays: 5 }
     )
     expect(parlays).toEqual([])
+  })
+})
+
+describe('Featured freshness clock', () => {
+  const now = new Date('2026-09-20T18:00:00.000Z')
+
+  test('rejects a started Game.date even when cache gameTime is still in the future', () => {
+    const started = mapCachePropToParlayBet(publishedProp('Jared Goff', {
+      gameTime: '2026-09-21T00:00:00.000Z',
+    }))
+    expect(isFeaturedFreshLeg({
+      ...started,
+      gameTime: '2026-09-21T00:00:00.000Z',
+      dbGameTime: '2026-09-20T17:00:00.000Z',
+    }, now)).toBe(false)
+  })
+
+  test('rejects a live Game.status even if the clock looks upcoming', () => {
+    const live = mapCachePropToParlayBet(publishedProp('Jared Goff', {
+      gameTime: '2026-09-21T00:00:00.000Z',
+    }))
+    expect(isFeaturedFreshLeg({
+      ...live,
+      gameTime: '2026-09-21T00:00:00.000Z',
+      gameStatus: 'in_progress',
+    }, now)).toBe(false)
+  })
+
+  test('keeps an upcoming Game.date', () => {
+    const upcoming = mapCachePropToParlayBet(publishedProp('Jared Goff', {
+      gameTime: '2026-09-21T00:00:00.000Z',
+    }))
+    expect(isFeaturedFreshLeg({
+      ...upcoming,
+      dbGameTime: '2026-09-21T00:00:00.000Z',
+      gameStatus: 'scheduled',
+    }, now)).toBe(true)
   })
 })
 
@@ -507,5 +545,22 @@ describe('Featured quality — Published-eligible 3-leg or empty', () => {
     expect(isFeaturedQualityLeg(stale, now)).toBe(false)
     expect(isFeaturedQualityLeg(expired, now)).toBe(false)
     expect(isFeaturedQualityLeg(started, now)).toBe(false)
+  })
+
+  test('Game.date / live status beat a future cache gameTime', () => {
+    const now = new Date('2026-09-10T18:00:00Z')
+    const cacheStillFuture = mapCachePropToParlayBet(publishedProp('Jared Goff', {
+      gameTime: '2026-09-10T23:00:00Z',
+    }))
+    expect(isFeaturedFreshLeg(cacheStillFuture, now)).toBe(true)
+    expect(isFeaturedFreshLeg({
+      ...cacheStillFuture,
+      dbGameTime: '2026-09-10T17:05:00Z',
+      gameDate: '2026-09-10T17:05:00Z',
+    }, now)).toBe(false)
+    expect(isFeaturedFreshLeg({
+      ...cacheStillFuture,
+      gameStatus: 'in_progress',
+    }, now)).toBe(false)
   })
 })
