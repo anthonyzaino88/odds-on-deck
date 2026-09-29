@@ -14,6 +14,8 @@ describe('Published props are recorded when they clear the bar', () => {
     expect(validationSrc).toMatch(/export async function persistPublishedEligibleFromCache/)
     expect(validationSrc).toMatch(/toPublishedValidationFields/)
     expect(validationSrc).toMatch(/publishedValidationWritePlan/)
+    expect(validationSrc).toMatch(/skip_foreign/)
+    expect(validationSrc).toMatch(/will not adopt or relabel/)
     expect(validationSrc).toMatch(/Number\.isFinite\(cachedQuality\)/)
     expect(validationSrc).not.toMatch(/source: GAME_LINE_SOURCE[\s\S]{0,200}recordPublishedEligibleProp/)
   })

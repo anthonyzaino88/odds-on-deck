@@ -674,10 +674,23 @@ describe('toPublishedValidationFields', () => {
 })
 
 describe('publishedValidationWritePlan', () => {
-  test('inserts new, updates pending, skips completed', () => {
+  test('inserts new, updates pending system rows, skips completed', () => {
     expect(publishedValidationWritePlan(null)).toBe('insert')
-    expect(publishedValidationWritePlan({ status: 'pending' })).toBe('update')
-    expect(publishedValidationWritePlan({ status: 'completed', result: 'correct' })).toBe('skip')
+    expect(publishedValidationWritePlan({ status: 'pending', source: PUBLISHED_SOURCE })).toBe('update')
+    expect(publishedValidationWritePlan({ status: 'completed', result: 'correct', source: PUBLISHED_SOURCE })).toBe('skip')
+  })
+
+  test('never adopts a pending row whose source is not system_generated', () => {
+    expect(publishedValidationWritePlan({
+      status: 'pending',
+      source: 'user_saved',
+      propId: 'pub-mlb-g1-aaron judge-batter_hits-over-1.5',
+      gameIdRef: 'other-game',
+      playerName: 'Planted',
+    })).toBe('skip_foreign')
+    expect(publishedValidationWritePlan({ status: 'pending', source: 'parlay_leg' })).toBe('skip_foreign')
+    expect(publishedValidationWritePlan({ status: 'pending', source: 'api_generated' })).toBe('skip_foreign')
+    expect(publishedValidationWritePlan({ status: 'pending' })).toBe('skip_foreign')
   })
 })
 
