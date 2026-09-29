@@ -18,15 +18,22 @@ import { classifyStoredOdds } from '../lib/odds-units.js'
 async function main() {
   const { supabaseAdmin } = await import('../lib/supabase-admin.js')
 
-  const { data, error } = await supabaseAdmin
-    .from('PropValidation')
-    .select('id, source, sport, odds, result, status')
-    .not('odds', 'is', null)
-    .limit(20000)
-
-  if (error) throw new Error(`PropValidation odds lookup failed: ${error.message}`)
-
-  const rows = data || []
+  const rows = []
+  const pageSize = 1000
+  let from = 0
+  while (true) {
+    const { data, error } = await supabaseAdmin
+      .from('PropValidation')
+      .select('id, source, sport, odds, result, status')
+      .not('odds', 'is', null)
+      .order('id', { ascending: true })
+      .range(from, from + pageSize - 1)
+    if (error) throw new Error(`PropValidation odds lookup failed: ${error.message}`)
+    const page = data || []
+    rows.push(...page)
+    if (page.length < pageSize) break
+    from += pageSize
+  }
   const byHint = new Map()
   const ambiguous = []
 
@@ -54,7 +61,15 @@ async function main() {
   for (const [key, count] of [...byHint.entries()].sort()) {
     console.log(`   ${key}: ${count}`)
   }
+  const ambiguousBySport = new Map()
+  for (const row of ambiguous) {
+    const key = `${row.sport || '?'}|${row.source || '?'}`
+    ambiguousBySport.set(key, (ambiguousBySport.get(key) || 0) + 1)
+  }
   console.log(`📌 Non-game_line integers in 100–199 (ambiguous band): ${ambiguous.length}`)
+  for (const [key, count] of [...ambiguousBySport.entries()].sort()) {
+    console.log(`   ${key}: ${count}`)
+  }
   console.log('   (this script does not write)')
   for (const row of ambiguous.slice(0, 50)) {
     console.log(`  ${row.id} ${row.sport} ${row.source} odds=${row.odds} detected=${row.detected} ${row.wouldChange}`)
