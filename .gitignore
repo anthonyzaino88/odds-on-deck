@@ -37,8 +37,17 @@ next-env.d.ts
 
 # Prisma
 /prisma/migrations/
-/prisma/*.db
-/prisma/*.db-journal
+
+# Local SQLite / dumps (do not commit; includes nested copies like prisma/prisma/dev.db)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.dump
+
+# Editor / leftover copies from local experiments
+*.bak
+*.orig
 
 # Scripts (test/debug only)
 test-*.js
