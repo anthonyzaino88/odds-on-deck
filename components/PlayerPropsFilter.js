@@ -356,28 +356,15 @@ function PlayerPropCard({ prop, rank }) {
   }, [propKey])
 
   const handleSaveProp = async (e) => {
-    e.preventDefault() // Prevent navigation
+    e.preventDefault()
     e.stopPropagation()
     
-    // Don't save if already saved
     if (isSaved) return
     
     setIsSaving(true)
     try {
-      const response = await fetch('/api/props/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prop })
-      })
-      
-      const data = await response.json()
-      
-      if (data.success) {
-        setIsSaved(true) // Stay saved permanently
-        addSavedProp(propKey) // Save to localStorage
-      } else {
-        alert('Failed to save prop: ' + (data.error || 'Unknown error'))
-      }
+      addSavedProp(propKey)
+      setIsSaved(true)
     } catch (error) {
       console.error('Error saving prop:', error)
       alert('Failed to save prop')
@@ -446,7 +433,7 @@ function PlayerPropCard({ prop, rank }) {
             <button
               onClick={handleSaveProp}
               disabled={isSaving || isSaved}
-              title={isSaved ? 'Tracked — we\u2019ll grade this after the game' : 'Track this prop and grade it after the game'}
+            title={isSaved ? 'Saved (this browser only)' : 'Save in this browser only — not part of the public record'}
               className={cn(
                 'px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors border disabled:opacity-50',
                 isSaved
@@ -454,7 +441,7 @@ function PlayerPropCard({ prop, rank }) {
                   : 'bg-elevated hover:bg-[#283548] text-slate-100 border-white/[0.12]',
               )}
             >
-              {isSaved ? '✓ Tracking' : isSaving ? '...' : 'Track'}
+              {isSaved ? '✓ Saved' : isSaving ? '...' : 'Save'}
             </button>
           </div>
         </div>
@@ -483,25 +470,12 @@ function PropRow({ prop }) {
     e.preventDefault()
     e.stopPropagation()
     
-    // Don't save if already saved
     if (isSaved) return
     
     setIsSaving(true)
     try {
-      const response = await fetch('/api/props/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prop })
-      })
-      
-      const data = await response.json()
-      
-      if (data.success) {
-        setIsSaved(true) // Stay saved permanently
-        addSavedProp(propKey) // Save to localStorage
-      } else {
-        alert('Failed to save prop: ' + (data.error || 'Unknown error'))
-      }
+      addSavedProp(propKey)
+      setIsSaved(true)
     } catch (error) {
       console.error('Error saving prop:', error)
       alert('Failed to save prop')
@@ -552,7 +526,7 @@ function PropRow({ prop }) {
           <button
             onClick={handleSaveProp}
             disabled={isSaving || isSaved}
-            title={isSaved ? 'Tracked — we\u2019ll grade this after the game' : 'Track this prop and grade it after the game'}
+            title={isSaved ? 'Saved (this browser only)' : 'Save in this browser only — not part of the public record'}
             className={cn(
               'px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors border disabled:opacity-50',
               isSaved
@@ -560,7 +534,7 @@ function PropRow({ prop }) {
                 : 'bg-elevated hover:bg-[#283548] text-slate-100 border-white/[0.12]',
             )}
           >
-            {isSaved ? '✓' : isSaving ? '...' : 'Track'}
+            {isSaved ? '✓ Saved' : isSaving ? '...' : 'Save'}
           </button>
         </div>
       </div>

@@ -198,7 +198,6 @@ export default function ParlaysPage() {
         <ParlayBuilder onGenerate={handleGenerate} />
         <ParlayResults
           generatedParlays={generatedParlays}
-          onParlaySaved={handleParlaySaved}
         />
       </div>
 

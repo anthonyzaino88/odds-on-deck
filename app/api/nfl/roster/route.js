@@ -9,6 +9,7 @@ import {
   getGameStarters,
   getTeamInjuryReport 
 } from '../../../../lib/nfl-roster.js'
+import { isAuthorizedAdmin, unauthorized, serverError } from '../../../../lib/api-security.js'
 
 export async function GET(request) {
   try {
@@ -55,7 +56,8 @@ export async function GET(request) {
   }
 }
 
-export async function POST() {
+export async function POST(request) {
+  if (!isAuthorizedAdmin(request)) return unauthorized()
   try {
     console.log('🏈 Fetching and storing NFL rosters...')
     
@@ -76,9 +78,6 @@ export async function POST() {
     
   } catch (error) {
     console.error('Error updating NFL rosters:', error)
-    return NextResponse.json(
-      { error: 'Failed to update NFL rosters' },
-      { status: 500 }
-    )
+    return serverError()
   }
 }
