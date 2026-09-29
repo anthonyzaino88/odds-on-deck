@@ -33,6 +33,7 @@ import {
   parseFeaturedGenerateInput,
   reportFeaturedGameMismatchGrades,
   featuredLegKickoff,
+  toFeaturedParlayLegs,
 } from '../../lib/featured-parlays.js'
 import { persistFeaturedClearedParlay as persistCard } from '../../lib/featured-parlay-persist.js'
 
@@ -179,6 +180,25 @@ describe('persistFeaturedClearedParlay', () => {
     expect(result.ok).toBe(false)
     expect(result.rejected).toBe(true)
     expect(result.reason).toBe('not_featured_cleared')
+    expect(calls.find).toBe(0)
+    expect(calls.insert).toBe(0)
+  })
+
+  test('rejects nhl / mixed so no featured:mixed:* snapshot is written', async () => {
+    const calls = { find: 0, insert: 0 }
+    const deps = {
+      findSnapshots: async () => { calls.find += 1; return [] },
+      insertParlay: async (row) => { calls.insert += 1; return row },
+      insertLegs: async (legs) => legs,
+    }
+    const mixed = await persistCard({ ...featuredParlay(), sport: 'mixed' }, deps)
+    expect(mixed).toMatchObject({
+      ok: false,
+      rejected: true,
+      reason: 'sport_not_published',
+    })
+    const nhl = await persistCard({ ...featuredParlay(), sport: 'nhl' }, deps)
+    expect(nhl.reason).toBe('sport_not_published')
     expect(calls.find).toBe(0)
     expect(calls.insert).toBe(0)
   })
@@ -382,14 +402,15 @@ describe('Featured grading', () => {
     expect(gradePropLegFromActual({ threshold: 1.5, selection: 'under' }, 2)).toBe('lost')
     expect(gradePropLegFromActual({ threshold: 3.5, selection: 'over' }, 3.5)).toBe('push')
 
-    const schultz = { playerName: 'Dalton Schultz', propType: 'player_receptions', selection: 'over', threshold: 3.5, parlayId: 'ed1be445a5284504' }
-    const murray = { playerName: 'Kyler Murray', propType: 'player_pass_tds', selection: 'under', threshold: 1.5, parlayId: 'ed1be445a5284504' }
-    const goff = { playerName: 'Jared Goff', propType: 'player_pass_tds', selection: 'over', threshold: 1.5, parlayId: 'ed1be445a5284504' }
+    const sundayGame = 'TEN_at_DET_2026-09-14'
+    const schultz = { playerName: 'Dalton Schultz', propType: 'player_receptions', selection: 'over', threshold: 3.5, parlayId: 'ed1be445a5284504', gameIdRef: sundayGame }
+    const murray = { playerName: 'Kyler Murray', propType: 'player_pass_tds', selection: 'under', threshold: 1.5, parlayId: 'ed1be445a5284504', gameIdRef: sundayGame }
+    const goff = { playerName: 'Jared Goff', propType: 'player_pass_tds', selection: 'over', threshold: 1.5, parlayId: 'ed1be445a5284504', gameIdRef: sundayGame }
     const sundayLegs = [schultz, murray, goff]
     const sundayActuals = [
-      { playerName: 'Dalton Schultz', propType: 'player_receptions', status: 'completed', actualValue: 4, result: 'correct' },
-      { playerName: 'Kyler Murray', propType: 'player_pass_tds', status: 'completed', actualValue: 0, result: 'correct' },
-      { playerName: 'Jared Goff', propType: 'player_pass_tds', status: 'completed', actualValue: 2, result: 'correct' },
+      { playerName: 'Dalton Schultz', propType: 'player_receptions', status: 'completed', actualValue: 4, result: 'correct', gameIdRef: sundayGame },
+      { playerName: 'Kyler Murray', propType: 'player_pass_tds', status: 'completed', actualValue: 0, result: 'correct', gameIdRef: sundayGame },
+      { playerName: 'Jared Goff', propType: 'player_pass_tds', status: 'completed', actualValue: 2, result: 'correct', gameIdRef: sundayGame },
     ]
     const hit = gradeFeaturedParlayFromValidations(sundayLegs, sundayActuals)
     expect(hit.parlayOutcome).toBe('won')
@@ -519,7 +540,91 @@ describe('Featured grading', () => {
     expect(report).toHaveLength(1)
     expect(report[0].legacyOutcome).toBe('won')
     expect(report[0].nextOutcome).toBe('pending')
-    expect(report[0].wouldChangeStored).toBe(false)
+    expect(report[0].wouldChangeStored).toBe(true)
+  })
+
+  test('a leg with no game ref stays pending even if a name+type row exists', () => {
+    const bare = {
+      playerName: 'Jared Goff',
+      propType: 'player_pass_tds',
+      selection: 'over',
+      threshold: 1.5,
+      gameIdRef: '',
+    }
+    const hit = {
+      playerName: 'Jared Goff',
+      propType: 'player_pass_tds',
+      status: 'completed',
+      result: 'correct',
+      actualValue: 4,
+      gameIdRef: 'DET_at_GB_2026-09-13',
+    }
+    expect(matchValidationToLeg(bare, [hit])).toBeNull()
+    expect(matchValidationToLeg({ ...bare, gameIdRef: '   ' }, [hit])).toBeNull()
+    expect(matchValidationToLeg({ playerName: 'Jared Goff', propType: 'player_pass_tds' }, [hit])).toBeNull()
+    const grade = gradeFeaturedParlayFromValidations([bare], [hit])
+    expect(grade.parlayOutcome).toBe('pending')
+    expect(grade.legOutcomes[0].outcome).toBeNull()
+  })
+
+  test('duplicate / doubleheader ids: same ref can steal the other game; diverged ids stay pending', () => {
+    const sharedId = 'TOR_at_BAL_2026-09-22'
+    const legGame2 = {
+      playerName: 'Vladimir Guerrero Jr.',
+      propType: 'batter_hits',
+      selection: 'over',
+      threshold: 1.5,
+      gameIdRef: sharedId,
+    }
+    const game1Hit = {
+      playerName: 'Vladimir Guerrero Jr.',
+      propType: 'batter_hits',
+      status: 'completed',
+      result: 'correct',
+      actualValue: 3,
+      gameIdRef: sharedId,
+    }
+    const game2Miss = {
+      playerName: 'Vladimir Guerrero Jr.',
+      propType: 'batter_hits',
+      status: 'completed',
+      result: 'incorrect',
+      actualValue: 0,
+      gameIdRef: sharedId,
+    }
+    // fetch-fresh-games.js:305 writes one Game.id for both ends of a DH.
+    const stolen = gradeFeaturedParlayFromValidations([legGame2], [game1Hit])
+    expect(matchValidationToLeg(legGame2, [game1Hit])?.actualValue).toBe(3)
+    expect(stolen.legOutcomes[0].actualValue).toBe(3)
+    expect(stolen.legOutcomes[0].outcome).toBe('won')
+    expect(matchValidationToLeg(legGame2, [game1Hit, game2Miss])?.gameIdRef).toBe(sharedId)
+
+    const diverged = { ...legGame2, gameIdRef: 'TOR_at_BAL_2026-09-22_g2' }
+    expect(matchValidationToLeg(diverged, [game1Hit])).toBeNull()
+    expect(gradeFeaturedParlayFromValidations([diverged], [game1Hit]).parlayOutcome).toBe('pending')
+  })
+
+  test('toFeaturedParlayLegs writes gameId or gameIdRef and empty when both missing', () => {
+    const withId = toFeaturedParlayLegs(featuredParlay({
+      legs: [
+        publishedLeg('Geno Smith', { gameId: 'sea-ten-1' }),
+        publishedLeg('Cam Ward', { gameId: '', gameIdRef: 'sea-ten-2' }),
+        publishedLeg('Tony Pollard', { gameId: 'sea-ten-3', gameIdRef: 'ignored' }),
+      ],
+    }), 'feat-1')
+    expect(withId).toHaveLength(3)
+    expect(withId[0].gameIdRef).toBe('sea-ten-1')
+    expect(withId[1].gameIdRef).toBe('sea-ten-2')
+    expect(withId[2].gameIdRef).toBe('sea-ten-3')
+
+    const empty = toFeaturedParlayLegs(featuredParlay({
+      legs: [
+        publishedLeg('Geno Smith', { gameId: 'g1' }),
+        publishedLeg('Cam Ward', { gameId: 'g2' }),
+        publishedLeg('Tony Pollard', { gameId: '', gameIdRef: '' }),
+      ],
+    }), 'feat-1')
+    expect(empty[2].gameIdRef).toBe('')
   })
 
   test('regrade patch resets a false settle when props are still pending', () => {

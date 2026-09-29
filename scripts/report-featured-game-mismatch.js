@@ -17,6 +17,7 @@ import {
   filterFeaturedCohortRows,
   reportFeaturedGameMismatchGrades,
 } from '../lib/featured-parlays.js'
+import { fetchFeaturedPropValidations } from '../lib/featured-validation-query.js'
 
 async function main() {
   const { supabaseAdmin } = await import('../lib/supabase-admin.js')
@@ -30,21 +31,11 @@ async function main() {
   if (error) throw new Error(`Featured lookup failed: ${error.message}`)
 
   const parlays = filterFeaturedCohortRows(rows || [])
-  const playerNames = [...new Set(parlays.flatMap((parlay) =>
-    (parlay.legs || []).map((leg) => leg.playerName).filter(Boolean)
-  ))]
+  const legs = parlays.flatMap((parlay) => parlay.legs || [])
+  const { data: validations, error: pvError } = await fetchFeaturedPropValidations(supabaseAdmin, legs)
+  if (pvError) throw new Error(`PropValidation lookup failed: ${pvError.message}`)
 
-  let validations = []
-  if (playerNames.length > 0) {
-    const { data, error: pvError } = await supabaseAdmin
-      .from('PropValidation')
-      .select('playerName, propType, prediction, threshold, actualValue, result, status, gameIdRef, parlayId')
-      .in('playerName', playerNames)
-    if (pvError) throw new Error(`PropValidation lookup failed: ${pvError.message}`)
-    validations = data || []
-  }
-
-  const changed = reportFeaturedGameMismatchGrades(parlays, validations)
+  const changed = reportFeaturedGameMismatchGrades(parlays, validations || [])
   console.log(`📌 Featured cards scanned: ${parlays.length}`)
   console.log(`📌 Cards whose rematch grade differs: ${changed.length}`)
   console.log(`📌 Stored settled totals that would change if rewritten: ${changed.filter((row) => row.wouldChangeStored).length}`)

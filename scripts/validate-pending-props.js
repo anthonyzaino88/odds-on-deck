@@ -214,7 +214,7 @@ async function main() {
       ) result = 'correct'
 
       const completedAt = new Date()
-      await updateWithOptionalAudit(
+      const write = await updateWithOptionalAudit(
         (payload) => supabase.from('PropValidation').update(payload).eq('id', v.id),
         {
           actualValue,
@@ -228,6 +228,12 @@ async function main() {
           }),
         },
       )
+
+      if (write?.error) {
+        errors++
+        console.error(`${prefix} ❌ Write failed for ${v.playerName}: ${write.error.message}`)
+        continue
+      }
 
       if (result === 'correct') correct++
       else if (result === 'push') pushes++

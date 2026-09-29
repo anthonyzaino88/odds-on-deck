@@ -17,6 +17,8 @@ import {
   isFeaturedCohortRow,
   summarizeFeaturedParlays,
 } from '../../../../lib/featured-parlays.js'
+import { fetchFeaturedPropValidations } from '../../../../lib/featured-validation-query.js'
+import { fetchAllPages } from '../../../../lib/supabase-page.js'
 
 export async function POST(request) {
   if (!isAuthorizedAdmin(request)) return unauthorized()
@@ -70,16 +72,14 @@ export async function POST(request) {
         }
 
         const playerNames = [...new Set(legs.map((leg) => leg.playerName).filter(Boolean))]
-        let validationsQuery = supabase
-          .from('PropValidation')
-          .select('*')
-        if (playerNames.length > 0) {
-          validationsQuery = validationsQuery.in('playerName', playerNames)
-        } else {
-          validationsQuery = validationsQuery.eq('parlayId', parlay.id)
-        }
-
-        const { data: validations, error: validationError } = await validationsQuery
+        const { data: validations, error: validationError } = playerNames.length > 0
+          ? await fetchFeaturedPropValidations(supabase, legs, '*')
+          : await fetchAllPages((from, to) => supabase
+            .from('PropValidation')
+            .select('*')
+            .eq('parlayId', parlay.id)
+            .order('id', { ascending: true })
+            .range(from, to))
         if (validationError) {
           console.error(`⚠️ Error fetching validations for parlay ${parlay.id}:`, validationError.message)
           continue

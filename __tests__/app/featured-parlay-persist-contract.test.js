@@ -35,11 +35,20 @@ describe('Featured parlay persist contract — Phase B', () => {
     expect(history).toMatch(/summarizeFeaturedParlays/)
     expect(history).toMatch(/attachFeaturedHistoryLegDisplay/)
     expect(history).toMatch(/cohort: 'featured'/)
+    expect(history).toMatch(/fetchFeaturedPropValidations/)
     expect(history).not.toMatch(/validations\.find\(\(row\) =>/)
     expect(validate).toMatch(/FEATURED_COHORT_TAG/)
     expect(validate).toMatch(/dedupeFeaturedCohortRows/)
     expect(validate).toMatch(/gradeFeaturedParlayFromValidations/)
     expect(validate).toMatch(/filterFeaturedCohortRows/)
+    expect(validate).toMatch(/fetchFeaturedPropValidations/)
+    expect(validate).toMatch(/fetchAllPages/)
+
+    const query = read('lib/featured-validation-query.js')
+    expect(query).toMatch(/\.in\('playerName', playerNames\)/)
+    expect(query).toMatch(/\.in\('gameIdRef', gameIdRefs\)/)
+    expect(query).toMatch(/order\('id', \{ ascending: true \}\)/)
+    expect(query).toMatch(/range\(from, to\)/)
 
     const autoValidate = read('scripts/auto-validate-parlays.js')
     expect(autoValidate).toMatch(/gradeFeaturedParlayFromValidations/)
@@ -53,6 +62,8 @@ describe('Featured parlay persist contract — Phase B', () => {
     expect(persist).toMatch(/featuredPersistWritePlan/)
     expect(persist).toMatch(/featuredPersistClaim/)
     expect(persist).toMatch(/deleteParlay/)
+    expect(persist).toMatch(/normalizeFeaturedSnapshotSport/)
+    expect(persist).toMatch(/sport_not_published/)
   })
 
   test('history UI is honest empty and labeled Featured-cleared', () => {
@@ -92,6 +103,7 @@ describe('Featured parlay persist contract — Phase B', () => {
     const mismatch = read('scripts/report-featured-game-mismatch.js')
     expect(mismatch).toMatch(/reportFeaturedGameMismatchGrades/)
     expect(mismatch).toMatch(/Does not write/)
+    expect(mismatch).toMatch(/fetchFeaturedPropValidations/)
     const cleanup = read('scripts/cleanup-duplicate-featured-parlays.js')
     expect(cleanup).toMatch(/planFeaturedDuplicateCleanup/)
     expect(cleanup).toMatch(/--apply/)

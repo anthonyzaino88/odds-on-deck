@@ -4,6 +4,7 @@ import {
   FEATURED_LEG_COUNT,
   hasSameMarketConflict,
   hasSamePlayerConflict,
+  featuredLegKickoff,
   isFeaturedFreshLeg,
   isFeaturedQualityLeg,
   isFeaturedWorthyParlay,
@@ -227,6 +228,24 @@ describe('Featured freshness clock', () => {
       dbGameTime: '2026-09-21T00:00:00.000Z',
       gameStatus: 'scheduled',
     }, now)).toBe(true)
+  })
+
+  test('fails closed when the preferred clock is present but unparseable', () => {
+    const upcoming = mapCachePropToParlayBet(publishedProp('Jared Goff', {
+      gameTime: '2026-09-21T00:00:00.000Z',
+    }))
+    const broken = {
+      ...upcoming,
+      gameTime: '2026-09-21T00:00:00.000Z',
+      dbGameTime: 'not-a-date',
+      gameStatus: 'scheduled',
+    }
+    expect(featuredLegKickoff(broken)).toBeNull()
+    expect(isFeaturedFreshLeg(broken, now)).toBe(false)
+    expect(isFeaturedFreshLeg({
+      ...upcoming,
+      gameTime: 'garbage-clock',
+    }, now)).toBe(false)
   })
 })
 
