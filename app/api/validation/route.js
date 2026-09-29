@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
-import { getValidationStats, getValidationRecords, getAccuracyByEdge, getMostAccuratePropTypes, updatePropResult } from '../../../lib/validation.js'
+import { getValidationStats, getValidationRecords, getAccuracyByEdge, getMostAccuratePropTypes } from '../../../lib/validation.js'
 
 export async function GET(request) {
   try {
@@ -54,29 +54,6 @@ export async function GET(request) {
   }
 }
 
-export async function POST(request) {
-  try {
-    const body = await request.json()
-    
-    if (!body.propId || !body.actualValue) {
-      return NextResponse.json(
-        { success: false, error: 'Missing required fields: propId and actualValue' },
-        { status: 400 }
-      )
-    }
-    
-    const result = await updatePropResult(body.propId, body.actualValue)
-    
-    if (!result) {
-      return NextResponse.json(
-        { success: false, error: 'Failed to update prop result' },
-        { status: 404 }
-      )
-    }
-    
-    return NextResponse.json({ success: true, data: result })
-  } catch (error) {
-    console.error('Error updating prop result:', error)
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 })
-  }
-}
+// POST removed: anonymous grading used the service-role client and could
+// rewrite any PropValidation row. Grading stays on CRON-gated
+// /api/validation/update-result and ops scripts.
