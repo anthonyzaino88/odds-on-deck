@@ -20,6 +20,7 @@ import { getPlayerGameStat as getMLBStat, fetchMLBGameStats } from '../lib/vendo
 import { getPlayerGameStat as getNFLStat } from '../lib/vendors/nfl-game-stats.js'
 import { getPlayerGameStat as getNHLStat } from '../lib/vendors/nhl-game-stats.js'
 import { appendJsonl, loadJsonlFieldSet, resolveBoxScoresDir } from '../lib/local-archive.js'
+import { propValidationGradeAudit, updateWithOptionalAudit } from '../lib/grade-audit.js'
 
 config({ path: '.env.local' })
 
@@ -140,11 +141,19 @@ async function main() {
 
     try {
       if (!game) {
-        await supabase.from('PropValidation').update({
-          status: 'needs_review',
-          notes: 'Game not found in database',
-          completedAt: new Date().toISOString()
-        }).eq('id', v.id)
+        const reviewedAt = new Date()
+        await updateWithOptionalAudit(
+          (payload) => supabase.from('PropValidation').update(payload).eq('id', v.id),
+          {
+            status: 'needs_review',
+            notes: 'Game not found in database',
+            completedAt: reviewedAt.toISOString(),
+            ...propValidationGradeAudit(reviewedAt, {
+              gradedBy: 'system',
+              gradeSource: 'validate_pending_props',
+            }),
+          },
+        )
         needsReview++
         console.log(`${prefix} ⚠️  ${v.playerName} - game not found (${v.gameIdRef})`)
         continue
@@ -179,11 +188,19 @@ async function main() {
       if (actualValue === null || actualValue === undefined) {
         const missingField = sport === 'mlb' ? !game.mlbGameId : !game.espnGameId
         const reason = missingField ? `No ${sport === 'mlb' ? 'mlbGameId' : 'espnGameId'}` : 'Stat not found in API'
-        await supabase.from('PropValidation').update({
-          status: 'needs_review',
-          notes: reason,
-          completedAt: new Date().toISOString()
-        }).eq('id', v.id)
+        const reviewedAt = new Date()
+        await updateWithOptionalAudit(
+          (payload) => supabase.from('PropValidation').update(payload).eq('id', v.id),
+          {
+            status: 'needs_review',
+            notes: reason,
+            completedAt: reviewedAt.toISOString(),
+            ...propValidationGradeAudit(reviewedAt, {
+              gradedBy: 'system',
+              gradeSource: 'validate_pending_props',
+            }),
+          },
+        )
         needsReview++
         console.log(`${prefix} ⚠️  ${v.playerName} ${v.propType} - ${reason}`)
         continue
@@ -196,10 +213,27 @@ async function main() {
         (v.prediction === 'under' && actualValue < v.threshold)
       ) result = 'correct'
 
-      await supabase.from('PropValidation').update({
-        actualValue, result, status: 'completed', completedAt: new Date().toISOString(),
-        notes: `Validated: ${v.prediction.toUpperCase()} ${v.threshold} → Actual: ${actualValue}`
-      }).eq('id', v.id)
+      const completedAt = new Date()
+      const write = await updateWithOptionalAudit(
+        (payload) => supabase.from('PropValidation').update(payload).eq('id', v.id),
+        {
+          actualValue,
+          result,
+          status: 'completed',
+          completedAt: completedAt.toISOString(),
+          notes: `Validated: ${v.prediction.toUpperCase()} ${v.threshold} → Actual: ${actualValue}`,
+          ...propValidationGradeAudit(completedAt, {
+            gradedBy: 'system',
+            gradeSource: 'validate_pending_props',
+          }),
+        },
+      )
+
+      if (write?.error) {
+        errors++
+        console.error(`${prefix} ❌ Write failed for ${v.playerName}: ${write.error.message}`)
+        continue
+      }
 
       if (result === 'correct') correct++
       else if (result === 'push') pushes++

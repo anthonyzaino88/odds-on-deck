@@ -6,6 +6,7 @@ import {
   isAmericanOddsInPublishedBand,
   unitsFromResult,
   impliedProbabilityFromOdds,
+  classifyStoredOdds,
 } from '../../lib/odds-units.js'
 
 describe('detectOddsFormat', () => {
@@ -89,6 +90,24 @@ describe('isAmericanOddsInPublishedBand', () => {
     expect(isAmericanOddsInPublishedBand(1.40)).toBe(false)
     expect(isAmericanOddsInPublishedBand(4.00)).toBe(false)
     expect(isAmericanOddsInPublishedBand(null)).toBe(false)
+  })
+})
+
+describe('classifyStoredOdds', () => {
+  test('game_line rows hint American even in the 100-199 band', () => {
+    expect(classifyStoredOdds(150, { source: 'game_line' })).toMatchObject({
+      format: 'american',
+      hint: 'american',
+      ambiguousBand: true,
+    })
+  })
+
+  test('parlay_leg 1.91 stays decimal; 150 is flagged ambiguous', () => {
+    expect(classifyStoredOdds(1.91, { source: 'parlay_leg' }).hint).toBe('decimal')
+    expect(classifyStoredOdds(150, { source: 'system_generated' })).toMatchObject({
+      format: 'american',
+      ambiguousBand: true,
+    })
   })
 })
 

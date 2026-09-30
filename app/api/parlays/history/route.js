@@ -11,6 +11,7 @@ import {
   filterFeaturedCohortRows,
   summarizeFeaturedParlays,
 } from '../../../../lib/featured-parlays.js'
+import { fetchFeaturedPropValidations } from '../../../../lib/featured-validation-query.js'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -53,22 +54,15 @@ export async function GET(request) {
 
     console.log(`✅ Found ${parlays.length} Featured-cleared parlays`)
 
-    const playerNames = [...new Set(parlays.flatMap((parlay) =>
-      (parlay.legs || []).map((leg) => leg.playerName).filter(Boolean)
-    ))]
-
-    let validations = []
-    if (playerNames.length > 0) {
-      const { data } = await supabase
-        .from('PropValidation')
-        .select('playerName, propType, prediction, threshold, actualValue, result, status, gameIdRef, parlayId')
-        .in('playerName', playerNames)
-      validations = data || []
+    const legs = parlays.flatMap((parlay) => parlay.legs || [])
+    const { data: validations, error: validationError } = await fetchFeaturedPropValidations(supabase, legs)
+    if (validationError) {
+      throw new Error(`PropValidation lookup failed: ${validationError.message}`)
     }
 
     for (const parlay of parlays) {
       if (!parlay.legs) continue
-      parlay.legs = parlay.legs.map((leg) => attachFeaturedHistoryLegDisplay(leg, validations))
+      parlay.legs = parlay.legs.map((leg) => attachFeaturedHistoryLegDisplay(leg, validations || []))
     }
 
     return NextResponse.json({

@@ -25,6 +25,8 @@
     "record:published": "node scripts/record-published-props.js",
     "record:featured": "node scripts/record-featured-parlays.js",
     "cleanup:featured-dupes": "node scripts/cleanup-duplicate-featured-parlays.js",
+    "report:featured-game-mismatch": "node scripts/report-featured-game-mismatch.js",
+    "report:odds-format": "node scripts/report-odds-format-ambiguity.js",
     "check-validations": "node scripts/check-pending-validations.js",
     "export:csv": "curl http://localhost:3000/api/export/parlays?format=csv",
     "export:stats": "curl http://localhost:3000/api/export/stats"

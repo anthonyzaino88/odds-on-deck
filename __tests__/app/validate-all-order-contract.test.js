@@ -43,4 +43,11 @@ describe('validate:all grades props before parlays', () => {
     expect(ops).toMatch(/Props first/)
     expect(ops).toMatch(/npm run regrade:featured/)
   })
+
+  test('validate-pending-props does not count a failed grade write as success', () => {
+    const src = read('scripts/validate-pending-props.js')
+    expect(src).toMatch(/if \(write\?\.error\)/)
+    expect(src).toMatch(/errors\+\+/)
+    expect(src).toMatch(/Write failed for/)
+  })
 })
