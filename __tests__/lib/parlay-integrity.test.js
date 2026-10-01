@@ -2,6 +2,7 @@ import {
   assembleParlays,
   combinationPassesIntegrity,
   FEATURED_LEG_COUNT,
+  generateCombinations,
   hasSameMarketConflict,
   hasSamePlayerConflict,
   featuredLegKickoff,
@@ -123,6 +124,23 @@ describe('player identity', () => {
     expect(under.playerId).toBe(playerCorrelationKey(under))
     expect(under.playerId).not.toContain('player_pass_tds-1.5')
     expect(under.playerId).not.toContain('player_pass_tds-0.5')
+  })
+})
+
+describe('generateCombinations input guard', () => {
+  const bets = Array.from({ length: 8 }, (_, i) => ({ id: i }))
+
+  test('rejects legs outside 2-6 so the walk cannot hang', () => {
+    expect(generateCombinations(bets, -1)).toEqual([])
+    expect(generateCombinations(bets, 0)).toEqual([])
+    expect(generateCombinations(bets, 1)).toEqual([])
+    expect(generateCombinations(bets, 10)).toEqual([])
+    expect(generateCombinations(bets, Number.NaN)).toEqual([])
+  })
+
+  test('still builds in-range combinations', () => {
+    expect(generateCombinations(bets, 2).length).toBeGreaterThan(0)
+    expect(generateCombinations(bets, 6)).toHaveLength(28)
   })
 })
 

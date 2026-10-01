@@ -12,6 +12,7 @@ import {
   loadFeaturedSnapshotCard,
   persistFeaturedClearedParlays,
 } from '../../../../lib/featured-parlay-persist.js'
+import { clampMaxParlays, clampParlayLegs } from '../../../../lib/api-limits.js'
 
 async function persistFeaturedIfNeeded(parlays, isFeatured) {
   if (!isFeatured || !Array.isArray(parlays) || parlays.length === 0) {
@@ -66,22 +67,17 @@ export async function POST(request) {
     }
     const { sport, type, featured } = parsed
     const {
-      legCount = 3,
+      legCount: rawLegCount = 3,
       minEdge = 0.05,
-      maxParlays = 10,
+      maxParlays: rawMaxParlays = 10,
       minConfidence = 'medium',
       filterMode = 'balanced',
       gameId = null,
     } = body
+    const legCount = clampParlayLegs(rawLegCount)
+    const maxParlays = clampMaxParlays(rawMaxParlays)
 
     console.log(`🎯 Generating parlays: ${legCount}-leg ${sport} (${type})${gameId ? ` for game ${gameId}` : ''}`)
-
-    if (legCount < 2 || legCount > 10) {
-      return NextResponse.json(
-        { error: 'Leg count must be between 2 and 10' },
-        { status: 400 }
-      )
-    }
 
     const isFeatured = featured
 
@@ -134,9 +130,9 @@ export async function GET(request) {
       return NextResponse.json({ error: parsed.error }, { status: 400 })
     }
     const { sport, type, featured } = parsed
-    const legCount = parseInt(searchParams.get('legs')) || 3
+    const legCount = clampParlayLegs(searchParams.get('legs'))
     const minEdge = parseFloat(searchParams.get('minEdge')) || 0.05
-    const maxParlays = parseInt(searchParams.get('maxParlays')) || 10
+    const maxParlays = clampMaxParlays(searchParams.get('maxParlays'))
     const filterMode = searchParams.get('filterMode') || 'safe'
     const gameId = searchParams.get('gameId') || null
     const featuredLegCount = featured ? FEATURED_LEG_COUNT : legCount

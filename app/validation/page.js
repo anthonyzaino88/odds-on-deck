@@ -80,7 +80,7 @@ export default async function ValidationDashboard({ searchParams }) {
     getValidationStats(statsOpts),
     getPublishedPicksStats({ days }),
     getSidesTotalsStats({ days }),
-    getValidationRecords({ limit: 50 }),
+    getValidationRecords({ limit: 50, excludePending: true }),
     getValidationCounts(),
     getValidationStats({ ...statsOpts, sport: 'nfl' }),
     getValidationStats({ ...statsOpts, sport: 'nhl' }),
