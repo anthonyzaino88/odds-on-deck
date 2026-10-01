@@ -4,6 +4,8 @@ import {
   decorateGameLine,
   gameLineEdgeWhy,
   gradeGameLineFromScores,
+  isFinalGameStatus,
+  shouldGradeGameLine,
   isApprovedNflGameLine,
   isGameLineRecord,
   isPublicGameLine,
@@ -224,5 +226,32 @@ describe('gradeGameLineFromScores', () => {
       { type: 'moneyline', pick: 'KC' },
       { homeScore: 17, awayScore: 17, home: { abbr: 'KC' }, away: { abbr: 'DEN' } },
     )).toEqual({ result: 'push', actualValue: 17 })
+  })
+
+  test('unplayed if-necessary 0-0 is a push only if graded — shouldGradeGameLine refuses', () => {
+    const unplayed = {
+      status: 'postponed',
+      homeScore: 0,
+      awayScore: 0,
+      sport: 'mlb',
+      home: { abbr: 'HOU' },
+      away: { abbr: 'CHW' },
+    }
+    expect(isFinalGameStatus('postponed')).toBe(false)
+    expect(shouldGradeGameLine(unplayed)).toBe(false)
+    expect(shouldGradeGameLine({ ...unplayed, status: 'final' })).toBe(false)
+    expect(gradeGameLineFromScores(
+      { type: 'moneyline', pick: 'CHW' },
+      unplayed,
+    )).toEqual({ result: 'push', actualValue: 0 })
+  })
+
+  test('real MLB finals still grade', () => {
+    expect(shouldGradeGameLine({
+      status: 'final',
+      homeScore: 4,
+      awayScore: 2,
+      sport: 'mlb',
+    })).toBe(true)
   })
 })

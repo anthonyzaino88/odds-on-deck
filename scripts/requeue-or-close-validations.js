@@ -7,11 +7,16 @@
  *   - close_missing: close rows whose game record is missing.
  *   - close_final_no_stats: close rows whose game is final but stats were unavailable.
  *
- * Filters (env):
+ * Filters (env or flags):
  *   - STATUSES: comma list of statuses to target (default: needs_review)
- *   - SPORT: optional sport filter (e.g., nfl, nhl, mlb)
+ *   - SPORT / --sport: optional sport filter (e.g., nfl, nhl, mlb)
+ *   - SOURCE / --source: optional PropValidation.source filter (e.g. game_line)
  *   - AFTER_DATE / BEFORE_DATE: ISO date filters on validation.timestamp
  *   - LIMIT: max rows to process (default 200)
+ *
+ * Example (requeue sides & totals wrongly sent to needs_review):
+ *   SOURCE=game_line SPORT=mlb ACTION=requeue node scripts/requeue-or-close-validations.js
+ *   node scripts/requeue-or-close-validations.js --source game_line --sport mlb
  */
 import { config } from 'dotenv'
 
@@ -77,21 +82,29 @@ function parseDate(input) {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
+function takeFlag(argv, flag) {
+  const i = argv.indexOf(flag)
+  if (i >= 0 && argv[i + 1] && !String(argv[i + 1]).startsWith('--')) return argv[i + 1]
+  return null
+}
+
 async function main() {
   const supabase = await getSupabase()
+  const argv = process.argv.slice(2)
 
-  const action = (process.env.ACTION || 'requeue').toLowerCase()
-  const statuses = (process.env.STATUSES || 'needs_review')
+  const action = (takeFlag(argv, '--action') || process.env.ACTION || 'requeue').toLowerCase()
+  const statuses = (takeFlag(argv, '--statuses') || process.env.STATUSES || 'needs_review')
     .split(',')
     .map(s => s.trim())
     .filter(Boolean)
-  const sport = process.env.SPORT || null
+  const sport = takeFlag(argv, '--sport') || process.env.SPORT || null
+  const source = takeFlag(argv, '--source') || process.env.SOURCE || null
   const afterDate = parseDate(process.env.AFTER_DATE)
   const beforeDate = parseDate(process.env.BEFORE_DATE)
-  const limit = parseInt(process.env.LIMIT || '200', 10)
+  const limit = parseInt(takeFlag(argv, '--limit') || process.env.LIMIT || '200', 10)
 
   console.log(`\n🚦 Action: ${action}`)
-  console.log(`🎯 Statuses: ${statuses.join(', ')} | Sport: ${sport || 'any'} | Limit: ${limit}`)
+  console.log(`🎯 Statuses: ${statuses.join(', ')} | Sport: ${sport || 'any'} | Source: ${source || 'any'} | Limit: ${limit}`)
   if (afterDate) console.log(`⏩ After: ${afterDate.toISOString()}`)
   if (beforeDate) console.log(`⏪ Before: ${beforeDate.toISOString()}`)
   console.log('')
@@ -122,6 +135,10 @@ async function main() {
   for (const v of validations) {
     processed++
     if (sport && v.sport !== sport) {
+      skipped++
+      continue
+    }
+    if (source && String(v.source || '').toLowerCase().trim() !== String(source).toLowerCase().trim()) {
       skipped++
       continue
     }
