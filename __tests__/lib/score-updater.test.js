@@ -12,10 +12,17 @@ import {
   fetchActiveGamesForSport,
   looksUnplayedIfNecessary,
   normalizeStatus,
+  assertRepairApplyAllowed,
   parseRepairStuckMlbArgs,
   parseStoredGameDate,
   refreshGameScores,
 } from '../../lib/score-updater.js'
+import { parseSupabaseDate } from '../../lib/date-utils.js'
+import {
+  applyRequeueQueryFilters,
+  parseRequeueArgs,
+  requireRequeueSource,
+} from '../../lib/requeue-validations.js'
 import { shouldSkipPlayerStatValidation } from '../../lib/pending-props.js'
 import { shouldGradeGameLine, gradeGameLineFromScores } from '../../lib/game-lines.js'
 
@@ -145,10 +152,12 @@ describe('pre_game / warmup rows are selected and can move to live or final', ()
     const supabase = {
       from: jest.fn(() => ({
         update: (data) => ({
-          eq: async (col, id) => {
-            writes.push({ data, id })
-            return { error: null }
-          },
+          eq: (col, id) => ({
+            select: async () => {
+              writes.push({ data, id })
+              return { error: null, data: [{ id }] }
+            },
+          }),
         }),
         select: () => ({
           eq: () => ({
@@ -221,6 +230,31 @@ describe('stale unplayed if-necessary games are not graded as a push', () => {
     expect(fromBuild.updateData.status).toBe('postponed')
   })
 
+  test('stale game with scores and no live data is marked final', () => {
+    const plan = decideMissingLiveDataUpdate({
+      id: 'NYY_at_BOS_2026-09-29',
+      status: 'pre_game',
+      date: '2026-09-29T17:08:00',
+      mlbGameId: '824785',
+      homeScore: 5,
+      awayScore: 3,
+    }, { now: Date.parse('2026-10-01T20:00:00.000Z') })
+    expect(plan.action).toBe('update')
+    expect(plan.updateData.status).toBe('final')
+  })
+
+  test('under-24h missing live data is left alone', () => {
+    const plan = decideMissingLiveDataUpdate({
+      id: 'CHW_at_HOU_2026-10-01',
+      status: 'scheduled',
+      date: '2026-10-01T12:00:00',
+      homeScore: 0,
+      awayScore: 0,
+    }, { now: Date.parse('2026-10-01T20:00:00.000Z') })
+    expect(plan.action).toBe('skip')
+    expect(plan.updateData).toBeUndefined()
+  })
+
   test('gradePendingGameLines gate refuses postponed and 0-0 MLB finals', () => {
     expect(shouldGradeGameLine({ ...ifNecessary, status: 'postponed' })).toBe(false)
     expect(shouldGradeGameLine({ ...ifNecessary, status: 'final' })).toBe(false)
@@ -237,6 +271,13 @@ describe('stored Game.date without a timezone is UTC', () => {
     expect(parsed.toISOString()).toBe('2026-09-30T23:08:00.000Z')
     expect(parseStoredGameDate('2026-09-30T23:08:00.000Z').toISOString()).toBe('2026-09-30T23:08:00.000Z')
     expect(parseStoredGameDate('2026-09-30T23:08:00+00:00').toISOString()).toBe('2026-09-30T23:08:00.000Z')
+  })
+
+  test('parseSupabaseDate keeps offsets and rejects invalid input', () => {
+    expect(parseSupabaseDate('2026-09-30T19:08:00-04:00').toISOString()).toBe('2026-09-30T23:08:00.000Z')
+    expect(parseSupabaseDate('not-a-date')).toBeNull()
+    expect(parseSupabaseDate('')).toBeNull()
+    expect(parseSupabaseDate(null)).toBeNull()
   })
 
   test('just-started 0-0 stays in_progress instead of being held as scheduled', () => {
@@ -284,6 +325,103 @@ describe('repair CLI args', () => {
       to: '2026-09-30',
       help: false,
     })
+  })
+
+  test('--apply refuses anon / missing write key', () => {
+    expect(() => assertRepairApplyAllowed(true, {
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon',
+    })).toThrow(/SUPABASE_SECRET_KEY/)
+    expect(assertRepairApplyAllowed(true, { SUPABASE_SECRET_KEY: 'secret' })).toBe('secret')
+    expect(assertRepairApplyAllowed(true, { SUPABASE_SERVICE_ROLE_KEY: 'role' })).toBe('role')
+    expect(assertRepairApplyAllowed(false, { NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon' })).toBe('anon')
+  })
+
+  test('0-row apply update is counted as an error', async () => {
+    const game = {
+      id: 'ARI_at_SD_2026-09-25',
+      status: 'pre_game',
+      date: '2026-09-26T01:40:00',
+      mlbGameId: '1',
+      homeScore: 0,
+      awayScore: 0,
+      home: { abbr: 'SD' },
+      away: { abbr: 'ARI' },
+    }
+    const result = await refreshGameScores({
+      sport: 'mlb',
+      games: [game],
+      supabase: {
+        from: () => ({
+          update: () => ({
+            eq: () => ({
+              select: async () => ({ error: null, data: [] }),
+            }),
+          }),
+        }),
+      },
+      apply: true,
+      mlbLiveByPk: new Map([['1', { status: 'final', homeScore: 4, awayScore: 11 }]]),
+      now: Date.parse('2026-09-26T06:00:00.000Z'),
+      delayMs: 0,
+      log: () => {},
+      error: () => {},
+    })
+    expect(result.updated).toBe(0)
+    expect(result.errors).toBe(1)
+  })
+})
+
+describe('requeue source filter and dry-run', () => {
+  test('requires --source or SOURCE=', () => {
+    expect(() => requireRequeueSource(null)).toThrow(/--source/)
+    expect(() => requireRequeueSource('')).toThrow(/--source/)
+    expect(requireRequeueSource('game_line')).toBe('game_line')
+  })
+
+  test('parses CLI flags and env, including --dry-run', () => {
+    expect(parseRequeueArgs(['--source', 'game_line', '--sport', 'mlb', '--dry-run'])).toMatchObject({
+      source: 'game_line',
+      sport: 'mlb',
+      dryRun: true,
+      action: 'requeue',
+    })
+    expect(parseRequeueArgs([], { SOURCE: 'game_line', SPORT: 'mlb' })).toMatchObject({
+      source: 'game_line',
+      sport: 'mlb',
+      dryRun: false,
+    })
+  })
+
+  test('applies sport and source on the query before limit', () => {
+    const order = []
+    const chain = {
+      in: (...a) => { order.push(['in', ...a]); return chain },
+      eq: (...a) => { order.push(['eq', ...a]); return chain },
+      order: (...a) => { order.push(['order', ...a]); return chain },
+      limit: (...a) => { order.push(['limit', ...a]); return chain },
+    }
+    applyRequeueQueryFilters(chain, {
+      statuses: ['needs_review'],
+      sport: 'mlb',
+      source: 'game_line',
+      limit: 200,
+    })
+    expect(order).toEqual([
+      ['in', 'status', ['needs_review']],
+      ['eq', 'sport', 'mlb'],
+      ['eq', 'source', 'game_line'],
+      ['order', 'timestamp', { ascending: true }],
+      ['limit', 200],
+    ])
+    expect(order.findIndex((step) => step[0] === 'eq' && step[1] === 'source'))
+      .toBeLessThan(order.findIndex((step) => step[0] === 'limit'))
+  })
+
+  test('script dry-run path does not update PropValidation', () => {
+    const src = readFileSync(join(process.cwd(), 'scripts/requeue-or-close-validations.js'), 'utf8')
+    expect(src).toMatch(/requireRequeueSource/)
+    expect(src).toMatch(/applyRequeueQueryFilters/)
+    expect(src).toMatch(/if \(args\.dryRun\) \{[\s\S]*would requeue[\s\S]*continue/)
   })
 })
 

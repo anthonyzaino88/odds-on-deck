@@ -9,6 +9,8 @@
  *
  * Dry-run by default (reads Game + StatsAPI/ESPN, writes nothing).
  * Pass --apply to write the same score-updater payload.
+ * --apply requires SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY).
+ * Anon writes are silent RLS no-ops and are refused.
  *
  * Usage:
  *   node scripts/repair-stuck-mlb-scores.js
@@ -20,14 +22,9 @@
  * `--to 2026-10-01`.
  *
  * Requeue game_line rows that validate-pending-props wrongly sent to
- * needs_review ("Stat not found in API."). Default requeue mode only
- * flips a row back to pending when its Game is final (or dated before
- * yesterday). Prefer waiting until this repair (or the hourly updater)
- * has marked the game final:
+ * needs_review ("Stat not found in API."). --source is required:
  *
- *   SOURCE=game_line SPORT=mlb ACTION=requeue \
- *     node scripts/requeue-or-close-validations.js
- *
+ *   node scripts/requeue-or-close-validations.js --source game_line --sport mlb --dry-run
  *   node scripts/requeue-or-close-validations.js --source game_line --sport mlb
  *
  * Then gradePendingGameLines (persistGameLines / validation job) waits
@@ -41,6 +38,7 @@ import { fetchLiveGameData, fetchLiveGamesByDateRange, mlbScheduleDateWindow } f
 import { parseEspnMlbSummary } from '../lib/mlb-live-status.js'
 import {
   STUCK_MLB_REPAIR_STATUSES,
+  assertRepairApplyAllowed,
   fetchStuckMlbGames,
   parseRepairStuckMlbArgs,
   printScoreRecap,
@@ -48,11 +46,6 @@ import {
 } from '../lib/score-updater.js'
 
 config({ path: '.env.local' })
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
 
 async function fetchMLBFromESPN(espnGameId) {
   try {
@@ -74,7 +67,8 @@ async function main() {
 
 Dry-run (default): select stuck MLB rows (pre_game / warmup / delayed)
 older than now, fetch live status, print the write plan. No DB writes.
---apply: write the updater payload.
+--apply: write the updater payload. Requires SUPABASE_SECRET_KEY
+(or SUPABASE_SERVICE_ROLE_KEY). Anon is refused because RLS no-ops.
 
 Default range is the last 14 UTC days through now.
 --from/--to are inclusive UTC days. Night ET games on 9/30 are stored
@@ -86,6 +80,21 @@ as 2026-10-01T00:00Z, so use --to 2026-10-01 for that Wild Card slate.`)
     console.error('❌ Missing NEXT_PUBLIC_SUPABASE_URL. Load .env.local or export credentials.')
     process.exit(1)
   }
+
+  let key
+  try {
+    key = assertRepairApplyAllowed(args.apply, process.env)
+  } catch (err) {
+    console.error(`❌ ${err.message}`)
+    process.exit(1)
+  }
+
+  if (!key) {
+    console.error('❌ Missing Supabase key. Load .env.local or export credentials.')
+    process.exit(1)
+  }
+
+  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, key)
 
   console.log('\n🔧 REPAIR STUCK MLB SCORES')
   console.log('='.repeat(60))
@@ -158,9 +167,11 @@ as 2026-10-01T00:00Z, so use --to 2026-10-01 for that Wild Card slate.`)
   if (!args.apply) {
     console.log('💡 Dry-run. Re-run with --apply to write Game rows.')
     console.log('💡 After finals land, requeue needs_review game_line rows:')
-    console.log('   SOURCE=game_line SPORT=mlb ACTION=requeue node scripts/requeue-or-close-validations.js')
+    console.log('   node scripts/requeue-or-close-validations.js --source game_line --sport mlb --dry-run')
     console.log('   node scripts/requeue-or-close-validations.js --source game_line --sport mlb')
   }
+
+  if (result.errors > 0) process.exit(1)
 }
 
 main().catch((err) => {
