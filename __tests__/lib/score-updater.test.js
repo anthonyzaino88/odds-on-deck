@@ -10,7 +10,10 @@ import {
   buildScoreUpdate,
   decideMissingLiveDataUpdate,
   fetchActiveGamesForSport,
+  fetchMlbResumeGames,
+  isMlbResumeCandidate,
   looksUnplayedIfNecessary,
+  mergeGameLists,
   normalizeStatus,
   assertRepairApplyAllowed,
   parseRepairStuckMlbArgs,
@@ -53,11 +56,12 @@ const RESOLVER_PAYLOADS = [
 ]
 
 function createSelectChain(result = { data: [], error: null }) {
-  const calls = { in: [], eq: [], gte: [], lte: [], lt: [], order: [] }
+  const calls = { in: [], eq: [], gte: [], lte: [], lt: [], not: [], order: [] }
   const chain = {
     select: jest.fn(() => chain),
     eq: jest.fn((...a) => { calls.eq.push(a); return chain }),
     in: jest.fn((...a) => { calls.in.push(a); return chain }),
+    not: jest.fn((...a) => { calls.not.push(a); return chain }),
     gte: jest.fn((...a) => { calls.gte.push(a); return chain }),
     lte: jest.fn((...a) => { calls.lte.push(a); return chain }),
     lt: jest.fn((...a) => { calls.lt.push(a); return chain }),
@@ -95,6 +99,71 @@ describe('ACTIVE_GAME_STATUSES covers every MLB resolver non-terminal', () => {
     expect(ACTIVE_GAME_STATUSES).toContain('pre_game')
   })
 
+  test('postponed/suspended MLB with a gamePk is a resume candidate for 7 days', () => {
+    const now = Date.parse('2026-10-01T12:00:00.000Z')
+    expect(isMlbResumeCandidate({
+      status: 'postponed',
+      mlbGameId: '778800',
+      date: '2026-09-27T23:05:00.000Z',
+    }, { now })).toBe(true)
+    expect(isMlbResumeCandidate({
+      status: 'suspended',
+      mlbGameId: '778801',
+      date: '2026-09-29T23:05:00.000Z',
+    }, { now })).toBe(true)
+    expect(isMlbResumeCandidate({
+      status: 'postponed',
+      mlbGameId: null,
+      date: '2026-09-27T23:05:00.000Z',
+    }, { now })).toBe(false)
+    expect(isMlbResumeCandidate({
+      status: 'postponed',
+      mlbGameId: '778800',
+      date: '2026-09-20T23:05:00.000Z',
+    }, { now })).toBe(false)
+  })
+
+  test('makeup final flips a postponed row that still has the same gamePk', () => {
+    const plan = buildScoreUpdate({
+      game: {
+        id: 'BAL_at_NYY_2026-09-27',
+        status: 'postponed',
+        date: '2026-09-27T23:05:00',
+        mlbGameId: '778800',
+        homeScore: 0,
+        awayScore: 0,
+      },
+      liveData: { status: 'final', homeScore: 4, awayScore: 2 },
+      sport: 'mlb',
+      now: Date.parse('2026-09-29T23:00:00.000Z'),
+    })
+    expect(plan.action).toBe('update')
+    expect(plan.updateData.status).toBe('final')
+    expect(plan.updateData.homeScore).toBe(4)
+    expect(plan.updateData.awayScore).toBe(2)
+  })
+
+  test('fetchMlbResumeGames queries postponed/suspended with a gamePk window', async () => {
+    const { chain, calls } = createSelectChain({
+      data: [{
+        id: 'BAL_at_NYY_2026-09-27',
+        status: 'postponed',
+        mlbGameId: '778800',
+        date: '2026-09-27T23:05:00.000Z',
+      }],
+      error: null,
+    })
+    const supabase = { from: jest.fn(() => chain) }
+    const { games, error } = await fetchMlbResumeGames(supabase, {
+      now: Date.parse('2026-10-01T12:00:00.000Z'),
+    })
+    expect(error).toBeNull()
+    expect(calls.in).toContainEqual(['status', ['postponed', 'suspended']])
+    expect(calls.not).toContainEqual(['mlbGameId', 'is', null])
+    expect(games).toHaveLength(1)
+    expect(mergeGameLists([{ id: 'a' }], [{ id: 'a' }, { id: 'b' }])).toEqual([{ id: 'a' }, { id: 'b' }])
+  })
+
   test('hourly updater query uses ACTIVE_GAME_STATUSES', async () => {
     const { chain, calls } = createSelectChain({
       data: [{ id: 'g1', status: 'pre_game' }],
@@ -110,6 +179,7 @@ describe('ACTIVE_GAME_STATUSES covers every MLB resolver non-terminal', () => {
 
     const updaterSrc = readFileSync(join(process.cwd(), 'scripts/update-scores-safely.js'), 'utf8')
     expect(updaterSrc).toMatch(/fetchActiveGamesForSport/)
+    expect(updaterSrc).toMatch(/fetchMlbResumeGames/)
     expect(updaterSrc).not.toMatch(/\.in\('status', \['scheduled', 'in_progress', 'in-progress'\]\)/)
   })
 })
@@ -304,10 +374,10 @@ describe('validate-pending-props skips game_line rows', () => {
     expect(shouldSkipPlayerStatValidation({ source: 'system_generated', propType: 'moneyline' })).toBe(false)
   })
 
-  test('script uses the helper before the dated-before-yesterday final shortcut', () => {
+  test('script plans player-stat validation instead of dating-a-game-final', () => {
     const src = readFileSync(join(process.cwd(), 'scripts/validate-pending-props.js'), 'utf8')
-    expect(src).toMatch(/shouldSkipPlayerStatValidation/)
-    expect(src.indexOf('shouldSkipPlayerStatValidation')).toBeLessThan(src.indexOf('gameDate < yesterday'))
+    expect(src).toMatch(/planPlayerStatValidation/)
+    expect(src).not.toMatch(/gameDate < yesterday/)
   })
 })
 

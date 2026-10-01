@@ -30,7 +30,23 @@ import {
   gradeFeaturedParlayFromValidations,
   gradePropLegFromValidation,
   isFeaturedCohortRow,
+  isNumericFeaturedActual,
 } from '../lib/featured-parlays.js'
+import {
+  aggregateParlayOutcomes,
+  attachSettledParlayOdds,
+  classifyGameForGrading,
+  describeVoidNotes,
+  HOLD_TIMEOUT_DAYS,
+  isEspnCompetitionGradeable,
+  shouldVoidFromGame,
+} from '../lib/game-grade-eligibility.js'
+import { planGameLineSettlement } from '../lib/game-lines.js'
+import {
+  gradeMoneylineFromGame,
+  gradeTotalFromGame,
+  teamMatches,
+} from '../lib/parlay-game-grade.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.join(__dirname, '..', '.env.local') })
@@ -117,56 +133,23 @@ function isPropLeg(leg) {
   return Boolean(leg.playerName && (leg.betType === 'prop' || leg.propType) && !isTotalLeg(leg) && !isMoneylineLeg(leg))
 }
 
-function isGameFinal(game) {
-  const status = String(game?.status || '').toLowerCase()
-  return ['final', 'completed', 'f', 'closed', 'post', 'status_final'].includes(status)
+function shouldSkipEspnFallback(game) {
+  if (shouldVoidFromGame(game)) return true
+  const reason = classifyGameForGrading(game).reason
+  return ['postponed', 'suspended', 'delayed', 'in_progress', 'live', 'halftime', 'mlb_unplayed_0_0'].includes(reason)
 }
 
-function gameHasScores(game) {
-  return isNumeric(game?.homeScore) && isNumeric(game?.awayScore)
-}
-
-function isLiveOrUpcoming(game) {
-  const status = String(game?.status || '').toLowerCase()
-  return ['scheduled', 'pre-game', 'pre_game', 'warmup', 'in_progress', 'in progress', 'live'].includes(status)
-}
-
-function todayEt() {
-  return etDateKey(new Date())
-}
-
-function gameDateIsPast(game) {
-  const gameDay = etDateKey(game?.date)
-  const today = todayEt()
-  return Boolean(gameDay && today && gameDay < today)
-}
-
-function canGradeFromGame(game) {
-  if (!game || !gameHasScores(game)) return false
-  if (isGameFinal(game)) return true
-  if (isLiveOrUpcoming(game)) return false
-  return gameDateIsPast(game)
-}
-
-function teamMatches(selection, abbr) {
-  if (!selection || !abbr) return false
-  const a = String(selection).toUpperCase()
-  const b = String(abbr).toUpperCase()
-  if (a === b) return true
-  if (TEAM_VARIATIONS[a] === b || TEAM_VARIATIONS[b] === a) return true
-  return false
+function holdTimeoutFromGame(game) {
+  const plan = planGameLineSettlement(game)
+  if (plan.action !== 'needs_review') return null
+  return {
+    outcome: 'needs_review',
+    notes: `Hold timeout — game still ${game?.status || 'postponed'} after ${HOLD_TIMEOUT_DAYS} days`,
+  }
 }
 
 function aggregateParlay(outcomes) {
-  const lost = outcomes.filter((o) => o === 'lost').length
-  const push = outcomes.filter((o) => o === 'push').length
-  const won = outcomes.filter((o) => o === 'won').length
-  const unresolved = outcomes.filter((o) => o !== 'won' && o !== 'lost' && o !== 'push').length
-  if (unresolved) return 'pending'
-  if (lost > 0) return 'lost'
-  if (push > 0) return 'push'
-  if (won === outcomes.length && outcomes.length > 0) return 'won'
-  return 'pending'
+  return aggregateParlayOutcomes(outcomes)
 }
 
 function pickPropValidation(leg, validations) {
@@ -178,8 +161,9 @@ function pickPropValidation(leg, validations) {
   if (candidates.length === 0) return null
 
   const usable = (row) => {
-    const numeric = isNumeric(row.actualValue)
-    return (row.status === 'completed' || row.status === 'manual_closed') && numeric
+    if (row.status !== 'completed' && row.status !== 'manual_closed') return false
+    if (String(row.result || '').toLowerCase() === 'void') return true
+    return isNumeric(row.actualValue)
   }
 
   return [...candidates].sort((a, b) => {
@@ -245,11 +229,8 @@ async function fetchGameResults(sport, gameDate) {
       const homeAbbrev = homeTeam.team?.abbreviation?.toUpperCase()
       const awayAbbrev = awayTeam.team?.abbreviation?.toUpperCase()
 
-      const isComplete = competition.status?.type?.completed ||
-                         competition.status?.type?.state === 'post' ||
-                         competition.status?.type?.name === 'STATUS_FINAL'
-
-      if (!isComplete) continue
+      // ESPN state=post includes postponed/cancelled. Only true finals.
+      if (!isEspnCompetitionGradeable(competition)) continue
 
       const payload = {
         won: null,
@@ -357,7 +338,7 @@ async function applyFeaturedGrade(parlay, validations) {
     const patch = featuredLegGradePatch(legOutcome, now)
     if (patch) {
       await prisma.parlayLeg.update({ where: { id: leg.id }, data: patch })
-      const actual = Number.isFinite(Number(legOutcome.actualValue))
+      const actual = isNumericFeaturedActual(legOutcome.actualValue)
         ? ` (Actual: ${legOutcome.actualValue})`
         : ''
       console.log(`    ✅ ${leg.playerName} ${leg.propType}: ${legOutcome.outcome}${actual}`)
@@ -374,9 +355,10 @@ async function applyFeaturedGrade(parlay, validations) {
     console.log(`    ⏳ ${leg.playerName} ${leg.propType}: Pending prop validation (no numeric actual)`)
   }
 
+  const settleOpts = { postedOdds: parlay.totalOdds }
   const parlayPatch = REGRADE
-    ? featuredRegradeParlayPatch(grade, parlay.status, now)
-    : featuredParlayGradePatch(grade, now)
+    ? featuredRegradeParlayPatch(grade, parlay.status, now, settleOpts)
+    : featuredParlayGradePatch(grade, now, settleOpts)
 
   if (parlayPatch) {
     await prisma.parlay.update({ where: { id: parlay.id }, data: parlayPatch })
@@ -461,32 +443,13 @@ async function autoValidateParlays() {
         const homeAbbr = game?.home?.abbr
         const awayAbbr = game?.away?.abbr
 
-        if (canGradeFromGame(game)) {
-          const homeScore = Number(game.homeScore)
-          const awayScore = Number(game.awayScore)
-          const matchup = `${awayAbbr || '?'} ${awayScore} @ ${homeAbbr || '?'} ${homeScore}`
-          let won = null
-          if (teamMatches(teamAbbrev, homeAbbr) || teamAbbrev === 'HOME') {
-            won = homeScore === awayScore ? null : homeScore > awayScore
-            if (homeScore === awayScore) outcome = 'push'
-          } else if (teamMatches(teamAbbrev, awayAbbr) || teamAbbrev === 'AWAY') {
-            won = homeScore === awayScore ? null : awayScore > homeScore
-            if (homeScore === awayScore) outcome = 'push'
-          }
+        const fromGame = gradeMoneylineFromGame(leg, game)
+        outcome = fromGame.outcome
+        actualValue = fromGame.actualValue
+        notes = fromGame.notes || ''
+        if (fromGame.skipReason) skipReason = fromGame.skipReason
 
-          if (outcome === 'push') {
-            actualValue = 0
-            notes = `${teamAbbrev} tied ${matchup}`
-          } else if (won === true || won === false) {
-            outcome = won ? 'won' : 'lost'
-            actualValue = won ? 1 : 0
-            notes = `${teamAbbrev} ${matchup}`
-          } else {
-            skipReason = `Team ${teamAbbrev} not in game ${leg.gameIdRef}`
-          }
-        }
-
-        if (!outcome) {
+        if (!outcome && !shouldSkipEspnFallback(game)) {
           const espnDate = game?.date || null
           if (espnDate) {
             const espnResults = await getEspnResults(game.sport || parlay.sport || 'mlb', espnDate)
@@ -516,7 +479,18 @@ async function autoValidateParlays() {
           }
         }
 
-        if (outcome) {
+        if (!outcome) {
+          const timeout = holdTimeoutFromGame(game)
+          if (timeout) {
+            outcome = timeout.outcome
+            notes = timeout.notes
+          }
+        }
+        if (outcome === 'void') {
+          console.log(`    ⚪ ${teamAbbrev} ML: void (${notes})`)
+        } else if (outcome === 'needs_review') {
+          console.log(`    🔍 ${teamAbbrev} ML: needs_review (${notes})`)
+        } else if (outcome) {
           console.log(`    ✅ ${teamAbbrev} ML: ${outcome} (${notes})`)
         } else {
           skipReason = skipReason || `${teamAbbrev} ML: game not final / not found`
@@ -527,10 +501,14 @@ async function autoValidateParlays() {
         let totalScore = null
         let source = null
 
-        if (canGradeFromGame(game)) {
-          totalScore = Number(game.awayScore) + Number(game.homeScore)
+        const fromGame = gradeTotalFromGame(leg, game, { line, side })
+        if (fromGame.outcome === 'void') {
+          outcome = 'void'
+          notes = fromGame.notes
+        } else if (fromGame.outcome) {
+          totalScore = fromGame.totalScore
           source = 'Game'
-        } else if (game?.date) {
+        } else if (game?.date && !shouldSkipEspnFallback(game)) {
           const espnResults = await getEspnResults(game.sport || parlay.sport || 'mlb', game.date)
           const espnGame = lookupEspnGame(game, espnResults)
           if (espnGame && espnGame.complete && isNumeric(espnGame.totalScore)) {
@@ -539,7 +517,9 @@ async function autoValidateParlays() {
           }
         }
 
-        if (totalScore !== null && line != null) {
+        if (outcome === 'void') {
+          console.log(`    ⚪ Game total: void (${notes})`)
+        } else if (totalScore !== null && line != null) {
           outcome = gradeOverUnder(totalScore, line, side)
           actualValue = totalScore
           const matchup = game
@@ -548,22 +528,42 @@ async function autoValidateParlays() {
           notes = `Total: ${totalScore} vs ${String(side).toUpperCase()} ${line} (${source}${lineSource ? ` / line ${lineSource}` : ''}${matchup ? `; ${matchup}` : ''})`
           console.log(`    ✅ Game ${String(side).toUpperCase()} ${line}: ${outcome} (${notes})`)
         } else {
-          skipReason = `Game total: Missing data (total: ${totalScore}, threshold: ${line})`
-          console.log(`    ⏳ ${skipReason}`)
+          const timeout = holdTimeoutFromGame(game)
+          if (timeout) {
+            outcome = timeout.outcome
+            notes = timeout.notes
+            console.log(`    🔍 Game total: needs_review (${notes})`)
+          } else {
+            skipReason = `Game total: Missing data (total: ${totalScore}, threshold: ${line})`
+            console.log(`    ⏳ ${skipReason}`)
+          }
         }
       } else if (isPropLeg(leg)) {
-        const pv = pickPropValidation(leg, validations)
-        outcome = gradePropLegFromValidation(leg, pv)
-        if (outcome) {
-          actualValue = isNumeric(pv?.actualValue) ? Number(pv.actualValue) : null
-          const otherParlay = pv?.parlayId && pv.parlayId !== parlay.id ? `; copied from parlay ${pv.parlayId}` : ''
-          notes = actualValue != null
-            ? `From PropValidation: ${actualValue} (${pv.status}${otherParlay})`
-            : `From PropValidation result: ${pv?.result} (${pv?.status}${otherParlay})`
-          console.log(`    ✅ ${leg.playerName} ${leg.propType}: ${outcome}${actualValue != null ? ` (Actual: ${actualValue})` : ''}`)
+        if (shouldVoidFromGame(game)) {
+          outcome = 'void'
+          notes = describeVoidNotes(game, 'prop')
+          console.log(`    ⚪ ${leg.playerName} ${leg.propType}: void (${notes})`)
         } else {
-          skipReason = `${leg.playerName} ${leg.propType}: Pending prop validation (no numeric actual)`
-          console.log(`    ⏳ ${skipReason}`)
+          const pv = pickPropValidation(leg, validations)
+          outcome = gradePropLegFromValidation(leg, pv)
+          if (outcome) {
+            actualValue = isNumeric(pv?.actualValue) ? Number(pv.actualValue) : null
+            const otherParlay = pv?.parlayId && pv.parlayId !== parlay.id ? `; copied from parlay ${pv.parlayId}` : ''
+            notes = actualValue != null
+              ? `From PropValidation: ${actualValue} (${pv.status}${otherParlay})`
+              : `From PropValidation result: ${pv?.result} (${pv?.status}${otherParlay})`
+            console.log(`    ✅ ${leg.playerName} ${leg.propType}: ${outcome}${actualValue != null ? ` (Actual: ${actualValue})` : ''}`)
+          } else {
+            const timeout = holdTimeoutFromGame(game)
+            if (timeout) {
+              outcome = timeout.outcome
+              notes = timeout.notes
+              console.log(`    🔍 ${leg.playerName} ${leg.propType}: needs_review (${notes})`)
+            } else {
+              skipReason = `${leg.playerName} ${leg.propType}: Pending prop validation (no numeric actual)`
+              console.log(`    ⏳ ${skipReason}`)
+            }
+          }
         }
       } else {
         skipReason = `Unhandled betType=${leg.betType} propType=${leg.propType}`
@@ -578,7 +578,11 @@ async function autoValidateParlays() {
       })
     }
 
-    const parlayOutcome = aggregateParlay(gradedLegs.map((row) => row.outcome))
+    let parlayOutcome = aggregateParlay(gradedLegs.map((row) => row.outcome))
+    const unresolved = gradedLegs.filter((row) => !row.outcome || row.outcome === 'needs_review')
+    if (parlayOutcome === 'pending' && unresolved.length > 0 && unresolved.every((row) => row.outcome === 'needs_review')) {
+      parlayOutcome = 'needs_review'
+    }
 
     for (const graded of gradedLegs) {
       if (graded.outcome) {
@@ -604,19 +608,31 @@ async function autoValidateParlays() {
       const lostLabels = gradedLegs
         .filter((row) => row.outcome === 'lost')
         .map((row) => row.leg.playerName || row.leg.selection || row.leg.propType || 'leg')
+      const voided = gradedLegs.filter((row) => row.outcome === 'void').length
       const actualResult = parlayOutcome === 'won'
-        ? `All ${gradedLegs.length} legs won`
+        ? (voided ? `${gradedLegs.length - voided} remaining legs won (${voided} voided)` : `All ${gradedLegs.length} legs won`)
         : parlayOutcome === 'push'
-          ? 'Push — no losses, at least one push'
-          : `Lost on: ${lostLabels.join(', ')}`
+          ? (voided === gradedLegs.length
+            ? 'All legs voided (cancelled games) — refunded'
+            : 'Push — no losses, at least one push')
+          : parlayOutcome === 'needs_review'
+            ? `Hold timeout — ${unresolved.length} leg(s) still postponed/suspended after ${HOLD_TIMEOUT_DAYS} days`
+            : `Lost on: ${lostLabels.join(', ')}`
+
+      const parlayData = attachSettledParlayOdds({
+        status: parlayOutcome,
+        outcome: parlayOutcome,
+        actualResult,
+      }, gradedLegs.map((row) => row.leg), gradedLegs.map((row) => row.outcome), {
+        postedOdds: parlay.totalOdds,
+      })
+      if (parlayData.status === 'needs_review' && /remaining-leg odds missing/.test(parlayData.actualResult || '')) {
+        console.warn(`    ⚠️ Parlay ${parlay.id}: remaining-leg odds missing after void — needs_review (postedOdds: ${parlay.totalOdds})`)
+      }
 
       await prisma.parlay.update({
         where: { id: parlay.id },
-        data: {
-          status: parlayOutcome,
-          outcome: parlayOutcome,
-          actualResult,
-        },
+        data: parlayData,
       })
       console.log(`    → Parlay marked as: ${parlayOutcome.toUpperCase()}`)
     } else {

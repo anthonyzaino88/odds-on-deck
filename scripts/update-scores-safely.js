@@ -16,6 +16,8 @@
  *   final only when STATUS_FINAL and completed=true
  * - MLB: re-check games marked final in the last 4 hours so sticky false
  *   finals can self-heal back to in_progress (real Final/F must stay final)
+ * - MLB: re-check postponed / suspended rows that have a gamePk for ~7
+ *   days so a makeup under the same gamePk can flip to final
  * - MLB: keep selecting pre_game / warmup / delayed (and aliases) so a
  *   hydrate-status write cannot freeze the row at 0-0
  * 
@@ -38,6 +40,8 @@ import {
 import {
   GAME_SELECT,
   fetchActiveGamesForSport,
+  fetchMlbResumeGames,
+  mergeGameLists,
   printScoreRecap,
   refreshGameScores,
 } from '../lib/score-updater.js'
@@ -94,10 +98,22 @@ async function fetchGamesForSport(sport) {
     console.warn(`  ⚠️  Recent-final recheck query failed: ${finalsError.message}`)
   }
 
-  const games = mergeActiveAndRecentFinalGames(activeGames, recentFinals || [])
+  const { games: resumeGames, error: resumeError } = await fetchMlbResumeGames(supabase)
+  if (resumeError) {
+    console.warn(`  ⚠️  Postponed/suspended recheck query failed: ${resumeError.message}`)
+  }
+
+  const games = mergeGameLists(
+    mergeActiveAndRecentFinalGames(activeGames, recentFinals || []),
+    resumeGames || [],
+  )
   const recheckCount = games.filter(g => g.status === 'final').length
+  const resumeCount = games.filter(g => g.status === 'postponed' || g.status === 'suspended').length
   if (recheckCount) {
     console.log(`  🔁 Re-checking ${recheckCount} recently finalized MLB game(s) for false finals`)
+  }
+  if (resumeCount) {
+    console.log(`  🔁 Re-checking ${resumeCount} postponed/suspended MLB game(s) for makeup finals`)
   }
 
   return { games, error: null }

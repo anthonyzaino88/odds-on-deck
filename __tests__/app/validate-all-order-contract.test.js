@@ -51,9 +51,33 @@ describe('validate:all grades props before parlays', () => {
     expect(src).toMatch(/Write failed for/)
   })
 
-  test('validate-pending-props skips source=game_line before the date-is-final shortcut', () => {
+  test('validate-pending-props skips source=game_line and does not treat date-is-past as final', () => {
     const src = read('scripts/validate-pending-props.js')
-    expect(src).toMatch(/shouldSkipPlayerStatValidation/)
-    expect(src.indexOf('shouldSkipPlayerStatValidation')).toBeLessThan(src.indexOf('gameDate < yesterday'))
+    expect(src).toMatch(/planPlayerStatValidation/)
+    expect(src).not.toMatch(/gameDate < yesterday/)
+    expect(src).toMatch(/voidPropValidationPatch/)
+  })
+
+  test('unplayed-grade report requires a secret key for --apply', () => {
+    const src = read('scripts/report-unplayed-game-grades.js')
+    expect(src).toMatch(/requireUnplayedGradeApplyKey/)
+    expect(src).toMatch(/paginateSupabaseSelect/)
+    expect(src).toMatch(/chunkIds/)
+    expect(src).toMatch(/applyUnplayedGradeRepairs/)
+    expect(src).toMatch(/applyGameDateScope/)
+    expect(src).toMatch(/from\('PropValidation'\)/)
+    expect(src).toMatch(/from\('ParlayLeg'\)/)
+  })
+
+  test('auto-validate-parlays refuses postponed/cancelled Game rows', () => {
+    const src = read('scripts/auto-validate-parlays.js')
+    expect(src).toMatch(/gradeMoneylineFromGame/)
+    expect(src).toMatch(/gradeTotalFromGame/)
+    expect(src).toMatch(/shouldVoidFromGame/)
+    expect(src).toMatch(/isEspnCompetitionGradeable/)
+    expect(src).toMatch(/attachSettledParlayOdds/)
+    expect(src).toMatch(/isNumericFeaturedActual/)
+    expect(src).toMatch(/planGameLineSettlement/)
+    expect(src).not.toMatch(/state === 'post'/)
   })
 })

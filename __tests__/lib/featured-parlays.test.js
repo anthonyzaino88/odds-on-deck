@@ -326,6 +326,104 @@ describe('Featured grading', () => {
     expect(featuredParlayGradePatch(grade).status).toBe('lost')
   })
 
+  test('3-leg +100 card with one void writes reduced totalOdds and books +3u', () => {
+    const plusHundred = legs.map((leg, index) => ({ ...leg, odds: 100, id: `leg-${index}` }))
+    const validations = [
+      {
+        playerName: plusHundred[0].playerName,
+        propType: plusHundred[0].propType,
+        status: 'completed',
+        actualValue: plusHundred[0].threshold + 5,
+        result: 'correct',
+        gameIdRef: plusHundred[0].gameIdRef,
+      },
+      {
+        playerName: plusHundred[1].playerName,
+        propType: plusHundred[1].propType,
+        status: 'completed',
+        actualValue: plusHundred[1].threshold + 5,
+        result: 'correct',
+        gameIdRef: plusHundred[1].gameIdRef,
+      },
+      {
+        playerName: plusHundred[2].playerName,
+        propType: plusHundred[2].propType,
+        status: 'manual_closed',
+        actualValue: 0,
+        result: 'void',
+        gameIdRef: plusHundred[2].gameIdRef,
+      },
+    ]
+    const grade = gradeFeaturedParlayFromValidations(plusHundred, validations)
+    expect(grade.parlayOutcome).toBe('won')
+    expect(featuredParlayGradePatch(grade).totalOdds).toBe(4)
+    const restored = gradeFeaturedParlayFromValidations(plusHundred, [
+      validations[0],
+      validations[1],
+      {
+        playerName: plusHundred[2].playerName,
+        propType: plusHundred[2].propType,
+        status: 'completed',
+        actualValue: plusHundred[2].threshold + 5,
+        result: 'correct',
+        gameIdRef: plusHundred[2].gameIdRef,
+      },
+    ])
+    expect(restored.parlayOutcome).toBe('won')
+    expect(featuredParlayGradePatch(restored).totalOdds).toBe(8)
+    expect(summarizeFeaturedParlays([{
+      notes: `${FEATURED_COHORT_TAG} snapshot:featured:nfl:multi:2026-09-27`,
+      outcome: 'won',
+      status: 'won',
+      totalOdds: 8,
+      legs: plusHundred.map((leg, index) => ({
+        ...leg,
+        outcome: grade.legOutcomes[index].outcome,
+      })),
+    }]).units).toBe(3)
+  })
+
+  test('void with a remaining missing-odds leg goes to needs_review and notes postedOdds', () => {
+    const mixed = [
+      { ...legs[0], odds: 100 },
+      { ...legs[1], odds: null },
+      { ...legs[2], odds: 100 },
+    ]
+    const validations = [
+      {
+        playerName: mixed[0].playerName,
+        propType: mixed[0].propType,
+        status: 'completed',
+        actualValue: mixed[0].threshold + 5,
+        result: 'correct',
+        gameIdRef: mixed[0].gameIdRef,
+      },
+      {
+        playerName: mixed[1].playerName,
+        propType: mixed[1].propType,
+        status: 'completed',
+        actualValue: mixed[1].threshold + 5,
+        result: 'correct',
+        gameIdRef: mixed[1].gameIdRef,
+      },
+      {
+        playerName: mixed[2].playerName,
+        propType: mixed[2].propType,
+        status: 'manual_closed',
+        actualValue: null,
+        result: 'void',
+        gameIdRef: mixed[2].gameIdRef,
+      },
+    ]
+    const grade = gradeFeaturedParlayFromValidations(mixed, validations)
+    expect(grade.parlayOutcome).toBe('won')
+    const patch = featuredParlayGradePatch(grade, new Date(), { postedOdds: 8 })
+    expect(patch.status).toBe('needs_review')
+    expect(patch.totalOdds).toBeUndefined()
+    expect(patch.actualResult).toMatch(/postedOdds:8/)
+    expect(patch.actualResult).toMatch(/remaining-leg odds missing/)
+  })
+
   test('grades a push from actualValue vs threshold when result is missing', () => {
     expect(gradePropLegFromActual(legs[0], legs[0].threshold)).toBe('push')
     expect(gradePropLegFromActual({ ...legs[0], selection: 'over' }, legs[0].threshold + 5)).toBe('won')
@@ -728,7 +826,7 @@ describe('Featured history leg display', () => {
       selection: 'over',
       threshold: 3.5,
       validationResult: 'void',
-    })).toBe('push')
+    })).toBe('void')
   })
 
   test('Schultz / Murray / Goff hits stay green and match a WON card', () => {

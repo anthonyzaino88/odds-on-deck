@@ -21,7 +21,8 @@ import { getPlayerGameStat as getNFLStat } from '../lib/vendors/nfl-game-stats.j
 import { getPlayerGameStat as getNHLStat } from '../lib/vendors/nhl-game-stats.js'
 import { appendJsonl, loadJsonlFieldSet, resolveBoxScoresDir } from '../lib/local-archive.js'
 import { propValidationGradeAudit, updateWithOptionalAudit } from '../lib/grade-audit.js'
-import { shouldSkipPlayerStatValidation } from '../lib/pending-props.js'
+import { planPlayerStatValidation } from '../lib/pending-props.js'
+import { voidPropValidationPatch } from '../lib/game-grade-eligibility.js'
 
 config({ path: '.env.local' })
 
@@ -99,38 +100,39 @@ async function main() {
 
   console.log(`✅ Loaded ${gameMap.size} games`)
 
-  const yesterday = new Date()
-  yesterday.setDate(yesterday.getDate() - 1)
-  yesterday.setHours(23, 59, 59, 999)
-
-  // Step 3: Separate into processable vs skippable
+  // Step 3: Separate into processable vs skippable.
+  // Date-before-yesterday is not a final — postponed/cancelled 0-0
+  // games used to slip through that shortcut and grade as actual=0.
   const toProcess = []
+  const toVoid = []
+  const toTimeout = []
   let skippedNotFinal = 0
   let skippedGameLine = 0
   let noGameFound = 0
 
   for (const v of pending) {
     // Sides & totals wait for Game.status final and gradePendingGameLines.
-    // Dated-before-yesterday is not a final score; moneyline/total have no
-    // player-stat lookup and would be marked needs_review.
-    if (shouldSkipPlayerStatValidation(v)) {
+    const game = gameMap.get(v.gameIdRef)
+    const plan = planPlayerStatValidation(v, game)
+
+    if (plan.action === 'skip_game_line') {
       skippedGameLine++
       continue
     }
-
-    const game = gameMap.get(v.gameIdRef)
-    if (!game) {
+    if (plan.action === 'needs_review' && plan.reason === 'hold_timeout') {
+      toTimeout.push({ validation: v, game })
+      continue
+    }
+    if (plan.action === 'needs_review') {
       noGameFound++
       toProcess.push({ validation: v, game: null })
       continue
     }
-
-    const gameDate = new Date(game.date)
-    const isFinal =
-      ['final', 'completed', 'f', 'closed'].includes(game.status?.toLowerCase()) ||
-      (gameDate < yesterday)
-
-    if (!isFinal) {
+    if (plan.action === 'void') {
+      toVoid.push({ validation: v, game })
+      continue
+    }
+    if (plan.action === 'hold') {
       skippedNotFinal++
       continue
     }
@@ -140,11 +142,57 @@ async function main() {
 
   console.log(`\n📊 ${pending.length} total pending:`)
   console.log(`   ${toProcess.length} ready to process (${noGameFound} missing games)`)
-  console.log(`   ${skippedNotFinal} skipped (games not yet final)`)
+  console.log(`   ${toVoid.length} cancelled games to void`)
+  console.log(`   ${toTimeout.length} postponed/suspended past hold timeout → needs_review`)
+  console.log(`   ${skippedNotFinal} skipped (games not yet final / postponed / unplayed)`)
   console.log(`   ${skippedGameLine} skipped (source=game_line → gradePendingGameLines)\n`)
 
-  // Step 4: Process validations
-  let correct = 0, incorrect = 0, pushes = 0, errors = 0, needsReview = 0
+  // Step 4: Void cancelled games, then process real finals
+  let correct = 0, incorrect = 0, pushes = 0, voids = 0, errors = 0, needsReview = 0
+
+  for (const { validation: v, game } of toVoid) {
+    const reviewedAt = new Date()
+    const write = await updateWithOptionalAudit(
+      (payload) => supabase.from('PropValidation').update(payload).eq('id', v.id),
+      {
+        ...voidPropValidationPatch(reviewedAt, game),
+        ...propValidationGradeAudit(reviewedAt, {
+          gradedBy: 'system',
+          gradeSource: 'validate_pending_props',
+        }),
+      },
+    )
+    if (write?.error) {
+      errors++
+      console.error(`❌ Void write failed for ${v.playerName}: ${write.error.message}`)
+      continue
+    }
+    voids++
+    console.log(`⚪  ${v.playerName.padEnd(20)} ${v.propType.padEnd(22)} void (game ${game?.status || 'cancelled'})`)
+  }
+
+  for (const { validation: v, game } of toTimeout) {
+    const reviewedAt = new Date()
+    const write = await updateWithOptionalAudit(
+      (payload) => supabase.from('PropValidation').update(payload).eq('id', v.id),
+      {
+        status: 'needs_review',
+        notes: `Hold timeout — game still ${game?.status || 'postponed'} after 7 days`,
+        completedAt: reviewedAt.toISOString(),
+        ...propValidationGradeAudit(reviewedAt, {
+          gradedBy: 'system',
+          gradeSource: 'validate_pending_props',
+        }),
+      },
+    )
+    if (write?.error) {
+      errors++
+      console.error(`❌ Timeout write failed for ${v.playerName}: ${write.error.message}`)
+      continue
+    }
+    needsReview++
+    console.log(`⚠️  ${v.playerName} ${v.propType} - hold timeout (${game?.status})`)
+  }
 
   for (let i = 0; i < toProcess.length; i++) {
     const { validation: v, game } = toProcess[i]
@@ -270,6 +318,7 @@ async function main() {
   console.log(`✅ Correct:       ${correct}`)
   console.log(`❌ Incorrect:     ${incorrect}`)
   console.log(`🟰 Push:          ${pushes}`)
+  console.log(`⚪ Void:          ${voids}`)
   console.log(`⚠️  Needs Review:  ${needsReview}`)
   console.log(`⏭️  Not Final Yet: ${skippedNotFinal}`)
   console.log(`🧾 Game lines:    ${skippedGameLine}`)
