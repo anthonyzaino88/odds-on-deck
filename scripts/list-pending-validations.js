@@ -4,6 +4,7 @@
  * Helps debug why validations are stuck.
  */
 import { config } from 'dotenv'
+import { canGradeFromGame } from '../lib/game-grade-eligibility.js'
 config({ path: '.env.local' })
 
 // Defer import until after env is loaded
@@ -16,18 +17,8 @@ async function getSupabase() {
   return supabase
 }
 
-const FINAL_STATUSES = ['final', 'completed', 'f', 'closed', 'post', 'ended']
-
 function isGameFinal(game) {
-  if (!game) return false
-  const status = (game.status || '').toLowerCase()
-  if (FINAL_STATUSES.includes(status)) return true
-
-  const gameDate = new Date(game.date || game.ts || game.commence_time)
-  const yesterday = new Date()
-  yesterday.setDate(yesterday.getDate() - 1)
-  yesterday.setHours(23, 59, 59, 999)
-  return gameDate < yesterday
+  return canGradeFromGame(game)
 }
 
 async function findGame(gameIdRef, sport) {

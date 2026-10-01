@@ -304,10 +304,10 @@ describe('validate-pending-props skips game_line rows', () => {
     expect(shouldSkipPlayerStatValidation({ source: 'system_generated', propType: 'moneyline' })).toBe(false)
   })
 
-  test('script uses the helper before the dated-before-yesterday final shortcut', () => {
+  test('script plans player-stat validation instead of dating-a-game-final', () => {
     const src = readFileSync(join(process.cwd(), 'scripts/validate-pending-props.js'), 'utf8')
-    expect(src).toMatch(/shouldSkipPlayerStatValidation/)
-    expect(src.indexOf('shouldSkipPlayerStatValidation')).toBeLessThan(src.indexOf('gameDate < yesterday'))
+    expect(src).toMatch(/planPlayerStatValidation/)
+    expect(src).not.toMatch(/gameDate < yesterday/)
   })
 })
 

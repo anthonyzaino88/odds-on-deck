@@ -728,7 +728,7 @@ describe('Featured history leg display', () => {
       selection: 'over',
       threshold: 3.5,
       validationResult: 'void',
-    })).toBe('push')
+    })).toBe('void')
   })
 
   test('Schultz / Murray / Goff hits stay green and match a WON card', () => {

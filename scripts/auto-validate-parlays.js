@@ -31,6 +31,14 @@ import {
   gradePropLegFromValidation,
   isFeaturedCohortRow,
 } from '../lib/featured-parlays.js'
+import {
+  aggregateParlayOutcomes,
+  canGradeFromGame,
+  classifyGameForGrading,
+  describeVoidNotes,
+  isEspnCompetitionGradeable,
+  shouldVoidFromGame,
+} from '../lib/game-grade-eligibility.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.join(__dirname, '..', '.env.local') })
@@ -117,35 +125,10 @@ function isPropLeg(leg) {
   return Boolean(leg.playerName && (leg.betType === 'prop' || leg.propType) && !isTotalLeg(leg) && !isMoneylineLeg(leg))
 }
 
-function isGameFinal(game) {
-  const status = String(game?.status || '').toLowerCase()
-  return ['final', 'completed', 'f', 'closed', 'post', 'status_final'].includes(status)
-}
-
-function gameHasScores(game) {
-  return isNumeric(game?.homeScore) && isNumeric(game?.awayScore)
-}
-
-function isLiveOrUpcoming(game) {
-  const status = String(game?.status || '').toLowerCase()
-  return ['scheduled', 'pre-game', 'pre_game', 'warmup', 'in_progress', 'in progress', 'live'].includes(status)
-}
-
-function todayEt() {
-  return etDateKey(new Date())
-}
-
-function gameDateIsPast(game) {
-  const gameDay = etDateKey(game?.date)
-  const today = todayEt()
-  return Boolean(gameDay && today && gameDay < today)
-}
-
-function canGradeFromGame(game) {
-  if (!game || !gameHasScores(game)) return false
-  if (isGameFinal(game)) return true
-  if (isLiveOrUpcoming(game)) return false
-  return gameDateIsPast(game)
+function shouldSkipEspnFallback(game) {
+  if (shouldVoidFromGame(game)) return true
+  const reason = classifyGameForGrading(game).reason
+  return ['postponed', 'suspended', 'delayed', 'in_progress', 'live', 'halftime', 'mlb_unplayed_0_0'].includes(reason)
 }
 
 function teamMatches(selection, abbr) {
@@ -158,15 +141,7 @@ function teamMatches(selection, abbr) {
 }
 
 function aggregateParlay(outcomes) {
-  const lost = outcomes.filter((o) => o === 'lost').length
-  const push = outcomes.filter((o) => o === 'push').length
-  const won = outcomes.filter((o) => o === 'won').length
-  const unresolved = outcomes.filter((o) => o !== 'won' && o !== 'lost' && o !== 'push').length
-  if (unresolved) return 'pending'
-  if (lost > 0) return 'lost'
-  if (push > 0) return 'push'
-  if (won === outcomes.length && outcomes.length > 0) return 'won'
-  return 'pending'
+  return aggregateParlayOutcomes(outcomes)
 }
 
 function pickPropValidation(leg, validations) {
@@ -178,8 +153,9 @@ function pickPropValidation(leg, validations) {
   if (candidates.length === 0) return null
 
   const usable = (row) => {
-    const numeric = isNumeric(row.actualValue)
-    return (row.status === 'completed' || row.status === 'manual_closed') && numeric
+    if (row.status !== 'completed' && row.status !== 'manual_closed') return false
+    if (String(row.result || '').toLowerCase() === 'void') return true
+    return isNumeric(row.actualValue)
   }
 
   return [...candidates].sort((a, b) => {
@@ -245,11 +221,8 @@ async function fetchGameResults(sport, gameDate) {
       const homeAbbrev = homeTeam.team?.abbreviation?.toUpperCase()
       const awayAbbrev = awayTeam.team?.abbreviation?.toUpperCase()
 
-      const isComplete = competition.status?.type?.completed ||
-                         competition.status?.type?.state === 'post' ||
-                         competition.status?.type?.name === 'STATUS_FINAL'
-
-      if (!isComplete) continue
+      // ESPN state=post includes postponed/cancelled. Only true finals.
+      if (!isEspnCompetitionGradeable(competition)) continue
 
       const payload = {
         won: null,
@@ -461,7 +434,10 @@ async function autoValidateParlays() {
         const homeAbbr = game?.home?.abbr
         const awayAbbr = game?.away?.abbr
 
-        if (canGradeFromGame(game)) {
+        if (shouldVoidFromGame(game)) {
+          outcome = 'void'
+          notes = describeVoidNotes(game, 'moneyline')
+        } else if (canGradeFromGame(game)) {
           const homeScore = Number(game.homeScore)
           const awayScore = Number(game.awayScore)
           const matchup = `${awayAbbr || '?'} ${awayScore} @ ${homeAbbr || '?'} ${homeScore}`
@@ -486,7 +462,7 @@ async function autoValidateParlays() {
           }
         }
 
-        if (!outcome) {
+        if (!outcome && !shouldSkipEspnFallback(game)) {
           const espnDate = game?.date || null
           if (espnDate) {
             const espnResults = await getEspnResults(game.sport || parlay.sport || 'mlb', espnDate)
@@ -516,7 +492,9 @@ async function autoValidateParlays() {
           }
         }
 
-        if (outcome) {
+        if (outcome === 'void') {
+          console.log(`    ⚪ ${teamAbbrev} ML: void (${notes})`)
+        } else if (outcome) {
           console.log(`    ✅ ${teamAbbrev} ML: ${outcome} (${notes})`)
         } else {
           skipReason = skipReason || `${teamAbbrev} ML: game not final / not found`
@@ -527,10 +505,13 @@ async function autoValidateParlays() {
         let totalScore = null
         let source = null
 
-        if (canGradeFromGame(game)) {
+        if (shouldVoidFromGame(game)) {
+          outcome = 'void'
+          notes = describeVoidNotes(game, 'total')
+        } else if (canGradeFromGame(game)) {
           totalScore = Number(game.awayScore) + Number(game.homeScore)
           source = 'Game'
-        } else if (game?.date) {
+        } else if (game?.date && !shouldSkipEspnFallback(game)) {
           const espnResults = await getEspnResults(game.sport || parlay.sport || 'mlb', game.date)
           const espnGame = lookupEspnGame(game, espnResults)
           if (espnGame && espnGame.complete && isNumeric(espnGame.totalScore)) {
@@ -539,7 +520,9 @@ async function autoValidateParlays() {
           }
         }
 
-        if (totalScore !== null && line != null) {
+        if (outcome === 'void') {
+          console.log(`    ⚪ Game total: void (${notes})`)
+        } else if (totalScore !== null && line != null) {
           outcome = gradeOverUnder(totalScore, line, side)
           actualValue = totalScore
           const matchup = game
@@ -552,18 +535,24 @@ async function autoValidateParlays() {
           console.log(`    ⏳ ${skipReason}`)
         }
       } else if (isPropLeg(leg)) {
-        const pv = pickPropValidation(leg, validations)
-        outcome = gradePropLegFromValidation(leg, pv)
-        if (outcome) {
-          actualValue = isNumeric(pv?.actualValue) ? Number(pv.actualValue) : null
-          const otherParlay = pv?.parlayId && pv.parlayId !== parlay.id ? `; copied from parlay ${pv.parlayId}` : ''
-          notes = actualValue != null
-            ? `From PropValidation: ${actualValue} (${pv.status}${otherParlay})`
-            : `From PropValidation result: ${pv?.result} (${pv?.status}${otherParlay})`
-          console.log(`    ✅ ${leg.playerName} ${leg.propType}: ${outcome}${actualValue != null ? ` (Actual: ${actualValue})` : ''}`)
+        if (shouldVoidFromGame(game)) {
+          outcome = 'void'
+          notes = describeVoidNotes(game, 'prop')
+          console.log(`    ⚪ ${leg.playerName} ${leg.propType}: void (${notes})`)
         } else {
-          skipReason = `${leg.playerName} ${leg.propType}: Pending prop validation (no numeric actual)`
-          console.log(`    ⏳ ${skipReason}`)
+          const pv = pickPropValidation(leg, validations)
+          outcome = gradePropLegFromValidation(leg, pv)
+          if (outcome) {
+            actualValue = isNumeric(pv?.actualValue) ? Number(pv.actualValue) : null
+            const otherParlay = pv?.parlayId && pv.parlayId !== parlay.id ? `; copied from parlay ${pv.parlayId}` : ''
+            notes = actualValue != null
+              ? `From PropValidation: ${actualValue} (${pv.status}${otherParlay})`
+              : `From PropValidation result: ${pv?.result} (${pv?.status}${otherParlay})`
+            console.log(`    ✅ ${leg.playerName} ${leg.propType}: ${outcome}${actualValue != null ? ` (Actual: ${actualValue})` : ''}`)
+          } else {
+            skipReason = `${leg.playerName} ${leg.propType}: Pending prop validation (no numeric actual)`
+            console.log(`    ⏳ ${skipReason}`)
+          }
         }
       } else {
         skipReason = `Unhandled betType=${leg.betType} propType=${leg.propType}`
@@ -604,10 +593,13 @@ async function autoValidateParlays() {
       const lostLabels = gradedLegs
         .filter((row) => row.outcome === 'lost')
         .map((row) => row.leg.playerName || row.leg.selection || row.leg.propType || 'leg')
+      const voided = gradedLegs.filter((row) => row.outcome === 'void').length
       const actualResult = parlayOutcome === 'won'
-        ? `All ${gradedLegs.length} legs won`
+        ? (voided ? `${gradedLegs.length - voided} remaining legs won (${voided} voided)` : `All ${gradedLegs.length} legs won`)
         : parlayOutcome === 'push'
-          ? 'Push — no losses, at least one push'
+          ? (voided === gradedLegs.length
+            ? 'All legs voided (cancelled games) — refunded'
+            : 'Push — no losses, at least one push')
           : `Lost on: ${lostLabels.join(', ')}`
 
       await prisma.parlay.update({

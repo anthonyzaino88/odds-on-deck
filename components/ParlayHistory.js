@@ -55,6 +55,7 @@ export default function ParlayHistory({ refreshTrigger = 0, initialParlays, init
       case 'lost': return 'bg-red-500/10 text-red-400 border-red-500/20'
       case 'pending': return 'bg-amber-500/10 text-amber-400 border-amber-500/20'
       case 'push': return 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+      case 'void':
       case 'cancelled': return 'bg-white/[0.05] text-slate-400 border-white/[0.06]'
       default: return 'bg-white/[0.05] text-slate-400 border-white/[0.06]'
     }
@@ -250,10 +251,11 @@ export default function ParlayHistory({ refreshTrigger = 0, initialParlays, init
                     const isWon = displayOutcome === 'won'
                     const isLost = displayOutcome === 'lost'
                     const isPush = displayOutcome === 'push'
+                    const isVoid = displayOutcome === 'void'
                     const isPending = displayOutcome == null
                     
-                    const dotColor = isWon ? 'bg-green-400' : isLost ? 'bg-red-400' : isPush ? 'bg-amber-400' : 'bg-slate-600'
-                    const dotTitle = isWon ? 'Won' : isLost ? 'Lost' : isPush ? 'Push' : 'Pending'
+                    const dotColor = isWon ? 'bg-green-400' : isLost ? 'bg-red-400' : isPush ? 'bg-amber-400' : isVoid ? 'bg-slate-400' : 'bg-slate-600'
+                    const dotTitle = isWon ? 'Won' : isLost ? 'Lost' : isPush ? 'Push' : isVoid ? 'Void' : 'Pending'
                     
                     return (
                       <div key={leg.id || idx} className={cn(
@@ -261,6 +263,7 @@ export default function ParlayHistory({ refreshTrigger = 0, initialParlays, init
                         isWon ? 'bg-green-500/[0.06] border-green-500/20' :
                         isLost ? 'bg-red-500/[0.06] border-red-500/20' :
                         isPush ? 'bg-amber-500/[0.06] border-amber-500/20' :
+                        isVoid ? 'bg-white/[0.04] border-white/[0.08]' :
                         'bg-surface border-white/[0.06]',
                       )}>
                       <div className="flex items-center justify-between">
