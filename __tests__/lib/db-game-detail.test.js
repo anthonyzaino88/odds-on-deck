@@ -164,7 +164,7 @@ describe('getGameDetail sibling resolution', () => {
     expect(client.captured.gameIdIns.every((call) => call.vals.includes(exactId))).toBe(true)
   })
 
-  test('no data on the exact id falls back to the sibling', async () => {
+  test('neighbor has props and odds, exact has none, so everything is empty', async () => {
     const client = createGameDetailClient({
       games: [exactGame, nextDayGame],
       odds: [
@@ -175,7 +175,7 @@ describe('getGameDetail sibling resolution', () => {
       ],
       props: [
         {
-          id: 'prop-mapped-here',
+          id: 'prop-next',
           gameId: nextDayId,
           isStale: false,
           qualityScore: 70,
@@ -189,11 +189,9 @@ describe('getGameDetail sibling resolution', () => {
     expect(detail.id).toBe(exactId)
     expect(detail.odds).toEqual([])
     expect(detail.edges).toEqual([])
-    expect(detail.playerProps.map((row) => row.id)).toEqual(['prop-mapped-here'])
-    expect(client.captured.adjacentLookups).toBe(1)
-    expect(insFor(client.captured, 'Odds').every((call) => !call.vals.includes(nextDayId))).toBe(true)
-    expect(insFor(client.captured, 'EdgeSnapshot').every((call) => !call.vals.includes(nextDayId))).toBe(true)
-    expect(insFor(client.captured, 'PlayerPropCache').some((call) => call.vals.includes(nextDayId))).toBe(true)
+    expect(detail.playerProps).toEqual([])
+    expect(client.captured.adjacentLookups).toBe(0)
+    expect(client.captured.gameIdIns.every((call) => !call.vals.includes(nextDayId))).toBe(true)
   })
 
   test('same-event alias still included', async () => {
@@ -258,38 +256,4 @@ describe('getGameDetail sibling resolution', () => {
     expect(insFor(client.captured, 'EdgeSnapshot').every((call) => !call.vals.includes(prevDayId))).toBe(true)
   })
 
-  test('props-only fallback keeps neighbor props within 3h and drops the rest', async () => {
-    const client = createGameDetailClient({
-      games: [exactGame, nextDayGame],
-      odds: [
-        { id: 'odds-next', gameId: nextDayId, market: 'h2h', ts: '2026-10-02T20:00:00.000Z' },
-      ],
-      edges: [
-        { id: 'edge-next', gameId: nextDayId, ts: '2026-10-02T20:00:00.000Z' },
-      ],
-      props: [
-        {
-          id: 'prop-near',
-          gameId: nextDayId,
-          isStale: false,
-          qualityScore: 70,
-          gameTime: '2026-10-01T21:00:00.000Z',
-        },
-        {
-          id: 'prop-neighbor-time',
-          gameId: nextDayId,
-          isStale: false,
-          qualityScore: 90,
-          gameTime: nextDayGame.date,
-        },
-      ],
-    })
-
-    const detail = await getGameDetail(exactId, client)
-
-    expect(detail.odds).toEqual([])
-    expect(detail.edges).toEqual([])
-    expect(detail.playerProps.map((row) => row.id)).toEqual(['prop-near'])
-    expect(client.captured.adjacentLookups).toBe(1)
-  })
 })
