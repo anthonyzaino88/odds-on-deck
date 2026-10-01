@@ -33,12 +33,17 @@ import {
 } from '../lib/featured-parlays.js'
 import {
   aggregateParlayOutcomes,
-  canGradeFromGame,
   classifyGameForGrading,
   describeVoidNotes,
   isEspnCompetitionGradeable,
+  settledParlayDecimalOdds,
   shouldVoidFromGame,
 } from '../lib/game-grade-eligibility.js'
+import {
+  gradeMoneylineFromGame,
+  gradeTotalFromGame,
+  teamMatches,
+} from '../lib/parlay-game-grade.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.join(__dirname, '..', '.env.local') })
@@ -129,15 +134,6 @@ function shouldSkipEspnFallback(game) {
   if (shouldVoidFromGame(game)) return true
   const reason = classifyGameForGrading(game).reason
   return ['postponed', 'suspended', 'delayed', 'in_progress', 'live', 'halftime', 'mlb_unplayed_0_0'].includes(reason)
-}
-
-function teamMatches(selection, abbr) {
-  if (!selection || !abbr) return false
-  const a = String(selection).toUpperCase()
-  const b = String(abbr).toUpperCase()
-  if (a === b) return true
-  if (TEAM_VARIATIONS[a] === b || TEAM_VARIATIONS[b] === a) return true
-  return false
 }
 
 function aggregateParlay(outcomes) {
@@ -434,33 +430,11 @@ async function autoValidateParlays() {
         const homeAbbr = game?.home?.abbr
         const awayAbbr = game?.away?.abbr
 
-        if (shouldVoidFromGame(game)) {
-          outcome = 'void'
-          notes = describeVoidNotes(game, 'moneyline')
-        } else if (canGradeFromGame(game)) {
-          const homeScore = Number(game.homeScore)
-          const awayScore = Number(game.awayScore)
-          const matchup = `${awayAbbr || '?'} ${awayScore} @ ${homeAbbr || '?'} ${homeScore}`
-          let won = null
-          if (teamMatches(teamAbbrev, homeAbbr) || teamAbbrev === 'HOME') {
-            won = homeScore === awayScore ? null : homeScore > awayScore
-            if (homeScore === awayScore) outcome = 'push'
-          } else if (teamMatches(teamAbbrev, awayAbbr) || teamAbbrev === 'AWAY') {
-            won = homeScore === awayScore ? null : awayScore > homeScore
-            if (homeScore === awayScore) outcome = 'push'
-          }
-
-          if (outcome === 'push') {
-            actualValue = 0
-            notes = `${teamAbbrev} tied ${matchup}`
-          } else if (won === true || won === false) {
-            outcome = won ? 'won' : 'lost'
-            actualValue = won ? 1 : 0
-            notes = `${teamAbbrev} ${matchup}`
-          } else {
-            skipReason = `Team ${teamAbbrev} not in game ${leg.gameIdRef}`
-          }
-        }
+        const fromGame = gradeMoneylineFromGame(leg, game)
+        outcome = fromGame.outcome
+        actualValue = fromGame.actualValue
+        notes = fromGame.notes || ''
+        if (fromGame.skipReason) skipReason = fromGame.skipReason
 
         if (!outcome && !shouldSkipEspnFallback(game)) {
           const espnDate = game?.date || null
@@ -505,11 +479,12 @@ async function autoValidateParlays() {
         let totalScore = null
         let source = null
 
-        if (shouldVoidFromGame(game)) {
+        const fromGame = gradeTotalFromGame(leg, game, { line, side })
+        if (fromGame.outcome === 'void') {
           outcome = 'void'
-          notes = describeVoidNotes(game, 'total')
-        } else if (canGradeFromGame(game)) {
-          totalScore = Number(game.awayScore) + Number(game.homeScore)
+          notes = fromGame.notes
+        } else if (fromGame.outcome) {
+          totalScore = fromGame.totalScore
           source = 'Game'
         } else if (game?.date && !shouldSkipEspnFallback(game)) {
           const espnResults = await getEspnResults(game.sport || parlay.sport || 'mlb', game.date)
@@ -602,13 +577,22 @@ async function autoValidateParlays() {
             : 'Push — no losses, at least one push')
           : `Lost on: ${lostLabels.join(', ')}`
 
+      const parlayData = {
+        status: parlayOutcome,
+        outcome: parlayOutcome,
+        actualResult,
+      }
+      if (voided > 0) {
+        const settled = settledParlayDecimalOdds(
+          gradedLegs.map((row) => row.leg),
+          gradedLegs.map((row) => row.outcome),
+        )
+        if (settled != null) parlayData.totalOdds = settled
+      }
+
       await prisma.parlay.update({
         where: { id: parlay.id },
-        data: {
-          status: parlayOutcome,
-          outcome: parlayOutcome,
-          actualResult,
-        },
+        data: parlayData,
       })
       console.log(`    → Parlay marked as: ${parlayOutcome.toUpperCase()}`)
     } else {

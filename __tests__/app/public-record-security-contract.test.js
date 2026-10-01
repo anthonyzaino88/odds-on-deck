@@ -86,5 +86,7 @@ describe('public-record write surfaces stay closed', () => {
     expect(privacy).not.toMatch(/stored anonymously in our database/)
     expect(validation).not.toMatch(/Your Saved Picks/)
     expect(validation).toMatch(/Visitor saves now live in the browser only/)
+    expect(validation).toMatch(/record\.result === 'void'/)
+    expect(validation).toMatch(/manual_closed/)
   })
 })

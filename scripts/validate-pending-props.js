@@ -105,6 +105,7 @@ async function main() {
   // games used to slip through that shortcut and grade as actual=0.
   const toProcess = []
   const toVoid = []
+  const toTimeout = []
   let skippedNotFinal = 0
   let skippedGameLine = 0
   let noGameFound = 0
@@ -116,6 +117,10 @@ async function main() {
 
     if (plan.action === 'skip_game_line') {
       skippedGameLine++
+      continue
+    }
+    if (plan.action === 'needs_review' && plan.reason === 'hold_timeout') {
+      toTimeout.push({ validation: v, game })
       continue
     }
     if (plan.action === 'needs_review') {
@@ -138,6 +143,7 @@ async function main() {
   console.log(`\n📊 ${pending.length} total pending:`)
   console.log(`   ${toProcess.length} ready to process (${noGameFound} missing games)`)
   console.log(`   ${toVoid.length} cancelled games to void`)
+  console.log(`   ${toTimeout.length} postponed/suspended past hold timeout → needs_review`)
   console.log(`   ${skippedNotFinal} skipped (games not yet final / postponed / unplayed)`)
   console.log(`   ${skippedGameLine} skipped (source=game_line → gradePendingGameLines)\n`)
 
@@ -163,6 +169,29 @@ async function main() {
     }
     voids++
     console.log(`⚪  ${v.playerName.padEnd(20)} ${v.propType.padEnd(22)} void (game ${game?.status || 'cancelled'})`)
+  }
+
+  for (const { validation: v, game } of toTimeout) {
+    const reviewedAt = new Date()
+    const write = await updateWithOptionalAudit(
+      (payload) => supabase.from('PropValidation').update(payload).eq('id', v.id),
+      {
+        status: 'needs_review',
+        notes: `Hold timeout — game still ${game?.status || 'postponed'} after 7 days`,
+        completedAt: reviewedAt.toISOString(),
+        ...propValidationGradeAudit(reviewedAt, {
+          gradedBy: 'system',
+          gradeSource: 'validate_pending_props',
+        }),
+      },
+    )
+    if (write?.error) {
+      errors++
+      console.error(`❌ Timeout write failed for ${v.playerName}: ${write.error.message}`)
+      continue
+    }
+    needsReview++
+    console.log(`⚠️  ${v.playerName} ${v.propType} - hold timeout (${game?.status})`)
   }
 
   for (let i = 0; i < toProcess.length; i++) {

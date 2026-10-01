@@ -8,23 +8,30 @@
  *   - postponed / suspended / MLB 0-0 → reset to pending
  *   - parent parlays that settled from those legs → pending
  *
+ * --apply requires SUPABASE_SECRET_KEY (no anon fallback).
  * Does not change Game rows. Does not call The Odds API.
  *
  * Usage:
  *   node scripts/report-unplayed-game-grades.js
+ *   node scripts/report-unplayed-game-grades.js --sport mlb --from 2026-09-27 --to 2026-09-28
  *   node scripts/report-unplayed-game-grades.js --apply
  */
 
 import { config } from 'dotenv'
 config({ path: '.env.local' })
 
+import { createClient } from '@supabase/supabase-js'
 import {
-  describeLegRepairWrite,
-  describeParlayRepairWrite,
-  describePropRepairWrite,
+  UNPLAYED_IN_CHUNK,
+  applyUnplayedGradeRepairs,
+  chunkIds,
+  paginateSupabaseSelect,
   parseUnplayedGradeArgs,
   planUnplayedGameGradeRepair,
+  requireUnplayedGradeApplyKey,
 } from '../lib/unplayed-game-grades.js'
+
+const GAME_SELECT = 'id, sport, status, homeScore, awayScore, date'
 
 function printPlan(plan, apply) {
   console.log(`📌 Unplayed / non-final Game rows: ${plan.games.length}`)
@@ -54,83 +61,137 @@ function printPlan(plan, apply) {
   }
 }
 
-async function main() {
-  const args = parseUnplayedGradeArgs(process.argv.slice(2))
-  if (args.help) {
-    console.log(`Usage: node scripts/report-unplayed-game-grades.js [--apply]
-
-Dry-run (default): print PropValidation / ParlayLeg / Parlay rows graded
-from postponed, cancelled, suspended, or MLB 0-0 Game rows.
---apply: void cancelled grades; requeue postponed / unplayed 0-0 to pending.`)
-    return
+async function loadSupabase(apply) {
+  if (!apply) {
+    const { supabaseAdmin } = await import('../lib/supabase-admin.js')
+    return supabaseAdmin
   }
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL is required')
+  const key = requireUnplayedGradeApplyKey(process.env)
+  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
+}
 
-  const { supabaseAdmin } = await import('../lib/supabase-admin.js')
+async function loadGames(supabase, scope) {
+  const unplayed = await paginateSupabaseSelect(() => {
+    let query = supabase
+      .from('Game')
+      .select(GAME_SELECT)
+      .in('status', ['postponed', 'cancelled', 'canceled', 'suspended'])
+      .order('id', { ascending: true })
+    if (scope.sport) query = query.eq('sport', scope.sport)
+    if (scope.game) query = query.eq('id', scope.game)
+    return query
+  })
+  if (unplayed.error) throw new Error(`Game lookup failed: ${unplayed.error.message}`)
 
-  const { data: unplayed, error: unplayedError } = await supabaseAdmin
-    .from('Game')
-    .select('id, sport, status, homeScore, awayScore, date')
-    .in('status', ['postponed', 'cancelled', 'canceled', 'suspended', 'delayed'])
-  if (unplayedError) throw new Error(`Game lookup failed: ${unplayedError.message}`)
-
-  const { data: mlbZeroFinals, error: mlbError } = await supabaseAdmin
-    .from('Game')
-    .select('id, sport, status, homeScore, awayScore, date')
-    .eq('sport', 'mlb')
-    .eq('homeScore', 0)
-    .eq('awayScore', 0)
-    .in('status', ['final', 'completed'])
-  if (mlbError) throw new Error(`MLB 0-0 lookup failed: ${mlbError.message}`)
+  let mlbZeroRows = []
+  if (!scope.sport || scope.sport === 'mlb') {
+    const mlbZero = await paginateSupabaseSelect(() => {
+      let query = supabase
+        .from('Game')
+        .select(GAME_SELECT)
+        .eq('sport', 'mlb')
+        .eq('homeScore', 0)
+        .eq('awayScore', 0)
+        .in('status', ['final', 'completed'])
+        .order('id', { ascending: true })
+      if (scope.game) query = query.eq('id', scope.game)
+      return query
+    })
+    if (mlbZero.error) throw new Error(`MLB 0-0 lookup failed: ${mlbZero.error.message}`)
+    mlbZeroRows = mlbZero.rows
+  }
 
   const seen = new Set()
   const games = []
-  for (const game of [...(unplayed || []), ...(mlbZeroFinals || [])]) {
+  for (const game of [...unplayed.rows, ...mlbZeroRows]) {
     if (seen.has(game.id)) continue
     seen.add(game.id)
     games.push(game)
   }
+  return games
+}
 
-  const gameIds = (games || []).map((game) => game.id)
+async function loadValidations(supabase, gameIds) {
   let validations = []
-  let parlays = []
+  for (const chunk of chunkIds(gameIds, UNPLAYED_IN_CHUNK)) {
+    const { data, error } = await supabase
+      .from('PropValidation')
+      .select('id, propId, playerName, propType, result, status, actualValue, gameIdRef, sport')
+      .in('gameIdRef', chunk)
+    if (error) throw new Error(`PropValidation lookup failed: ${error.message}`)
+    validations = validations.concat(data || [])
+  }
+  return validations
+}
 
-  if (gameIds.length) {
-    for (let i = 0; i < gameIds.length; i += 200) {
-      const chunk = gameIds.slice(i, i + 200)
-      const { data, error } = await supabaseAdmin
-        .from('PropValidation')
-        .select('id, propId, playerName, propType, result, status, actualValue, gameIdRef, sport')
-        .in('gameIdRef', chunk)
-      if (error) throw new Error(`PropValidation lookup failed: ${error.message}`)
-      validations = validations.concat(data || [])
-    }
-
-    const { data: legs, error: legError } = await supabaseAdmin
+async function loadParlays(supabase, gameIds) {
+  let legs = []
+  for (const chunk of chunkIds(gameIds, UNPLAYED_IN_CHUNK)) {
+    const { data, error } = await supabase
       .from('ParlayLeg')
       .select('id, parlayId, playerName, selection, betType, propType, outcome, gameIdRef')
-      .in('gameIdRef', gameIds)
-    if (legError) throw new Error(`ParlayLeg lookup failed: ${legError.message}`)
-
-    const parlayIds = [...new Set((legs || []).map((leg) => leg.parlayId).filter(Boolean))]
-    if (parlayIds.length) {
-      const { data, error } = await supabaseAdmin
-        .from('Parlay')
-        .select('id, status, outcome, sport, notes')
-        .in('id', parlayIds)
-      if (error) throw new Error(`Parlay lookup failed: ${error.message}`)
-      const byId = new Map((data || []).map((row) => [row.id, { ...row, legs: [] }]))
-      for (const leg of legs || []) {
-        const parlay = byId.get(leg.parlayId)
-        if (parlay) parlay.legs.push(leg)
-      }
-      parlays = [...byId.values()]
-    }
+      .in('gameIdRef', chunk)
+    if (error) throw new Error(`ParlayLeg lookup failed: ${error.message}`)
+    legs = legs.concat(data || [])
   }
 
+  const parlayIds = [...new Set(legs.map((leg) => leg.parlayId).filter(Boolean))]
+  if (parlayIds.length === 0) return []
+
+  let rows = []
+  for (const chunk of chunkIds(parlayIds, UNPLAYED_IN_CHUNK)) {
+    const { data, error } = await supabase
+      .from('Parlay')
+      .select('id, status, outcome, sport, notes')
+      .in('id', chunk)
+    if (error) throw new Error(`Parlay lookup failed: ${error.message}`)
+    rows = rows.concat(data || [])
+  }
+
+  const byId = new Map(rows.map((row) => [row.id, { ...row, legs: [] }]))
+  for (const leg of legs) {
+    const parlay = byId.get(leg.parlayId)
+    if (parlay) parlay.legs.push(leg)
+  }
+  return [...byId.values()]
+}
+
+function writeClient(supabase, table) {
+  return async (id, payload) => {
+    const { data, error } = await supabase
+      .from(table)
+      .update(payload)
+      .eq('id', id)
+      .select('id')
+    return { data, error, count: data?.length || 0 }
+  }
+}
+
+async function main() {
+  const args = parseUnplayedGradeArgs(process.argv.slice(2))
+  if (args.help) {
+    console.log(`Usage: node scripts/report-unplayed-game-grades.js [--apply] [--game ID] [--sport mlb] [--from YYYY-MM-DD] [--to YYYY-MM-DD]
+
+Dry-run (default): print PropValidation / ParlayLeg / Parlay rows graded
+from postponed, cancelled, suspended, or MLB 0-0 Game rows.
+--apply: void cancelled grades; requeue postponed / unplayed 0-0 to pending.
+         Requires SUPABASE_SECRET_KEY.`)
+    return
+  }
+
+  const supabase = await loadSupabase(args.apply)
+  const games = await loadGames(supabase, args)
+  const gameIds = games.map((game) => game.id)
+  const validations = gameIds.length ? await loadValidations(supabase, gameIds) : []
+  const parlays = gameIds.length ? await loadParlays(supabase, gameIds) : []
+
   const plan = planUnplayedGameGradeRepair({
-    games: games || [],
+    games,
     validations,
     parlays,
+    scope: args,
   })
 
   console.log('\n📋 UNPLAYED-GAME GRADE REPORT')
@@ -143,35 +204,13 @@ from postponed, cancelled, suspended, or MLB 0-0 Game rows.
     return
   }
 
-  const now = new Date()
-  let wrote = 0
-
-  for (const row of plan.props) {
-    const { error } = await supabaseAdmin
-      .from('PropValidation')
-      .update(describePropRepairWrite(row, now))
-      .eq('id', row.id)
-    if (error) throw new Error(`PropValidation write failed for ${row.id}: ${error.message}`)
-    wrote += 1
-  }
-  for (const leg of plan.legs) {
-    const { error } = await supabaseAdmin
-      .from('ParlayLeg')
-      .update(describeLegRepairWrite(leg))
-      .eq('id', leg.id)
-    if (error) throw new Error(`ParlayLeg write failed for ${leg.id}: ${error.message}`)
-    wrote += 1
-  }
-  for (const parlay of plan.parlays) {
-    const { error } = await supabaseAdmin
-      .from('Parlay')
-      .update(describeParlayRepairWrite())
-      .eq('id', parlay.id)
-    if (error) throw new Error(`Parlay write failed for ${parlay.id}: ${error.message}`)
-    wrote += 1
-  }
-
-  console.log(`\n✅ Wrote ${wrote} repairs`)
+  requireUnplayedGradeApplyKey(process.env)
+  const result = await applyUnplayedGradeRepairs(plan, {
+    writeProp: writeClient(supabase, 'PropValidation'),
+    writeLeg: writeClient(supabase, 'ParlayLeg'),
+    writeParlay: writeClient(supabase, 'Parlay'),
+  })
+  console.log(`\n✅ Wrote ${result.wrote} repairs`)
 }
 
 main().catch((error) => {

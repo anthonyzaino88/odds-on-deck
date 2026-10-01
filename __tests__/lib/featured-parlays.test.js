@@ -326,6 +326,49 @@ describe('Featured grading', () => {
     expect(featuredParlayGradePatch(grade).status).toBe('lost')
   })
 
+  test('3-leg +100 card with one void writes reduced totalOdds and books +3u', () => {
+    const plusHundred = legs.map((leg, index) => ({ ...leg, odds: 100, id: `leg-${index}` }))
+    const validations = [
+      {
+        playerName: plusHundred[0].playerName,
+        propType: plusHundred[0].propType,
+        status: 'completed',
+        actualValue: plusHundred[0].threshold + 5,
+        result: 'correct',
+        gameIdRef: plusHundred[0].gameIdRef,
+      },
+      {
+        playerName: plusHundred[1].playerName,
+        propType: plusHundred[1].propType,
+        status: 'completed',
+        actualValue: plusHundred[1].threshold + 5,
+        result: 'correct',
+        gameIdRef: plusHundred[1].gameIdRef,
+      },
+      {
+        playerName: plusHundred[2].playerName,
+        propType: plusHundred[2].propType,
+        status: 'manual_closed',
+        actualValue: 0,
+        result: 'void',
+        gameIdRef: plusHundred[2].gameIdRef,
+      },
+    ]
+    const grade = gradeFeaturedParlayFromValidations(plusHundred, validations)
+    expect(grade.parlayOutcome).toBe('won')
+    expect(featuredParlayGradePatch(grade).totalOdds).toBe(4)
+    expect(summarizeFeaturedParlays([{
+      notes: `${FEATURED_COHORT_TAG} snapshot:featured:nfl:multi:2026-09-27`,
+      outcome: 'won',
+      status: 'won',
+      totalOdds: 8,
+      legs: plusHundred.map((leg, index) => ({
+        ...leg,
+        outcome: grade.legOutcomes[index].outcome,
+      })),
+    }]).units).toBe(3)
+  })
+
   test('grades a push from actualValue vs threshold when result is missing', () => {
     expect(gradePropLegFromActual(legs[0], legs[0].threshold)).toBe('push')
     expect(gradePropLegFromActual({ ...legs[0], selection: 'over' }, legs[0].threshold + 5)).toBe('won')

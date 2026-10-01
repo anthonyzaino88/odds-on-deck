@@ -58,11 +58,21 @@ describe('validate:all grades props before parlays', () => {
     expect(src).toMatch(/voidPropValidationPatch/)
   })
 
+  test('unplayed-grade report requires a secret key for --apply', () => {
+    const src = read('scripts/report-unplayed-game-grades.js')
+    expect(src).toMatch(/requireUnplayedGradeApplyKey/)
+    expect(src).toMatch(/paginateSupabaseSelect/)
+    expect(src).toMatch(/chunkIds/)
+    expect(src).toMatch(/applyUnplayedGradeRepairs/)
+  })
+
   test('auto-validate-parlays refuses postponed/cancelled Game rows', () => {
     const src = read('scripts/auto-validate-parlays.js')
-    expect(src).toMatch(/canGradeFromGame/)
+    expect(src).toMatch(/gradeMoneylineFromGame/)
+    expect(src).toMatch(/gradeTotalFromGame/)
     expect(src).toMatch(/shouldVoidFromGame/)
     expect(src).toMatch(/isEspnCompetitionGradeable/)
+    expect(src).toMatch(/settledParlayDecimalOdds/)
     expect(src).not.toMatch(/state === 'post'/)
   })
 })
