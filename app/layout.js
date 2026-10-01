@@ -139,7 +139,7 @@ export default function RootLayout({ children }) {
             <p className="text-[11px] text-slate-500 leading-relaxed max-w-3xl">
               For entertainment and informational purposes only. Not betting or financial advice.
               Projections are estimates and may be inaccurate. You must be of legal age to gamble in
-              your jurisdiction (18+/21+). If you have a gambling problem, call 1-800-GAMBLER.
+              your jurisdiction (18+/21+). If you have a gambling problem, call 1-800-MY-RESET (1-800-697-3738).
             </p>
           </div>
         </footer>

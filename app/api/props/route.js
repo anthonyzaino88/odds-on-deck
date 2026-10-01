@@ -2,6 +2,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabase } from '../../../lib/supabase.js'
+import { clampPropsLimit } from '../../../lib/api-limits.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,7 +15,7 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url)
     const sport = searchParams.get('sport') // 'mlb', 'nfl', 'nhl', or null for all
     const gameId = searchParams.get('gameId') // Optional: filter by specific game
-    const limit = parseInt(searchParams.get('limit') || '1000')
+    const limit = clampPropsLimit(searchParams.get('limit'))
     
     // Build query
     let query = supabase

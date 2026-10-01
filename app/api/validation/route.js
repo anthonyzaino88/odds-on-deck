@@ -4,6 +4,7 @@ export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { getValidationStats, getValidationRecords, getAccuracyByEdge, getMostAccuratePropTypes } from '../../../lib/validation.js'
+import { clampValidationLimit, parsePublicValidationStatus } from '../../../lib/api-limits.js'
 
 export async function GET(request) {
   try {
@@ -25,16 +26,24 @@ export async function GET(request) {
       
       data = await getValidationStats(options)
     } else if (type === 'records') {
-      // Get validation records
+      const statusResult = parsePublicValidationStatus(searchParams.get('status'))
+      if (!statusResult.ok) {
+        return NextResponse.json({ success: false, error: statusResult.error }, { status: 400 })
+      }
+
+      // Get validation records. Pending (ungraded / pregame) rows are never
+      // served here — excludePending is opt-in on getValidationRecords so the
+      // admin update-result path can still load them.
       const options = {
-        status: searchParams.get('status'),
+        status: statusResult.status,
         propType: searchParams.get('propType'),
         playerId: searchParams.get('playerId'),
         gameId: searchParams.get('gameId'),
         result: searchParams.get('result'),
         startDate: searchParams.get('startDate'),
         endDate: searchParams.get('endDate'),
-        limit: searchParams.get('limit') ? parseInt(searchParams.get('limit')) : 100
+        limit: clampValidationLimit(searchParams.get('limit')),
+        excludePending: true,
       }
       
       data = await getValidationRecords(options)

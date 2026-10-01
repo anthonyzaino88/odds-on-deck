@@ -12,6 +12,7 @@ import {
   summarizeFeaturedParlays,
 } from '../../../../lib/featured-parlays.js'
 import { fetchFeaturedPropValidations } from '../../../../lib/featured-validation-query.js'
+import { clampHistoryLimit } from '../../../../lib/api-limits.js'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -21,7 +22,7 @@ const supabase = createClient(
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url)
-    const limit = parseInt(searchParams.get('limit')) || 50
+    const limit = clampHistoryLimit(searchParams.get('limit'))
     const sport = searchParams.get('sport')
     const status = searchParams.get('status')
 

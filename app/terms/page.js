@@ -48,7 +48,7 @@ export default function Terms() {
           If you choose to gamble, please do so responsibly and only with money you can afford to
           lose. Gambling can be addictive. If you or someone you know has a gambling problem, help is
           available — in the U.S. call or text the National Problem Gambling Helpline at
-          <span className="text-slate-100 font-medium"> 1-800-GAMBLER</span> (1-800-426-2537).
+          <span className="text-slate-100 font-medium"> 1-800-MY-RESET</span> (1-800-697-3738).
         </p>
       </Section>
 
