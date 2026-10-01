@@ -5,6 +5,7 @@ import {
   classifyGameForGrading,
   isEspnCompetitionGradeable,
   isImpossibleMlbFinal,
+  attachSettledParlayOdds,
   parlayOddsForUnits,
   planStatLookupFromGame,
   settledParlayDecimalOdds,
@@ -18,6 +19,8 @@ import {
   applyUnplayedGradeRepairs,
   describeLegRepairWrite,
   describePropRepairWrite,
+  etDayStartUtc,
+  gameMatchesScope,
   parseUnplayedGradeArgs,
   planUnplayedGameGradeRepair,
   requireUnplayedGradeApplyKey,
@@ -163,6 +166,18 @@ describe('planStatLookupFromGame / player props', () => {
     )).toEqual({ action: 'lookup', reason: 'past_with_scores' })
   })
 
+  test('unzoned Game.date is treated as UTC for the 7-day hold', () => {
+    expect(planStatLookupFromGame(
+      mlbGame({
+        status: 'postponed',
+        homeScore: 0,
+        awayScore: 0,
+        date: '2026-09-20T23:00:00',
+      }),
+      { now: new Date('2026-10-01T16:00:00.000Z') },
+    )).toEqual({ action: 'needs_review', reason: 'hold_timeout' })
+  })
+
   test('postponed older than 7 days moves to needs_review', () => {
     expect(planStatLookupFromGame(
       mlbGame({
@@ -270,18 +285,59 @@ describe('settled odds after a void', () => {
     expect(unitsFromResult(8, 'won')).toBe(7)
     expect(parlayOddsForUnits({ totalOdds: 8, legs })).toBe(4)
   })
+
+  test('settle always writes remaining-leg odds; missing remaining odds goes to needs_review', () => {
+    const restored = attachSettledParlayOdds({}, [
+      { odds: 100, outcome: 'won' },
+      { odds: 100, outcome: 'won' },
+      { odds: 100, outcome: 'won' },
+    ], ['won', 'won', 'won'])
+    expect(restored.totalOdds).toBe(8)
+
+    const missing = attachSettledParlayOdds({
+      status: 'won',
+      outcome: 'won',
+      actualResult: '2 remaining legs won (1 voided)',
+    }, [
+      { odds: 100 },
+      { odds: null },
+      { odds: 100 },
+    ], ['won', 'won', 'void'], { postedOdds: 8 })
+    expect(missing.status).toBe('needs_review')
+    expect(missing.totalOdds).toBeUndefined()
+    expect(missing.actualResult).toMatch(/postedOdds:8/)
+  })
 })
 
 describe('planGameLineSettlement', () => {
   test('voids cancelled, grades real finals, skips postponed', () => {
+    const now = new Date('2026-09-28T16:00:00.000Z')
     expect(planGameLineSettlement(BAL_NYY_RAINOUT)).toEqual({ action: 'void' })
     expect(planGameLineSettlement(mlbGame())).toEqual({ action: 'grade' })
-    expect(planGameLineSettlement(mlbGame({ status: 'postponed', homeScore: 0, awayScore: 0 }))).toEqual({
+    expect(planGameLineSettlement(
+      mlbGame({ status: 'postponed', homeScore: 0, awayScore: 0 }),
+      { now },
+    )).toEqual({
       action: 'skip',
     })
-    expect(planGameLineSettlement(mlbGame({ status: 'in_progress', homeScore: 2, awayScore: 1 }))).toEqual({
+    expect(planGameLineSettlement(
+      mlbGame({ status: 'in_progress', homeScore: 2, awayScore: 1 }),
+      { now },
+    )).toEqual({
       action: 'skip',
     })
+  })
+
+  test('postponed game_line older than 7 days moves to needs_review', () => {
+    expect(planGameLineSettlement(
+      mlbGame({
+        status: 'postponed',
+        homeScore: 0,
+        awayScore: 0,
+        date: '2026-09-20T23:00:00.000Z',
+      }),
+      { now: new Date('2026-10-01T16:00:00.000Z') },
+    )).toEqual({ action: 'needs_review', reason: 'hold_timeout' })
   })
 })
 
@@ -369,7 +425,7 @@ describe('unplayed-game grade report planner', () => {
     expect(plan.props).toHaveLength(0)
   })
 
-  test('rerun after a partial abort still resets the settled parlay', () => {
+  test('rerun after a partial abort still resets when stored status disagrees', () => {
     const plan = planUnplayedGameGradeRepair({
       games: [BAL_NYY_RAINOUT],
       validations: [],
@@ -377,14 +433,68 @@ describe('unplayed-game grade report planner', () => {
         id: 'parlay-partial',
         status: 'lost',
         outcome: 'lost',
+        totalOdds: 8,
         legs: [
-          { id: 'leg-voided', parlayId: 'parlay-partial', outcome: 'void', gameIdRef: BAL_NYY_RAINOUT.id },
-          { id: 'leg-ok', parlayId: 'parlay-partial', outcome: 'won', gameIdRef: mlbGame().id },
+          { id: 'leg-voided', parlayId: 'parlay-partial', outcome: 'void', odds: 100, gameIdRef: BAL_NYY_RAINOUT.id },
+          { id: 'leg-ok', parlayId: 'parlay-partial', outcome: 'won', odds: 100, gameIdRef: mlbGame().id },
         ],
       }],
     })
     expect(plan.legs).toHaveLength(0)
     expect(plan.parlays).toEqual([expect.objectContaining({ id: 'parlay-partial' })])
+  })
+
+  test('correctly settled parlays on flagged games do not reset (dry-run converges)', () => {
+    const postponed = mlbGame({
+      id: 'CHW_at_HOU_2026-09-29',
+      status: 'postponed',
+      homeScore: 0,
+      awayScore: 0,
+    })
+    const wonAfterVoid = planUnplayedGameGradeRepair({
+      games: [BAL_NYY_RAINOUT, mlbGame()],
+      parlays: [{
+        id: 'won-after-void',
+        status: 'won',
+        outcome: 'won',
+        totalOdds: 4,
+        legs: [
+          { id: 'void-leg', outcome: 'void', odds: 100, gameIdRef: BAL_NYY_RAINOUT.id },
+          { id: 'won-a', outcome: 'won', odds: 100, gameIdRef: mlbGame().id },
+          { id: 'won-b', outcome: 'won', odds: 100, gameIdRef: mlbGame().id },
+        ],
+      }],
+    })
+    expect(wonAfterVoid.legs).toHaveLength(0)
+    expect(wonAfterVoid.parlays).toHaveLength(0)
+
+    const lostWithPending = planUnplayedGameGradeRepair({
+      games: [postponed, mlbGame()],
+      parlays: [{
+        id: 'lost-pending-postponed',
+        status: 'lost',
+        outcome: 'lost',
+        totalOdds: 4,
+        legs: [
+          { id: 'lost-final', outcome: 'lost', odds: 100, gameIdRef: mlbGame().id },
+          { id: 'pending-post', outcome: 'pending', odds: 100, gameIdRef: postponed.id },
+        ],
+      }],
+    })
+    expect(lostWithPending.legs).toHaveLength(0)
+    expect(lostWithPending.parlays).toHaveLength(0)
+  })
+
+  test('8:10 PM ET kickoff stays on that ET day for --from/--to', () => {
+    const lateEt = {
+      id: 'late-et',
+      sport: 'mlb',
+      date: '2026-09-28T00:10:00.000Z',
+    }
+    expect(gameMatchesScope(lateEt, { from: '2026-09-27', to: '2026-09-27' })).toBe(true)
+    expect(gameMatchesScope(lateEt, { from: '2026-09-28', to: '2026-09-28' })).toBe(false)
+    expect(gameMatchesScope({ ...lateEt, date: '2026-09-28T00:10:00' }, { from: '2026-09-27', to: '2026-09-27' })).toBe(true)
+    expect(etDayStartUtc('2026-09-27').toISOString()).toBe('2026-09-27T04:00:00.000Z')
   })
 
   test('apply throws on 0 rows affected so a partial abort can retry', async () => {

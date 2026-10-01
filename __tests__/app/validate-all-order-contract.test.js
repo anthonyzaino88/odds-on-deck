@@ -64,6 +64,9 @@ describe('validate:all grades props before parlays', () => {
     expect(src).toMatch(/paginateSupabaseSelect/)
     expect(src).toMatch(/chunkIds/)
     expect(src).toMatch(/applyUnplayedGradeRepairs/)
+    expect(src).toMatch(/applyGameDateScope/)
+    expect(src).toMatch(/from\('PropValidation'\)/)
+    expect(src).toMatch(/from\('ParlayLeg'\)/)
   })
 
   test('auto-validate-parlays refuses postponed/cancelled Game rows', () => {
@@ -72,7 +75,9 @@ describe('validate:all grades props before parlays', () => {
     expect(src).toMatch(/gradeTotalFromGame/)
     expect(src).toMatch(/shouldVoidFromGame/)
     expect(src).toMatch(/isEspnCompetitionGradeable/)
-    expect(src).toMatch(/settledParlayDecimalOdds/)
+    expect(src).toMatch(/attachSettledParlayOdds/)
+    expect(src).toMatch(/isNumericFeaturedActual/)
+    expect(src).toMatch(/planGameLineSettlement/)
     expect(src).not.toMatch(/state === 'post'/)
   })
 })

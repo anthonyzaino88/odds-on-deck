@@ -87,7 +87,7 @@ export async function POST(request) {
 
         const grade = gradeFeaturedParlayFromValidations(legs, validations || [])
         const now = new Date()
-        const parlayPatch = featuredParlayGradePatch(grade, now)
+        const parlayPatch = featuredParlayGradePatch(grade, now, { postedOdds: parlay.totalOdds })
 
         for (const legOutcome of grade.legOutcomes) {
           const legPatch = featuredLegGradePatch(legOutcome, now)

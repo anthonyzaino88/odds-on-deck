@@ -6,7 +6,9 @@
  * Dry-run by default. Pass --apply to write repairs:
  *   - cancelled → void / manual_closed (not a loss)
  *   - postponed / suspended / MLB 0-0 → reset to pending
- *   - parent parlays that settled from those legs → pending
+ *   - parent parlays whose stored status/odds no longer matches the
+ *     remaining-leg aggregate, or that still have a flagged settled
+ *     leg to repair → pending
  *
  * --apply requires SUPABASE_SECRET_KEY (no anon fallback).
  * Does not change Game rows. Does not call The Odds API.
@@ -23,6 +25,7 @@ config({ path: '.env.local' })
 import { createClient } from '@supabase/supabase-js'
 import {
   UNPLAYED_IN_CHUNK,
+  applyGameDateScope,
   applyUnplayedGradeRepairs,
   chunkIds,
   paginateSupabaseSelect,
@@ -81,7 +84,7 @@ async function loadGames(supabase, scope) {
       .order('id', { ascending: true })
     if (scope.sport) query = query.eq('sport', scope.sport)
     if (scope.game) query = query.eq('id', scope.game)
-    return query
+    return applyGameDateScope(query, scope)
   })
   if (unplayed.error) throw new Error(`Game lookup failed: ${unplayed.error.message}`)
 
@@ -97,7 +100,7 @@ async function loadGames(supabase, scope) {
         .in('status', ['final', 'completed'])
         .order('id', { ascending: true })
       if (scope.game) query = query.eq('id', scope.game)
-      return query
+      return applyGameDateScope(query, scope)
     })
     if (mlbZero.error) throw new Error(`MLB 0-0 lookup failed: ${mlbZero.error.message}`)
     mlbZeroRows = mlbZero.rows
@@ -116,38 +119,54 @@ async function loadGames(supabase, scope) {
 async function loadValidations(supabase, gameIds) {
   let validations = []
   for (const chunk of chunkIds(gameIds, UNPLAYED_IN_CHUNK)) {
-    const { data, error } = await supabase
+    const page = await paginateSupabaseSelect(() => supabase
       .from('PropValidation')
       .select('id, propId, playerName, propType, result, status, actualValue, gameIdRef, sport')
       .in('gameIdRef', chunk)
-    if (error) throw new Error(`PropValidation lookup failed: ${error.message}`)
-    validations = validations.concat(data || [])
+      .order('id', { ascending: true }))
+    if (page.error) throw new Error(`PropValidation lookup failed: ${page.error.message}`)
+    validations = validations.concat(page.rows)
   }
   return validations
 }
 
+const PARLAY_LEG_SELECT = 'id, parlayId, playerName, selection, betType, propType, outcome, odds, gameIdRef'
+
 async function loadParlays(supabase, gameIds) {
-  let legs = []
+  let flaggedLegs = []
   for (const chunk of chunkIds(gameIds, UNPLAYED_IN_CHUNK)) {
-    const { data, error } = await supabase
+    const page = await paginateSupabaseSelect(() => supabase
       .from('ParlayLeg')
-      .select('id, parlayId, playerName, selection, betType, propType, outcome, gameIdRef')
+      .select(PARLAY_LEG_SELECT)
       .in('gameIdRef', chunk)
-    if (error) throw new Error(`ParlayLeg lookup failed: ${error.message}`)
-    legs = legs.concat(data || [])
+      .order('id', { ascending: true }))
+    if (page.error) throw new Error(`ParlayLeg lookup failed: ${page.error.message}`)
+    flaggedLegs = flaggedLegs.concat(page.rows)
   }
 
-  const parlayIds = [...new Set(legs.map((leg) => leg.parlayId).filter(Boolean))]
+  const parlayIds = [...new Set(flaggedLegs.map((leg) => leg.parlayId).filter(Boolean))]
   if (parlayIds.length === 0) return []
 
   let rows = []
   for (const chunk of chunkIds(parlayIds, UNPLAYED_IN_CHUNK)) {
-    const { data, error } = await supabase
+    const page = await paginateSupabaseSelect(() => supabase
       .from('Parlay')
-      .select('id, status, outcome, sport, notes')
+      .select('id, status, outcome, sport, notes, totalOdds')
       .in('id', chunk)
-    if (error) throw new Error(`Parlay lookup failed: ${error.message}`)
-    rows = rows.concat(data || [])
+      .order('id', { ascending: true }))
+    if (page.error) throw new Error(`Parlay lookup failed: ${page.error.message}`)
+    rows = rows.concat(page.rows)
+  }
+
+  let legs = []
+  for (const chunk of chunkIds(parlayIds, UNPLAYED_IN_CHUNK)) {
+    const page = await paginateSupabaseSelect(() => supabase
+      .from('ParlayLeg')
+      .select(PARLAY_LEG_SELECT)
+      .in('parlayId', chunk)
+      .order('id', { ascending: true }))
+    if (page.error) throw new Error(`ParlayLeg lookup failed: ${page.error.message}`)
+    legs = legs.concat(page.rows)
   }
 
   const byId = new Map(rows.map((row) => [row.id, { ...row, legs: [] }]))

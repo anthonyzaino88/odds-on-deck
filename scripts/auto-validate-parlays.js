@@ -30,15 +30,18 @@ import {
   gradeFeaturedParlayFromValidations,
   gradePropLegFromValidation,
   isFeaturedCohortRow,
+  isNumericFeaturedActual,
 } from '../lib/featured-parlays.js'
 import {
   aggregateParlayOutcomes,
+  attachSettledParlayOdds,
   classifyGameForGrading,
   describeVoidNotes,
+  HOLD_TIMEOUT_DAYS,
   isEspnCompetitionGradeable,
-  settledParlayDecimalOdds,
   shouldVoidFromGame,
 } from '../lib/game-grade-eligibility.js'
+import { planGameLineSettlement } from '../lib/game-lines.js'
 import {
   gradeMoneylineFromGame,
   gradeTotalFromGame,
@@ -134,6 +137,15 @@ function shouldSkipEspnFallback(game) {
   if (shouldVoidFromGame(game)) return true
   const reason = classifyGameForGrading(game).reason
   return ['postponed', 'suspended', 'delayed', 'in_progress', 'live', 'halftime', 'mlb_unplayed_0_0'].includes(reason)
+}
+
+function holdTimeoutFromGame(game) {
+  const plan = planGameLineSettlement(game)
+  if (plan.action !== 'needs_review') return null
+  return {
+    outcome: 'needs_review',
+    notes: `Hold timeout — game still ${game?.status || 'postponed'} after ${HOLD_TIMEOUT_DAYS} days`,
+  }
 }
 
 function aggregateParlay(outcomes) {
@@ -326,7 +338,7 @@ async function applyFeaturedGrade(parlay, validations) {
     const patch = featuredLegGradePatch(legOutcome, now)
     if (patch) {
       await prisma.parlayLeg.update({ where: { id: leg.id }, data: patch })
-      const actual = Number.isFinite(Number(legOutcome.actualValue))
+      const actual = isNumericFeaturedActual(legOutcome.actualValue)
         ? ` (Actual: ${legOutcome.actualValue})`
         : ''
       console.log(`    ✅ ${leg.playerName} ${leg.propType}: ${legOutcome.outcome}${actual}`)
@@ -343,9 +355,10 @@ async function applyFeaturedGrade(parlay, validations) {
     console.log(`    ⏳ ${leg.playerName} ${leg.propType}: Pending prop validation (no numeric actual)`)
   }
 
+  const settleOpts = { postedOdds: parlay.totalOdds }
   const parlayPatch = REGRADE
-    ? featuredRegradeParlayPatch(grade, parlay.status, now)
-    : featuredParlayGradePatch(grade, now)
+    ? featuredRegradeParlayPatch(grade, parlay.status, now, settleOpts)
+    : featuredParlayGradePatch(grade, now, settleOpts)
 
   if (parlayPatch) {
     await prisma.parlay.update({ where: { id: parlay.id }, data: parlayPatch })
@@ -466,8 +479,17 @@ async function autoValidateParlays() {
           }
         }
 
+        if (!outcome) {
+          const timeout = holdTimeoutFromGame(game)
+          if (timeout) {
+            outcome = timeout.outcome
+            notes = timeout.notes
+          }
+        }
         if (outcome === 'void') {
           console.log(`    ⚪ ${teamAbbrev} ML: void (${notes})`)
+        } else if (outcome === 'needs_review') {
+          console.log(`    🔍 ${teamAbbrev} ML: needs_review (${notes})`)
         } else if (outcome) {
           console.log(`    ✅ ${teamAbbrev} ML: ${outcome} (${notes})`)
         } else {
@@ -506,8 +528,15 @@ async function autoValidateParlays() {
           notes = `Total: ${totalScore} vs ${String(side).toUpperCase()} ${line} (${source}${lineSource ? ` / line ${lineSource}` : ''}${matchup ? `; ${matchup}` : ''})`
           console.log(`    ✅ Game ${String(side).toUpperCase()} ${line}: ${outcome} (${notes})`)
         } else {
-          skipReason = `Game total: Missing data (total: ${totalScore}, threshold: ${line})`
-          console.log(`    ⏳ ${skipReason}`)
+          const timeout = holdTimeoutFromGame(game)
+          if (timeout) {
+            outcome = timeout.outcome
+            notes = timeout.notes
+            console.log(`    🔍 Game total: needs_review (${notes})`)
+          } else {
+            skipReason = `Game total: Missing data (total: ${totalScore}, threshold: ${line})`
+            console.log(`    ⏳ ${skipReason}`)
+          }
         }
       } else if (isPropLeg(leg)) {
         if (shouldVoidFromGame(game)) {
@@ -525,8 +554,15 @@ async function autoValidateParlays() {
               : `From PropValidation result: ${pv?.result} (${pv?.status}${otherParlay})`
             console.log(`    ✅ ${leg.playerName} ${leg.propType}: ${outcome}${actualValue != null ? ` (Actual: ${actualValue})` : ''}`)
           } else {
-            skipReason = `${leg.playerName} ${leg.propType}: Pending prop validation (no numeric actual)`
-            console.log(`    ⏳ ${skipReason}`)
+            const timeout = holdTimeoutFromGame(game)
+            if (timeout) {
+              outcome = timeout.outcome
+              notes = timeout.notes
+              console.log(`    🔍 ${leg.playerName} ${leg.propType}: needs_review (${notes})`)
+            } else {
+              skipReason = `${leg.playerName} ${leg.propType}: Pending prop validation (no numeric actual)`
+              console.log(`    ⏳ ${skipReason}`)
+            }
           }
         }
       } else {
@@ -542,7 +578,11 @@ async function autoValidateParlays() {
       })
     }
 
-    const parlayOutcome = aggregateParlay(gradedLegs.map((row) => row.outcome))
+    let parlayOutcome = aggregateParlay(gradedLegs.map((row) => row.outcome))
+    const unresolved = gradedLegs.filter((row) => !row.outcome || row.outcome === 'needs_review')
+    if (parlayOutcome === 'pending' && unresolved.length > 0 && unresolved.every((row) => row.outcome === 'needs_review')) {
+      parlayOutcome = 'needs_review'
+    }
 
     for (const graded of gradedLegs) {
       if (graded.outcome) {
@@ -575,19 +615,19 @@ async function autoValidateParlays() {
           ? (voided === gradedLegs.length
             ? 'All legs voided (cancelled games) — refunded'
             : 'Push — no losses, at least one push')
-          : `Lost on: ${lostLabels.join(', ')}`
+          : parlayOutcome === 'needs_review'
+            ? `Hold timeout — ${unresolved.length} leg(s) still postponed/suspended after ${HOLD_TIMEOUT_DAYS} days`
+            : `Lost on: ${lostLabels.join(', ')}`
 
-      const parlayData = {
+      const parlayData = attachSettledParlayOdds({
         status: parlayOutcome,
         outcome: parlayOutcome,
         actualResult,
-      }
-      if (voided > 0) {
-        const settled = settledParlayDecimalOdds(
-          gradedLegs.map((row) => row.leg),
-          gradedLegs.map((row) => row.outcome),
-        )
-        if (settled != null) parlayData.totalOdds = settled
+      }, gradedLegs.map((row) => row.leg), gradedLegs.map((row) => row.outcome), {
+        postedOdds: parlay.totalOdds,
+      })
+      if (parlayData.status === 'needs_review' && /remaining-leg odds missing/.test(parlayData.actualResult || '')) {
+        console.warn(`    ⚠️ Parlay ${parlay.id}: remaining-leg odds missing after void — needs_review (postedOdds: ${parlay.totalOdds})`)
       }
 
       await prisma.parlay.update({
