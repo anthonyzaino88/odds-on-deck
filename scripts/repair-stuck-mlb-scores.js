@@ -12,8 +12,12 @@
  *
  * Usage:
  *   node scripts/repair-stuck-mlb-scores.js
- *   node scripts/repair-stuck-mlb-scores.js --from 2026-09-25 --to 2026-09-30
- *   node scripts/repair-stuck-mlb-scores.js --from 2026-09-25 --to 2026-09-30 --apply
+ *   node scripts/repair-stuck-mlb-scores.js --from 2026-09-25 --to 2026-10-01
+ *   node scripts/repair-stuck-mlb-scores.js --from 2026-09-25 --to 2026-10-01 --apply
+ *
+ * --from/--to are inclusive UTC calendar days. A 8:00 PM ET start on 9/30 is
+ * stored as 2026-10-01T00:00:00, so the 9/29–9/30 Wild Card night games need
+ * `--to 2026-10-01`.
  *
  * Requeue game_line rows that validate-pending-props wrongly sent to
  * needs_review ("Stat not found in API."). Default requeue mode only
@@ -72,7 +76,9 @@ Dry-run (default): select stuck MLB rows (pre_game / warmup / delayed)
 older than now, fetch live status, print the write plan. No DB writes.
 --apply: write the updater payload.
 
-Default range is the last 14 UTC days through now.`)
+Default range is the last 14 UTC days through now.
+--from/--to are inclusive UTC days. Night ET games on 9/30 are stored
+as 2026-10-01T00:00Z, so use --to 2026-10-01 for that Wild Card slate.`)
     return
   }
 
@@ -146,6 +152,7 @@ Default range is the last 14 UTC days through now.`)
     totalUpdated: result.updated,
     totalErrors: result.errors,
     duration,
+    writtenLabel: args.apply ? 'Rows written' : 'Would write',
   })
 
   if (!args.apply) {
