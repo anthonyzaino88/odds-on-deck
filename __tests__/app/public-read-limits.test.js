@@ -135,7 +135,7 @@ describe('public read-path contracts', () => {
     expect(admin).toMatch(/getValidationRecords\(\{ gameId, status: 'pending' \}\)/)
     expect(admin).not.toMatch(/excludePending/)
     expect(lib).toMatch(/if \(options\.excludePending\)/)
-    expect(lib.match(/applyValidationRecordFilters\(query, options\)/g).length).toBe(2)
+    expect(lib.match(/query = applyValidationRecordFilters\(query, options\)/g).length).toBe(2)
   })
 
   test('generate GET and POST both clamp legs and maxParlays', () => {

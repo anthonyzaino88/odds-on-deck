@@ -1,4 +1,5 @@
 const recorded = []
+const from = jest.fn()
 
 function createChain() {
   const chain = {
@@ -29,7 +30,7 @@ function createChain() {
 
 jest.mock('../../lib/supabase-admin.js', () => ({
   supabaseAdmin: {
-    from: jest.fn(() => createChain()),
+    from: (...args) => from(...args),
   },
 }))
 
@@ -38,6 +39,8 @@ import { getValidationRecords } from '../../lib/validation.js'
 describe('getValidationRecords excludePending is opt-in on both paths', () => {
   beforeEach(() => {
     recorded.length = 0
+    from.mockReset()
+    from.mockImplementation(() => createChain())
   })
 
   test('limited path applies neq pending only when asked', async () => {
