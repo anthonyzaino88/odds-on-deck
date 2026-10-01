@@ -8,12 +8,23 @@ import {
   HISTORY_LIMIT_MAX,
   MAX_PARLAYS_DEFAULT,
   MAX_PARLAYS_MAX,
+  parseInteger,
   parsePublicValidationStatus,
   PROPS_LIMIT_DEFAULT,
   PROPS_LIMIT_MAX,
   VALIDATION_LIMIT_DEFAULT,
   VALIDATION_LIMIT_MAX,
 } from '../../lib/api-limits.js'
+
+describe('parseInteger', () => {
+  test('truncates numeric POST body values before clamping', () => {
+    expect(parseInteger(2.5)).toBe(2)
+    expect(parseInteger(6.9)).toBe(6)
+    expect(parseInteger(-1.2)).toBe(-1)
+    expect(parseInteger(Number.NaN)).toBeNaN()
+    expect(parseInteger(Number.POSITIVE_INFINITY)).toBeNaN()
+  })
+})
 
 describe('clampValidationLimit', () => {
   test('NaN, 0, negative, and missing default to 100', () => {
@@ -41,19 +52,26 @@ describe('clampValidationLimit', () => {
 })
 
 describe('clampParlayLegs', () => {
-  test('missing or NaN default to 3', () => {
+  test('missing or non-numeric values use the default of 3', () => {
     expect(clampParlayLegs(null)).toBe(3)
     expect(clampParlayLegs(undefined)).toBe(3)
     expect(clampParlayLegs('')).toBe(3)
     expect(clampParlayLegs('abc')).toBe(3)
+    expect(clampParlayLegs(Number.NaN)).toBe(3)
   })
 
-  test('clamps below 2 and above 6', () => {
+  test('out-of-range numbers clamp to the nearest bound', () => {
     expect(clampParlayLegs(-1)).toBe(2)
     expect(clampParlayLegs(0)).toBe(2)
     expect(clampParlayLegs(1)).toBe(2)
     expect(clampParlayLegs(10)).toBe(6)
     expect(clampParlayLegs('10')).toBe(6)
+  })
+
+  test('truncates fractional POST numbers then clamps', () => {
+    expect(clampParlayLegs(2.5)).toBe(2)
+    expect(clampParlayLegs(6.9)).toBe(6)
+    expect(clampParlayLegs(1.9)).toBe(2)
   })
 
   test('keeps 2-6 including Featured and Builder values', () => {

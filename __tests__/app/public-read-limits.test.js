@@ -88,6 +88,24 @@ describe('GET/POST /api/parlays/generate clamps', () => {
     }))
   })
 
+  test('POST truncates fractional legCount before clamping', async () => {
+    const res = await postGenerate(new Request('http://localhost/api/parlays/generate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        sport: 'mlb',
+        type: 'multi_game',
+        legCount: 2.5,
+        maxParlays: 4.8,
+      }),
+    }))
+    expect(res.status).toBe(200)
+    expect(generateSimpleParlays).toHaveBeenCalledWith(expect.objectContaining({
+      legCount: 2,
+      maxParlays: 4,
+    }))
+  })
+
   test('POST clamps legs and maxParlays the same way', async () => {
     const res = await postGenerate(new Request('http://localhost/api/parlays/generate', {
       method: 'POST',
@@ -134,7 +152,9 @@ describe('public read-path contracts', () => {
     expect(api).toMatch(/clampValidationLimit/)
     expect(admin).toMatch(/getValidationRecords\(\{ gameId, status: 'pending' \}\)/)
     expect(admin).not.toMatch(/excludePending/)
-    expect(lib).toMatch(/if \(options\.excludePending\)/)
+    expect(lib).toMatch(/else if \(options\.excludePending\)/)
+    expect(lib).toMatch(/\.in\('status', PUBLIC_VALIDATION_STATUSES\)/)
+    expect(lib).not.toMatch(/neq\('status', 'pending'\)/)
     expect(lib.match(/query = applyValidationRecordFilters\(query, options\)/g).length).toBe(2)
   })
 
