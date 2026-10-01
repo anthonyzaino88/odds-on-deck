@@ -21,6 +21,7 @@ import { getPlayerGameStat as getNFLStat } from '../lib/vendors/nfl-game-stats.j
 import { getPlayerGameStat as getNHLStat } from '../lib/vendors/nhl-game-stats.js'
 import { appendJsonl, loadJsonlFieldSet, resolveBoxScoresDir } from '../lib/local-archive.js'
 import { propValidationGradeAudit, updateWithOptionalAudit } from '../lib/grade-audit.js'
+import { shouldSkipPlayerStatValidation } from '../lib/pending-props.js'
 
 config({ path: '.env.local' })
 
@@ -105,9 +106,18 @@ async function main() {
   // Step 3: Separate into processable vs skippable
   const toProcess = []
   let skippedNotFinal = 0
+  let skippedGameLine = 0
   let noGameFound = 0
 
   for (const v of pending) {
+    // Sides & totals wait for Game.status final and gradePendingGameLines.
+    // Dated-before-yesterday is not a final score; moneyline/total have no
+    // player-stat lookup and would be marked needs_review.
+    if (shouldSkipPlayerStatValidation(v)) {
+      skippedGameLine++
+      continue
+    }
+
     const game = gameMap.get(v.gameIdRef)
     if (!game) {
       noGameFound++
@@ -130,7 +140,8 @@ async function main() {
 
   console.log(`\n📊 ${pending.length} total pending:`)
   console.log(`   ${toProcess.length} ready to process (${noGameFound} missing games)`)
-  console.log(`   ${skippedNotFinal} skipped (games not yet final)\n`)
+  console.log(`   ${skippedNotFinal} skipped (games not yet final)`)
+  console.log(`   ${skippedGameLine} skipped (source=game_line → gradePendingGameLines)\n`)
 
   // Step 4: Process validations
   let correct = 0, incorrect = 0, pushes = 0, errors = 0, needsReview = 0
@@ -261,6 +272,7 @@ async function main() {
   console.log(`🟰 Push:          ${pushes}`)
   console.log(`⚠️  Needs Review:  ${needsReview}`)
   console.log(`⏭️  Not Final Yet: ${skippedNotFinal}`)
+  console.log(`🧾 Game lines:    ${skippedGameLine}`)
   console.log(`💥 Errors:        ${errors}`)
   console.log(`📈 Accuracy:      ${accuracy}% (${correct}/${total})`)
 

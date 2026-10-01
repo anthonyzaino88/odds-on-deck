@@ -50,4 +50,10 @@ describe('validate:all grades props before parlays', () => {
     expect(src).toMatch(/errors\+\+/)
     expect(src).toMatch(/Write failed for/)
   })
+
+  test('validate-pending-props skips source=game_line before the date-is-final shortcut', () => {
+    const src = read('scripts/validate-pending-props.js')
+    expect(src).toMatch(/shouldSkipPlayerStatValidation/)
+    expect(src.indexOf('shouldSkipPlayerStatValidation')).toBeLessThan(src.indexOf('gameDate < yesterday'))
+  })
 })
