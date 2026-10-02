@@ -1,53 +1,46 @@
 -- ============================================================================
--- ROLLBACK for 006_rls_lockdown.sql
+-- ROLLBACK procedure for 006_rls_lockdown.sql
 -- ============================================================================
--- APPLY MANUALLY in Supabase SQL Editor if the lockdown breaks the site.
+-- DO NOT run this file as a script. It contains no GRANT and no
+-- CREATE POLICY. Blanket grants / USING(true) SELECT policies would
+-- leave the database more open than before 006 (pending picks leak).
+--
+-- APPLY MANUALLY in the Supabase SQL Editor only after you have the
+-- saved output from 006_pre_snapshot.sql (run BEFORE 006).
 -- DO NOT run from CI or Vercel.
 --
--- This restores anon/authenticated SELECT on public tables (except the two
--- archives that were already hidden: ClosingOdds, ArchivedGame). RLS stays
--- ENABLED so INSERT/UPDATE/DELETE remain blocked without a write policy —
--- the same shape as the 2026-10-02 audit (INSERT 42501, writes are no-ops).
+-- Restore from the snapshot output you saved
+-- ------------------------------------------
+-- 1. Open the CSV / text you saved from 006_pre_snapshot.sql.
+-- 2. Replay the restore_ddl column in this order (skip empty grids):
+--    a. ALTER TABLE ... ENABLE/DISABLE ROW LEVEL SECURITY
+--       (query A — puts rowsecurity back the way it was, including OFF)
+--    b. CREATE POLICY ...
+--       (query B — exact qual / with_check / roles from pg_policies)
+--    c. GRANT ... ON TABLE ...
+--       (query C — only the anon/authenticated privileges that existed)
+--    d. GRANT ... ON FUNCTION ...
+--       (query D — routine EXECUTE for those roles)
+--    e. ALTER DEFAULT PRIVILEGES ...
+--       (query E — pg_default_acl)
+-- 3. Re-run the read-only verification queries in 006_rls_lockdown.sql
+--    and compare to the snapshot. Confirm https://oddsondeck.com 200s.
 --
--- It does NOT recreate every historical policy name. After rollback, confirm
--- GET https://oddsondeck.com returns 200 and /api/picks shows today's board.
+-- If you did not save the snapshot, do not guess. Pull a backup or
+-- leave the lockdown in place (service_role / SUPABASE_SECRET_KEY
+-- still bypasses RLS; the public site does not need anon SELECT).
 -- ============================================================================
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon, authenticated;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
+-- This file intentionally has no executable GRANT / CREATE POLICY /
+-- ALTER TABLE statements.
 
-DO $$
-DECLARE
-  r RECORD;
-BEGIN
-  FOR r IN
-    SELECT tablename
-    FROM pg_tables
-    WHERE schemaname = 'public'
-      AND tablename NOT IN ('ClosingOdds', 'ArchivedGame')
-    ORDER BY tablename
-  LOOP
-    EXECUTE format(
-      'DROP POLICY IF EXISTS %I ON public.%I',
-      'pr_e_rollback_public_read', r.tablename
-    );
-    EXECUTE format(
-      'CREATE POLICY %I ON public.%I FOR SELECT TO anon, authenticated USING (true)',
-      'pr_e_rollback_public_read', r.tablename
-    );
-    RAISE NOTICE 'Restored public SELECT on public.%', r.tablename;
-  END LOOP;
-END $$;
-
--- VERIFY:
---   SELECT grantee, table_name, privilege_type
---   FROM information_schema.role_table_grants
---   WHERE table_schema = 'public'
---     AND grantee IN ('anon', 'authenticated')
---     AND privilege_type = 'SELECT'
---   ORDER BY table_name, grantee;
---
---   SELECT tablename, policyname, cmd
---   FROM pg_policies
---   WHERE schemaname = 'public' AND policyname = 'pr_e_rollback_public_read'
---   ORDER BY tablename;
+-- ---------------------------------------------------------------------------
+-- EMERGENCY ONLY — commented out. More open than the original database.
+-- Uncommenting this leaks pending / future picks via PostgREST again.
+-- Use only if the site is down AND the pre-006 snapshot was lost AND
+-- the owner accepts that leak until a real restore.
+-- ---------------------------------------------------------------------------
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon, authenticated;
+-- GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
+-- GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated;
+-- -- then CREATE POLICY ... USING (true) on public tables. Do not do this.

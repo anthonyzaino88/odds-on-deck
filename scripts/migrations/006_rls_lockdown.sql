@@ -6,8 +6,13 @@
 -- DO NOT run from CI, Vercel, this PR, or any production refresh job.
 -- Nothing in package.json / vercel.json applies this file.
 --
+-- STEP 0 (required, read-only): run 006_pre_snapshot.sql first and save
+-- its full output. That output is the exact rollback. Do not run 006
+-- until the snapshot is saved.
+--
 -- PRECONDITION (site stays up):
---   1. SUPABASE_SECRET_KEY is set in Vercel Production.
+--   1. SUPABASE_SECRET_KEY is set in Vercel Production AND Vercel Build
+--      (sitemap.xml is prerendered and reads Game via the admin client).
 --   2. The PR-E code is deployed.
 --   3. GET https://oddsondeck.com/api/health shows
 --        supabaseAdmin.usingSecret = true
@@ -27,7 +32,9 @@
 --   - ENABLE ROW LEVEL SECURITY on every public table
 --   - DROP every existing public-schema policy (including USING(true) SELECT)
 --   - REVOKE SELECT/INSERT/UPDATE/DELETE/TRUNCATE from PUBLIC, anon, authenticated
---   - Revoke default privileges so new tables do not re-open anon
+--   - REVOKE EXECUTE on public functions from PUBLIC, anon, authenticated
+--     (repo has no .rpc( callers; still close the grant)
+--   - Revoke default privileges so new tables / functions do not re-open anon
 --
 -- WHAT THIS DOES NOT DO:
 --   Does not rewrite rows. Does not disable the service_role. Does not
@@ -77,16 +84,21 @@ REVOKE ALL ON ALL TABLES IN SCHEMA public FROM authenticated;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM authenticated;
+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC, anon, authenticated;
 
--- 4. Future tables created by postgres stay closed to anon
+-- 4. Future tables / functions created by postgres stay closed to anon
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   REVOKE ALL ON TABLES FROM PUBLIC, anon, authenticated;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   REVOKE ALL ON SEQUENCES FROM PUBLIC, anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE ALL ON TABLES FROM PUBLIC, anon, authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE ALL ON SEQUENCES FROM PUBLIC, anon, authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated;
 
 -- ============================================================================
 -- VERIFY (read-only — paste after the statements above, or as a second query)
