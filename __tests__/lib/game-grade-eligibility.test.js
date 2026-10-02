@@ -6,6 +6,7 @@ import {
   isEspnCompetitionGradeable,
   isImpossibleMlbFinal,
   attachSettledParlayOdds,
+  etDateKey,
   parlayOddsForUnits,
   planStatLookupFromGame,
   settledParlayDecimalOdds,
@@ -178,6 +179,11 @@ describe('planStatLookupFromGame / player props', () => {
     )).toEqual({ action: 'needs_review', reason: 'hold_timeout' })
   })
 
+  test('etDateKey treats zoneless stored timestamps as UTC', () => {
+    expect(etDateKey('2026-10-01T23:10:03.202')).toBe(etDateKey('2026-10-01T23:10:03.202Z'))
+    expect(etDateKey('2026-10-01T23:10:03.202')).toBe('2026-10-01')
+  })
+
   test('postponed older than 7 days moves to needs_review', () => {
     expect(planStatLookupFromGame(
       mlbGame({
@@ -306,6 +312,21 @@ describe('settled odds after a void', () => {
     expect(missing.status).toBe('needs_review')
     expect(missing.totalOdds).toBeUndefined()
     expect(missing.actualResult).toMatch(/postedOdds:8/)
+  })
+
+  test('already-lost parlay with a void leg and a missing price settles lost', () => {
+    const lost = attachSettledParlayOdds({
+      status: 'lost',
+      outcome: 'lost',
+      actualResult: 'Lost on: Judge',
+    }, [
+      { odds: 100 },
+      { odds: 100 },
+      { odds: null },
+    ], ['lost', 'void', 'pending'], { postedOdds: 8 })
+    expect(lost.status).toBe('lost')
+    expect(lost.outcome).toBe('lost')
+    expect(lost.totalOdds).toBeUndefined()
   })
 })
 

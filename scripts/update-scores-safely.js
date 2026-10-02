@@ -31,7 +31,7 @@ import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
 import { fetchNHLGameDetail } from '../lib/vendors/nhl-stats.js'
 import { fetchNFLGameDetail } from '../lib/vendors/nfl-stats.js'
-import { fetchLiveGameData, fetchLiveGamesByDateRange, mlbScheduleDateWindow } from '../lib/vendors/stats.js'
+import { fetchLiveGameData, fetchLiveGamesByDateRange, lookupMlbLiveByPk, mlbScheduleDateWindow } from '../lib/vendors/stats.js'
 import {
   RECENT_MLB_FINAL_RECHECK_MS,
   mergeActiveAndRecentFinalGames,
@@ -157,6 +157,7 @@ async function updateScoresForSport(sport) {
     apply: true,
     mlbLiveByPk,
     fetchLiveGameData,
+    lookupMlbLiveByPk,
     fetchNHLGameDetail,
     fetchNFLGameDetail,
     fetchEspnMlb: fetchMLBFromESPN,

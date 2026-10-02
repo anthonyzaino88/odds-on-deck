@@ -25,6 +25,7 @@ import {
   FEATURED_COHORT_TAG,
   featuredLegGradePatch,
   featuredLegPendingResetPatch,
+  applyFeaturedHoldTimeout,
   featuredParlayGradePatch,
   featuredRegradeParlayPatch,
   gradeFeaturedParlayFromValidations,
@@ -37,6 +38,7 @@ import {
   attachSettledParlayOdds,
   classifyGameForGrading,
   describeVoidNotes,
+  etDateKey,
   HOLD_TIMEOUT_DAYS,
   isEspnCompetitionGradeable,
   shouldVoidFromGame,
@@ -84,11 +86,6 @@ function isNumeric(value) {
 
 function namesEqual(a, b) {
   return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase()
-}
-
-function etDateKey(date) {
-  if (!date) return null
-  return new Date(date).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 }
 
 function etDateEspn(date) {
@@ -328,9 +325,13 @@ async function loadParlays() {
   return [...pendingParlays, ...settledFeatured.filter((parlay) => !seen.has(parlay.id))]
 }
 
-async function applyFeaturedGrade(parlay, validations) {
-  const grade = gradeFeaturedParlayFromValidations(parlay.legs, validations)
+async function applyFeaturedGrade(parlay, validations, gamesById = new Map()) {
   const now = new Date()
+  const grade = applyFeaturedHoldTimeout(
+    gradeFeaturedParlayFromValidations(parlay.legs, validations),
+    gamesById,
+    now,
+  )
 
   for (const legOutcome of grade.legOutcomes) {
     const leg = legOutcome.leg
@@ -425,7 +426,7 @@ async function autoValidateParlays() {
     console.log(`   sport=${parlay.sport} type=${parlay.type} status=${parlay.status} legs=${parlay.legs.length}`)
 
     if (isFeaturedCohortRow(parlay)) {
-      await applyFeaturedGrade(parlay, validations)
+      await applyFeaturedGrade(parlay, validations, games)
       continue
     }
 

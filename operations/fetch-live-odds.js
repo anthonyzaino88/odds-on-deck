@@ -20,6 +20,12 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
+import {
+  oddsInsertFailedForMissingCommenceTime,
+  oddsInsertPayload,
+  resolvePropLanding,
+  resolveTeamNameFallback,
+} from '../lib/live-odds-landing.js'
 import { calculateQualityScore } from '../lib/quality-score.js'
 import { attachNumBooks } from '../lib/juice-traps.js'
 import fs from 'fs'
@@ -38,6 +44,18 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
+
+let oddsHasCommenceTime = null
+async function oddsTableHasCommenceTime() {
+  if (oddsHasCommenceTime != null) return oddsHasCommenceTime
+  const { error } = await supabase.from('Odds').select('commence_time').limit(1)
+  if (error && oddsInsertFailedForMissingCommenceTime(error)) {
+    oddsHasCommenceTime = false
+    return false
+  }
+  oddsHasCommenceTime = !error
+  return oddsHasCommenceTime
+}
 
 // ============================================================================
 // CONFIGURATION
@@ -249,7 +267,7 @@ function extractTeamIdentifier(name, sport = 'nfl') {
 }
 
 // Helper function to find game by team names (for fallback lookup)
-async function findGameByTeamNames(oddsHome, oddsAway, sport, date) {
+async function findGameByTeamNames(oddsHome, oddsAway, sport, date, eventId) {
   try {
     const dateStart = new Date(date)
     dateStart.setHours(0, 0, 0, 0)
@@ -258,22 +276,21 @@ async function findGameByTeamNames(oddsHome, oddsAway, sport, date) {
     
     const { data: games } = await supabase
       .from('Game')
-      .select('id, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
+      .select('id, oddsApiEventId, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
       .eq('sport', sport)
       .gte('date', dateStart.toISOString())
       .lte('date', dateEnd.toISOString())
     
-    if (!games) return null
-    
-    for (const game of games) {
+    const sameDay = (games || []).filter((game) => {
       const homeName = (game.home?.abbr || game.home?.name || '').trim()
       const awayName = (game.away?.abbr || game.away?.name || '').trim()
-      if (matchTeams(homeName, awayName, oddsHome, oddsAway, sport)) {
-        return game
-      }
+      return matchTeams(homeName, awayName, oddsHome, oddsAway, sport)
+    })
+    if (sameDay.length > 0) {
+      return resolveTeamNameFallback(sameDay, [], eventId)
     }
-    
-    // Try ±1 day if nothing found
+
+    // No same-day team matches — timezone / date-boundary edge only
     const expandedStart = new Date(dateStart)
     expandedStart.setDate(expandedStart.getDate() - 1)
     const expandedEnd = new Date(dateEnd)
@@ -281,22 +298,17 @@ async function findGameByTeamNames(oddsHome, oddsAway, sport, date) {
     
     const { data: expandedGames } = await supabase
       .from('Game')
-      .select('id, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
+      .select('id, oddsApiEventId, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
       .eq('sport', sport)
       .gte('date', expandedStart.toISOString())
       .lte('date', expandedEnd.toISOString())
     
-    if (!expandedGames) return null
-    
-    for (const game of expandedGames) {
+    const expanded = (expandedGames || []).filter((game) => {
       const homeName = (game.home?.abbr || game.home?.name || '').trim()
       const awayName = (game.away?.abbr || game.away?.name || '').trim()
-      if (matchTeams(homeName, awayName, oddsHome, oddsAway, sport)) {
-        return game
-      }
-    }
-    
-    return null
+      return matchTeams(homeName, awayName, oddsHome, oddsAway, sport)
+    })
+    return resolveTeamNameFallback([], expanded, eventId)
   } catch (error) {
     console.warn(`Error in findGameByTeamNames: ${error.message}`)
     return null
@@ -885,7 +897,7 @@ async function saveGameOdds(games, sport, date) {
     if (!ourGameId) {
       // Try to find by team names as a last resort
       console.log(`    🔍 Attempting team name match for ${game.away_team} @ ${game.home_team}...`)
-      const teamMatch = await findGameByTeamNames(game.home_team, game.away_team, sport, dateStr)
+      const teamMatch = await findGameByTeamNames(game.home_team, game.away_team, sport, dateStr, game.id)
       if (teamMatch) {
         console.log(`    ✅ Found game by team match: ${teamMatch.id}`)
         // Update the mapping
@@ -964,20 +976,29 @@ async function saveGameOdds(games, sport, date) {
           
           if (!priceAway || !priceHome) continue
           
-          // Save to Odds table (insert only, ignore duplicates)
-          const { error } = await supabase
+          const includeCommenceTime = await oddsTableHasCommenceTime()
+          const oddsRow = oddsInsertPayload({
+            id: generateId(),
+            gameId: ourGameId,
+            book: bookmaker.title,
+            market: market.key,
+            priceAway,
+            priceHome,
+            spread,
+            total,
+            ts: new Date().toISOString(),
+            commenceTime: game.commence_time,
+            includeCommenceTime,
+          })
+          let { error } = await supabase
             .from('Odds')
-            .insert({
-              id: generateId(),
-              gameId: ourGameId,  // Use our database game ID
-              book: bookmaker.title,
-              market: market.key,
-              priceAway,
-              priceHome,
-              spread,
-              total,
-              ts: new Date().toISOString()
-            })
+            .insert(oddsRow)
+          if (error && includeCommenceTime && oddsInsertFailedForMissingCommenceTime(error)) {
+            oddsHasCommenceTime = false
+            const { commence_time: _omit, ...withoutCommence } = oddsRow
+            const retry = await supabase.from('Odds').insert(withoutCommence)
+            error = retry.error
+          }
           
           // Ignore duplicate key errors (code 23505)
           if (error) {
@@ -1057,6 +1078,7 @@ async function fetchPlayerProps(sport, date, oddsGames) {
           gameId: eventId, 
           homeTeam: game.home_team || '',
           awayTeam: game.away_team || '',
+          commenceTime: game.commence_time || null,
           props: propsData
         })
         console.log(`    ✅ Fetched props for ${gameDisplayName}`)
@@ -1180,7 +1202,7 @@ async function savePlayerProps(gameProps, sport) {
   // OPTIMIZED: Collect all props first, then batch insert
   const propsToSave = []
   
-  for (const { gameId, homeTeam, awayTeam, props } of gameProps) {
+  for (const { gameId, homeTeam, awayTeam, props, commenceTime } of gameProps) {
     // Look up our database game ID
     const ourGameId = eventIdToGameId[gameId]
     
@@ -1245,7 +1267,7 @@ async function savePlayerProps(gameProps, sport) {
               qualityScore: qualityScore,
               bookmaker: bookmaker.title,
               sport,
-              gameTime: new Date().toISOString(),
+              gameTime: resolvePropLanding({ commenceTime }).gameTime,
               fetchedAt: new Date().toISOString(),
               expiresAt: new Date(Date.now() + CACHE_DURATION.PROPS).toISOString(),
               isStale: false
