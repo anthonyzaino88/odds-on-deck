@@ -35,6 +35,14 @@ That is safe on Supabase: it only binds objects **created by `postgres`**
 created later by some other role still need an explicit
 `REVOKE EXECUTE ON FUNCTION ... FROM PUBLIC`.
 
+Rollback must restore the built-in default. Before 006 there is usually
+**no** `pg_default_acl` row for `postgres` / global / functions — Postgres
+just uses `{postgres=X/postgres,=X/postgres}`. 006 inserts
+`postgres/-/f {postgres=X/postgres}`. The pre-snapshot therefore emits
+`ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT EXECUTE ON FUNCTIONS TO PUBLIC;`
+when that row is missing. Replaying it deletes the 006 row so new
+functions get `=X/postgres` again.
+
 ## Runbook
 
 1. Confirm `SUPABASE_SECRET_KEY` in Vercel Production **and** Vercel Build
@@ -48,9 +56,16 @@ created later by some other role still need an explicit
    the **full** `(section, ordinal, restore_ddl)` grid. That is the rollback.
    Policy rows emit `DROP POLICY IF EXISTS` then `CREATE POLICY` so replay
    is rerunnable. `PUBLIC` is unquoted; function rows include identity
-   args and `ON ROUTINE` / `ON PROCEDURE`. Section `F` captures
-   `information_schema.column_privileges` for anon, authenticated, and
-   PUBLIC (table-level grants also appear per column; `GRANT` is idempotent).
+   args and `ON ROUTINE` / `ON PROCEDURE`. If `postgres` has no global
+   function `pg_default_acl` row (the usual pre-006 state — built-in
+   PUBLIC EXECUTE), section `E` emits
+   `ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT EXECUTE ON FUNCTIONS TO PUBLIC;`
+   Replay of that statement deletes the 006 `postgres/-/f {postgres=X/postgres}`
+   row so new functions get `=X/postgres` again. Section `F` captures real
+   column ACLs via `aclexplode(pg_attribute.attacl)` for anon, authenticated,
+   and PUBLIC on user schemas. It does **not** use
+   `information_schema.column_privileges`, which expands table-level grants
+   into one row per column and would invent column ACLs on replay.
 5. Owner pastes `scripts/migrations/006_rls_lockdown.sql` in the SQL Editor
    (`BEGIN` … `COMMIT`, plus explicit `GRANT ALL` / `EXECUTE` to
    `service_role`). Defaults `FOR ROLE supabase_admin` are left alone.
