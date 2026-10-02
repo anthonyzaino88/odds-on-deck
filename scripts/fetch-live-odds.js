@@ -24,8 +24,8 @@ import {
   eventCommenceMs,
   oddsInsertFailedForMissingCommenceTime,
   oddsInsertPayload,
-  pickOpenTeamMatch,
   pickUnmappedOddsGame,
+  resolveTeamNameFallback,
   resolvePropLanding,
 } from '../lib/live-odds-landing.js'
 import { calculateQualityScore } from '../lib/quality-score.js'
@@ -317,10 +317,11 @@ async function findGameByTeamNames(oddsHome, oddsAway, sport, date, eventId) {
       const awayName = (game.away?.abbr || game.away?.name || '').trim()
       return matchTeams(homeName, awayName, oddsHome, oddsAway, sport)
     })
-    const sameDayOpen = pickOpenTeamMatch(sameDay, eventId)
-    if (sameDayOpen) return sameDayOpen
-    
-    // Try ±1 day if nothing found
+    if (sameDay.length > 0) {
+      return resolveTeamNameFallback(sameDay, [], eventId)
+    }
+
+    // No same-day team matches — timezone / date-boundary edge only
     const expandedStart = new Date(dateStart)
     expandedStart.setDate(expandedStart.getDate() - 1)
     const expandedEnd = new Date(dateEnd)
@@ -338,7 +339,7 @@ async function findGameByTeamNames(oddsHome, oddsAway, sport, date, eventId) {
       const awayName = (game.away?.abbr || game.away?.name || '').trim()
       return matchTeams(homeName, awayName, oddsHome, oddsAway, sport)
     })
-    return pickOpenTeamMatch(expanded, eventId)
+    return resolveTeamNameFallback([], expanded, eventId)
   } catch (error) {
     console.warn(`Error in findGameByTeamNames: ${error.message}`)
     return null

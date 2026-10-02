@@ -5,6 +5,7 @@ import {
   isOpenForOddsEvent,
   pickOpenTeamMatch,
   pickUnmappedOddsGame,
+  resolveTeamNameFallback,
   resolvePropLanding,
 } from '../../lib/live-odds-landing.js'
 
@@ -58,6 +59,13 @@ describe('pickOpenTeamMatch (saveGameOdds team-name fallback)', () => {
 
   test('allows a row already mapped to this event', () => {
     expect(pickOpenTeamMatch([mapped], 'event-game-1').id).toBe('CHC_at_CLE_2026-04-04')
+  })
+
+  test('same-day matches all mapped, open sibling the next day, so null', () => {
+    const sameDay = [{ id: 'NYY_at_BOS_2026-10-01', oddsApiEventId: 'event-g1' }]
+    const nextDay = [{ id: 'NYY_at_BOS_2026-10-02', oddsApiEventId: null }]
+    expect(resolveTeamNameFallback(sameDay, nextDay, 'event-g2')).toBeNull()
+    expect(resolveTeamNameFallback([], nextDay, 'event-g2').id).toBe('NYY_at_BOS_2026-10-02')
   })
 })
 
