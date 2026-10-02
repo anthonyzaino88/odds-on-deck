@@ -60,6 +60,25 @@ next-env.d.ts
 /find-*.js
 /manual-*.js
 
+# Local ops notes and one-off debug scripts (operations/README.md stays tracked)
+/operations/*.md
+!/operations/README.md
+/operations/check-*.js
+/operations/test-*.js
+
+# Local one-off scripts under scripts/ — keep the tracked ops scripts committable
+/scripts/backfill-*.js
+/scripts/check-*.js
+!/scripts/check-pending-parlays.js
+/scripts/find-*.js
+/scripts/manual-*.js
+!/scripts/manual-validate-parlays.js
+
+# Local archived debug scripts / dumps (keep tracked archive files)
+/scripts/archive/*.js
+!/scripts/archive/verify-data-freshness.js
+/scripts/archive/*.json
+
 # Exports & backups (generated dumps, not project config)
 *.csv
 /*.json
@@ -68,6 +87,7 @@ next-env.d.ts
 !/vercel.json
 /backups/
 repair-backups/
+/config/learned-adjustments.json
 research/archive/**/*.json
 
 # Documentation archive
@@ -76,6 +96,10 @@ research/archive/**/*.json
 # Personal reference docs at repo root — project docs (docs/, operations/) stay tracked
 /*.md
 !/README.md
+
+# Local research notes and CLV pilot dumps (research/archive stays trackable)
+/research/*.md
+/research/clv-pilot/
 
 # Local Path B JSONL archives (do not commit dump data)
 research/archive/**/*.jsonl
