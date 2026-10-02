@@ -187,7 +187,11 @@ describe('PR-E phase 0 security contracts', () => {
       expect(src).toMatch(/isSupabaseAdminConfigured|isUsableSupabase/)
     }
     expect(read('lib/supabase-admin-key.js')).toMatch(/export function isSupabaseAdminConfigured/)
+    expect(read('lib/supabase-admin-key.js')).toMatch(/export function isUsableSupabase/)
     expect(read('lib/supabase-admin.js')).toMatch(/SUPABASE_ADMIN_PROXY/)
+    expect(read('lib/score-updater.js')).toMatch(/from '\.\/supabase-admin-key\.js'/)
+    expect(read('lib/score-updater.js')).not.toMatch(/from '\.\/supabase-admin\.js'/)
+    expect(read('lib/score-updater.js')).not.toMatch(/server-only/)
   })
 
   test('rate-limit follow-up stays a TODO hook', () => {
