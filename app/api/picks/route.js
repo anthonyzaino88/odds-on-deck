@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server'
 import { generateEditorPicks, generateGameLines } from '../../../lib/picks.js'
 import { generateQuickInsight } from '../../../lib/pick-insights.js'
-import { supabase } from '../../../lib/supabase.js'
+import { supabaseAdmin as supabase } from '../../../lib/supabase-admin.js'
 import { todaysBoardSlateState } from '../../../lib/published-picks.js'
 import { getSidesTotalsStats } from '../../../lib/validation.js'
 
