@@ -2,6 +2,8 @@ import {
   eventCommenceMs,
   oddsInsertFailedForMissingCommenceTime,
   oddsInsertPayload,
+  isOpenForOddsEvent,
+  pickOpenTeamMatch,
   pickUnmappedOddsGame,
   resolvePropLanding,
 } from '../../lib/live-odds-landing.js'
@@ -27,6 +29,35 @@ describe('pickUnmappedOddsGame', () => {
   test('does not steal a mapped sibling when every match is already mapped', () => {
     const mappedTwin = { ...game2, oddsApiEventId: 'event-game-2' }
     expect(pickUnmappedOddsGame([game1, mappedTwin], eventCommenceMs('2026-04-05T17:10:00Z'))).toBeNull()
+  })
+})
+
+describe('pickOpenTeamMatch (saveGameOdds team-name fallback)', () => {
+  const mapped = {
+    id: 'CHC_at_CLE_2026-04-04',
+    oddsApiEventId: 'event-game-1',
+  }
+  const unmapped = {
+    id: 'CHC_at_CLE_2026-04-05',
+    oddsApiEventId: null,
+  }
+
+  test('skips a mapped sibling and keeps the unmapped game', () => {
+    expect(pickOpenTeamMatch([mapped, unmapped], 'event-game-2').id).toBe('CHC_at_CLE_2026-04-05')
+    expect(isOpenForOddsEvent(mapped, 'event-game-2')).toBe(false)
+    expect(isOpenForOddsEvent(unmapped, 'event-game-2')).toBe(true)
+  })
+
+  test('does not steal the mapped sibling when pickUnmappedOddsGame already returned nothing', () => {
+    expect(pickOpenTeamMatch([mapped], 'event-game-2')).toBeNull()
+    expect(pickOpenTeamMatch([
+      mapped,
+      { ...unmapped, oddsApiEventId: 'event-other' },
+    ], 'event-game-2')).toBeNull()
+  })
+
+  test('allows a row already mapped to this event', () => {
+    expect(pickOpenTeamMatch([mapped], 'event-game-1').id).toBe('CHC_at_CLE_2026-04-04')
   })
 })
 

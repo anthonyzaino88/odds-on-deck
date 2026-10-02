@@ -12,6 +12,7 @@ import {
   fetchActiveGamesForSport,
   fetchMlbResumeGames,
   isMlbResumeCandidate,
+  GAME_SELECT,
   looksUnplayedIfNecessary,
   mergeGameLists,
   normalizeStatus,
@@ -264,7 +265,7 @@ describe('pre_game / warmup rows are selected and can move to live or final', ()
 
 describe('stale unplayed if-necessary games are not graded as a push', () => {
   const ifNecessary = {
-    id: 'CHW_at_HOU_2026-10-01',
+    id: 'CHW_at_HOU_2026-10-01_if_necessary',
     status: 'scheduled',
     date: '2026-09-30T17:08:00',
     mlbGameId: null,
@@ -298,6 +299,56 @@ describe('stale unplayed if-necessary games are not graded as a push', () => {
       homeScore: 0,
       awayScore: 0,
     })).toBe(false)
+    expect(looksUnplayedIfNecessary({
+      id: 'NYY_at_BOS_2026-09-29',
+      sport: 'mlb',
+      mlbGameId: null,
+      homeScore: 0,
+      awayScore: 0,
+    })).toBe(false)
+  })
+
+  test('NHL/NFL rows without sport on the fixture are postponed, not cancelled', () => {
+    expect(GAME_SELECT).toMatch(/\bsport\b/)
+    const now = Date.parse('2026-10-02T16:00:00.000Z')
+    const nhlNoSport = {
+      id: 'SEA_at_NYI_2026-09-30',
+      status: 'scheduled',
+      date: '2026-09-30T17:08:00',
+      mlbGameId: null,
+      homeScore: 0,
+      awayScore: 0,
+    }
+    expect(looksUnplayedIfNecessary(nhlNoSport)).toBe(false)
+    expect(looksUnplayedIfNecessary(nhlNoSport, { sport: 'nhl' })).toBe(false)
+    expect(decideMissingLiveDataUpdate(nhlNoSport, { now, sport: 'nhl' }).updateData.status).toBe('postponed')
+    expect(buildScoreUpdate({
+      game: nhlNoSport,
+      liveData: null,
+      sport: 'nhl',
+      now,
+    }).updateData.status).toBe('postponed')
+    expect(buildScoreUpdate({
+      game: { ...nhlNoSport, id: 'KC_at_BUF_2026-09-30' },
+      liveData: null,
+      sport: 'nfl',
+      now,
+    }).updateData.status).toBe('postponed')
+  })
+
+  test('played MLB with no mlbGameId postpones instead of cancelling', () => {
+    const plan = decideMissingLiveDataUpdate({
+      id: 'NYY_at_BOS_2026-09-29',
+      status: 'scheduled',
+      date: '2026-09-29T17:08:00',
+      mlbGameId: null,
+      espnGameId: '401696001',
+      homeScore: 0,
+      awayScore: 0,
+      sport: 'mlb',
+    }, { now: Date.parse('2026-10-01T20:00:00.000Z'), sport: 'mlb' })
+    expect(plan.updateData.status).toBe('postponed')
+    expect(plan.updateData.status).not.toBe('cancelled')
   })
 
   test('stale if-necessary never-played game is cancelled, not postponed or final 0-0', () => {

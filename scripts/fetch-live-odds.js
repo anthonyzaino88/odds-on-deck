@@ -24,6 +24,7 @@ import {
   eventCommenceMs,
   oddsInsertFailedForMissingCommenceTime,
   oddsInsertPayload,
+  pickOpenTeamMatch,
   pickUnmappedOddsGame,
   resolvePropLanding,
 } from '../lib/live-odds-landing.js'
@@ -297,7 +298,7 @@ function extractTeamIdentifier(name, sport = 'nfl') {
 }
 
 // Helper function to find game by team names (for fallback lookup)
-async function findGameByTeamNames(oddsHome, oddsAway, sport, date) {
+async function findGameByTeamNames(oddsHome, oddsAway, sport, date, eventId) {
   try {
     const dateStart = new Date(date)
     dateStart.setHours(0, 0, 0, 0)
@@ -306,20 +307,18 @@ async function findGameByTeamNames(oddsHome, oddsAway, sport, date) {
     
     const { data: games } = await supabase
       .from('Game')
-      .select('id, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
+      .select('id, oddsApiEventId, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
       .eq('sport', sport)
       .gte('date', dateStart.toISOString())
       .lte('date', dateEnd.toISOString())
     
-    if (!games) return null
-    
-    for (const game of games) {
+    const sameDay = (games || []).filter((game) => {
       const homeName = (game.home?.abbr || game.home?.name || '').trim()
       const awayName = (game.away?.abbr || game.away?.name || '').trim()
-      if (matchTeams(homeName, awayName, oddsHome, oddsAway, sport)) {
-        return game
-      }
-    }
+      return matchTeams(homeName, awayName, oddsHome, oddsAway, sport)
+    })
+    const sameDayOpen = pickOpenTeamMatch(sameDay, eventId)
+    if (sameDayOpen) return sameDayOpen
     
     // Try ±1 day if nothing found
     const expandedStart = new Date(dateStart)
@@ -329,22 +328,17 @@ async function findGameByTeamNames(oddsHome, oddsAway, sport, date) {
     
     const { data: expandedGames } = await supabase
       .from('Game')
-      .select('id, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
+      .select('id, oddsApiEventId, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
       .eq('sport', sport)
       .gte('date', expandedStart.toISOString())
       .lte('date', expandedEnd.toISOString())
     
-    if (!expandedGames) return null
-    
-    for (const game of expandedGames) {
+    const expanded = (expandedGames || []).filter((game) => {
       const homeName = (game.home?.abbr || game.home?.name || '').trim()
       const awayName = (game.away?.abbr || game.away?.name || '').trim()
-      if (matchTeams(homeName, awayName, oddsHome, oddsAway, sport)) {
-        return game
-      }
-    }
-    
-    return null
+      return matchTeams(homeName, awayName, oddsHome, oddsAway, sport)
+    })
+    return pickOpenTeamMatch(expanded, eventId)
   } catch (error) {
     console.warn(`Error in findGameByTeamNames: ${error.message}`)
     return null
@@ -885,7 +879,7 @@ async function saveGameOdds(games, sport, date) {
     if (!ourGameId) {
       // Try to find by team names as a last resort
       console.log(`    🔍 Attempting team name match for ${game.away_team} @ ${game.home_team}...`)
-      const teamMatch = await findGameByTeamNames(game.home_team, game.away_team, sport, dateStr)
+      const teamMatch = await findGameByTeamNames(game.home_team, game.away_team, sport, dateStr, game.id)
       if (teamMatch) {
         console.log(`    ✅ Found game by team match: ${teamMatch.id}`)
         // Update the mapping
