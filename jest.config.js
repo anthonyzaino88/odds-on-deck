@@ -13,6 +13,9 @@ const customJestConfig = {
     '**/__tests__/**/*.test.(js|jsx)',
     '**/*.(test|spec).(js|jsx)'
   ],
+  moduleNameMapper: {
+    '^server-only$': '<rootDir>/__tests__/stubs/server-only.js',
+  },
   collectCoverageFrom: [
     'lib/**/*.js',
     'app/**/*.js',

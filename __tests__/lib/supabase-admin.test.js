@@ -134,4 +134,47 @@ describe('supabase admin key selection', () => {
     expect(logger.error.mock.calls[0][0]).toMatch(/falling back to the anon key/)
     expect(logger.error.mock.calls[0][0]).not.toMatch(/super-secret-anon/)
   })
+
+  test('plain node can import supabase-admin (server-only is a no-op outside Next)', () => {
+    const { execFileSync } = require('child_process')
+    const out = execFileSync(process.execPath, [
+      '--input-type=module',
+      '-e',
+      "import { supabaseAdmin } from './lib/supabase-admin.js'; console.log('imported', typeof supabaseAdmin)",
+    ], {
+      encoding: 'utf8',
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        NEXT_PUBLIC_SUPABASE_URL: 'http://localhost:54321',
+        SUPABASE_SECRET_KEY: 'test-secret-key',
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: 'test-anon-key',
+      },
+    })
+    expect(out).toMatch(/imported object/)
+  })
+
+  test('importing supabaseAdmin does not throw when REQUIRE=1; first use does', async () => {
+    const previous = {
+      SUPABASE_SECRET_KEY: process.env.SUPABASE_SECRET_KEY,
+      SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+      SUPABASE_REQUIRE_SECRET_KEY: process.env.SUPABASE_REQUIRE_SECRET_KEY,
+    }
+    jest.resetModules()
+    delete process.env.SUPABASE_SECRET_KEY
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY
+    process.env.SUPABASE_REQUIRE_SECRET_KEY = '1'
+    try {
+      const mod = await import('../../lib/supabase-admin.js')
+      expect(mod.supabaseAdmin).toBeDefined()
+      expect(() => mod.supabaseAdmin.from('Game')).toThrow(/SUPABASE_REQUIRE_SECRET_KEY/)
+    } finally {
+      if (previous.SUPABASE_SECRET_KEY == null) delete process.env.SUPABASE_SECRET_KEY
+      else process.env.SUPABASE_SECRET_KEY = previous.SUPABASE_SECRET_KEY
+      if (previous.SUPABASE_SERVICE_ROLE_KEY == null) delete process.env.SUPABASE_SERVICE_ROLE_KEY
+      else process.env.SUPABASE_SERVICE_ROLE_KEY = previous.SUPABASE_SERVICE_ROLE_KEY
+      if (previous.SUPABASE_REQUIRE_SECRET_KEY == null) delete process.env.SUPABASE_REQUIRE_SECRET_KEY
+      else process.env.SUPABASE_REQUIRE_SECRET_KEY = previous.SUPABASE_REQUIRE_SECRET_KEY
+    }
+  })
 })

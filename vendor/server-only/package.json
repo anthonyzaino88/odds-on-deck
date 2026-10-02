@@ -1,0 +1,12 @@
+{
+  "name": "server-only",
+  "version": "0.0.1",
+  "description": "Local no-op of the server-only marker so Next.js still forbids client imports while plain-node laptop scripts can import lib/supabase-admin.js.",
+  "main": "index.js",
+  "exports": {
+    ".": {
+      "react-server": "./empty.js",
+      "default": "./index.js"
+    }
+  }
+}
