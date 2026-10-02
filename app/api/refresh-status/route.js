@@ -3,6 +3,7 @@ export const runtime = 'nodejs'
 
 import { canRefresh, API_CONFIG } from '../../../lib/api-usage-manager'
 import { supabase } from '../../../lib/supabase.js'
+import { isUsableSupabase } from '../../../lib/supabase-admin.js'
 import { parseStoredGameDate } from '../../../lib/score-updater.js'
 import { NextResponse } from 'next/server'
 
@@ -13,7 +14,7 @@ import { NextResponse } from 'next/server'
  * real persisted "data was updated" timestamp.
  */
 export async function getLatestGameLastUpdate(client = supabase) {
-  if (!client) return null
+  if (!isUsableSupabase(client)) return null
 
   const { data, error } = await client
     .from('Game')

@@ -1,14 +1,14 @@
 // Player Props API - Query PlayerPropCache from Supabase
 
 import { NextResponse } from 'next/server'
-import { supabase } from '../../../lib/supabase.js'
+import { isSupabaseAdminConfigured, supabase } from '../../../lib/supabase.js'
 import { clampPropsLimit } from '../../../lib/api-limits.js'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request) {
   try {
-    if (!supabase) {
+    if (!isSupabaseAdminConfigured()) {
       return NextResponse.json({ success: false, error: 'Database not configured. Check Supabase environment variables.' }, { status: 500 })
     }
 

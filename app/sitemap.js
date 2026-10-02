@@ -34,8 +34,8 @@ export default async function sitemap() {
 
   let gamePages = []
   try {
-    const { supabaseAdmin: supabase } = await import('../lib/supabase-admin.js')
-    if (!supabase) {
+    const { isSupabaseAdminConfigured, supabaseAdmin: supabase } = await import('../lib/supabase-admin.js')
+    if (!isSupabaseAdminConfigured()) {
       return [...staticPages]
     }
 
