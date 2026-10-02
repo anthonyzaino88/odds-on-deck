@@ -13,17 +13,14 @@
  *   node scripts/snapshot-closing-lines.js --hours 4 # 4-hour window
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import { appendJsonl, resolvePropLinesDir } from '../lib/local-archive.js'
 import { mapPropCacheToArchiveRow } from '../lib/prop-line-archive.js'
 
 config({ path: '.env.local' })
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+const supabase = createScriptSupabaseClient()
 
 async function main() {
   const args = process.argv.slice(2)

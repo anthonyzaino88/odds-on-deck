@@ -7,15 +7,12 @@
  * instead of INTEGER, allowing decimal odds like 1.95, 2.10, etc.
  */
 
-import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
+import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 
 config({ path: '.env.local' })
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+const supabase = createScriptSupabaseClient()
 
 async function main() {
   console.log('\n🔧 FIXING SUPABASE SCHEMA')

@@ -544,6 +544,9 @@ describe('repair CLI args', () => {
     expect(assertRepairApplyAllowed(true, { SUPABASE_SECRET_KEY: 'secret' })).toBe('secret')
     expect(assertRepairApplyAllowed(true, { SUPABASE_SERVICE_ROLE_KEY: 'role' })).toBe('role')
     expect(assertRepairApplyAllowed(false, { NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon' })).toBe('anon')
+    const logger = { log: jest.fn(), error: jest.fn() }
+    assertRepairApplyAllowed(false, { NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon' }, logger)
+    expect(logger.error.mock.calls[0][0]).toMatch(/falling back to the anon key/)
   })
 
   test('0-row apply update is counted as an error', async () => {

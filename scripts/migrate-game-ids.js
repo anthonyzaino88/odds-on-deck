@@ -5,16 +5,13 @@
  * Converts numeric ESPN IDs to descriptive format: AWAY_AT_HOME_YYYY-MM-DD
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import { createGameId } from '../lib/team-mapping.js'
 
 config({ path: '.env.local' })
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+const supabase = createScriptSupabaseClient()
 
 async function migrateGameIds() {
   console.log('🔄 MIGRATING GAME IDs TO CONSISTENT FORMAT')

@@ -8,27 +8,23 @@
  * NHL game times are corrected and the old mappings become invalid.
  */
 
-import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
+import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 
 config({ path: '.env.local' })
 
-// Check for required environment variables
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-if (!supabaseUrl || !supabaseKey) {
+if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
   console.error('❌ Missing Supabase configuration!')
   console.error('')
   console.error('Please ensure your .env.local file contains:')
   console.error('NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url')
-  console.error('NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key')
+  console.error('SUPABASE_SECRET_KEY=your_supabase_secret_key')
   console.error('')
   console.error('Get these values from: https://app.supabase.com → Settings → API')
   process.exit(1)
 }
 
-const supabase = createClient(supabaseUrl, supabaseKey)
+const supabase = createScriptSupabaseClient()
 
 const ODDS_API_KEY = process.env.ODDS_API_KEY
 

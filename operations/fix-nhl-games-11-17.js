@@ -1,15 +1,14 @@
 #!/usr/bin/env node
 
 // Fix NHL games for 2025-11-17 by syncing with ESPN and mapping to Odds API
-import { createClient } from '@supabase/supabase-js'
+import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 
 config({ path: '.env.local' })
 
-// Validate environment variables are loaded
-if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-  console.error('❌ Missing Supabase credentials in environment variables')
-  console.error('Please ensure .env.local contains NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY')
+if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+  console.error('❌ Missing NEXT_PUBLIC_SUPABASE_URL in environment variables')
+  console.error('Please ensure .env.local contains NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY')
   process.exit(1)
 }
 
@@ -19,10 +18,7 @@ if (!process.env.ODDS_API_KEY) {
   process.exit(1)
 }
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+const supabase = createScriptSupabaseClient()
 
 const ODDS_API_KEY = process.env.ODDS_API_KEY
 

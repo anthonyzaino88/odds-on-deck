@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
-import { join } from 'path'
+import { join, relative, sep } from 'path'
 
 const read = (rel) => readFileSync(join(process.cwd(), rel), 'utf8')
 
@@ -77,6 +77,8 @@ describe('PR-E phase 0 security contracts', () => {
     expect(snapshot).toMatch(/WHEN 'n' THEN 'SCHEMAS'/)
     expect(snapshot).toMatch(/defaclnamespace = 0 THEN ''/)
     expect(snapshot).toMatch(/THEN 'PUBLIC' ELSE quote_ident/)
+    expect(snapshot).toMatch(/DROP POLICY IF EXISTS/)
+    expect(snapshot).toMatch(/information_schema\.column_privileges/)
     expect(snapshot).not.toMatch(/routine_privileges/)
     expect(snapshot).not.toMatch(/quote_ident\(.*PUBLIC/)
     expect(sql).toMatch(/STEP 0 \(required, read-only\): run 006_pre_snapshot\.sql/)
@@ -92,6 +94,8 @@ describe('PR-E phase 0 security contracts', () => {
     expect(sql).toMatch(/GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role/)
     expect(sql).toMatch(/GRANT EXECUTE ON FUNCTIONS TO service_role/)
     expect(sql).toMatch(/Does not change ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin/)
+    expect(sql).toMatch(/ALTER DEFAULT PRIVILEGES FOR ROLE postgres\s+REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC/)
+    expect(sql).toMatch(/Per-schema REVOKE EXECUTE cannot drop the built-in/)
     expect(sql).toMatch(/SELECT proname, prokind, proacl/)
     expect(sql).toMatch(/^BEGIN;/m)
     expect(sql).toMatch(/^COMMIT;/m)
@@ -100,6 +104,8 @@ describe('PR-E phase 0 security contracts', () => {
     expect(sql).toMatch(/DO NOT run from CI/)
     expect(rollback).toMatch(/Restore from the snapshot output you saved/)
     expect(rollback).toMatch(/This file intentionally has no executable GRANT/)
+    expect(rollback).toMatch(/DROP POLICY IF EXISTS/)
+    expect(rollback).toMatch(/column_privileges/)
     expect(rollback).toMatch(/EMERGENCY ONLY/)
     expect(rollback).not.toMatch(/^\s*GRANT /m)
     expect(rollback).not.toMatch(/^\s*CREATE POLICY/m)
@@ -161,7 +167,8 @@ describe('PR-E phase 0 security contracts', () => {
     expect(ops).toMatch(/006_pre_snapshot\.sql/)
     expect(ops).toMatch(/calculate-prop-edges\.js/)
     expect(ops).toMatch(/update-scores-safely\.js/)
-    expect(ops).toMatch(/follow-up PR/)
+    expect(ops).toMatch(/SUPABASE_SECRET_KEY[\s\S]*SUPABASE_SERVICE_ROLE_KEY[\s\S]*anon/)
+    expect(ops).not.toMatch(/follow-up PR/)
     expect(ops).toMatch(/node -e "require\('dotenv'\)\.config\(\{path:'\.env\.local'\}\);console\.log\(!!process\.env\.SUPABASE_SECRET_KEY\)"/)
     expect(ops).not.toMatch(/test -n "\$SUPABASE_SECRET_KEY"/)
   })
@@ -205,5 +212,44 @@ describe('PR-E phase 0 security contracts', () => {
     expect(jestConfig).toMatch(/server-only/)
     expect(jestConfig).toMatch(/__tests__\/stubs\/server-only\.js/)
     expect(existsSync(join(process.cwd(), '__tests__/stubs/server-only.js'))).toBe(true)
+  })
+
+  test('laptop scripts pick secret then service_role then anon via the shared helper', () => {
+    const helper = read('lib/supabase-script-client.js')
+    expect(helper).toMatch(/from '\.\/supabase-admin-key\.js'/)
+    expect(helper).toMatch(/resolveSupabaseAdminKey/)
+    expect(helper).toMatch(/logAdminKeyResolution/)
+    expect(helper).not.toMatch(/server-only/)
+
+    expect(read('scripts/calculate-prop-edges.js')).toMatch(/createScriptSupabaseClient/)
+    expect(read('scripts/update-scores-safely.js')).toMatch(/createScriptSupabaseClient/)
+    expect(read('operations/update-scores-safely.js')).toMatch(/createScriptSupabaseClient/)
+
+    const docs = read('docs/migrations/006_rls_lockdown.md')
+    expect(docs).toMatch(/pages render empty/)
+    expect(docs).toMatch(/Watch health after setting that flag/)
+    expect(docs).toMatch(/ALTER DEFAULT PRIVILEGES FOR ROLE postgres/)
+
+    const exceptions = new Set([
+      'scripts/clear-stale-props.js',
+      'scripts/report-unplayed-game-grades.js',
+      'scripts/repair-stuck-mlb-scores.js',
+    ])
+    for (const root of ['scripts', 'operations']) {
+      for (const file of walkJs(join(process.cwd(), root))) {
+        if (file.includes(`${sep}migrations${sep}`)) continue
+        const rel = relative(process.cwd(), file).replaceAll('\\', '/')
+        const src = readFileSync(file, 'utf8')
+        expect(src).not.toMatch(
+          /createClient\(\s*\n?\s*process\.env\.NEXT_PUBLIC_SUPABASE_URL,\s*\n?\s*process\.env\.NEXT_PUBLIC_SUPABASE_ANON_KEY/,
+        )
+        expect(src).not.toMatch(
+          /createClient\(\s*\n?\s*process\.env\.NEXT_PUBLIC_SUPABASE_URL,\s*\n?\s*process\.env\.SUPABASE_SERVICE_ROLE_KEY/,
+        )
+        if (!src.includes("from '@supabase/supabase-js'")) continue
+        if (exceptions.has(rel)) continue
+        throw new Error(`${rel} still imports @supabase/supabase-js; use createScriptSupabaseClient`)
+      }
+    }
   })
 })

@@ -16,10 +16,11 @@
 -- 2. Replay restore_ddl ORDER BY section, ordinal (skip the section='0'
 --    instruction row):
 --    A. ALTER TABLE ... ENABLE/DISABLE ROW LEVEL SECURITY
---    B. CREATE POLICY ... (PUBLIC unquoted)
+--    B. DROP POLICY IF EXISTS ...; CREATE POLICY ... (PUBLIC unquoted)
 --    C. GRANT ... ON TABLE / SEQUENCE ... (PUBLIC, anon, authenticated)
 --    D. GRANT ... ON ROUTINE / PROCEDURE ... (identity args)
 --    E. ALTER DEFAULT PRIVILEGES ... (global rows have no IN SCHEMA)
+--    F. GRANT ... (column) ON TABLE ... (column_privileges; idempotent)
 -- 3. Re-run the read-only verification queries in 006_rls_lockdown.sql
 --    and compare to the snapshot. Confirm https://oddsondeck.com 200s.
 --

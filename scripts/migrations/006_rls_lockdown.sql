@@ -39,7 +39,13 @@
 --   - GRANT ALL on tables/sequences and EXECUTE on functions to service_role
 --     so laptop service_role writes cannot hit permission denied on
 --     default/extension functions
---   - Revoke default privileges so new tables / functions do not re-open anon
+--   - Revoke default table/sequence privileges so new tables stay closed
+--     to anon. Per-schema ALTER DEFAULT PRIVILEGES cannot revoke Postgres'
+--     built-in PUBLIC EXECUTE on functions (schema defaults only add
+--     grants). A global `ALTER DEFAULT PRIVILEGES FOR ROLE postgres
+--     REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC` is required so SQL
+--     Editor-created functions stay closed. FOR ROLE postgres does not
+--     change supabase_admin / extension-owner defaults.
 --
 -- WHAT THIS DOES NOT DO:
 --   Does not rewrite rows. Does not disable the service_role. Does not
@@ -113,8 +119,12 @@ GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO service_role;
 GRANT EXECUTE ON ALL PROCEDURES IN SCHEMA public TO service_role;
 
--- 4. Future tables / functions created by postgres stay closed to anon
---    and stay open to service_role.
+-- 4. Future tables created by postgres stay closed to anon and stay open
+--    to service_role. Per-schema REVOKE EXECUTE cannot drop the built-in
+--    PUBLIC function default — only a global (no IN SCHEMA) ALTER
+--    DEFAULT PRIVILEGES can. Scoped to FOR ROLE postgres so dashboard /
+--    extension owners are unchanged. New functions created by other
+--    roles still need an explicit REVOKE EXECUTE ... FROM PUBLIC.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   REVOKE ALL ON TABLES FROM PUBLIC, anon, authenticated;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
@@ -147,6 +157,16 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   GRANT EXECUTE ON FUNCTIONS TO service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   GRANT EXECUTE ON ROUTINES TO service_role;
+
+-- Global (no IN SCHEMA): replaces the built-in PUBLIC EXECUTE default
+-- for functions/routines subsequently created by postgres. Safe on
+-- Supabase because it does not bind supabase_admin. Existing public
+-- functions were revoked in step 3; service_role still has the
+-- schema-specific GRANT EXECUTE above.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres
+  REVOKE EXECUTE ON ROUTINES FROM PUBLIC;
 
 COMMIT;
 

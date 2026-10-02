@@ -4,15 +4,12 @@
  * Remove duplicate games - keep the one with odds mapped, or the one with more data
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 
 config({ path: '.env.local' })
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+const supabase = createScriptSupabaseClient()
 
 async function removeDuplicates() {
   console.log('🔍 Finding and removing duplicate games...\n')

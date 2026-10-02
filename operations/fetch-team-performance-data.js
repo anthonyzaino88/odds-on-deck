@@ -2,16 +2,13 @@
 // Fetch team performance data from ESPN API and store in database
 // This data powers the honest edge calculation model
 
-import { createClient } from '@supabase/supabase-js'
+import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import { extractEspnTeamPerformance, teamPerformanceWritePayload } from '../lib/team-performance-stats.js'
 
 config({ path: '.env.local' })
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+const supabase = createScriptSupabaseClient()
 
 console.log('\n📊 Fetching Team Performance Data from ESPN...\n')
 

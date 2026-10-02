@@ -6,6 +6,8 @@
 -- THIS FILE IS ONE STATEMENT. The SQL Editor shows only the last result
 -- grid — export or copy the FULL grid (section, ordinal, restore_ddl).
 -- Replay restore_ddl in order (section, ordinal) for rollback.
+-- Policy rows emit DROP POLICY IF EXISTS then CREATE POLICY (rerunnable).
+-- Section F is information_schema.column_privileges for anon/authenticated/PUBLIC.
 --
 -- DO NOT run from CI, Vercel, or this PR. This file writes nothing.
 -- ============================================================================
@@ -35,11 +37,15 @@ FROM (
   UNION ALL
 
   -- B. Policies. Role {public} must emit PUBLIC unquoted, never quote_ident.
+  --    DROP POLICY IF EXISTS makes restore_ddl rerunnable.
   SELECT
     'B'::text,
     row_number() OVER (ORDER BY tablename, policyname)::int,
     format(
-      'CREATE POLICY %I ON %I.%I AS %s FOR %s%s%s%s;',
+      E'DROP POLICY IF EXISTS %I ON %I.%I;\nCREATE POLICY %I ON %I.%I AS %s FOR %s%s%s%s;',
+      policyname,
+      schemaname,
+      tablename,
       policyname,
       schemaname,
       tablename,
@@ -170,5 +176,33 @@ FROM (
   LEFT JOIN pg_roles r ON r.oid = a.grantee
   WHERE d.defaclnamespace = 0
      OR n.nspname = 'public'
+
+  UNION ALL
+
+  -- F. Column-level grants for PUBLIC, anon, authenticated.
+  --    information_schema.column_privileges also lists table-level GRANTs
+  --    exploded per column; replaying GRANT (col) is idempotent.
+  SELECT
+    'F'::text,
+    row_number() OVER (
+      ORDER BY cp.table_name, cp.column_name, cp.grantee, cp.privilege_type
+    )::int,
+    format(
+      'GRANT %s (%I) ON TABLE %I.%I TO %s;',
+      cp.privilege_type,
+      cp.column_name,
+      cp.table_schema,
+      cp.table_name,
+      CASE
+        WHEN upper(cp.grantee) = 'PUBLIC' THEN 'PUBLIC'
+        ELSE quote_ident(cp.grantee)
+      END
+    )
+  FROM information_schema.column_privileges cp
+  WHERE cp.table_schema = 'public'
+    AND (
+      cp.grantee IN ('anon', 'authenticated', 'PUBLIC')
+      OR upper(cp.grantee) = 'PUBLIC'
+    )
 ) snap
 ORDER BY section, ordinal;

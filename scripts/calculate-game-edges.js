@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // Calculate betting edges for today's games and store in EdgeSnapshot table
 
-import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
 import { calculateGameEdges } from '../lib/edge.js' // MLB model
 import { calculateNHLEdges } from '../lib/edge-nfl-nhl.js' // NHL heuristic (unchanged)
 import { calculateNFLEdges, toNflEdgeSnapshotInsert } from '../lib/edge-nfl.js' // isolated NFL model
 import crypto from 'crypto'
+import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 
 config({ path: '.env.local' })
 
@@ -15,23 +15,9 @@ function generateId() {
   return crypto.randomBytes(12).toString('base64url')
 }
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY
-
-if (!supabaseUrl) {
-  throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL environment variable')
-}
-
-if (!supabaseSecretKey) {
-  throw new Error('Missing SUPABASE_SECRET_KEY environment variable needed to bypass EdgeSnapshot RLS')
-}
-
-const supabase = createClient(supabaseUrl, supabaseSecretKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false
-  }
-})
+// EdgeSnapshot is RLS-locked; secret/service_role bypasses it. Anon fallback
+// warns loudly and will 42501 / return empty after 006_rls_lockdown.sql.
+const supabase = createScriptSupabaseClient()
 
 console.log('\n🎲 Calculating Game Edges for Today\'s Games...\n')
 

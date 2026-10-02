@@ -1,11 +1,8 @@
-import { createClient } from '@supabase/supabase-js'
+import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 config({ path: '.env.local' })
 
-const s = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY
-)
+const s = createScriptSupabaseClient()
 
 async function run() {
   const today = new Date()

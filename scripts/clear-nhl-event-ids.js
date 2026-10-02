@@ -11,15 +11,12 @@
  *   node scripts/clear-nhl-event-ids.js --dry-run # Preview what would be cleared
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 
 config({ path: '.env.local' })
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+const supabase = createScriptSupabaseClient()
 
 async function main() {
   const dryRun = process.argv.includes('--dry-run')
