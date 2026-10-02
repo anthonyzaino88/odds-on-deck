@@ -50,7 +50,8 @@ is not enough — set the secret on the Build environment too.
 Do not paste `scripts/migrations/006_rls_lockdown.sql` until every item is true:
 
 - [ ] `GET https://oddsondeck.com/api/health` shows `supabaseAdmin.usingSecret: true`
-- [ ] Laptop `.env.local` has `SUPABASE_SECRET_KEY` (boolean check: `test -n "$SUPABASE_SECRET_KEY"`)
+- [ ] Laptop `.env.local` has `SUPABASE_SECRET_KEY` (boolean check):
+      `node -e "require('dotenv').config({path:'.env.local'});console.log(!!process.env.SUPABASE_SECRET_KEY)"`
 - [ ] `scripts/calculate-prop-edges.js` anon-only and `operations/update-scores-safely.js` `SERVICE_ROLE_KEY`-only key lookups have been fixed in a **follow-up PR** (not this one; hourly-path scripts stay untouched here)
 - [ ] `006_pre_snapshot.sql` has been run and its output saved
 

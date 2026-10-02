@@ -34,12 +34,28 @@
 --   - REVOKE SELECT/INSERT/UPDATE/DELETE/TRUNCATE from PUBLIC, anon, authenticated
 --   - REVOKE EXECUTE on public functions from PUBLIC, anon, authenticated
 --     (repo has no .rpc( callers; still close the grant)
+--   - GRANT ALL on tables/sequences and EXECUTE on functions to service_role
+--     so laptop service_role writes cannot hit permission denied on
+--     default/extension functions
 --   - Revoke default privileges so new tables / functions do not re-open anon
 --
 -- WHAT THIS DOES NOT DO:
 --   Does not rewrite rows. Does not disable the service_role. Does not
 --   FORCE RLS on table owners (SQL Editor / postgres still works).
+--   Does not change ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin.
+--   That role is the dashboard owner on some projects and may not exist
+--   locally; snapshotting/revoking its defaults without a saved ACL is
+--   how SQL Editor-created tables lose unexpected grants. service_role
+--   bypasses RLS; we GRANT ALL to service_role on current public objects
+--   instead.
+--
+-- Optional read-only pre-check (paste separately, not part of the txn):
+--   SELECT proname, prokind, proacl
+--   FROM pg_proc
+--   WHERE pronamespace = 'public'::regnamespace;
 -- ============================================================================
+
+BEGIN;
 
 -- 1. Enable RLS on every public table
 DO $$
@@ -86,22 +102,43 @@ REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM authenticated;
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC, anon, authenticated;
 
+-- service_role must keep table/sequence/execute (laptop scripts + PostgREST
+-- service key). Explicit GRANT after the PUBLIC revoke.
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO service_role;
+
 -- 4. Future tables / functions created by postgres stay closed to anon
+--    and stay open to service_role.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   REVOKE ALL ON TABLES FROM PUBLIC, anon, authenticated;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   REVOKE ALL ON SEQUENCES FROM PUBLIC, anon, authenticated;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT ALL ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT ALL ON SEQUENCES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT EXECUTE ON FUNCTIONS TO service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE ALL ON TABLES FROM PUBLIC, anon, authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE ALL ON SEQUENCES FROM PUBLIC, anon, authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  GRANT ALL ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  GRANT ALL ON SEQUENCES TO service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  GRANT EXECUTE ON FUNCTIONS TO service_role;
+
+COMMIT;
 
 -- ============================================================================
--- VERIFY (read-only — paste after the statements above, or as a second query)
+-- VERIFY (read-only — paste after COMMIT, as a second query)
 -- ============================================================================
 -- Every public table should have rowsecurity = true:
 --   SELECT schemaname, tablename, rowsecurity

@@ -12,17 +12,14 @@
 -- Restore from the snapshot output you saved
 -- ------------------------------------------
 -- 1. Open the CSV / text you saved from 006_pre_snapshot.sql.
--- 2. Replay the restore_ddl column in this order (skip empty grids):
---    a. ALTER TABLE ... ENABLE/DISABLE ROW LEVEL SECURITY
---       (query A — puts rowsecurity back the way it was, including OFF)
---    b. CREATE POLICY ...
---       (query B — exact qual / with_check / roles from pg_policies)
---    c. GRANT ... ON TABLE ...
---       (query C — only the anon/authenticated privileges that existed)
---    d. GRANT ... ON FUNCTION ...
---       (query D — routine EXECUTE for those roles)
---    e. ALTER DEFAULT PRIVILEGES ...
---       (query E — pg_default_acl)
+--    That file is ONE statement: one grid with (section, ordinal, restore_ddl).
+-- 2. Replay restore_ddl ORDER BY section, ordinal (skip the section='0'
+--    instruction row):
+--    A. ALTER TABLE ... ENABLE/DISABLE ROW LEVEL SECURITY
+--    B. CREATE POLICY ... (PUBLIC unquoted)
+--    C. GRANT ... ON TABLE / SEQUENCE ... (PUBLIC, anon, authenticated)
+--    D. GRANT ... ON ROUTINE / PROCEDURE ... (identity args)
+--    E. ALTER DEFAULT PRIVILEGES ... (global rows have no IN SCHEMA)
 -- 3. Re-run the read-only verification queries in 006_rls_lockdown.sql
 --    and compare to the snapshot. Confirm https://oddsondeck.com 200s.
 --
