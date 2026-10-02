@@ -6,6 +6,7 @@ import {
   FEATURED_COHORT_TAG,
   aggregateFeaturedParlayOutcome,
   featuredLegGradePatch,
+  applyFeaturedHoldTimeout,
   featuredParlayGradePatch,
   featuredPersistClaim,
   featuredPersistWritePlan,
@@ -447,6 +448,58 @@ describe('Featured grading', () => {
       legOutcomes: [],
     })).toBeNull()
     expect(aggregateFeaturedParlayOutcome(['won', null, 'won'])).toBe('pending')
+  })
+
+  test('Featured hold timeout marks a postponed card needs_review after 7 days', () => {
+    const now = new Date('2026-10-09T16:00:00.000Z')
+    const pendingGrade = gradeFeaturedParlayFromValidations(legs, [])
+    expect(pendingGrade.parlayOutcome).toBe('pending')
+    expect(featuredParlayGradePatch(pendingGrade)).toBeNull()
+
+    const games = Object.fromEntries(legs.map((leg) => [leg.gameIdRef, {
+      id: leg.gameIdRef,
+      status: 'postponed',
+      date: '2026-09-30T23:00:00',
+      homeScore: 0,
+      awayScore: 0,
+    }]))
+    const timedOut = applyFeaturedHoldTimeout(pendingGrade, games, now)
+    expect(timedOut.parlayOutcome).toBe('needs_review')
+    expect(timedOut.legOutcomes.every((row) => row.outcome === 'needs_review')).toBe(true)
+    const patch = featuredParlayGradePatch(timedOut, now)
+    expect(patch.status).toBe('needs_review')
+    expect(patch.actualResult).toMatch(/Hold timeout/)
+  })
+
+  test('lost Featured card with a void leg and a missing price settles lost', () => {
+    const mixed = [
+      { ...legs[0], odds: 100 },
+      { ...legs[1], odds: 100 },
+      { ...legs[2], odds: null },
+    ]
+    const validations = [
+      {
+        playerName: mixed[0].playerName,
+        propType: mixed[0].propType,
+        status: 'completed',
+        actualValue: mixed[0].threshold - 5,
+        result: 'incorrect',
+        gameIdRef: mixed[0].gameIdRef,
+      },
+      {
+        playerName: mixed[1].playerName,
+        propType: mixed[1].propType,
+        status: 'manual_closed',
+        actualValue: null,
+        result: 'void',
+        gameIdRef: mixed[1].gameIdRef,
+      },
+    ]
+    const grade = gradeFeaturedParlayFromValidations(mixed, validations)
+    expect(grade.parlayOutcome).toBe('lost')
+    const patch = featuredParlayGradePatch(grade, new Date(), { postedOdds: 8 })
+    expect(patch.status).toBe('lost')
+    expect(patch.outcome).toBe('lost')
   })
 
   test('pending PropValidation keeps the parlay pending and does not assume 0', () => {

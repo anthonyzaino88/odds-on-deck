@@ -13,6 +13,8 @@ import {
   resolveBoxScoresDir,
   resolveNflBoxScoresDir,
   resolvePropLinesDir,
+  shouldArchiveBoxScore,
+  boxScoreArchiveRows,
   toUtcDayStamp,
 } from '../../lib/local-archive.js'
 
@@ -210,5 +212,36 @@ describe('loadJsonlFieldSet / groupRowsByUtcDay', () => {
     expect([...groups.keys()].sort()).toEqual(['2026-04-01', '2026-04-02'])
     expect(groups.get('2026-04-01').map((r) => r.prop_id)).toEqual(['a', 'c'])
     expect(groups.get('2026-04-02').map((r) => r.prop_id)).toEqual(['b'])
+  })
+})
+
+describe('box-score archive gate', () => {
+  const finalGame = {
+    id: 'TOR_at_BAL_2026-09-23',
+    sport: 'mlb',
+    status: 'final',
+    homeScore: 4,
+    awayScore: 2,
+    mlbGameId: '824785',
+  }
+
+  test('archives only a gradeable final and stamps source / archivedAt / gamePk', () => {
+    expect(shouldArchiveBoxScore(finalGame)).toBe(true)
+    expect(shouldArchiveBoxScore({ ...finalGame, status: 'scheduled', homeScore: 0, awayScore: 0 })).toBe(false)
+    expect(shouldArchiveBoxScore({ ...finalGame, status: 'final', homeScore: 0, awayScore: 0 })).toBe(false)
+
+    const rows = boxScoreArchiveRows(finalGame, { 'Vladimir Guerrero Jr.': { hits: 2 } }, {
+      source: 'mlb-statsapi',
+      now: new Date('2026-10-01T12:00:00.000Z'),
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      game_id: 'TOR_at_BAL_2026-09-23',
+      player_name: 'Vladimir Guerrero Jr.',
+      source: 'mlb-statsapi',
+      archivedAt: '2026-10-01T12:00:00.000Z',
+      gamePk: '824785',
+    })
+    expect(boxScoreArchiveRows({ ...finalGame, status: 'postponed' }, { 'A': { hits: 0 } })).toEqual([])
   })
 })

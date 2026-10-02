@@ -19,7 +19,7 @@ import { config } from 'dotenv'
 import { getPlayerGameStat as getMLBStat, fetchMLBGameStats } from '../lib/vendors/mlb-game-stats.js'
 import { getPlayerGameStat as getNFLStat } from '../lib/vendors/nfl-game-stats.js'
 import { getPlayerGameStat as getNHLStat } from '../lib/vendors/nhl-game-stats.js'
-import { appendJsonl, loadJsonlFieldSet, resolveBoxScoresDir } from '../lib/local-archive.js'
+import { appendJsonl, boxScoreArchiveRows, loadJsonlFieldSet, resolveBoxScoresDir, shouldArchiveBoxScore } from '../lib/local-archive.js'
 import { propValidationGradeAudit, updateWithOptionalAudit } from '../lib/grade-audit.js'
 import { planPlayerStatValidation } from '../lib/pending-props.js'
 import { voidPropValidationPatch } from '../lib/game-grade-eligibility.js'
@@ -328,7 +328,7 @@ async function main() {
   // ── Archive box scores for completed games ───────────────────────────
   const completedGameIds = [...new Set(
     toProcess
-      .filter(({ game }) => game)
+      .filter(({ game }) => shouldArchiveBoxScore(game))
       .map(({ game }) => game.id)
   )]
 
@@ -350,13 +350,10 @@ async function main() {
         if (sport === 'mlb' && game.mlbGameId) {
           const allStats = await fetchMLBGameStats(game.mlbGameId)
           if (allStats) {
-            const rows = Object.entries(allStats).map(([name, stats]) => ({
-              game_id: gid,
-              sport: 'mlb',
-              player_name: name,
-              team: null,
-              stats,
-            }))
+            const rows = boxScoreArchiveRows(game, allStats, {
+              source: 'mlb-statsapi',
+              now: new Date(),
+            })
             if (rows.length > 0) {
               try {
                 appendJsonl(boxDir, 'box-scores', rows)

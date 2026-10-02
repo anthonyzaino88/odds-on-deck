@@ -20,6 +20,11 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
+import {
+  oddsInsertFailedForMissingCommenceTime,
+  oddsInsertPayload,
+  resolvePropLanding,
+} from '../lib/live-odds-landing.js'
 import { calculateQualityScore } from '../lib/quality-score.js'
 import { attachNumBooks } from '../lib/juice-traps.js'
 import fs from 'fs'
@@ -38,6 +43,18 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
+
+let oddsHasCommenceTime = null
+async function oddsTableHasCommenceTime() {
+  if (oddsHasCommenceTime != null) return oddsHasCommenceTime
+  const { error } = await supabase.from('Odds').select('commence_time').limit(1)
+  if (error && oddsInsertFailedForMissingCommenceTime(error)) {
+    oddsHasCommenceTime = false
+    return false
+  }
+  oddsHasCommenceTime = !error
+  return oddsHasCommenceTime
+}
 
 // ============================================================================
 // CONFIGURATION
@@ -964,20 +981,29 @@ async function saveGameOdds(games, sport, date) {
           
           if (!priceAway || !priceHome) continue
           
-          // Save to Odds table (insert only, ignore duplicates)
-          const { error } = await supabase
+          const includeCommenceTime = await oddsTableHasCommenceTime()
+          const oddsRow = oddsInsertPayload({
+            id: generateId(),
+            gameId: ourGameId,
+            book: bookmaker.title,
+            market: market.key,
+            priceAway,
+            priceHome,
+            spread,
+            total,
+            ts: new Date().toISOString(),
+            commenceTime: game.commence_time,
+            includeCommenceTime,
+          })
+          let { error } = await supabase
             .from('Odds')
-            .insert({
-              id: generateId(),
-              gameId: ourGameId,  // Use our database game ID
-              book: bookmaker.title,
-              market: market.key,
-              priceAway,
-              priceHome,
-              spread,
-              total,
-              ts: new Date().toISOString()
-            })
+            .insert(oddsRow)
+          if (error && includeCommenceTime && oddsInsertFailedForMissingCommenceTime(error)) {
+            oddsHasCommenceTime = false
+            const { commence_time: _omit, ...withoutCommence } = oddsRow
+            const retry = await supabase.from('Odds').insert(withoutCommence)
+            error = retry.error
+          }
           
           // Ignore duplicate key errors (code 23505)
           if (error) {
@@ -1057,6 +1083,7 @@ async function fetchPlayerProps(sport, date, oddsGames) {
           gameId: eventId, 
           homeTeam: game.home_team || '',
           awayTeam: game.away_team || '',
+          commenceTime: game.commence_time || null,
           props: propsData
         })
         console.log(`    ✅ Fetched props for ${gameDisplayName}`)
@@ -1180,7 +1207,7 @@ async function savePlayerProps(gameProps, sport) {
   // OPTIMIZED: Collect all props first, then batch insert
   const propsToSave = []
   
-  for (const { gameId, homeTeam, awayTeam, props } of gameProps) {
+  for (const { gameId, homeTeam, awayTeam, props, commenceTime } of gameProps) {
     // Look up our database game ID
     const ourGameId = eventIdToGameId[gameId]
     
@@ -1245,7 +1272,7 @@ async function savePlayerProps(gameProps, sport) {
               qualityScore: qualityScore,
               bookmaker: bookmaker.title,
               sport,
-              gameTime: new Date().toISOString(),
+              gameTime: resolvePropLanding({ commenceTime }).gameTime,
               fetchedAt: new Date().toISOString(),
               expiresAt: new Date(Date.now() + CACHE_DURATION.PROPS).toISOString(),
               isStale: false

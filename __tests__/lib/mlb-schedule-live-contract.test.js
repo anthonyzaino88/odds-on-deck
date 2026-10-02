@@ -3,6 +3,7 @@ import {
   extractLinescorePayloadFromScheduleGame,
   fetchLiveGameData,
   fetchLiveGamesByDateRange,
+  lookupMlbLiveByPk,
   mapHydratedScheduleGames,
   mapLiveGameData,
   mlbScheduleDateWindow,
@@ -128,5 +129,16 @@ describe('fetch path uses the hydrated schedule mapper', () => {
     )
     expect(byPk.get(String(TOR_BAL_GAME_PK)).status).toBe('final')
     expect(byPk.get(String(SCHEDULE_GAME_LAA_ATH_LIVE.gamePk)).status).toBe('in_progress')
+  })
+
+  test('lookupMlbLiveByPk reports found:false when the gamePk is absent', async () => {
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ dates: [] }),
+    })
+    const lookup = await lookupMlbLiveByPk('830001', true)
+    expect(lookup.found).toBe(false)
+    expect(lookup.liveData).toBeNull()
+    expect(lookup.error).toBeNull()
   })
 })

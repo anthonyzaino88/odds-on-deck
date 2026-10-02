@@ -446,6 +446,19 @@ describe('recent-final self-heal window', () => {
     }, { now })).toBe(false)
   })
 
+  test('zoneless lastUpdate is UTC, same as a Z-suffixed stamp', () => {
+    const zoneless = isRecentMlbFinalForRecheck({
+      status: 'final',
+      lastUpdate: '2026-09-16T04:05:00.202',
+    }, { now })
+    const zoned = isRecentMlbFinalForRecheck({
+      status: 'final',
+      lastUpdate: '2026-09-16T04:05:00.202Z',
+    }, { now })
+    expect(zoneless).toBe(true)
+    expect(zoneless).toBe(zoned)
+  })
+
   test('mergeActiveAndRecentFinalGames de-dupes and only keeps recent finals', () => {
     const active = [{ id: 'live-1', status: 'in_progress' }]
     const finals = [

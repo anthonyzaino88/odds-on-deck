@@ -25,6 +25,10 @@ describe('Published props are recorded when they clear the bar', () => {
     expect(oddsFetch).toMatch(/isPublishedEligibleProp/)
     expect(oddsFetch).toMatch(/persistPublishedEligibleProps/)
     expect(oddsFetch).toMatch(/Reads PlayerPropCache only|no Odds API/)
+    expect(oddsFetch).toMatch(/pickUnmappedOddsGame/)
+    expect(oddsFetch).toMatch(/resolvePropLanding/)
+    expect(oddsFetch).toMatch(/oddsInsertPayload/)
+    expect(oddsFetch).not.toMatch(/if all are mapped, fall back to closest-date mapped game/)
   })
 
   test('save-top-props keeps cache qualityScore and includes the Published sweep', () => {

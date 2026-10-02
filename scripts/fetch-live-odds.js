@@ -20,6 +20,13 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
+import {
+  eventCommenceMs,
+  oddsInsertFailedForMissingCommenceTime,
+  oddsInsertPayload,
+  pickUnmappedOddsGame,
+  resolvePropLanding,
+} from '../lib/live-odds-landing.js'
 import { calculateQualityScore } from '../lib/quality-score.js'
 import { isJuiceTrap, attachNumBooks } from '../lib/juice-traps.js'
 import { isPublishedEligibleProp } from '../lib/published-picks.js'
@@ -39,6 +46,18 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
+
+let oddsHasCommenceTime = null
+async function oddsTableHasCommenceTime() {
+  if (oddsHasCommenceTime != null) return oddsHasCommenceTime
+  const { error } = await supabase.from('Odds').select('commence_time').limit(1)
+  if (error && oddsInsertFailedForMissingCommenceTime(error)) {
+    oddsHasCommenceTime = false
+    return false
+  }
+  oddsHasCommenceTime = !error
+  return oddsHasCommenceTime
+}
 
 // ============================================================================
 // CONFIGURATION
@@ -681,7 +700,7 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
     // Match by team names, then pick the DB game closest to the EVENT's commence_time
     const oddsHome = (oddsGame.home_team || '').trim()
     const oddsAway = (oddsGame.away_team || '').trim()
-    const eventTime = new Date(oddsGame.commence_time || date + 'T12:00:00Z').getTime()
+    const eventTime = eventCommenceMs(oddsGame.commence_time, date)
 
     const teamMatches = dbGames.filter(g => {
       if (g.oddsApiEventId === oddsGame.id) return false
@@ -690,18 +709,7 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
       return matchTeams(homeName, awayName, oddsHome, oddsAway, sport)
     })
 
-    // Prefer unmapped games; if all are mapped, fall back to closest-date mapped game
-    const unmappedMatches = teamMatches.filter(g => !g.oddsApiEventId)
-    const candidates = unmappedMatches.length > 0 ? unmappedMatches : teamMatches
-
-    // Sort by closest date to the EVENT's actual commence time (not the script target date)
-    candidates.sort((a, b) => {
-      const distA = Math.abs(new Date(a.date).getTime() - eventTime)
-      const distB = Math.abs(new Date(b.date).getTime() - eventTime)
-      return distA - distB
-    })
-
-    const dbGame = candidates[0] || null
+    const dbGame = pickUnmappedOddsGame(teamMatches, eventTime)
     
     if (dbGame) {
       // Save mapping
@@ -948,20 +956,29 @@ async function saveGameOdds(games, sport, date) {
           
           if (!priceAway || !priceHome) continue
           
-          // Save to Odds table (insert only, ignore duplicates)
-          const { error } = await supabase
+          const includeCommenceTime = await oddsTableHasCommenceTime()
+          const oddsRow = oddsInsertPayload({
+            id: generateId(),
+            gameId: ourGameId,
+            book: bookmaker.title,
+            market: market.key,
+            priceAway,
+            priceHome,
+            spread,
+            total,
+            ts: new Date().toISOString(),
+            commenceTime: game.commence_time,
+            includeCommenceTime,
+          })
+          let { error } = await supabase
             .from('Odds')
-            .insert({
-              id: generateId(),
-              gameId: ourGameId,  // Use our database game ID
-              book: bookmaker.title,
-              market: market.key,
-              priceAway,
-              priceHome,
-              spread,
-              total,
-              ts: new Date().toISOString()
-            })
+            .insert(oddsRow)
+          if (error && includeCommenceTime && oddsInsertFailedForMissingCommenceTime(error)) {
+            oddsHasCommenceTime = false
+            const { commence_time: _omit, ...withoutCommence } = oddsRow
+            const retry = await supabase.from('Odds').insert(withoutCommence)
+            error = retry.error
+          }
           
           // Ignore duplicate key errors (code 23505)
           if (error) {
@@ -1079,6 +1096,7 @@ async function fetchPlayerProps(sport, date, oddsGames) {
           gameId: eventId, 
           homeTeam: game.home_team || '',
           awayTeam: game.away_team || '',
+          commenceTime: game.commence_time || null,
           props: propsData
         })
         console.log(`    ✅ Fetched props for ${gameDisplayName}`)
@@ -1271,7 +1289,7 @@ async function savePlayerProps(gameProps, sport) {
         .limit(1)
         .single()
       if (nextGame) {
-        siblingLookup[fg.id] = nextGame.id
+        siblingLookup[fg.id] = nextGame
         console.log(`    🔄 Redirecting ${fg.id} → ${nextGame.id}`)
       }
     }
@@ -1282,11 +1300,10 @@ async function savePlayerProps(gameProps, sport) {
   if (dbGames) {
     dbGames.forEach(g => {
       if (g.oddsApiEventId) {
-        const redirectId = siblingLookup[g.id]
+        const redirectGame = siblingLookup[g.id] || null
         eventIdToGameData[g.oddsApiEventId] = {
-          id: redirectId || g.id,
-          date: g.date,
-          redirected: !!redirectId
+          mappedGame: g,
+          redirectGame,
         }
       }
     })
@@ -1305,8 +1322,8 @@ async function savePlayerProps(gameProps, sport) {
         allMappedGames.forEach(g => {
           if (g.oddsApiEventId && eventIds.includes(g.oddsApiEventId) && !eventIdToGameData[g.oddsApiEventId]) {
             eventIdToGameData[g.oddsApiEventId] = {
-              id: g.id,
-              date: g.date
+              mappedGame: g,
+              redirectGame: null,
             }
           }
         })
@@ -1336,9 +1353,14 @@ async function savePlayerProps(gameProps, sport) {
   const allPropsToInsert = []
   const seenProps = new Set()
   
-  for (const { gameId, props } of gameProps) {
-    const mappedGame = eventIdToGameData[gameId]
-    const ourGameId = mappedGame?.id
+  for (const { gameId, props, commenceTime } of gameProps) {
+    const landingSource = eventIdToGameData[gameId]
+    const landing = resolvePropLanding({
+      mappedGame: landingSource?.mappedGame || landingSource || null,
+      redirectGame: landingSource?.redirectGame || null,
+      commenceTime,
+    })
+    const ourGameId = landing.gameId
     
     if (!ourGameId) {
       console.warn(`    ⚠️  No database game found for Odds API event ${gameId}`)
@@ -1412,7 +1434,7 @@ async function savePlayerProps(gameProps, sport) {
             }
             
             seenProps.add(propId)
-            const gameTime = mappedGame?.date || new Date().toISOString()
+            const gameTime = landing.gameTime
 
             let category = null
             if (sport === 'mlb') {

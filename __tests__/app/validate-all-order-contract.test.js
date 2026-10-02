@@ -56,6 +56,17 @@ describe('validate:all grades props before parlays', () => {
     expect(src).toMatch(/planPlayerStatValidation/)
     expect(src).not.toMatch(/gameDate < yesterday/)
     expect(src).toMatch(/voidPropValidationPatch/)
+    expect(src).toMatch(/shouldArchiveBoxScore/)
+    expect(src).toMatch(/boxScoreArchiveRows/)
+  })
+
+  test('gradePendingGameLines pages in id order instead of a 200-row cap', () => {
+    const src = read('lib/validation.js')
+    expect(src).toMatch(/fetchPendingGameLines/)
+    expect(src).toMatch(/paginateSupabaseSelect/)
+    expect(src).toMatch(/GAME_LINE_PENDING_PAGE_SIZE/)
+    expect(src).toMatch(/order\(GAME_LINE_PENDING_ORDER.column/)
+    expect(src).not.toMatch(/\.limit\(200\)/)
   })
 
   test('unplayed-grade report requires a secret key for --apply', () => {
@@ -78,6 +89,7 @@ describe('validate:all grades props before parlays', () => {
     expect(src).toMatch(/attachSettledParlayOdds/)
     expect(src).toMatch(/isNumericFeaturedActual/)
     expect(src).toMatch(/planGameLineSettlement/)
+    expect(src).toMatch(/applyFeaturedHoldTimeout/)
     expect(src).not.toMatch(/state === 'post'/)
   })
 })

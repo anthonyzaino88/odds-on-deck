@@ -52,6 +52,7 @@ describe('Featured parlay persist contract — Phase B', () => {
 
     const autoValidate = read('scripts/auto-validate-parlays.js')
     expect(autoValidate).toMatch(/gradeFeaturedParlayFromValidations/)
+    expect(autoValidate).toMatch(/applyFeaturedHoldTimeout/)
     expect(autoValidate).toMatch(/isFeaturedCohortRow/)
   })
 
