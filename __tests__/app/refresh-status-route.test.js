@@ -36,14 +36,14 @@ describe('GET /api/refresh-status', () => {
   })
 
   test('lastRefreshTime comes from Game.lastUpdate, not in-memory LAST_REFRESH_TIME', async () => {
-    const dbStamp = '2026-10-01T18:22:00.000Z'
+    const dbStamp = '2026-10-01T23:10:03.202'
     API_CONFIG.LAST_REFRESH_TIME = '1999-01-01T00:00:00.000Z'
     mockGameLastUpdateQuery({ data: { lastUpdate: dbStamp } })
 
     const res = await GET()
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.lastRefreshTime).toBe(dbStamp)
+    expect(body.lastRefreshTime).toBe('2026-10-01T23:10:03.202Z')
     expect(body.lastRefreshTime).not.toBe(API_CONFIG.LAST_REFRESH_TIME)
     expect(supabase.from).toHaveBeenCalledWith('Game')
   })

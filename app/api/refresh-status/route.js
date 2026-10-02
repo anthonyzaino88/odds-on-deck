@@ -3,6 +3,7 @@ export const runtime = 'nodejs'
 
 import { canRefresh, API_CONFIG } from '../../../lib/api-usage-manager'
 import { supabase } from '../../../lib/supabase.js'
+import { parseStoredGameDate } from '../../../lib/score-updater.js'
 import { NextResponse } from 'next/server'
 
 /**
@@ -23,7 +24,9 @@ export async function getLatestGameLastUpdate(client = supabase) {
     .maybeSingle()
 
   if (error || !data?.lastUpdate) return null
-  return data.lastUpdate
+  // Game.lastUpdate is timestamp without time zone, stored as UTC.
+  // Return a Z-suffixed ISO string so browsers do not parse it as local.
+  return parseStoredGameDate(data.lastUpdate)?.toISOString() ?? null
 }
 
 /**

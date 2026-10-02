@@ -25,6 +25,8 @@ yarn-error.log*
 # Local env files
 .env
 .env*.local
+.env.*
+!env.example
 env.local
 env.*.local
 
@@ -60,6 +62,8 @@ next-env.d.ts
 /find-*.js
 /manual-*.js
 
+# New files matching operations/check-*, scripts/check-*, or scripts/archive/*.js
+# are ignored unless given a `!` exception.
 # Local ops notes and one-off debug scripts (operations/README.md stays tracked)
 /operations/*.md
 !/operations/README.md
@@ -85,6 +89,11 @@ next-env.d.ts
 !/package.json
 !/package-lock.json
 !/vercel.json
+!/jsconfig.json
+!/tsconfig.json
+*service-account*.json
+*credentials*.json
+secrets*.json
 /backups/
 repair-backups/
 /config/learned-adjustments.json
