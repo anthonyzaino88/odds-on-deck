@@ -86,6 +86,8 @@ describe('PR-E phase 0 security contracts', () => {
     expect(sql).toMatch(/REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC, anon, authenticated/)
     expect(sql).toMatch(/REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated/)
     expect(sql).toMatch(/GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO service_role/)
+    expect(sql).toMatch(/GRANT EXECUTE ON ALL PROCEDURES IN SCHEMA public TO service_role/)
+    expect(sql).toMatch(/REVOKE EXECUTE ON ALL PROCEDURES IN SCHEMA public FROM PUBLIC, anon, authenticated/)
     expect(sql).toMatch(/GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role/)
     expect(sql).toMatch(/GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role/)
     expect(sql).toMatch(/GRANT EXECUTE ON FUNCTIONS TO service_role/)

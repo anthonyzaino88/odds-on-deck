@@ -32,8 +32,10 @@
 --   - ENABLE ROW LEVEL SECURITY on every public table
 --   - DROP every existing public-schema policy (including USING(true) SELECT)
 --   - REVOKE SELECT/INSERT/UPDATE/DELETE/TRUNCATE from PUBLIC, anon, authenticated
---   - REVOKE EXECUTE on public functions from PUBLIC, anon, authenticated
---     (repo has no .rpc( callers; still close the grant)
+--   - REVOKE EXECUTE on public functions AND procedures from PUBLIC,
+--     anon, authenticated (repo has no .rpc( callers; still close the grant.
+--     PG 16 ALL FUNCTIONS does not cover prokind='p', so procedures are
+--     revoked separately.)
 --   - GRANT ALL on tables/sequences and EXECUTE on functions to service_role
 --     so laptop service_role writes cannot hit permission denied on
 --     default/extension functions
@@ -101,12 +103,15 @@ REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM authenticated;
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC, anon, authenticated;
+-- ALL FUNCTIONS does not revoke prokind='p' procedures on PG 16.
+REVOKE EXECUTE ON ALL PROCEDURES IN SCHEMA public FROM PUBLIC, anon, authenticated;
 
 -- service_role must keep table/sequence/execute (laptop scripts + PostgREST
 -- service key). Explicit GRANT after the PUBLIC revoke.
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO service_role;
+GRANT EXECUTE ON ALL PROCEDURES IN SCHEMA public TO service_role;
 
 -- 4. Future tables / functions created by postgres stay closed to anon
 --    and stay open to service_role.
@@ -117,11 +122,15 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  REVOKE EXECUTE ON ROUTINES FROM PUBLIC, anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT ALL ON TABLES TO service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT ALL ON SEQUENCES TO service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT EXECUTE ON FUNCTIONS TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT EXECUTE ON ROUTINES TO service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE ALL ON TABLES FROM PUBLIC, anon, authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
@@ -129,11 +138,15 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE EXECUTE ON ROUTINES FROM PUBLIC, anon, authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   GRANT ALL ON TABLES TO service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   GRANT ALL ON SEQUENCES TO service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   GRANT EXECUTE ON FUNCTIONS TO service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  GRANT EXECUTE ON ROUTINES TO service_role;
 
 COMMIT;
 
