@@ -24,6 +24,7 @@
     "regrade:featured": "node scripts/auto-validate-parlays.js --regrade",
     "record:published": "node scripts/record-published-props.js",
     "record:featured": "node scripts/record-featured-parlays.js",
+    "record:game-lines": "node scripts/record-game-lines.js",
     "cleanup:featured-dupes": "node scripts/cleanup-duplicate-featured-parlays.js",
     "report:featured-game-mismatch": "node scripts/report-featured-game-mismatch.js",
     "report:odds-format": "node scripts/report-odds-format-ambiguity.js",

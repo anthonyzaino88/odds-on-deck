@@ -28,6 +28,14 @@ node scripts/fetch-live-odds.js all --cache-fresh
 
 # 4. (Optional) Calculate game edges
 node scripts/calculate-game-edges.js   # Requires SUPABASE_SECRET_KEY
+
+# 5. Record public-track rows (do NOT rely on page visits)
+# fetch-live-odds already records Published props; record:published is the backup sweep.
+npm run record:published
+# Required after PR-E: /parlays GET no longer inserts Featured cards.
+npm run record:featured
+# Required after PR-E: homepage / /api/picks no longer insert game-line rows.
+npm run record:game-lines
 ```
 
 **Cleanup failure is not overall OK.** `clear-stale-props.js` exits `1` when candidate reads or archive writes fail, and it deletes nothing. Later ESPN/odds steps may still succeed. Label that morning run **DEGRADED / PARTIAL SUCCESS**, not OK. Parse the `CLEANUP_STATUS=` footer (`ok` or `fail`) plus `CANDIDATES`, `ARCHIVED`, `DELETED`, `SKIPPED_REFETCH`, `SKIPPED_DELETE`, `REMAINING_EXPIRED`, `REMAINING_STALE`, `REMAINING_PAST_GAME`.

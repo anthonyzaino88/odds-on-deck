@@ -20,15 +20,17 @@ grade cohort that sits on top of that bar.
   `totalOdds`), not a live regenerate. Explorer Builder is unchanged.
 - Client `POST /api/parlays/save` is retired (410 no-op). Explorer
   Builder combinations are never written. Featured persist is
-  server-side `/api/parlays/generate` with `featured=1` and
-  `npm run record:featured`.
+  `npm run record:featured` (laptop) or `/api/parlays/generate?featured=1`
+  with `CRON_SECRET`. Public generate is read-only.
 
 No schema migration. `Parlay.notes` is the cohort tag, same pattern as
 `cohort:published` on `PropValidation`.
 
 ## How a card lands on the track
 
-1. Visiting `/parlays` (Featured GET generate) or `npm run record:featured`.
+1. `npm run record:featured` after the morning odds pull (required).
+   Public `/parlays` only reads the snapshot or generates a live card
+   for display — it does not insert.
 2. Persist does **not** call The Odds API. It reads the same PlayerPropCache
    Featured already uses. Client save is not a persist path.
 
