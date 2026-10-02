@@ -272,7 +272,7 @@ export default function ParlayResults({ generatedParlays = null }) {
                   </button>
                   {isFeaturedWorthyParlay(parlay) ? (
                     <span className="text-[11px] text-slate-500">
-                      Featured track is filled at generate
+                      Featured-worthy — track snaps at morning record
                     </span>
                   ) : (
                     <span className="text-[11px] text-slate-600">

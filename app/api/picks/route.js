@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server'
 import { generateEditorPicks, generateGameLines } from '../../../lib/picks.js'
 import { generateQuickInsight } from '../../../lib/pick-insights.js'
-import { supabase } from '../../../lib/supabase.js'
+import { isSupabaseAdminConfigured, supabaseAdmin as supabase } from '../../../lib/supabase-admin.js'
 import { todaysBoardSlateState } from '../../../lib/published-picks.js'
 import { getSidesTotalsStats } from '../../../lib/validation.js'
 
@@ -11,7 +11,7 @@ export const revalidate = 0
 
 export async function GET(request) {
   try {
-    if (!supabase) {
+    if (!isSupabaseAdminConfigured()) {
       return NextResponse.json({ success: false, error: 'Database not configured. Check Supabase environment variables.' }, { status: 500 })
     }
 

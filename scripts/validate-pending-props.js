@@ -378,6 +378,14 @@ async function main() {
     console.log('  ℹ️  NFL outcomes: node scripts/archive-nfl-box-scores.js (independent of pending props)')
   }
 
+  try {
+    const { gradePendingGameLines } = await import('../lib/validation.js')
+    const gradedLines = await gradePendingGameLines()
+    console.log(`\n📊 Sides & totals: graded ${gradedLines?.length || 0} game-line row(s)`)
+  } catch (error) {
+    console.error(`⚠️ gradePendingGameLines failed: ${error.message}`)
+  }
+
   const { count: remainingPending } = await supabase
     .from('PropValidation')
     .select('*', { count: 'exact', head: true })

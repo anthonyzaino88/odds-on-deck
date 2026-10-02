@@ -13,6 +13,7 @@ import {
   persistFeaturedClearedParlays,
 } from '../../../../lib/featured-parlay-persist.js'
 import { clampMaxParlays, clampParlayLegs } from '../../../../lib/api-limits.js'
+import { badRequest, isAuthorizedAdmin } from '../../../../lib/api-security.js'
 
 async function persistFeaturedIfNeeded(parlays, isFeatured) {
   if (!isFeatured || !Array.isArray(parlays) || parlays.length === 0) {
@@ -29,11 +30,12 @@ async function persistFeaturedIfNeeded(parlays, isFeatured) {
 
 /**
  * Public Featured card is the snapped cohort row. Live generate only
- * fills an empty sport+kind+ET-day slot so /parlays cannot show a
- * second SGP or a different mid-day line than the tracked card.
+ * fills an empty sport+kind+ET-day slot so /parlays still shows a card
+ * when the morning record:featured job has not run yet. Public GET/POST
+ * never write. Persist is CRON_SECRET / record:featured only.
  */
 async function resolveFeaturedGenerate(options) {
-  const { sport, type, generateParlays } = options
+  const { sport, type, generateParlays, allowPersist = false } = options
   try {
     const existing = await loadFeaturedSnapshotCard({ sport, type })
     if (existing) {
@@ -44,23 +46,45 @@ async function resolveFeaturedGenerate(options) {
   }
 
   const parlays = await generateParlays()
-  const savedParlays = await persistFeaturedIfNeeded(parlays, true)
+  const savedParlays = allowPersist
+    ? await persistFeaturedIfNeeded(parlays, true)
+    : []
 
-  try {
-    const snapped = await loadFeaturedSnapshotCard({ sport, type })
-    if (snapped) {
-      return { parlays: [snapped], savedParlays, fromSnapshot: true }
+  if (allowPersist) {
+    try {
+      const snapped = await loadFeaturedSnapshotCard({ sport, type })
+      if (snapped) {
+        return { parlays: [snapped], savedParlays, fromSnapshot: true }
+      }
+    } catch (error) {
+      console.error('⚠️ Featured snapshot reload failed:', error)
     }
-  } catch (error) {
-    console.error('⚠️ Featured snapshot reload failed:', error)
   }
 
   return { parlays, savedParlays, fromSnapshot: false }
 }
 
+function featuredGenerateOptions(parsed, extras) {
+  const { sport, type, featured } = parsed
+  return {
+    sport,
+    type,
+    featured,
+    ...extras,
+  }
+}
+
 export async function POST(request) {
   try {
-    const body = await request.json()
+    let body
+    try {
+      body = await request.json()
+    } catch {
+      return badRequest('Request body must be valid JSON')
+    }
+    if (body == null || typeof body !== 'object' || Array.isArray(body)) {
+      return badRequest('Request body must be a JSON object')
+    }
     const parsed = parseFeaturedGenerateInput(body)
     if (!parsed.ok) {
       return NextResponse.json({ error: parsed.error }, { status: 400 })
@@ -81,9 +105,7 @@ export async function POST(request) {
 
     const isFeatured = featured
 
-    const generateParlays = () => generateSimpleParlays({
-      sport,
-      type,
+    const generateParlays = () => generateSimpleParlays(featuredGenerateOptions(parsed, {
       // Featured is exactly FEATURED_LEG_COUNT Published-eligible legs or empty.
       legCount: isFeatured ? FEATURED_LEG_COUNT : legCount,
       minEdge,
@@ -91,13 +113,18 @@ export async function POST(request) {
       minConfidence,
       filterMode,
       gameId,
-      featured: isFeatured,
-    })
+    }))
 
-    // Explorer generate never writes. Featured-cleared cards snapshot
-    // to the tracked cohort (first write for the slate slot wins).
+    // Explorer generate never writes. Featured persist is admin-only
+    // (CRON_SECRET) or npm run record:featured. Public featured=1 still
+    // returns the snapshot or a live card so /parlays looks the same.
     const resolved = isFeatured
-      ? await resolveFeaturedGenerate({ sport, type, generateParlays })
+      ? await resolveFeaturedGenerate({
+        sport,
+        type,
+        generateParlays,
+        allowPersist: isAuthorizedAdmin(request),
+      })
       : { parlays: await generateParlays(), savedParlays: [], fromSnapshot: false }
 
     return NextResponse.json({
@@ -112,7 +139,7 @@ export async function POST(request) {
   } catch (error) {
     console.error('❌ Error in parlay generation API:', error)
     return NextResponse.json(
-      { error: 'Failed to generate parlays', details: error.message },
+      { error: 'Failed to generate parlays' },
       { status: 500 }
     )
   }
@@ -137,19 +164,21 @@ export async function GET(request) {
     const gameId = searchParams.get('gameId') || null
     const featuredLegCount = featured ? FEATURED_LEG_COUNT : legCount
 
-    const generateParlays = () => generateSimpleParlays({
-      sport,
-      type,
+    const generateParlays = () => generateSimpleParlays(featuredGenerateOptions(parsed, {
       legCount: featuredLegCount,
       minEdge,
       maxParlays,
       filterMode,
       gameId,
-      featured,
-    })
+    }))
 
     const resolved = featured
-      ? await resolveFeaturedGenerate({ sport, type, generateParlays })
+      ? await resolveFeaturedGenerate({
+        sport,
+        type,
+        generateParlays,
+        allowPersist: isAuthorizedAdmin(request),
+      })
       : { parlays: await generateParlays(), savedParlays: [], fromSnapshot: false }
 
     return NextResponse.json({
@@ -164,7 +193,7 @@ export async function GET(request) {
   } catch (error) {
     console.error('❌ Error in parlay generation GET API:', error)
     return NextResponse.json(
-      { error: 'Failed to generate parlays', details: error.message },
+      { error: 'Failed to generate parlays' },
       { status: 500 }
     )
   }

@@ -58,6 +58,7 @@ describe('validate:all grades props before parlays', () => {
     expect(src).toMatch(/voidPropValidationPatch/)
     expect(src).toMatch(/shouldArchiveBoxScore/)
     expect(src).toMatch(/boxScoreArchiveRows/)
+    expect(src).toMatch(/gradePendingGameLines/)
   })
 
   test('gradePendingGameLines pages in id order instead of a 200-row cap', () => {

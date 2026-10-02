@@ -1,0 +1,43 @@
+-- ============================================================================
+-- ROLLBACK procedure for 006_rls_lockdown.sql
+-- ============================================================================
+-- DO NOT run this file as a script. It contains no GRANT and no
+-- CREATE POLICY. Blanket grants / USING(true) SELECT policies would
+-- leave the database more open than before 006 (pending picks leak).
+--
+-- APPLY MANUALLY in the Supabase SQL Editor only after you have the
+-- saved output from 006_pre_snapshot.sql (run BEFORE 006).
+-- DO NOT run from CI or Vercel.
+--
+-- Restore from the snapshot output you saved
+-- ------------------------------------------
+-- 1. Open the CSV / text you saved from 006_pre_snapshot.sql.
+--    That file is ONE statement: one grid with (section, ordinal, restore_ddl).
+-- 2. Replay restore_ddl ORDER BY section, ordinal (skip the section='0'
+--    instruction row):
+--    A. ALTER TABLE ... ENABLE/DISABLE ROW LEVEL SECURITY
+--    B. CREATE POLICY ... (PUBLIC unquoted)
+--    C. GRANT ... ON TABLE / SEQUENCE ... (PUBLIC, anon, authenticated)
+--    D. GRANT ... ON ROUTINE / PROCEDURE ... (identity args)
+--    E. ALTER DEFAULT PRIVILEGES ... (global rows have no IN SCHEMA)
+-- 3. Re-run the read-only verification queries in 006_rls_lockdown.sql
+--    and compare to the snapshot. Confirm https://oddsondeck.com 200s.
+--
+-- If you did not save the snapshot, do not guess. Pull a backup or
+-- leave the lockdown in place (service_role / SUPABASE_SECRET_KEY
+-- still bypasses RLS; the public site does not need anon SELECT).
+-- ============================================================================
+
+-- This file intentionally has no executable GRANT / CREATE POLICY /
+-- ALTER TABLE statements.
+
+-- ---------------------------------------------------------------------------
+-- EMERGENCY ONLY — commented out. More open than the original database.
+-- Uncommenting this leaks pending / future picks via PostgREST again.
+-- Use only if the site is down AND the pre-006 snapshot was lost AND
+-- the owner accepts that leak until a real restore.
+-- ---------------------------------------------------------------------------
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon, authenticated;
+-- GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
+-- GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated;
+-- -- then CREATE POLICY ... USING (true) on public tables. Do not do this.

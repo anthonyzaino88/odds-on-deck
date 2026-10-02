@@ -76,6 +76,7 @@ describe('public-record write surfaces stay closed', () => {
     const generateSrc = readFileSync(generate, 'utf8')
     expect(generateSrc).toMatch(/persistFeaturedClearedParlays/)
     expect(generateSrc).toMatch(/persistFeaturedIfNeeded/)
+    expect(generateSrc).toMatch(/allowPersist: isAuthorizedAdmin\(request\)/)
     expect(generateSrc.match(/resolveFeaturedGenerate/g).length).toBeGreaterThanOrEqual(3)
   })
 

@@ -47,5 +47,6 @@ describe('Published props are recorded when they clear the bar', () => {
     expect(recordScript).toMatch(/persistPublishedEligibleFromCache/)
     expect(recordScript).toMatch(/does not call The Odds API/)
     expect(pkg).toMatch(/"record:published": "node scripts\/record-published-props\.js"/)
+    expect(pkg).toMatch(/"record:game-lines": "node scripts\/record-game-lines\.js"/)
   })
 })

@@ -34,11 +34,10 @@ export default async function sitemap() {
 
   let gamePages = []
   try {
-    const { createClient } = await import('@supabase/supabase-js')
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    )
+    const { isSupabaseAdminConfigured, supabaseAdmin: supabase } = await import('../lib/supabase-admin.js')
+    if (!isSupabaseAdminConfigured()) {
+      return [...staticPages]
+    }
 
     // Only include games from the last 30 days — older games have low search value
     // and waste Google's crawl budget

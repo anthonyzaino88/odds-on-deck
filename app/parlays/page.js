@@ -190,7 +190,7 @@ export default function ParlaysPage() {
         </p>
       </div>
 
-      {/* Parlay of the Day — generate GET also snapshots Featured-cleared cards */}
+      {/* Parlay of the Day — public generate is read-only; ops snapshots via record:featured */}
       <ParlayOfTheDay onFeaturedReady={handleParlaySaved} />
 
       {/* Main Content */}

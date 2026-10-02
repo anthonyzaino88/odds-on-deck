@@ -3,7 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin as supabase } from '../../../../lib/supabase-admin.js'
 import {
   FEATURED_COHORT_TAG,
   attachFeaturedHistoryLegDisplay,
@@ -13,11 +13,6 @@ import {
 } from '../../../../lib/featured-parlays.js'
 import { fetchFeaturedPropValidations } from '../../../../lib/featured-validation-query.js'
 import { clampHistoryLimit } from '../../../../lib/api-limits.js'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
 
 export async function GET(request) {
   try {

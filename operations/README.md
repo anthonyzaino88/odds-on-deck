@@ -26,9 +26,35 @@ node scripts/fetch-fresh-games.js all
 # 3. Fetch odds with proper gameTime mapping
 node scripts/fetch-live-odds.js all --cache-fresh
 
-# 4. (Optional) Calculate game edges
+# 4. REQUIRED: calculate game edges before record-game-lines
+# record-game-lines reads EdgeSnapshot. Without this step the sides/totals
+# persist is empty even when the public board can still generate live lines.
 node scripts/calculate-game-edges.js   # Requires SUPABASE_SECRET_KEY
+
+# 5. Record public-track rows (do NOT rely on page visits)
+# fetch-live-odds already records Published props; record:published is the backup sweep.
+npm run record:published
+# Required after PR-E: /parlays GET no longer inserts Featured cards.
+npm run record:featured
+# Required after PR-E: homepage / /api/picks no longer insert game-line rows.
+# Requires EdgeSnapshot from step 4.
+npm run record:game-lines
 ```
+
+**Vercel Build also needs `SUPABASE_SECRET_KEY`.** `sitemap.xml` is
+prerendered and reads `Game` through the admin client. Production-only
+is not enough — set the secret on the Build environment too.
+
+### Before running 006 (RLS lockdown)
+
+Do not paste `scripts/migrations/006_rls_lockdown.sql` until every item is true:
+
+- [ ] `GET https://oddsondeck.com/api/health` shows `supabaseAdmin.usingSecret: true`
+- [ ] Laptop `.env.local` has `SUPABASE_SECRET_KEY` (boolean check):
+      `node -e "require('dotenv').config({path:'.env.local'});console.log(!!process.env.SUPABASE_SECRET_KEY)"`
+- [ ] `scripts/calculate-prop-edges.js` anon-only and `operations/update-scores-safely.js` `SERVICE_ROLE_KEY`-only key lookups have been fixed in a **follow-up PR** (not this one; hourly-path scripts stay untouched here)
+- [ ] `006_pre_snapshot.sql` has been run and its output saved
+
 
 **Cleanup failure is not overall OK.** `clear-stale-props.js` exits `1` when candidate reads or archive writes fail, and it deletes nothing. Later ESPN/odds steps may still succeed. Label that morning run **DEGRADED / PARTIAL SUCCESS**, not OK. Parse the `CLEANUP_STATUS=` footer (`ok` or `fail`) plus `CANDIDATES`, `ARCHIVED`, `DELETED`, `SKIPPED_REFETCH`, `SKIPPED_DELETE`, `REMAINING_EXPIRED`, `REMAINING_STALE`, `REMAINING_PAST_GAME`.
 
