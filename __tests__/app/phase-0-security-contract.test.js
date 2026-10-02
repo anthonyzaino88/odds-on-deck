@@ -224,6 +224,10 @@ describe('PR-E phase 0 security contracts', () => {
     expect(read('scripts/calculate-prop-edges.js')).toMatch(/createScriptSupabaseClient/)
     expect(read('scripts/update-scores-safely.js')).toMatch(/createScriptSupabaseClient/)
     expect(read('operations/update-scores-safely.js')).toMatch(/createScriptSupabaseClient/)
+    expect(read('scripts/fix-supabase-schema.js')).not.toMatch(/\bsupabaseUrl\b/)
+    expect(read('scripts/fix-supabase-schema.js')).toMatch(/NEXT_PUBLIC_SUPABASE_URL/)
+    expect(read('scripts/calculate-game-edges.js')).not.toMatch(/\bsupabaseUrl\b|\bsupabaseSecretKey\b/)
+    expect(read('operations/remap-nhl-event-ids.js')).not.toMatch(/\bsupabaseUrl\b|\bsupabaseKey\b/)
 
     const docs = read('docs/migrations/006_rls_lockdown.md')
     expect(docs).toMatch(/pages render empty/)
