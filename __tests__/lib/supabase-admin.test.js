@@ -1,11 +1,15 @@
 import {
+  SUPABASE_ADMIN_PROXY,
   SUPABASE_REQUIRE_SECRET_ENV,
   assertSupabaseAdminKey,
   createSupabaseAdminClient,
   envFlagEnabled,
   getAdminClientHealth,
+  isSupabaseAdminConfigured,
+  isUsableSupabase,
   logAdminKeyResolution,
   resolveSupabaseAdminKey,
+  supabaseAdmin,
 } from '../../lib/supabase-admin.js'
 
 describe('supabase admin key selection', () => {
@@ -133,6 +137,36 @@ describe('supabase admin key selection', () => {
     expect(logger.error).toHaveBeenCalledTimes(1)
     expect(logger.error.mock.calls[0][0]).toMatch(/falling back to the anon key/)
     expect(logger.error.mock.calls[0][0]).not.toMatch(/super-secret-anon/)
+  })
+
+  test('isSupabaseAdminConfigured is false without url+key; Proxy stays truthy', () => {
+    expect(isSupabaseAdminConfigured({})).toBe(false)
+    expect(isSupabaseAdminConfigured({
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon-key',
+    })).toBe(false)
+    expect(isSupabaseAdminConfigured({
+      NEXT_PUBLIC_SUPABASE_URL: 'https://example.supabase.co',
+    })).toBe(false)
+    expect(isSupabaseAdminConfigured({
+      NEXT_PUBLIC_SUPABASE_URL: 'https://example.supabase.co',
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon-key',
+    })).toBe(true)
+    expect(isSupabaseAdminConfigured({
+      NEXT_PUBLIC_SUPABASE_URL: 'https://example.supabase.co',
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon-key',
+      [SUPABASE_REQUIRE_SECRET_ENV]: '1',
+    })).toBe(false)
+    expect(isSupabaseAdminConfigured(secretEnv)).toBe(true)
+    expect(Boolean(supabaseAdmin)).toBe(true)
+    expect(supabaseAdmin[SUPABASE_ADMIN_PROXY]).toBe(true)
+  })
+
+  test('isUsableSupabase treats the Proxy as unconfigured and mocks as usable', () => {
+    expect(isUsableSupabase(null)).toBe(false)
+    expect(isUsableSupabase(undefined)).toBe(false)
+    expect(isUsableSupabase({ from: () => {} })).toBe(true)
+    expect(isUsableSupabase(supabaseAdmin, {})).toBe(false)
+    expect(isUsableSupabase(supabaseAdmin, secretEnv)).toBe(true)
   })
 
   test('plain node can import supabase-admin (server-only is a no-op outside Next)', () => {

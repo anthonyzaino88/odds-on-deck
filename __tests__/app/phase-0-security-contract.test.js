@@ -67,15 +67,32 @@ describe('PR-E phase 0 security contracts', () => {
     const pkg = read('package.json')
 
     expect(snapshot).toMatch(/READ-ONLY/)
-    expect(snapshot).toMatch(/restore_ddl/)
-    expect(snapshot).toMatch(/pg_default_acl/)
-    expect(snapshot).toMatch(/routine_privileges/)
+    expect(snapshot).toMatch(/THIS FILE IS ONE STATEMENT/)
+    expect(snapshot).toMatch(/export or copy the FULL grid/)
+    expect(snapshot).toMatch(/SELECT section, ordinal, restore_ddl/)
+    expect(snapshot).toMatch(/UNION ALL/)
+    expect(snapshot).toMatch(/pg_get_function_identity_arguments/)
+    expect(snapshot).toMatch(/WHEN 'p' THEN 'PROCEDURE' ELSE 'ROUTINE'/)
+    expect(snapshot).toMatch(/relkind = 'S'/)
+    expect(snapshot).toMatch(/WHEN 'n' THEN 'SCHEMAS'/)
+    expect(snapshot).toMatch(/defaclnamespace = 0 THEN ''/)
+    expect(snapshot).toMatch(/THEN 'PUBLIC' ELSE quote_ident/)
+    expect(snapshot).not.toMatch(/routine_privileges/)
+    expect(snapshot).not.toMatch(/quote_ident\(.*PUBLIC/)
     expect(sql).toMatch(/STEP 0 \(required, read-only\): run 006_pre_snapshot\.sql/)
     expect(sql).toMatch(/ENABLE ROW LEVEL SECURITY/)
     expect(sql).toMatch(/REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon/)
     expect(sql).toMatch(/REVOKE ALL ON ALL TABLES IN SCHEMA public FROM authenticated/)
     expect(sql).toMatch(/REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC, anon, authenticated/)
     expect(sql).toMatch(/REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated/)
+    expect(sql).toMatch(/GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO service_role/)
+    expect(sql).toMatch(/GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role/)
+    expect(sql).toMatch(/GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role/)
+    expect(sql).toMatch(/GRANT EXECUTE ON FUNCTIONS TO service_role/)
+    expect(sql).toMatch(/Does not change ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin/)
+    expect(sql).toMatch(/SELECT proname, prokind, proacl/)
+    expect(sql).toMatch(/^BEGIN;/m)
+    expect(sql).toMatch(/^COMMIT;/m)
     expect(sql).toMatch(/FROM pg_policies/)
     expect(sql).toMatch(/role_table_grants/)
     expect(sql).toMatch(/DO NOT run from CI/)
@@ -143,6 +160,32 @@ describe('PR-E phase 0 security contracts', () => {
     expect(ops).toMatch(/calculate-prop-edges\.js/)
     expect(ops).toMatch(/update-scores-safely\.js/)
     expect(ops).toMatch(/follow-up PR/)
+    expect(ops).toMatch(/node -e "require\('dotenv'\)\.config\(\{path:'\.env\.local'\}\);console\.log\(!!process\.env\.SUPABASE_SECRET_KEY\)"/)
+    expect(ops).not.toMatch(/test -n "\$SUPABASE_SECRET_KEY"/)
+  })
+
+  test('dead if (!supabase) guards are replaced on the lazy Proxy paths', () => {
+    const files = [
+      'lib/homepage-hook.js',
+      'lib/todays-games.js',
+      'lib/top-props.js',
+      'lib/validation.js',
+      'lib/simple-parlay-generator.js',
+      'lib/picks.js',
+      'lib/score-updater.js',
+      'lib/db.js',
+      'app/sitemap.js',
+      'app/api/picks/route.js',
+      'app/api/props/route.js',
+      'app/api/refresh-status/route.js',
+    ]
+    for (const file of files) {
+      const src = read(file)
+      expect(src).not.toMatch(/if\s*\(\s*!supabase\b/)
+      expect(src).toMatch(/isSupabaseAdminConfigured|isUsableSupabase/)
+    }
+    expect(read('lib/supabase-admin-key.js')).toMatch(/export function isSupabaseAdminConfigured/)
+    expect(read('lib/supabase-admin.js')).toMatch(/SUPABASE_ADMIN_PROXY/)
   })
 
   test('rate-limit follow-up stays a TODO hook', () => {

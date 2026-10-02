@@ -26,13 +26,19 @@ There are no `.rpc(` callers in this repo. The lockdown still revokes
 3. Verify `GET https://oddsondeck.com/api/health` has
    `supabaseAdmin.usingSecret: true`. Hit `/`, `/picks`, `/parlays`,
    `/api/picks`.
-4. **Step 0:** paste `006_pre_snapshot.sql` (read-only) and **save the
-   full output**. That is the rollback.
-5. Owner pastes `scripts/migrations/006_rls_lockdown.sql` in the SQL Editor.
+4. **Step 0:** paste `006_pre_snapshot.sql` (read-only, **one** `UNION ALL`
+   statement). The SQL Editor shows only the last grid — export or copy
+   the **full** `(section, ordinal, restore_ddl)` grid. That is the rollback.
+   Policy / grant rows emit `PUBLIC` unquoted; function rows include
+   identity args and `ON ROUTINE` / `ON PROCEDURE`.
+5. Owner pastes `scripts/migrations/006_rls_lockdown.sql` in the SQL Editor
+   (`BEGIN` … `COMMIT`, plus explicit `GRANT ALL` / `EXECUTE` to
+   `service_role`). Defaults `FOR ROLE supabase_admin` are left alone.
 6. Verify with the read-only queries in that file, then anon PostgREST
    reads return no rows. Pages still 200.
 7. If the site breaks, follow `006_rls_lockdown_rollback.sql`: replay the
-   saved `restore_ddl` rows. Leave the code deploy in place.
+   saved `restore_ddl` rows in `(section, ordinal)` order (skip section
+   `0`). Leave the code deploy in place.
 
 Optional follow-up, only after step 3 stays green: set
 `SUPABASE_REQUIRE_SECRET_KEY=1` in Vercel so a later missing secret
