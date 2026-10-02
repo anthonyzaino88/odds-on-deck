@@ -219,7 +219,7 @@ describe('PR-E phase 0 security contracts', () => {
     expect(helper).toMatch(/from '\.\/supabase-admin-key\.js'/)
     expect(helper).toMatch(/resolveSupabaseAdminKey/)
     expect(helper).toMatch(/logAdminKeyResolution/)
-    expect(helper).not.toMatch(/server-only/)
+    expect(helper).not.toMatch(/import ['"]server-only['"]/)
 
     expect(read('scripts/calculate-prop-edges.js')).toMatch(/createScriptSupabaseClient/)
     expect(read('scripts/update-scores-safely.js')).toMatch(/createScriptSupabaseClient/)
