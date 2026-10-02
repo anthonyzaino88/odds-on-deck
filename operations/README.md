@@ -133,6 +133,7 @@ ODDS_API_KEY=your_odds_api_key
 1. **Run `clear-stale-props.js` FIRST every day** - prevents yesterday's props from showing
 2. **Use `--cache-fresh` flag** - ensures proper gameTime mapping from Game.date
 3. **SUPABASE_SECRET_KEY is required** - for `clear-stale-props.js`, `fetch-live-odds.js`, `calculate-game-edges.js`
+4. **Windows PowerShell** - `npm run <script> -- --flag` can drop the flags. Run `node scripts/<file>.js --flag`, or `npm run x --% -- --flag`.
 
 ## 🔐 Security
 

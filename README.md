@@ -192,6 +192,8 @@ Open [http://localhost:3000](http://localhost:3000)
 
 ## 📝 Available Scripts
 
+On Windows PowerShell, `npm run <script> -- --flag` can drop the flags. Run ops scripts as `node scripts/<file>.js --flag`, or `npm run x --% -- --flag`.
+
 ```bash
 npm run dev          # Development server
 npm run build        # Production build

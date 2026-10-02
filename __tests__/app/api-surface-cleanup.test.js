@@ -21,6 +21,8 @@ describe('public API surface does not ship debug leftovers', () => {
     expect(existsSync(join(apiRoot, 'live/game-data'))).toBe(false)
     expect(existsSync(join(apiRoot, 'nfl/live-roster'))).toBe(false)
     expect(existsSync(join(apiRoot, 'nfl/props-advanced'))).toBe(false)
+    expect(existsSync(join(apiRoot, 'nfl/refresh-current-week'))).toBe(false)
+    expect(existsSync(join(apiRoot, 'nfl/refresh-data'))).toBe(false)
   })
 
   test('no API route returns error.stack to clients', () => {
