@@ -14,8 +14,8 @@
  *   research/archive/prop-lines and research/archive/box-scores
  */
 
-import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
+import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import {
   appendJsonl,
   groupRowsByUtcDay,
@@ -28,10 +28,7 @@ config({ path: '.env.local' })
 const PAGE_SIZE = 1000
 
 function createArchiveClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  )
+  return createScriptSupabaseClient()
 }
 
 async function fetchAllRows(supabase, table, columns = '*') {
@@ -76,8 +73,8 @@ async function main() {
   console.log('This script never TRUNCATEs or DELETEs Supabase rows.')
   console.log('='.repeat(70))
 
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !(process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)) {
-    console.error('\n❌ Missing NEXT_PUBLIC_SUPABASE_URL or secret/anon key (check .env.local)')
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+    console.error('\n❌ Missing NEXT_PUBLIC_SUPABASE_URL (check .env.local)')
     process.exit(1)
   }
 

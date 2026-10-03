@@ -1,15 +1,12 @@
 #!/usr/bin/env node
 
-import { createClient } from '@supabase/supabase-js'
+import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import { fetchNFLSchedule } from '../lib/vendors/nfl-stats.js'
 
 config({ path: '.env.local' })
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+const supabase = createScriptSupabaseClient()
 
 async function fetchWeek12Games() {
   console.log('🏈 Fetching NFL Week 12 games from ESPN...\n')

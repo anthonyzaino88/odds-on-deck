@@ -429,6 +429,7 @@ describe('unplayed-game grade report planner', () => {
       NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon',
     })).toThrow(/SUPABASE_SECRET_KEY/)
     expect(requireUnplayedGradeApplyKey({ SUPABASE_SECRET_KEY: 'secret' })).toBe('secret')
+    expect(requireUnplayedGradeApplyKey({ SUPABASE_SERVICE_ROLE_KEY: 'role' })).toBe('role')
   })
 
   test('delayed games are not flagged', () => {

@@ -2,12 +2,12 @@
 
 // Load environment variables from .env.local
 import { config } from 'dotenv'
+import { resolveScriptSupabaseKey } from '../lib/supabase-script-client.js'
 config({ path: '.env.local' })
 
-// Validate environment variables are loaded
-if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-  console.error('❌ Missing Supabase credentials in environment variables')
-  console.error('Please ensure .env.local contains NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY')
+const resolved = resolveScriptSupabaseKey()
+if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !resolved.key) {
+  console.error('❌ Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SECRET_KEY in environment variables')
   process.exit(1)
 }
 

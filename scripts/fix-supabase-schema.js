@@ -7,15 +7,12 @@
  * instead of INTEGER, allowing decimal odds like 1.95, 2.10, etc.
  */
 
-import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
+import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 
 config({ path: '.env.local' })
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+const supabase = createScriptSupabaseClient()
 
 async function main() {
   console.log('\n🔧 FIXING SUPABASE SCHEMA')
@@ -30,7 +27,7 @@ async function main() {
   console.log('\n\n📖 MANUAL STEPS REQUIRED:')
   console.log('='.repeat(80))
   console.log('\n1. Go to your Supabase dashboard:')
-  console.log(`   ${supabaseUrl.replace('/v1', '')}\n`)
+  console.log(`   ${(process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace('/v1', '')}\n`)
   console.log('2. Navigate to: SQL Editor (left sidebar)')
   console.log('\n3. Run this SQL command:\n')
   console.log('   ALTER TABLE "PlayerPropCache"')

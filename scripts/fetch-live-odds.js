@@ -18,7 +18,7 @@
  *   --cache-fresh  Ignore cache, force fresh fetch from API
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import {
   eventCommenceMs,
@@ -43,10 +43,7 @@ function generateId() {
 config({ path: '.env.local' })
 
 // Use secret key for write operations (bypasses RLS)
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+const supabase = createScriptSupabaseClient()
 
 let oddsHasCommenceTime = null
 async function oddsTableHasCommenceTime() {

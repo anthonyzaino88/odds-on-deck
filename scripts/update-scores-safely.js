@@ -27,7 +27,7 @@
  *   node scripts/update-scores-safely.js all
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import { fetchNHLGameDetail } from '../lib/vendors/nhl-stats.js'
 import { fetchNFLGameDetail } from '../lib/vendors/nfl-stats.js'
@@ -48,10 +48,7 @@ import {
 
 config({ path: '.env.local' })
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+const supabase = createScriptSupabaseClient()
 
 /**
  * Fetch MLB game status from ESPN as fallback when mlbGameId is missing

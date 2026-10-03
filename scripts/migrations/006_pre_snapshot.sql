@@ -6,6 +6,13 @@
 -- THIS FILE IS ONE STATEMENT. The SQL Editor shows only the last result
 -- grid — export or copy the FULL grid (section, ordinal, restore_ddl).
 -- Replay restore_ddl in order (section, ordinal) for rollback.
+-- Policy rows emit DROP POLICY IF EXISTS then CREATE POLICY (rerunnable).
+-- Section E emits GRANT EXECUTE ON FUNCTIONS TO PUBLIC when postgres has
+-- no global function pg_default_acl row (built-in default). Replaying that
+-- deletes the 006 postgres/-/f row so new functions get =X/postgres again.
+-- Section F is real column ACLs via aclexplode(pg_attribute.attacl).
+-- Do not use information_schema.column_privileges: it expands table-level
+-- GRANTs into one row per column and replay would invent column ACLs.
 --
 -- DO NOT run from CI, Vercel, or this PR. This file writes nothing.
 -- ============================================================================
@@ -35,11 +42,15 @@ FROM (
   UNION ALL
 
   -- B. Policies. Role {public} must emit PUBLIC unquoted, never quote_ident.
+  --    DROP POLICY IF EXISTS makes restore_ddl rerunnable.
   SELECT
     'B'::text,
     row_number() OVER (ORDER BY tablename, policyname)::int,
     format(
-      'CREATE POLICY %I ON %I.%I AS %s FOR %s%s%s%s;',
+      E'DROP POLICY IF EXISTS %I ON %I.%I;\nCREATE POLICY %I ON %I.%I AS %s FOR %s%s%s%s;',
+      policyname,
+      schemaname,
+      tablename,
       policyname,
       schemaname,
       tablename,
@@ -170,5 +181,54 @@ FROM (
   LEFT JOIN pg_roles r ON r.oid = a.grantee
   WHERE d.defaclnamespace = 0
      OR n.nspname = 'public'
+
+  UNION ALL
+
+  -- E (ordinal 0): built-in PUBLIC EXECUTE. No pg_default_acl row means
+  -- Postgres is using {postgres=X/postgres,=X/postgres}. 006 inserts
+  -- postgres/-/f {postgres=X/postgres}. Replaying this GRANT deletes that
+  -- row (exact restore). Rerunnable: a second GRANT is a no-op when the
+  -- row is already gone.
+  SELECT
+    'E'::text,
+    0 AS ordinal,
+    'ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT EXECUTE ON FUNCTIONS TO PUBLIC;'::text
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM pg_default_acl d
+    WHERE d.defaclrole = 'postgres'::regrole
+      AND d.defaclnamespace = 0
+      AND d.defaclobjtype = 'f'
+  )
+
+  UNION ALL
+
+  -- F. Real column-level ACLs only (attacl IS NOT NULL).
+  --    Do not use information_schema.column_privileges: it expands
+  --    table-level GRANTs into one row per column.
+  SELECT
+    'F'::text,
+    row_number() OVER (
+      ORDER BY n.nspname, c.relname, att.attname, COALESCE(r.rolname, 'PUBLIC'), a.privilege_type
+    )::int,
+    format(
+      'GRANT %s (%I) ON TABLE %I.%I TO %s;',
+      a.privilege_type,
+      att.attname,
+      n.nspname,
+      c.relname,
+      CASE WHEN a.grantee = 0 OR r.rolname IS NULL THEN 'PUBLIC' ELSE quote_ident(r.rolname) END
+    )
+  FROM pg_attribute att
+  JOIN pg_class c ON c.oid = att.attrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  CROSS JOIN LATERAL aclexplode(att.attacl) a
+  LEFT JOIN pg_roles r ON r.oid = a.grantee
+  WHERE att.attacl IS NOT NULL
+    AND att.attnum > 0
+    AND NOT att.attisdropped
+    AND n.nspname NOT LIKE 'pg\_%' ESCAPE '\'
+    AND n.nspname <> 'information_schema'
+    AND (a.grantee = 0 OR r.rolname IN ('anon', 'authenticated', 'PUBLIC'))
 ) snap
 ORDER BY section, ordinal;

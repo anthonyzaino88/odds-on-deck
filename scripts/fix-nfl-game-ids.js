@@ -1,15 +1,12 @@
 #!/usr/bin/env node
 
-import { createClient } from '@supabase/supabase-js'
+import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { createGameId } from '../lib/team-mapping.js'
 import { config } from 'dotenv'
 
 config({ path: '.env.local' })
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+const supabase = createScriptSupabaseClient()
 
 async function fixNFLGameIds() {
   console.log('🔧 Fixing NFL game IDs to use EST dates instead of UTC dates...\n')

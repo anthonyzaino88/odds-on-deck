@@ -16,10 +16,17 @@
 -- 2. Replay restore_ddl ORDER BY section, ordinal (skip the section='0'
 --    instruction row):
 --    A. ALTER TABLE ... ENABLE/DISABLE ROW LEVEL SECURITY
---    B. CREATE POLICY ... (PUBLIC unquoted)
+--    B. DROP POLICY IF EXISTS ...; CREATE POLICY ... (PUBLIC unquoted)
 --    C. GRANT ... ON TABLE / SEQUENCE ... (PUBLIC, anon, authenticated)
 --    D. GRANT ... ON ROUTINE / PROCEDURE ... (identity args)
---    E. ALTER DEFAULT PRIVILEGES ... (global rows have no IN SCHEMA)
+--    E. ALTER DEFAULT PRIVILEGES ... (global rows have no IN SCHEMA).
+--       If postgres had no global function pg_default_acl row before 006,
+--       section E includes
+--       ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
+--       Replay deletes the 006 postgres/-/f {postgres=X/postgres} row so
+--       new functions get the built-in =X/postgres PUBLIC EXECUTE again.
+--    F. GRANT ... (column) ON TABLE ... (pg_attribute.attacl only; not
+--       information_schema.column_privileges, which expands table grants)
 -- 3. Re-run the read-only verification queries in 006_rls_lockdown.sql
 --    and compare to the snapshot. Confirm https://oddsondeck.com 200s.
 --

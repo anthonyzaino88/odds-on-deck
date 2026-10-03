@@ -12,17 +12,14 @@
  *   node scripts/fetch-fresh-games.js nfl 2025-11-02   # NFL for specific date
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import { createGameId } from '../lib/team-mapping.js'
 
 config({ path: '.env.local' })
 
 // Use secret key to bypass RLS (with fallback to anon for read-only)
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+const supabase = createScriptSupabaseClient()
 
 // ESPN sport IDs - CORRECTED
 const SPORT_MAP = {
