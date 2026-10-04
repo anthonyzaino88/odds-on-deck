@@ -15,7 +15,7 @@ describe('MLB game-line public kill switch wiring', () => {
     expect(script).toMatch(/unpublishedGameLineSports/)
     expect(script).toMatch(/Skipping unpublished game-line sports/)
     expect(script).toMatch(/PUBLISHED_GAME_LINE_SPORTS\.map/)
-    expect(script).not.toMatch(/GAME_LINE_SPORTS\.map/)
+    expect(script).not.toMatch(/(?<!PUBLISHED_)GAME_LINE_SPORTS\.map/)
     expect(unpublishedGameLineSports()).toEqual(['mlb'])
     expect(PUBLISHED_GAME_LINE_SPORTS).not.toContain('mlb')
     expect(GAME_LINE_SPORTS).toContain('mlb')
