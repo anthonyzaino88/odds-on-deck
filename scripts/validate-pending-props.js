@@ -230,6 +230,9 @@ async function main() {
             actualValue = await getMLBStat(game.mlbGameId, v.playerName, v.propType)
           } else if (sport === 'nhl') {
             if (!game.espnGameId) break
+            // PropValidation has no playerId or team column, so these are
+            // always undefined. Matching is name-only for now; the NHL team
+            // alias table is inert until those columns exist.
             nhlLookup = await getNHLStat(
               game.espnGameId,
               v.playerName,

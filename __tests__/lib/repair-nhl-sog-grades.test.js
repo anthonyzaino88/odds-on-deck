@@ -2,9 +2,11 @@ import {
   buildRepairPreviewRow,
   gradeFromActual,
   isNhlSogValidation,
+  matchFlippedParlayRefs,
   parseRepairArgs,
   REPAIR_GRADE_SOURCE,
   repairApplyPayload,
+  shouldApplyRepairPreview,
   summarizeRepairRows,
 } from '../../lib/repair-nhl-sog-grades.js'
 import { runRepairNhlSogGrades } from '../../scripts/repair-nhl-sog-grades.js'
@@ -106,6 +108,25 @@ describe('repair preview / apply payloads', () => {
     expect(payload.result).toBe('correct')
   })
 
+  test('apply skips unchanged actual+result so reruns are idempotent', () => {
+    const unchanged = buildRepairPreviewRow(sogRow({ actualValue: 3, result: 'correct' }), {
+      value: 3,
+      source: 'espn-fallback',
+      matchStatus: 'matched',
+      statFound: true,
+      gameFinal: true,
+    })
+    expect(unchanged.flips).toBe('no')
+    expect(shouldApplyRepairPreview(unchanged)).toBe(false)
+    expect(shouldApplyRepairPreview(buildRepairPreviewRow(sogRow(), {
+      value: 3,
+      source: 'espn-fallback',
+      matchStatus: 'matched',
+      statFound: true,
+      gameFinal: true,
+    }))).toBe(true)
+  })
+
   test('summary counts flips, unmatched, and skipped', () => {
     const rows = [
       buildRepairPreviewRow(sogRow(), {
@@ -136,29 +157,26 @@ describe('runRepairNhlSogGrades', () => {
     }
   }
 
-  function mockClient(rows, updates) {
+  function mockClient(rows, updates, { legs = [] } = {}) {
     return {
       from(table) {
         const query = {
           select() { return query },
-          eq(column) {
-            if (table === 'PropValidation' && column === 'status') {
-              return Promise.resolve({ data: rows, error: null })
-            }
-            if (table === 'PropValidation' && column === 'id') {
-              return Promise.resolve({ error: null })
-            }
-            return query
-          },
-          in(column) {
+          eq() { return query },
+          in() {
             if (table === 'Game') {
-              const ids = rows.map((row) => row.gameIdRef)
               return Promise.resolve({
-                data: ids.map((id) => ({ id, espnGameId: '401802001', sport: 'nhl' })),
+                data: rows.map((row) => ({ id: row.gameIdRef, espnGameId: '401802001', sport: 'nhl' })),
                 error: null,
               })
             }
             return query
+          },
+          order() { return query },
+          range() {
+            if (table === 'PropValidation') return Promise.resolve({ data: rows, error: null })
+            if (table === 'ParlayLeg') return Promise.resolve({ data: legs, error: null })
+            return Promise.resolve({ data: [], error: null })
           },
           update(payload) {
             updates.push(payload)
@@ -176,6 +194,7 @@ describe('runRepairNhlSogGrades', () => {
     const result = await runRepairNhlSogGrades({
       argv: [],
       log,
+      fetchDelayMs: 0,
       lookupStat: async () => ({
         value: 3,
         source: 'espn-fallback',
@@ -202,6 +221,7 @@ describe('runRepairNhlSogGrades', () => {
     const result = await runRepairNhlSogGrades({
       argv: ['--apply'],
       log: memoryLog(),
+      fetchDelayMs: 0,
       now: new Date('2026-10-04T18:00:00.000Z'),
       lookupStat: async (_game, playerName) => {
         if (playerName === 'Luke Hughes') {
@@ -231,5 +251,70 @@ describe('runRepairNhlSogGrades', () => {
     expect(updates[0].gradeSource).toBe('repair-nhl-sog-2026-10')
     expect(updates[0].gradedAt).toBe('2026-10-04T18:00:00.000Z')
     expect(updates[0].actualValue).toBe(3)
+  })
+
+  test('--apply does not rewrite unchanged gradeable rows', async () => {
+    const updates = []
+    const rows = [
+      sogRow({ actualValue: 3, result: 'correct' }),
+      sogRow({ id: 'pv-flip', actualValue: 0, result: 'incorrect' }),
+    ]
+    const result = await runRepairNhlSogGrades({
+      argv: ['--apply'],
+      log: memoryLog(),
+      fetchDelayMs: 0,
+      lookupStat: async () => ({
+        value: 3,
+        source: 'espn-fallback',
+        matchStatus: 'matched',
+        statFound: true,
+        gameFinal: true,
+        team: 'NJD',
+      }),
+      createClient: () => mockClient(rows, updates),
+    })
+
+    expect(result.applied).toBe(1)
+    expect(result.summary.unchanged).toBe(1)
+    expect(updates).toHaveLength(1)
+    expect(updates[0].actualValue).toBe(3)
+  })
+
+  test('dry-run lists ParlayLeg and ParlayHistory ids for flipping rows only', async () => {
+    const log = memoryLog()
+    const result = await runRepairNhlSogGrades({
+      argv: [],
+      log,
+      fetchDelayMs: 0,
+      lookupStat: async () => ({
+        value: 3,
+        source: 'espn-fallback',
+        matchStatus: 'matched',
+        statFound: true,
+        gameFinal: true,
+        team: 'NJD',
+      }),
+      createClient: () => mockClient([sogRow()], [], {
+        legs: [{
+          id: 'leg-luke',
+          parlayId: 'parlay-hist-1',
+          playerName: 'Luke Hughes',
+          propType: 'player_shots_on_goal',
+          gameIdRef: 'NYR_at_NJ_2026-01-01',
+        }],
+      }),
+    })
+
+    expect(result.flippedParlayLegs).toEqual(['leg-luke'])
+    expect(result.flippedParlayHistory).toEqual(['parlay-hist-1'])
+    expect(log.lines.join('\n')).toMatch(/ParlayLeg ids:\s+leg-luke/)
+    expect(log.lines.join('\n')).toMatch(/ParlayHistory ids:\s+parlay-hist-1/)
+    expect(matchFlippedParlayRefs([sogRow()], [{
+      id: 'leg-other',
+      parlayId: 'parlay-2',
+      playerName: 'Jack Hughes',
+      propType: 'player_shots_on_goal',
+      gameIdRef: 'NYR_at_NJ_2026-01-01',
+    }])).toEqual({ parlayLegIds: [], parlayHistoryIds: [] })
   })
 })
