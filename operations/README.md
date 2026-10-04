@@ -26,12 +26,21 @@ node scripts/fetch-fresh-games.js all
 # 3. Fetch odds with proper gameTime mapping
 node scripts/fetch-live-odds.js all --cache-fresh
 
-# 4. REQUIRED: calculate game edges before record-game-lines
+# 4. REQUIRED: refresh team performance BEFORE calculate-game-edges
+# Writes present ESPN season fields only. Failed/empty sport fetches leave
+# existing Team rows unchanged (never overwrite good stats with 0 or null).
+# Per-sport API failures do not abort the other sports.
+node scripts/fetch-team-performance-data.js   # Requires SUPABASE_SECRET_KEY
+# or: npm run fetch:team-performance
+# Combined: npm run ops:morning-edges  (fetch then calculate-game-edges)
+
+# 5. REQUIRED: calculate game edges before record-game-lines
 # record-game-lines reads EdgeSnapshot. Without this step the sides/totals
 # persist is empty even when the public board can still generate live lines.
+# NHL/MLB skip when either team's stats are null, all-zero, or stale in-season.
 node scripts/calculate-game-edges.js   # Requires SUPABASE_SECRET_KEY
 
-# 5. Record public-track rows (do NOT rely on page visits)
+# 6. Record public-track rows (do NOT rely on page visits)
 # fetch-live-odds already records Published props; record:published is the backup sweep.
 npm run record:published
 # Required after PR-E: /parlays GET no longer inserts Featured cards.
@@ -101,6 +110,7 @@ Morning ops status (required):
 2. Always continue independent slate-refresh steps even when cleanup_exit != 0:
    `node scripts/fetch-fresh-games.js all`
    `node scripts/fetch-live-odds.js all --cache-fresh`
+   `node scripts/fetch-team-performance-data.js`
    optional `node scripts/calculate-game-edges.js`
 3. Overall run status:
    - OK only if cleanup_exit == 0 AND every required later step succeeded.
@@ -161,7 +171,7 @@ ODDS_API_KEY=your_odds_api_key
 
 1. **Run `clear-stale-props.js` FIRST every day** - prevents yesterday's props from showing
 2. **Use `--cache-fresh` flag** - ensures proper gameTime mapping from Game.date
-3. **SUPABASE_SECRET_KEY is required** - for `clear-stale-props.js`, `fetch-live-odds.js`, `calculate-game-edges.js`
+3. **SUPABASE_SECRET_KEY is required** - for `clear-stale-props.js`, `fetch-live-odds.js`, `fetch-team-performance-data.js`, `calculate-game-edges.js`
 4. **Windows PowerShell** - `npm run <script> -- --flag` can drop the flags. Run `node scripts/<file>.js --flag`, or `npm run x --% -- --flag`.
 
 ## 🔐 Security
@@ -178,6 +188,7 @@ scripts/
 ├── archive-nfl-box-scores.js   # Independent NFL box-score archive / coverage audit
 ├── fetch-fresh-games.js        # Fetch games from ESPN (FREE)
 ├── fetch-live-odds.js          # Fetch odds/props from Odds API (PAID)
+├── fetch-team-performance-data.js # ESPN team records / PPG (run before edges)
 ├── update-scores-safely.js     # Live score updates (FREE)
 ├── calculate-game-edges.js     # Calculate edges (requires secret key)
 ├── check-validation-status.js  # Check validation results

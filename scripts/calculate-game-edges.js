@@ -2,9 +2,10 @@
 // Calculate betting edges for today's games and store in EdgeSnapshot table
 
 import { config } from 'dotenv'
-import { calculateGameEdges } from '../lib/edge.js' // MLB model
-import { calculateNHLEdges } from '../lib/edge-nfl-nhl.js' // NHL heuristic (unchanged)
+import { calculateGameEdges } from '../lib/edge.js' // MLB model math unchanged
+import { calculateNHLEdges } from '../lib/edge-nfl-nhl.js' // NHL heuristic + team-stats skip
 import { calculateNFLEdges, toNflEdgeSnapshotInsert } from '../lib/edge-nfl.js' // isolated NFL model
+import { evaluateMatchupTeamStatsForEdge } from '../lib/team-performance-stats.js'
 import crypto from 'crypto'
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 
@@ -113,8 +114,25 @@ async function calculateEdgesForToday() {
         // Calculate edges using the appropriate model for the sport
         let edges
         if (game.sport === 'mlb') {
-          // Use MLB-specific model with pitchers, park factors, etc.
-          edges = calculateGameEdges(game, odds)
+          // Leave lib/edge.js math untouched. Skip the write when either
+          // side's Team stats are null, all-zero, or stale in-season.
+          const eligibility = evaluateMatchupTeamStatsForEdge(game.home, game.away, {
+            sport: 'mlb',
+          })
+          if (!eligibility.ok) {
+            console.log(`  ⏭️  Skipping MLB edge: ${eligibility.reason}`)
+            edges = {
+              edgeMlHome: null,
+              edgeMlAway: null,
+              edgeTotalO: null,
+              edgeTotalU: null,
+              modelRun: 'v0.1.0',
+              skipped: true,
+              skipReason: eligibility.reason,
+            }
+          } else {
+            edges = calculateGameEdges(game, odds)
+          }
         } else if (game.sport === 'nfl') {
           // Isolated NFL model. Public edges stay null until validated.
           edges = calculateNFLEdges(game, odds)
@@ -156,6 +174,8 @@ async function calculateEdgesForToday() {
           console.log(`     inputSnapshotId: ${edgeSnapshot.inputSnapshotId || 'null'}`)
           console.log(`     oddsSnapshotId: ${edgeSnapshot.oddsSnapshotId || 'null'}`)
           console.log(`     quotedAt: ${edgeSnapshot.quotedAt || 'null'}`)
+        } else if (edges.skipped) {
+          console.log(`  ⏭️  No edge written (${edges.skipReason})`)
         } else if (!edges.edgeMlHome && !edges.edgeMlAway && !edges.edgeTotalO && !edges.edgeTotalU) {
           console.log(`  ℹ️  No significant edges found (all below 2% threshold)`)
         } else {
