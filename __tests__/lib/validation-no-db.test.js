@@ -17,6 +17,8 @@ function createChain() {
   chain.range = passthrough('range')
   chain.maybeSingle = jest.fn(async () => ({ data: null, error: null }))
   chain.single = jest.fn(async () => ({ data: null, error: null }))
+  chain.update = jest.fn(() => chain)
+  chain.insert = jest.fn(() => chain)
   chain.then = (onFulfilled, onRejected) => (
     Promise.resolve({ data: [], error: null }).then(onFulfilled, onRejected)
   )
@@ -29,7 +31,7 @@ jest.mock('../../lib/supabase-admin.js', () => ({
   },
 }))
 
-import { recordPropPrediction, getPublishedPicksStats } from '../../lib/validation.js'
+import { recordPropPrediction, recordGameLinePrediction, getPublishedPicksStats } from '../../lib/validation.js'
 import { PUBLISHED_SOURCE } from '../../lib/published-picks.js'
 
 describe('recordPropPrediction refuses without a DB call', () => {
@@ -48,6 +50,84 @@ describe('recordPropPrediction refuses without a DB call', () => {
     }, 'user_saved')
     expect(result).toBeNull()
     expect(from).not.toHaveBeenCalled()
+  })
+})
+
+describe('recordGameLinePrediction respects the public kill switch', () => {
+  beforeEach(() => {
+    eqCalls.length = 0
+    from.mockReset()
+    from.mockImplementation(() => createChain())
+  })
+
+  test('skips unpublished MLB game lines before any write', async () => {
+    const result = await recordGameLinePrediction({
+      gameId: 'g-mlb-1',
+      sport: 'mlb',
+      type: 'total',
+      pick: 'over',
+      threshold: 8.5,
+      edge: 0.25,
+      odds: -110,
+    })
+    expect(result).toBeNull()
+    expect(from).not.toHaveBeenCalled()
+  })
+
+  test('does not recreate, overwrite, or un-void an existing void row', async () => {
+    const existing = {
+      id: 'pv-void',
+      propId: 'gl-g-nfl-1-moneyline-KC-ml',
+      status: 'manual_closed',
+      result: 'void',
+      source: 'game_line',
+    }
+    const chain = createChain()
+    chain.maybeSingle.mockResolvedValue({ data: existing, error: null })
+    from.mockImplementation(() => chain)
+
+    const result = await recordGameLinePrediction({
+      gameId: 'g-nfl-1',
+      sport: 'nfl',
+      type: 'moneyline',
+      pick: 'KC',
+      team: 'KC',
+      eligibleForPublic: true,
+      edge: 0.09,
+      odds: -110,
+    })
+
+    expect(result).toEqual(existing)
+    expect(chain.update).not.toHaveBeenCalled()
+    expect(chain.insert).not.toHaveBeenCalled()
+  })
+
+  test('does not overwrite an already-graded row', async () => {
+    const existing = {
+      id: 'pv-graded',
+      propId: 'gl-g-nfl-1-moneyline-KC-ml',
+      status: 'completed',
+      result: 'correct',
+      source: 'game_line',
+    }
+    const chain = createChain()
+    chain.maybeSingle.mockResolvedValue({ data: existing, error: null })
+    from.mockImplementation(() => chain)
+
+    const result = await recordGameLinePrediction({
+      gameId: 'g-nfl-1',
+      sport: 'nfl',
+      type: 'moneyline',
+      pick: 'KC',
+      team: 'KC',
+      eligibleForPublic: true,
+      edge: 0.09,
+      odds: -110,
+    })
+
+    expect(result).toEqual(existing)
+    expect(chain.update).not.toHaveBeenCalled()
+    expect(chain.insert).not.toHaveBeenCalled()
   })
 })
 

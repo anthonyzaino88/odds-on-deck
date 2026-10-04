@@ -122,7 +122,7 @@ describe('buildGameLinePicksFromSnapshots', () => {
     expect(picks).toEqual([])
   })
 
-  test('MLB reconstruction is unchanged (still implied + stored edge)', () => {
+  test('MLB reconstruction is withheld from the public list while unpublished', () => {
     const picks = buildGameLinePicksFromSnapshots({
       game: {
         id: 'g-mlb-1',
@@ -144,10 +144,7 @@ describe('buildGameLinePicksFromSnapshots', () => {
       }],
     })
 
-    expect(picks).toHaveLength(1)
-    expect(picks[0].pick).toBe('NYY')
-    expect(picks[0].probability).toBeCloseTo(Math.min(0.85, (110 / 210) + 0.06), 8)
-    expect(picks[0].edge).toBe(0.06)
+    expect(picks).toEqual([])
   })
 
   test('unvalidated production NFL payload stays off the public list', () => {
