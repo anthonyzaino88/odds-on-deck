@@ -170,12 +170,9 @@ describe('strict NHL player matching', () => {
     expect(matchNhlBoxscorePlayer(
       [{ id: '8476389', name: 'Vincent Trocheck', team: 'NYR' }],
       { name: 'V. Trocheck', team: 'NYR' },
-    )).toMatchObject({
-      status: 'matched',
-      player: { id: '8476389' },
-    })
+    ).status).toBe('unmatched')
     expect(matchNhlBoxscorePlayer(
-      [{ id: '8476389', name: 'Vincent Trocheck', abbrevName: 'V. Trocheck', team: 'NYR' }],
+      [{ id: '8476389', name: 'Vincent Trocheck', team: 'NYR' }],
       { name: 'Vincent Trocheck', team: 'NYR' },
     )).toMatchObject({
       status: 'matched',
@@ -188,23 +185,28 @@ describe('strict NHL player matching', () => {
       .toBe('Luke Hughes')
   })
 
-  test('C. Coyle matches Charlie Coyle when unique in the game', () => {
-    const roster = [{ id: '8475745', name: 'C. Coyle', team: 'BOS' }]
-    expect(matchNhlBoxscorePlayer(roster, { name: 'Charlie Coyle' })).toMatchObject({
-      status: 'matched',
-      player: { id: '8475745' },
+  test('abbreviated C. Coyle does not match Charlie Coyle', () => {
+    expect(matchNhlBoxscorePlayer(
+      [{ id: '8475745', name: 'C. Coyle', team: 'BOS' }],
+      { name: 'Charlie Coyle' },
+    )).toEqual({
+      status: 'unmatched',
+      player: null,
     })
   })
 
-  test('two players with the same initial plus last name are ambiguous', () => {
-    const roster = [
-      { id: '1', name: 'C. Coyle', team: 'BOS' },
-      { id: '2', name: 'Chris Coyle', team: 'BOS' },
-    ]
-    expect(matchNhlBoxscorePlayer(roster, { name: 'Charlie Coyle' })).toEqual({
-      status: 'ambiguous',
+  test('Jamie Benn does not match Jordie Benn when Jamie is absent', () => {
+    expect(matchNhlBoxscorePlayer(
+      [{ id: '8470917', name: 'Jordie Benn', team: 'DAL' }],
+      { name: 'Jamie Benn', team: 'DAL' },
+    )).toEqual({
+      status: 'unmatched',
       player: null,
     })
+    expect(matchNhlBoxscorePlayer(
+      [{ id: '8481554', name: 'Luke Hughes', team: 'NJD' }],
+      { name: 'Jack Hughes', team: 'NJD' },
+    ).status).toBe('unmatched')
   })
 
   test('strips curly apostrophes in names like O’Reilly', () => {
@@ -367,7 +369,7 @@ describe('NHL API display names', () => {
     })).toBe('Charlie Coyle')
   })
 
-  test('grades Charlie Coyle from NHL API firstName/lastName without ESPN', async () => {
+  test('grades Charlie Coyle from NHL API rosterSpots joined to boxscore SOG', async () => {
     global.fetch = jest.fn((url) => {
       const href = String(url)
       if (href.includes('/schedule/')) {
@@ -384,15 +386,13 @@ describe('NHL API display names', () => {
       if (href.includes('/gamecenter/2026020101/boxscore')) {
         return jsonResponse({
           gameState: 'OFF',
-          homeTeam: { abbrev: 'BOS' },
-          awayTeam: { abbrev: 'NYR' },
+          homeTeam: { id: 6, abbrev: 'BOS' },
+          awayTeam: { id: 3, abbrev: 'NYR' },
           playerByGameStats: {
             homeTeam: {
               forwards: [{
                 playerId: 8475745,
                 name: { default: 'C. Coyle' },
-                firstName: { default: 'Charlie' },
-                lastName: { default: 'Coyle' },
                 sog: 4,
               }],
               defense: [],
@@ -400,6 +400,18 @@ describe('NHL API display names', () => {
             },
             awayTeam: { forwards: [], defense: [], goalies: [] },
           },
+        })
+      }
+      if (href.includes('/gamecenter/2026020101/play-by-play')) {
+        return jsonResponse({
+          homeTeam: { id: 6, abbrev: 'BOS' },
+          awayTeam: { id: 3, abbrev: 'NYR' },
+          rosterSpots: [{
+            playerId: 8475745,
+            teamId: 6,
+            firstName: { default: 'Charlie' },
+            lastName: { default: 'Coyle' },
+          }],
         })
       }
       return jsonResponse({}, false)
@@ -416,8 +428,150 @@ describe('NHL API display names', () => {
       source: 'nhl-api',
       matchStatus: 'matched',
       gameFinal: true,
+      player: 'Charlie Coyle',
     })
     expect(global.fetch.mock.calls.some(([url]) => String(url).includes('/summary?event='))).toBe(false)
+  })
+
+  test('joins NHL rosterSpots full names to boxscore SOG by playerId', async () => {
+    global.fetch = jest.fn((url) => {
+      const href = String(url)
+      if (href.includes('/schedule/')) {
+        return jsonResponse({
+          gameWeek: [{
+            games: [{
+              id: 2026020101,
+              awayTeam: { abbrev: 'NYR' },
+              homeTeam: { abbrev: 'OTT' },
+            }],
+          }],
+        })
+      }
+      if (href.includes('/gamecenter/2026020101/boxscore')) {
+        return jsonResponse({
+          gameState: 'OFF',
+          homeTeam: { id: 9, abbrev: 'OTT' },
+          awayTeam: { id: 3, abbrev: 'NYR' },
+          playerByGameStats: {
+            homeTeam: {
+              forwards: [{
+                playerId: 8482116,
+                name: { default: 'T. Stützle' },
+                sog: 5,
+              }],
+              defense: [],
+              goalies: [],
+            },
+            awayTeam: { forwards: [], defense: [], goalies: [] },
+          },
+        })
+      }
+      if (href.includes('/gamecenter/2026020101/play-by-play')) {
+        return jsonResponse({
+          homeTeam: { id: 9, abbrev: 'OTT' },
+          awayTeam: { id: 3, abbrev: 'NYR' },
+          rosterSpots: [{
+            playerId: 8482116,
+            teamId: 9,
+            firstName: { default: 'Tim' },
+            lastName: { default: 'Stützle' },
+          }],
+        })
+      }
+      return jsonResponse({}, false)
+    })
+
+    const result = await lookupPlayerGameStat(
+      '401802099',
+      'Tim Stützle',
+      'player_shots_on_goal',
+      'NYR_at_OTT_2026-01-01',
+    )
+    expect(result).toMatchObject({
+      value: 5,
+      source: 'nhl-api',
+      matchStatus: 'matched',
+      gameFinal: true,
+      player: 'Tim Stützle',
+    })
+    expect(isGradeableNhlStatResult(result)).toBe(true)
+  })
+
+  test('does not grade Jamie Benn when only Jordie Benn is in NHL and ESPN data', async () => {
+    global.fetch = jest.fn((url) => {
+      const href = String(url)
+      if (href.includes('/schedule/')) {
+        return jsonResponse({
+          gameWeek: [{
+            games: [{
+              id: 2026020102,
+              awayTeam: { abbrev: 'DAL' },
+              homeTeam: { abbrev: 'NJD' },
+            }],
+          }],
+        })
+      }
+      if (href.includes('/gamecenter/2026020102/boxscore')) {
+        return jsonResponse({
+          gameState: 'OFF',
+          homeTeam: { id: 1, abbrev: 'NJD' },
+          awayTeam: { id: 25, abbrev: 'DAL' },
+          playerByGameStats: {
+            awayTeam: {
+              forwards: [{
+                playerId: 8470917,
+                name: { default: 'J. Benn' },
+                sog: 4,
+              }],
+              defense: [],
+              goalies: [],
+            },
+            homeTeam: { forwards: [], defense: [], goalies: [] },
+          },
+        })
+      }
+      if (href.includes('/gamecenter/2026020102/play-by-play')) {
+        return jsonResponse({
+          homeTeam: { id: 1, abbrev: 'NJD' },
+          awayTeam: { id: 25, abbrev: 'DAL' },
+          rosterSpots: [{
+            playerId: 8470917,
+            teamId: 25,
+            firstName: { default: 'Jordie' },
+            lastName: { default: 'Benn' },
+          }],
+        })
+      }
+      if (href.includes('/summary?event=')) {
+        return jsonResponse(espnNhlSummary({
+          teams: [{
+            team: { abbreviation: 'DAL' },
+            statistics: [{
+              labels: ESPN_SKATER_LABELS,
+              athletes: [espnAthlete('8470917', 'Jordie Benn', ['18:00', '0', '1', '0', '4', '0', '0', '0'])],
+            }],
+          }],
+        }))
+      }
+      return jsonResponse({}, false)
+    })
+
+    const result = await lookupPlayerGameStat(
+      '401802200',
+      'Jamie Benn',
+      'player_shots_on_goal',
+      'DAL_at_NJ_2026-01-01',
+      { team: 'DAL' },
+    )
+    expect(isGradeableNhlStatResult(result)).toBe(false)
+    expect(result.matchStatus).toBe('unmatched')
+    expect(await getPlayerGameStat(
+      '401802200',
+      'Jamie Benn',
+      'player_shots_on_goal',
+      'DAL_at_NJ_2026-01-01',
+      { team: 'DAL' },
+    )).toBeNull()
   })
 
   test('caches NHL boxscore and ESPN summary per game and delays only uncached fetches', async () => {
@@ -477,15 +631,13 @@ describe('NHL API display names', () => {
       if (href.includes('/gamecenter/2026020101/boxscore')) {
         return jsonResponse({
           gameState: 'OFF',
-          homeTeam: { abbrev: 'BOS' },
-          awayTeam: { abbrev: 'NYR' },
+          homeTeam: { id: 6, abbrev: 'BOS' },
+          awayTeam: { id: 3, abbrev: 'NYR' },
           playerByGameStats: {
             homeTeam: {
               forwards: [{
                 playerId: 8475745,
                 name: { default: 'C. Coyle' },
-                firstName: { default: 'Charlie' },
-                lastName: { default: 'Coyle' },
                 sog: 4,
               }],
               defense: [],
@@ -493,6 +645,18 @@ describe('NHL API display names', () => {
             },
             awayTeam: { forwards: [], defense: [], goalies: [] },
           },
+        })
+      }
+      if (href.includes('/gamecenter/2026020101/play-by-play')) {
+        return jsonResponse({
+          homeTeam: { id: 6, abbrev: 'BOS' },
+          awayTeam: { id: 3, abbrev: 'NYR' },
+          rosterSpots: [{
+            playerId: 8475745,
+            teamId: 6,
+            firstName: { default: 'Charlie' },
+            lastName: { default: 'Coyle' },
+          }],
         })
       }
       if (href.includes('/summary?event=')) {
