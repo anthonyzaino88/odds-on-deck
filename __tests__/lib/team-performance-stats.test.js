@@ -5,6 +5,7 @@ import {
   extractEspnTeamPerformance,
   interpretTeamSeasonStats,
   parseRecordString,
+  resolveTeamStatsTimestamp,
   shouldSkipParlayGameLines,
   TEAM_STATS_STALE_AFTER_DAYS,
   teamPerformanceWritePayload,
@@ -480,6 +481,22 @@ describe('team-stats edge eligibility', () => {
       sport: 'nhl',
       now,
     }).ok).toBe(true)
+  })
+
+  test('null statsDataThrough still uses statsCapturedAt for the stale window', () => {
+    const staleAt = '2025-12-01T00:00:00.000Z'
+    expect(resolveTeamStatsTimestamp({
+      last10Record: '8-4-1',
+      statsDataThrough: null,
+      dataThrough: null,
+      statsCapturedAt: staleAt,
+    })).toBe(staleAt)
+
+    expect(evaluateMatchupTeamStatsForEdge({
+      ...fresh,
+      statsDataThrough: null,
+      statsCapturedAt: staleAt,
+    }, { ...fresh, abbr: 'NYR' }, { sport: 'nhl', now }).reason).toMatch(/stale_team_stats/)
   })
 
   test('parlay builder drops skipped and no-edge snapshots', () => {
