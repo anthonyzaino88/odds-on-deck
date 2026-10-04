@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { getGameDetail } from '../../../lib/db.js'
 import { formatEdge, formatOdds, formatProbability } from '../../../lib/implied.js'
+import { isPublishedGameLineSport } from '../../../lib/game-lines.js'
 import { format } from 'date-fns'
 import { cn } from '../../../lib/utils'
 import { SportBadge } from '../../../components/ui'
@@ -214,7 +215,11 @@ export default async function GameDetailPage({ params }) {
         
         return isMlbGame ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <MLBTeamStatsBar game={game} edge={edge} />
+            <MLBTeamStatsBar
+              game={game}
+              edge={isPublishedGameLineSport(game.sport) ? edge : null}
+              showModelEdges={isPublishedGameLineSport(game.sport)}
+            />
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -924,7 +929,7 @@ function StatCard({ title, value, subtitle, className = 'text-slate-100' }) {
   )
 }
 
-function MLBTeamStatsBar({ game, edge }) {
+function MLBTeamStatsBar({ game, edge, showModelEdges = false }) {
   const h2hOdds = game.odds?.find(o => o.market === 'h2h')
   const totalOdds = game.odds?.find(o => o.market === 'totals')
 
@@ -993,7 +998,8 @@ function MLBTeamStatsBar({ game, edge }) {
         </div>
       </div>
 
-      {/* ML Edge */}
+      {/* ML Edge — hidden while MLB game lines are unpublished */}
+      {showModelEdges && (
       <div className="card p-4">
         <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">ML Edge</h3>
         {edge ? (
@@ -1027,6 +1033,7 @@ function MLBTeamStatsBar({ game, edge }) {
           <p className="text-sm text-slate-500 mt-1">No edge data</p>
         )}
       </div>
+      )}
 
       {/* Total / O/U */}
       <div className="card p-4">
@@ -1039,7 +1046,7 @@ function MLBTeamStatsBar({ game, edge }) {
         ) : (
           <p className="text-sm text-slate-500 mt-1">No line</p>
         )}
-        {edge ? (
+        {showModelEdges && edge ? (
           <div className="mt-3 space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-400">Over</span>
@@ -1066,9 +1073,7 @@ function MLBTeamStatsBar({ game, edge }) {
               />
             </div>
           </div>
-        ) : (
-          <p className="text-xs text-slate-500 mt-2">No edge data</p>
-        )}
+        ) : null}
       </div>
 
       {/* Park Factor + Projected Total */}
@@ -1092,7 +1097,7 @@ function MLBTeamStatsBar({ game, edge }) {
               {game.home?.parkFactor > 1.05 ? 'Hitter-friendly' : game.home?.parkFactor < 0.95 ? 'Pitcher-friendly' : 'Neutral'}
             </p>
           </div>
-          {edge?.ourTotal && (
+          {showModelEdges && edge?.ourTotal && (
             <div>
               <span className="text-xs text-slate-400">Projected Total</span>
               <p className="text-lg font-bold text-slate-100">{edge.ourTotal.toFixed(1)}</p>
@@ -1188,7 +1193,7 @@ function MLBInsightsSection({ game, edge }) {
 
   const insights = []
 
-  if (edge) {
+  if (edge && isPublishedGameLineSport(game.sport)) {
     const homeEdge = edge.edgeMlHome || 0
     const awayEdge = edge.edgeMlAway || 0
     if (Math.abs(homeEdge) > 0.03 || Math.abs(awayEdge) > 0.03) {

@@ -1,16 +1,22 @@
 import {
   GAME_LINE_CAP,
   GAME_LINE_MIN_EDGE,
+  GAME_LINE_SPORTS,
+  PUBLISHED_GAME_LINE_SPORTS,
   decorateGameLine,
   gameLineEdgeWhy,
+  gameLineValidationWritePlan,
   gradeGameLineFromScores,
   isFinalGameStatus,
   shouldGradeGameLine,
   isApprovedNflGameLine,
   isGameLineRecord,
   isPublicGameLine,
+  isPublishedGameLineSport,
   partitionGameLines,
+  publicEligibilityAllows,
   selectGameLines,
+  unpublishedGameLineSports,
 } from '../../lib/game-lines.js'
 import {
   NFL_SELECTION_MODEL_VERSION,
@@ -38,12 +44,25 @@ function line(overrides = {}) {
   }
 }
 
+function publicNflLine(overrides = {}) {
+  return line({
+    sport: 'nfl',
+    pick: 'KC',
+    team: 'KC',
+    homeTeam: 'KC',
+    awayTeam: 'DEN',
+    eligibleForPublic: true,
+    modelRun: NFL_SELECTION_MODEL_VERSION,
+    ...overrides,
+  })
+}
+
 describe('selectGameLines', () => {
   test('returns moneyline and totals separately from props', () => {
     const rows = [
-      line({ type: 'moneyline', pick: 'NYY', edge: 0.09 }),
-      line({ type: 'total', pick: 'over', threshold: 8.5, edge: 0.07 }),
-      line({ type: 'player_prop', pick: 'over', threshold: 1.5, edge: 0.20, playerName: 'Judge' }),
+      publicNflLine({ type: 'moneyline', pick: 'KC', edge: 0.09 }),
+      publicNflLine({ type: 'total', pick: 'over', threshold: 44.5, edge: 0.07 }),
+      publicNflLine({ type: 'player_prop', pick: 'over', threshold: 1.5, edge: 0.20, playerName: 'Mahomes' }),
     ]
     const selected = selectGameLines(rows)
     expect(selected.every((row) => row.type === 'moneyline' || row.type === 'total')).toBe(true)
@@ -52,7 +71,7 @@ describe('selectGameLines', () => {
     const { moneylines, totals } = partitionGameLines(selected)
     expect(moneylines).toHaveLength(1)
     expect(totals).toHaveLength(1)
-    expect(moneylines[0].pick).toBe('NYY')
+    expect(moneylines[0].pick).toBe('KC')
     expect(totals[0].pick).toBe('over')
   })
 
@@ -60,30 +79,28 @@ describe('selectGameLines', () => {
     expect(selectGameLines([])).toEqual([])
     expect(selectGameLines(null)).toEqual([])
     expect(selectGameLines([
-      line({ edge: 0 }),
-      line({ edge: 0.02 }),
-      line({ type: 'player_prop', playerName: 'Pad' }),
+      publicNflLine({ edge: 0 }),
+      publicNflLine({ edge: 0.02 }),
+      publicNflLine({ type: 'player_prop', playerName: 'Pad' }),
     ])).toEqual([])
   })
 
-  test('holds NHL and unapproved NFL off the public section', () => {
+  test('holds NHL, unpublished MLB, and unapproved NFL off the public section', () => {
     const rows = [
       line({ sport: 'nhl', edge: 0.20, pick: 'BOS' }),
       line({ sport: 'mlb', edge: 0.08, pick: 'NYY' }),
       line({ sport: 'nfl', type: 'total', pick: 'under', threshold: 44.5, edge: 0.06 }),
-      line({
-        sport: 'nfl',
+      publicNflLine({
         type: 'moneyline',
         pick: 'KC',
         edge: 0.09,
-        eligibleForPublic: true,
-        modelRun: NFL_SELECTION_MODEL_VERSION,
       }),
     ]
     const selected = selectGameLines(rows)
-    expect(selected.every((row) => row.sport === 'mlb' || row.sport === 'nfl')).toBe(true)
+    expect(selected.every((row) => row.sport === 'nfl')).toBe(true)
     expect(selected.some((row) => row.sport === 'nhl')).toBe(false)
-    expect(selected.map((row) => row.pick)).toEqual(['KC', 'NYY'])
+    expect(selected.some((row) => row.sport === 'mlb')).toBe(false)
+    expect(selected.map((row) => row.pick)).toEqual(['KC'])
     expect(selected.some((row) => row.pick === 'under')).toBe(false)
   })
 
@@ -145,11 +162,11 @@ describe('selectGameLines', () => {
 
   test('drops final / live games and ranks by edge with a short cap', () => {
     const rows = [
-      line({ pick: 'Low', edge: 0.05 }),
-      line({ pick: 'High', edge: 0.12 }),
-      line({ pick: 'Final', status: 'final', edge: 0.30 }),
-      line({ pick: 'Live', status: 'in_progress', edge: 0.22 }),
-      ...Array.from({ length: 10 }, (_, i) => line({ pick: `Pad${i}`, edge: 0.051 + i * 0.001, gameId: `g-${i}` })),
+      publicNflLine({ pick: 'Low', edge: 0.05 }),
+      publicNflLine({ pick: 'High', edge: 0.12 }),
+      publicNflLine({ pick: 'Final', status: 'final', edge: 0.30 }),
+      publicNflLine({ pick: 'Live', status: 'in_progress', edge: 0.22 }),
+      ...Array.from({ length: 10 }, (_, i) => publicNflLine({ pick: `Pad${i}`, edge: 0.051 + i * 0.001, gameId: `g-${i}` })),
     ]
     const selected = selectGameLines(rows)
     expect(selected.every((row) => row.pick !== 'Final' && row.pick !== 'Live')).toBe(true)
@@ -159,8 +176,54 @@ describe('selectGameLines', () => {
 
   test('requires the generatePicksFromSupabase min edge floor', () => {
     expect(GAME_LINE_MIN_EDGE).toBe(0.05)
-    expect(isPublicGameLine(line({ edge: 0.049 }))).toBe(false)
-    expect(isPublicGameLine(line({ edge: 0.05 }))).toBe(true)
+    expect(isPublicGameLine(publicNflLine({ edge: 0.049 }))).toBe(false)
+    expect(isPublicGameLine(publicNflLine({ edge: 0.05 }))).toBe(true)
+  })
+})
+
+describe('PUBLISHED_GAME_LINE_SPORTS kill switch', () => {
+  test('excludes MLB from public game lines and leaves NFL unchanged', () => {
+    expect(GAME_LINE_SPORTS).toEqual(['mlb', 'nfl'])
+    expect(PUBLISHED_GAME_LINE_SPORTS).toEqual(['nfl'])
+    expect(PUBLISHED_GAME_LINE_SPORTS).not.toContain('mlb')
+    expect(isPublishedGameLineSport('mlb')).toBe(false)
+    expect(isPublishedGameLineSport('nfl')).toBe(true)
+    expect(unpublishedGameLineSports()).toEqual(['mlb'])
+
+    expect(isPublicGameLine(line({ sport: 'mlb', edge: 0.20 }))).toBe(false)
+    expect(isPublicGameLine(publicNflLine({ edge: 0.09 }))).toBe(true)
+    expect(selectGameLines([
+      line({ sport: 'mlb', edge: 0.20, pick: 'NYY' }),
+      publicNflLine({ edge: 0.08, pick: 'KC' }),
+    ]).map((row) => row.pick)).toEqual(['KC'])
+  })
+
+  test('requires eligibleForPublic when that field exists', () => {
+    expect(publicEligibilityAllows(line({ sport: 'mlb' }))).toBe(true)
+    expect(publicEligibilityAllows(publicNflLine({ eligibleForPublic: true }))).toBe(true)
+    expect(publicEligibilityAllows(publicNflLine({ eligibleForPublic: false }))).toBe(false)
+    expect(isPublicGameLine(publicNflLine({ eligibleForPublic: false, edge: 0.20 }))).toBe(false)
+    expect(isPublicGameLine(publicNflLine({
+      eligibleForPublic: true,
+      payload: { eligibility: { eligibleForPublic: false } },
+    }))).toBe(false)
+  })
+})
+
+describe('gameLineValidationWritePlan', () => {
+  test('never overwrites or un-voids void / graded rows', () => {
+    expect(gameLineValidationWritePlan(null)).toBe('insert')
+    expect(gameLineValidationWritePlan({ status: 'pending' })).toBe('update')
+    expect(gameLineValidationWritePlan({ status: 'pending', result: null })).toBe('update')
+
+    expect(gameLineValidationWritePlan({ status: 'pending', result: 'void' })).toBe('skip')
+    expect(gameLineValidationWritePlan({ status: 'manual_closed', result: 'void' })).toBe('skip')
+    expect(gameLineValidationWritePlan({ status: 'completed', result: 'voided' })).toBe('skip')
+    expect(gameLineValidationWritePlan({ result: 'voided' })).toBe('skip')
+    expect(gameLineValidationWritePlan({ status: 'completed', result: 'correct' })).toBe('skip')
+    expect(gameLineValidationWritePlan({ status: 'completed', result: 'incorrect' })).toBe('skip')
+    expect(gameLineValidationWritePlan({ status: 'completed', result: 'push' })).toBe('skip')
+    expect(gameLineValidationWritePlan({ status: 'manual_closed' })).toBe('skip')
   })
 })
 
