@@ -18,7 +18,8 @@ import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import { getPlayerGameStat as getMLBStat, fetchMLBGameStats } from '../lib/vendors/mlb-game-stats.js'
 import { getPlayerGameStat as getNFLStat } from '../lib/vendors/nfl-game-stats.js'
-import { getPlayerGameStat as getNHLStat } from '../lib/vendors/nhl-game-stats.js'
+import { lookupPlayerGameStat as getNHLStat } from '../lib/vendors/nhl-game-stats.js'
+import { isGradeableNhlStatResult, nhlGradeSourceFromResult } from '../lib/nhl-stat-grade.js'
 import { appendJsonl, boxScoreArchiveRows, loadJsonlFieldSet, resolveBoxScoresDir, shouldArchiveBoxScore } from '../lib/local-archive.js'
 import { propValidationGradeAudit, updateWithOptionalAudit } from '../lib/grade-audit.js'
 import { planPlayerStatValidation } from '../lib/pending-props.js'
@@ -217,8 +218,11 @@ async function main() {
 
       const sport = v.sport || game.sport
       let actualValue = null
+      let nhlLookup = null
 
-      // Attempt to fetch the stat, with one retry on failure
+      // Attempt to fetch the stat, with one retry on failure.
+      // NHL: a fallback 0 is final only when the player matched and the
+      // stat column exists in a final boxscore.
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           if (sport === 'mlb') {
@@ -226,7 +230,14 @@ async function main() {
             actualValue = await getMLBStat(game.mlbGameId, v.playerName, v.propType)
           } else if (sport === 'nhl') {
             if (!game.espnGameId) break
-            actualValue = await getNHLStat(game.espnGameId, v.playerName, v.propType, v.gameIdRef)
+            nhlLookup = await getNHLStat(
+              game.espnGameId,
+              v.playerName,
+              v.propType,
+              v.gameIdRef,
+              { playerId: v.playerId, team: v.team },
+            )
+            actualValue = isGradeableNhlStatResult(nhlLookup) ? nhlLookup.value : null
           } else if (sport === 'nfl') {
             if (!game.espnGameId) break
             actualValue = await getNFLStat(game.espnGameId, v.playerName, v.propType)
@@ -280,7 +291,9 @@ async function main() {
           notes: `Validated: ${v.prediction.toUpperCase()} ${v.threshold} → Actual: ${actualValue}`,
           ...propValidationGradeAudit(completedAt, {
             gradedBy: 'system',
-            gradeSource: 'validate_pending_props',
+            gradeSource: sport === 'nhl'
+              ? nhlGradeSourceFromResult(nhlLookup)
+              : 'validate_pending_props',
           }),
         },
       )
