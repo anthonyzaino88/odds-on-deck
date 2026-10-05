@@ -1,9 +1,13 @@
 import {
   applyTeamPerformanceUpdate,
+  evaluateMatchupTeamStatsForEdge,
   extractEspnStatsDataThrough,
   extractEspnTeamPerformance,
   interpretTeamSeasonStats,
   parseRecordString,
+  resolveTeamStatsTimestamp,
+  shouldSkipParlayGameLines,
+  TEAM_STATS_STALE_AFTER_DAYS,
   teamPerformanceWritePayload,
 } from '../../lib/team-performance-stats.js'
 import { calculateNFLEdges } from '../../lib/edge-nfl.js'
@@ -383,3 +387,143 @@ describe('written freshness still fail-closes public NFL', () => {
     expect(toPublicNflGameLines(selection)).toEqual([])
   })
 })
+
+describe('unavailable ESPN stats are omitted, not written as zeros', () => {
+  const existingGood = {
+    last10Record: '28-12-5',
+    homeRecord: '16-5-2',
+    awayRecord: '12-7-3',
+    avgPointsLast10: 3.4,
+    avgPointsAllowedLast10: 2.7,
+    season: '2025',
+    gamesPlayed: 45,
+    statsKind: 'season',
+    statsCapturedAt: '2025-12-12T00:00:00.000Z',
+    statsDataThrough: '2025-12-11T00:00:00.000Z',
+  }
+
+  test('0-0-0 / 0 avg extract is unused so a failed-looking payload cannot overwrite', () => {
+    const extracted = extractEspnTeamPerformance({
+      team: {
+        record: {
+          items: [
+            {
+              type: 'total',
+              summary: '0-0-0',
+              stats: [
+                { name: 'avgPointsFor', value: '0' },
+                { name: 'avgPointsAgainst', value: '0' },
+                { name: 'gamesPlayed', value: '0' },
+              ],
+            },
+            { type: 'home', summary: '0-0-0' },
+            { type: 'road', summary: '0-0-0' },
+          ],
+        },
+      },
+    }, 'nhl')
+
+    expect(extracted).toBeNull()
+
+    const write = teamPerformanceWritePayload(extracted)
+    expect(write.payload).toEqual({})
+    expect(write.written).toEqual([])
+
+    const applied = applyTeamPerformanceUpdate(existingGood, extracted)
+    expect(applied.next.last10Record).toBe('28-12-5')
+    expect(applied.next.avgPointsLast10).toBe(3.4)
+    expect(applied.next.avgPointsAllowedLast10).toBe(2.7)
+    expect(applied.next.statsCapturedAt).toBe('2025-12-12T00:00:00.000Z')
+  })
+
+  test('null extract (failed fetch) leaves every existing field in place', () => {
+    const applied = applyTeamPerformanceUpdate(existingGood, null)
+    expect(applied.payload).toEqual({})
+    expect(applied.next).toEqual(existingGood)
+  })
+})
+
+describe('team-stats edge eligibility', () => {
+  const now = new Date('2025-12-15T18:00:00.000Z')
+  const fresh = {
+    abbr: 'BOS',
+    last10Record: '8-4-1',
+    homeRecord: '5-2',
+    awayRecord: '3-2-1',
+    avgPointsLast10: 3.2,
+    avgPointsAllowedLast10: 2.6,
+    statsCapturedAt: '2025-12-14T22:00:00.000Z',
+  }
+
+  test('null / all-zero / stale in-season matchups skip; fresh does not', () => {
+    expect(evaluateMatchupTeamStatsForEdge({ abbr: 'BOS' }, { abbr: 'NYR' }, {
+      sport: 'nhl',
+      now,
+    }).ok).toBe(false)
+
+    expect(evaluateMatchupTeamStatsForEdge({
+      abbr: 'BOS',
+      last10Record: '0-0-0',
+      avgPointsLast10: 0,
+      avgPointsAllowedLast10: 0,
+    }, fresh, { sport: 'nhl', now }).reason).toMatch(/all_zero_team_stats/)
+
+    const staleAt = '2025-12-01T00:00:00.000Z'
+    expect(now.getTime() - new Date(staleAt).getTime())
+      .toBeGreaterThan(TEAM_STATS_STALE_AFTER_DAYS * 24 * 60 * 60 * 1000)
+    expect(evaluateMatchupTeamStatsForEdge(
+      { ...fresh, statsCapturedAt: staleAt, statsDataThrough: staleAt },
+      fresh,
+      { sport: 'nhl', now },
+    ).reason).toMatch(/stale_team_stats/)
+
+    expect(evaluateMatchupTeamStatsForEdge(fresh, { ...fresh, abbr: 'NYR' }, {
+      sport: 'nhl',
+      now,
+    }).ok).toBe(true)
+  })
+
+  test('null statsDataThrough still uses statsCapturedAt for the stale window', () => {
+    const staleAt = '2025-12-01T00:00:00.000Z'
+    expect(resolveTeamStatsTimestamp({
+      last10Record: '8-4-1',
+      statsDataThrough: null,
+      dataThrough: null,
+      statsCapturedAt: staleAt,
+    })).toBe(staleAt)
+
+    expect(evaluateMatchupTeamStatsForEdge({
+      ...fresh,
+      statsDataThrough: null,
+      statsCapturedAt: staleAt,
+    }, { ...fresh, abbr: 'NYR' }, { sport: 'nhl', now }).reason).toMatch(/stale_team_stats/)
+  })
+
+  test('parlay builder drops skipped and no-edge snapshots', () => {
+    const game = { sport: 'nhl', home: fresh, away: { ...fresh, abbr: 'NYR' } }
+    expect(shouldSkipParlayGameLines({
+      game,
+      edge: { skipped: true, skipReason: 'home_null_team_stats' },
+      now,
+    })).toEqual({ skip: true, reason: 'home_null_team_stats' })
+
+    expect(shouldSkipParlayGameLines({
+      game,
+      edge: { edgeMlHome: null, edgeMlAway: null, edgeTotalO: null, edgeTotalU: null },
+      now,
+    }).skip).toBe(true)
+
+    expect(shouldSkipParlayGameLines({
+      game: { sport: 'nhl', home: { abbr: 'BOS' }, away: { abbr: 'NYR' } },
+      edge: { edgeMlHome: 0.04, edgeMlAway: -0.04 },
+      now,
+    }).reason).toMatch(/null_team_stats/)
+
+    expect(shouldSkipParlayGameLines({
+      game,
+      edge: { edgeMlHome: 0.06, edgeMlAway: -0.06 },
+      now,
+    }).skip).toBe(false)
+  })
+})
+
