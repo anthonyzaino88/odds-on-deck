@@ -76,12 +76,19 @@ describe('validate:all grades props before parlays', () => {
   test('DNP repair script is dry-run by default and uses the script secret client', () => {
     const pkg = JSON.parse(read('package.json'))
     expect(pkg.scripts['repair:dnp']).toBe('node scripts/repair-dnp-grades.js')
+    expect(pkg.scripts['restore:dnp']).toBe('node scripts/restore-dnp-grades.js')
     const src = read('scripts/repair-dnp-grades.js')
     expect(src).toMatch(/createScriptSupabaseClient/)
     expect(src).not.toMatch(/from '@supabase\/supabase-js'/)
     expect(src).toMatch(/DRY-RUN/)
     expect(src).toMatch(/--apply/)
     expect(src).toMatch(/JSON backup/)
+    expect(src).toMatch(/not-in-box/)
+    const restore = read('scripts/restore-dnp-grades.js')
+    expect(restore).toMatch(/createScriptSupabaseClient/)
+    expect(restore).not.toMatch(/from '@supabase\/supabase-js'/)
+    expect(restore).toMatch(/DRY-RUN/)
+    expect(restore).toMatch(/--apply/)
   })
 
   test('unplayed-grade report requires a secret key for --apply', () => {
