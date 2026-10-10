@@ -56,6 +56,9 @@ describe('validate:all grades props before parlays', () => {
     expect(src).toMatch(/planPlayerStatValidation/)
     expect(src).not.toMatch(/gameDate < yesterday/)
     expect(src).toMatch(/voidPropValidationPatch/)
+    expect(src).toMatch(/planPlayerAppearanceGrade/)
+    expect(src).toMatch(/lookupMLBStat/)
+    expect(src).toMatch(/DNP/)
     expect(src).toMatch(/shouldArchiveBoxScore/)
     expect(src).toMatch(/boxScoreArchiveRows/)
     expect(src).toMatch(/gradePendingGameLines/)
@@ -68,6 +71,17 @@ describe('validate:all grades props before parlays', () => {
     expect(src).toMatch(/GAME_LINE_PENDING_PAGE_SIZE/)
     expect(src).toMatch(/order\(GAME_LINE_PENDING_ORDER.column/)
     expect(src).not.toMatch(/\.limit\(200\)/)
+  })
+
+  test('DNP repair script is dry-run by default and uses the script secret client', () => {
+    const pkg = JSON.parse(read('package.json'))
+    expect(pkg.scripts['repair:dnp']).toBe('node scripts/repair-dnp-grades.js')
+    const src = read('scripts/repair-dnp-grades.js')
+    expect(src).toMatch(/createScriptSupabaseClient/)
+    expect(src).not.toMatch(/from '@supabase\/supabase-js'/)
+    expect(src).toMatch(/DRY-RUN/)
+    expect(src).toMatch(/--apply/)
+    expect(src).toMatch(/JSON backup/)
   })
 
   test('unplayed-grade report requires a secret key for --apply', () => {
