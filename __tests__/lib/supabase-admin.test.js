@@ -4,6 +4,7 @@ import {
   assertSupabaseAdminKey,
   createSupabaseAdminClient,
   envFlagEnabled,
+  noStoreFetch,
   getAdminClientHealth,
   isSupabaseAdminConfigured,
   isUsableSupabase,
@@ -103,7 +104,10 @@ describe('supabase admin key selection', () => {
     expect(createClient).toHaveBeenCalledWith(
       'https://example.supabase.co',
       'secret-key',
-      expect.objectContaining({ auth: { autoRefreshToken: false, persistSession: false } }),
+      expect.objectContaining({
+        auth: { autoRefreshToken: false, persistSession: false },
+        global: { fetch: noStoreFetch },
+      }),
     )
 
     const fallbackFactory = jest.fn(() => ({ tag: 'anon' }))
@@ -115,8 +119,34 @@ describe('supabase admin key selection', () => {
     expect(fallbackFactory).toHaveBeenCalledWith(
       'https://example.supabase.co',
       'anon-key',
-      expect.any(Object),
+      expect.objectContaining({
+        global: { fetch: noStoreFetch },
+      }),
     )
+  })
+
+  test('noStoreFetch forces cache: no-store and keeps other init fields', async () => {
+    const original = global.fetch
+    const mockFetch = jest.fn(() => Promise.resolve(new Response('ok')))
+    global.fetch = mockFetch
+    try {
+      await noStoreFetch('https://example.supabase.co/rest/v1/Game', {
+        method: 'GET',
+        headers: { Prefer: 'count=exact' },
+        cache: 'force-cache',
+      })
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://example.supabase.co/rest/v1/Game',
+        {
+          method: 'GET',
+          headers: { Prefer: 'count=exact' },
+          cache: 'no-store',
+        },
+      )
+    } finally {
+      global.fetch = original
+    }
   })
 
   test('createSupabaseAdminClient throws only when the require flag is set', () => {
