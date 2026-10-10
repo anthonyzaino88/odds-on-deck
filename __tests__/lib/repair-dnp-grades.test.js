@@ -134,6 +134,23 @@ describe('DNP repair candidates and previews', () => {
       appeared: 1,
       noPa: 1,
       wasLoss: 1,
+      notInBox: 0,
+    })
+  })
+
+  test('not-in-box is skipped (expected 0) and never voided', () => {
+    const preview = buildDnpRepairPreview(dnpRow({ id: 'pv-missing', playerName: 'Nobody Fake' }), {
+      didNotPlay: false,
+      reason: 'not_in_box',
+      value: null,
+    })
+    expect(preview.skip).toBe(true)
+    expect(preview.skipReason).toBe('not_in_box')
+    expect(shouldApplyDnpPreview(preview)).toBe(false)
+    expect(summarizeDnpPreviews([preview])).toMatchObject({
+      ready: 0,
+      skipped: 1,
+      notInBox: 1,
     })
   })
 })
@@ -243,6 +260,27 @@ describe('runRepairDnpGrades', () => {
     expect(updates[0].gradeSource).toBe('repair-dnp-grades')
     expect(Object.keys(files)).toHaveLength(1)
     expect(JSON.parse(Object.values(files)[0])[0].id).toBe('pv-vinnie')
+  })
+
+  test('dry-run prints not-in-box skips separately and does not void them', async () => {
+    const updates = []
+    const log = memoryLog()
+    const missing = dnpRow({ id: 'pv-missing', playerName: 'Nobody Fake' })
+    const result = await runRepairDnpGrades({
+      argv: [],
+      log,
+      fetchDelayMs: 0,
+      createClient: () => mockClient([missing], updates),
+      lookupMlb: () => ({ didNotPlay: false, reason: 'not_in_box', value: null }),
+      fetchMlbBoxscore: async () => ({}),
+    })
+    expect(result.summary.ready).toBe(0)
+    expect(result.summary.notInBox).toBe(1)
+    expect(result.applied).toBe(0)
+    expect(updates).toHaveLength(0)
+    expect(log.lines.join('\n')).toMatch(/not-in-box/)
+    expect(log.lines.join('\n')).toMatch(/expected 0/)
+    expect(log.lines.join('\n')).not.toMatch(/would write pv-missing/)
   })
 
   test('NFL --sport is a no-op with an explanation', async () => {

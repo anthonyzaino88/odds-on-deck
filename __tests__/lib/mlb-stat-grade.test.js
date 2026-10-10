@@ -34,6 +34,17 @@ describe('MLB appearance vs empty stat line', () => {
     expect(planMlbPlayerStatGrade(players, 'Nick Allen', 'batter_hits').action).toBe('void')
   })
 
+  test('pinch runner with a run/SB but 0 PA voids those props (PA rule)', () => {
+    expect(players['Pinch Runner'].plateAppearances).toBe(0)
+    expect(players['Pinch Runner'].batting.runs).toBe(1)
+    expect(players['Pinch Runner'].batting.stolenBases).toBe(1)
+    expect(planMlbPlayerStatGrade(players, 'Pinch Runner', 'batter_runs_scored')).toEqual({
+      action: 'void',
+      reason: 'no_plate_appearances',
+    })
+    expect(planMlbPlayerStatGrade(players, 'Pinch Runner', 'batter_stolen_bases').action).toBe('void')
+  })
+
   test('a real 0 (PA > 0, 0 hits) grades as a loss on the over', () => {
     const lookup = lookupMlbPlayerStat(players, 'Cam Smith', 'batter_hits')
     expect(lookup).toMatchObject({
@@ -68,12 +79,23 @@ describe('MLB appearance vs empty stat line', () => {
     expect(gradePropFromActual('under', 1.5, hader.value)).toBe('correct')
   })
 
-  test('player missing from the box score is treated as DNP (not in box)', () => {
-    expect(lookupMlbPlayerStat(players, 'Nobody Fake', 'batter_hits')).toMatchObject({
-      didNotPlay: true,
+  test('player missing from the box score is needs_review, not a void', () => {
+    const lookup = lookupMlbPlayerStat(players, 'Nobody Fake', 'batter_hits')
+    expect(lookup).toMatchObject({
+      didNotPlay: false,
       reason: 'not_in_box',
       matchStatus: 'unmatched',
+      value: null,
     })
+    expect(planMlbPlayerStatGrade(players, 'Nobody Fake', 'batter_hits')).toEqual({
+      action: 'needs_review',
+      reason: 'not_in_box',
+    })
+    expect(planPlayerAppearanceGrade({
+      didNotPlay: true,
+      reason: 'not_in_box',
+      value: null,
+    })).toEqual({ action: 'needs_review', reason: 'not_in_box' })
   })
 
   test('accent-insensitive name match still sees a bench DNP', () => {

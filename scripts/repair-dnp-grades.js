@@ -196,13 +196,20 @@ record/units before and after, and an optional CSV diff.
   log.log(`Candidates (completed actual=0): ${candidates.length}`)
   log.log(`Would void: ${summary.ready}`)
   log.log(`Skipped (appeared / missing / already void): ${summary.skipped}`)
-  log.log(`  no PA: ${summary.noPa}   no BF: ${summary.noBf}   not in box: ${summary.notInBox}   0 TOI: ${summary.zeroToi}`)
+  log.log(`  no PA: ${summary.noPa}   no BF: ${summary.noBf}   0 TOI: ${summary.zeroToi}`)
   log.log(`  old losses: ${summary.wasLoss}   old wins: ${summary.wasWin}`)
+  log.log(`Skipped not-in-box (needs_review, expected 0; never voided): ${summary.notInBox}`)
 
   for (const preview of previews) {
     if (preview.skip) continue
     log.log(
       `  ${args.apply ? 'WRITE' : 'would write'} ${preview.id} ${preview.player} ${preview.prop} ${preview.game} ${preview.oldResult} -> void (${preview.reason})`
+    )
+  }
+  for (const preview of previews) {
+    if (preview.skipReason !== 'not_in_box') continue
+    log.log(
+      `  skip not-in-box ${preview.id} ${preview.player} ${preview.prop} ${preview.game} (needs_review, not voided)`
     )
   }
 

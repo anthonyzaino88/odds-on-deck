@@ -228,7 +228,9 @@ async function main() {
       let dnpReason = null
 
       // Attempt to fetch the stat, with one retry on failure.
-      // MLB: empty batting/pitching {} is DNP (void), not actual 0.
+      // MLB: in-box empty batting/pitching {} or 0 PA / 0 BF is DNP (void).
+      // A name missing from the box is needs_review — a wrong mlbGameId
+      // must not silently void the whole game.
       // NHL: a fallback 0 is final only when the player matched, TOI > 0,
       // and the stat column exists in a final boxscore. 0 TOI → void.
       // NFL: missing from the box score stays needs_review (not inferred DNP).
