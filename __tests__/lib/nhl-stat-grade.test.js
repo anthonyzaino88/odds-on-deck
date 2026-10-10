@@ -6,8 +6,10 @@ import {
   isGradeableNhlStatResult,
   matchNhlBoxscorePlayer,
   nhlApiStatValue,
+  nhlDidNotPlayFromToi,
   nhlGradeSourceFromResult,
   normalizeNhlPlayerName,
+  parseNhlToiSeconds,
 } from '../../lib/nhl-stat-grade.js'
 import {
   createNhlLookupCache,
@@ -105,6 +107,16 @@ describe('ESPN NHL stat mapping', () => {
       value: 0,
       statFound: true,
     })
+  })
+
+  test('parses TOI and treats 0:00 as DNP, not parseFloat minutes', () => {
+    expect(parseNhlToiSeconds('20:10')).toBe(1210)
+    expect(parseNhlToiSeconds('0:00')).toBe(0)
+    expect(parseNhlToiSeconds('0:30')).toBe(30)
+    expect(nhlDidNotPlayFromToi('0:00')).toBe(true)
+    expect(nhlDidNotPlayFromToi('0:30')).toBe(false)
+    expect(nhlDidNotPlayFromToi('18:22')).toBe(false)
+    expect(nhlDidNotPlayFromToi(null)).toBe(false)
   })
 })
 
@@ -261,6 +273,18 @@ describe('gradeable NHL lookup results', () => {
     expect(nhlGradeSourceFromResult({ source: 'nhl-api' })).toBe('nhl-api')
   })
 
+  test('matched 0 TOI is DNP and not gradeable', () => {
+    expect(isGradeableNhlStatResult({
+      value: 0,
+      source: 'espn-fallback',
+      matchStatus: 'matched',
+      statFound: true,
+      gameFinal: true,
+      didNotPlay: true,
+      reason: 'zero_toi',
+    })).toBe(false)
+  })
+
   test('does not grade when the game is not final or the column is missing', () => {
     expect(isGradeableNhlStatResult({
       value: 4,
@@ -309,6 +333,35 @@ describe('lookupPlayerGameStat ESPN fallback', () => {
     expect(isGradeableNhlStatResult(result)).toBe(false)
     expect(result.matchStatus).toBe('unmatched')
     expect(await getPlayerGameStat('401802001', 'Connor Fake', 'player_shots_on_goal')).toBeNull()
+  })
+
+  test('matched skater with 0:00 TOI is DNP (void), not a gradeable 0', async () => {
+    global.fetch = jest.fn(() => jsonResponse(espnNhlSummary({
+      teams: [
+        {
+          team: { abbreviation: 'NJD' },
+          statistics: [{
+            labels: ESPN_SKATER_LABELS,
+            athletes: [espnAthlete('8480000', 'Scratch Skater', ['0:00', '0', '0', '0', '0', '0', '0', '0'])],
+          }],
+        },
+        {
+          team: { abbreviation: 'NYR' },
+          statistics: [{
+            labels: ESPN_SKATER_LABELS,
+            athletes: [espnAthlete('8476459', 'Other Player', ['18:00', '0', '0', '0', '2', '0', '0', '0'])],
+          }],
+        },
+      ],
+    })))
+    const result = await lookupPlayerGameStat('401802001', 'Scratch Skater', 'player_shots_on_goal', null, {
+      team: 'NJD',
+    })
+    expect(result.didNotPlay).toBe(true)
+    expect(result.reason).toBe('zero_toi')
+    expect(isGradeableNhlStatResult(result)).toBe(false)
+    expect(await getPlayerGameStat('401802001', 'Scratch Skater', 'player_shots_on_goal', null, { team: 'NJD' }))
+      .toBeNull()
   })
 
   test('does not give Brady Tkachuk Matthew Tkachuk\'s shots', async () => {
@@ -732,7 +785,7 @@ describe('NHL-only wiring leaves MLB/NFL graders untouched', () => {
     const nfl = readFileSync(join(process.cwd(), 'lib/vendors/nfl-game-stats.js'), 'utf8')
     expect(mlb).not.toMatch('nhl-stat-grade')
     expect(nfl).not.toMatch('nhl-stat-grade')
-    expect(mlb).toMatch(/normalizeName\(key\) === normalizedSearchName/)
+    expect(mlb).toMatch(/lookupMlbPlayerStat/)
     expect(nfl).toMatch(/last === targetLast && last\.length > 3/)
   })
 

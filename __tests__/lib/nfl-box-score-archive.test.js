@@ -128,6 +128,17 @@ describe('NFL archival parser', () => {
       getPlayerGameStat(COMPLETED_EVENT_ID, 'Patrick Mahomes', 'passing_yards')
     ).resolves.toBe(258)
   })
+
+  test('player missing from the box score is null (needs_review), not a coerced 0 / DNP void', async () => {
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      statusText: 'OK',
+      json: async () => completedNflSummaryFixture(),
+    })
+    await expect(
+      getPlayerGameStat(COMPLETED_EVENT_ID, 'Noah Fant', 'player_receptions')
+    ).resolves.toBeNull()
+  })
 })
 
 describe('completed-game gating', () => {
