@@ -16,7 +16,7 @@
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
-import { getPlayerGameStat as getMLBStat, fetchMLBGameStats } from '../lib/vendors/mlb-game-stats.js'
+import { lookupPlayerGameStat as lookupMLBStat, fetchMLBGameStats } from '../lib/vendors/mlb-game-stats.js'
 import { getPlayerGameStat as getNFLStat } from '../lib/vendors/nfl-game-stats.js'
 import { lookupPlayerGameStat as getNHLStat } from '../lib/vendors/nhl-game-stats.js'
 import { isGradeableNhlStatResult, nhlGradeSourceFromResult } from '../lib/nhl-stat-grade.js'
@@ -24,6 +24,7 @@ import { appendJsonl, boxScoreArchiveRows, loadJsonlFieldSet, resolveBoxScoresDi
 import { propValidationGradeAudit, updateWithOptionalAudit } from '../lib/grade-audit.js'
 import { planPlayerStatValidation } from '../lib/pending-props.js'
 import { voidPropValidationPatch } from '../lib/game-grade-eligibility.js'
+import { planPlayerAppearanceGrade, gradePropFromActual } from '../lib/player-stat-grade.js'
 
 config({ path: '.env.local' })
 
@@ -148,18 +149,22 @@ async function main() {
   // Step 4: Void cancelled games, then process real finals
   let correct = 0, incorrect = 0, pushes = 0, voids = 0, errors = 0, needsReview = 0
 
-  for (const { validation: v, game } of toVoid) {
+  async function writeVoid(v, game, extraNotes = '') {
     const reviewedAt = new Date()
-    const write = await updateWithOptionalAudit(
+    return updateWithOptionalAudit(
       (payload) => supabase.from('PropValidation').update(payload).eq('id', v.id),
       {
-        ...voidPropValidationPatch(reviewedAt, game),
+        ...voidPropValidationPatch(reviewedAt, game, extraNotes),
         ...propValidationGradeAudit(reviewedAt, {
           gradedBy: 'system',
           gradeSource: 'validate_pending_props',
         }),
       },
     )
+  }
+
+  for (const { validation: v, game } of toVoid) {
+    const write = await writeVoid(v, game)
     if (write?.error) {
       errors++
       console.error(`❌ Void write failed for ${v.playerName}: ${write.error.message}`)
@@ -219,15 +224,27 @@ async function main() {
       const sport = v.sport || game.sport
       let actualValue = null
       let nhlLookup = null
+      let mlbLookup = null
+      let dnpReason = null
 
       // Attempt to fetch the stat, with one retry on failure.
-      // NHL: a fallback 0 is final only when the player matched and the
-      // stat column exists in a final boxscore.
+      // MLB: in-box empty batting/pitching {} or 0 PA / 0 BF is DNP (void).
+      // A name missing from the box is needs_review — a wrong mlbGameId
+      // must not silently void the whole game.
+      // NHL: a fallback 0 is final only when the player matched, TOI > 0,
+      // and the stat column exists in a final boxscore. 0 TOI → void.
+      // NFL: missing from the box score stays needs_review (not inferred DNP).
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           if (sport === 'mlb') {
             if (!game.mlbGameId) break
-            actualValue = await getMLBStat(game.mlbGameId, v.playerName, v.propType)
+            mlbLookup = await lookupMLBStat(game.mlbGameId, v.playerName, v.propType)
+            const mlbPlan = planPlayerAppearanceGrade(mlbLookup)
+            if (mlbPlan.action === 'void') {
+              dnpReason = mlbPlan.reason
+              break
+            }
+            actualValue = mlbPlan.action === 'grade' ? mlbPlan.actualValue : null
           } else if (sport === 'nhl') {
             if (!game.espnGameId) break
             // PropValidation has no playerId or team column, so these are
@@ -240,6 +257,11 @@ async function main() {
               v.gameIdRef,
               { playerId: v.playerId, team: v.team },
             )
+            const nhlPlan = planPlayerAppearanceGrade(nhlLookup)
+            if (nhlPlan.action === 'void') {
+              dnpReason = nhlPlan.reason
+              break
+            }
             actualValue = isGradeableNhlStatResult(nhlLookup) ? nhlLookup.value : null
           } else if (sport === 'nfl') {
             if (!game.espnGameId) break
@@ -251,8 +273,20 @@ async function main() {
             continue
           }
         }
-        if (actualValue !== null && actualValue !== undefined) break
+        if (dnpReason || (actualValue !== null && actualValue !== undefined)) break
         if (attempt === 0) await new Promise(r => setTimeout(r, 500))
+      }
+
+      if (dnpReason) {
+        const write = await writeVoid(v, game, `DNP: ${dnpReason}`)
+        if (write?.error) {
+          errors++
+          console.error(`${prefix} ❌ Void write failed for ${v.playerName}: ${write.error.message}`)
+          continue
+        }
+        voids++
+        console.log(`${prefix} ⚪ ${v.playerName.padEnd(20)} ${v.propType.padEnd(22)} void (DNP ${dnpReason})`)
+        continue
       }
 
       if (actualValue === null || actualValue === undefined) {
@@ -276,12 +310,7 @@ async function main() {
         continue
       }
 
-      let result = 'incorrect'
-      if (actualValue === v.threshold) result = 'push'
-      else if (
-        (v.prediction === 'over' && actualValue > v.threshold) ||
-        (v.prediction === 'under' && actualValue < v.threshold)
-      ) result = 'correct'
+      const result = gradePropFromActual(v.prediction, v.threshold, actualValue)
 
       const completedAt = new Date()
       const write = await updateWithOptionalAudit(
