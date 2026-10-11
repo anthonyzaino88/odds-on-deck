@@ -72,9 +72,9 @@ The schedule call `fetchMlbConfirmedLineup` already makes returns
 has two rows — we take the non-Postponed/Suspended entry (or the
 latest date) for lineups and pitchers, and skip if **any** entry
 is `Y` or `S`. Example: gamePk `824460` (Apr 4 postponed N, Apr 5
-DH game 2). A schedule 500 / network error fails closed
-(`mlb_schedule_unavailable`). Two-row leftovers (`_g2` / two
-gamePks) are still skipped too.
+DH game 2). A schedule 500, network error, or OK `{dates: []}`
+(unknown / stale gamePk) fails closed (`mlb_schedule_unavailable`).
+Two-row leftovers (`_g2` / two gamePks) are still skipped too.
 
 ## Why 90 minutes + :16 / :46
 

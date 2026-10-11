@@ -227,6 +227,51 @@ describe('record-mlb-window-props CLI', () => {
     expect(log.lines.join('\n')).toMatch(/doubleHeader=Y/)
   })
 
+  test('skips persist when the schedule is unavailable', async () => {
+    const persistPublished = jest.fn(async (rows) => rows)
+    const generateFeatured = jest.fn(async () => [])
+    const log = memoryLog()
+    const result = await runRecordMlbWindowProps({
+      argv: [],
+      now: new Date('2026-10-11T22:20:00.000Z'),
+      createClient: () => fakeClient({
+        games: [{
+          id: 'NYY_at_BOS_2026-10-11',
+          sport: 'mlb',
+          date: FIRST_PITCH,
+          status: 'scheduled',
+          mlbGameId: '824460',
+        }],
+        props: [{
+          sport: 'mlb',
+          playerName: 'Aaron Judge',
+          type: 'batter_hits',
+          pick: 'over',
+          threshold: 0.5,
+          odds: -110,
+          edge: 0.04,
+          qualityScore: 42,
+          gameId: 'NYY_at_BOS_2026-10-11',
+        }],
+      }),
+      fetchLineup: async () => ({
+        batters: [{ fullName: 'Aaron Judge' }],
+        pitchers: [{ fullName: 'ESPN Home' }],
+        probableHome: { fullName: 'ESPN Home' },
+        scheduleUnavailable: true,
+        doubleHeader: null,
+      }),
+      persistPublished,
+      generateFeatured,
+      persistFeatured: async () => [],
+      log,
+    })
+    expect(result.windowGames).toHaveLength(0)
+    expect(persistPublished).not.toHaveBeenCalled()
+    expect(generateFeatured).not.toHaveBeenCalled()
+    expect(log.lines.join('\n')).toMatch(/schedule unavailable/)
+  })
+
   test('asks Featured for one single-game card per in-window game', async () => {
     const games = [
       {

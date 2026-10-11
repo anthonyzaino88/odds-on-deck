@@ -308,6 +308,56 @@ describe('confirmed MLB starters', () => {
     expect(thrown.scheduleUnavailable).toBe(true)
   })
 
+  test('empty schedule dates fail closed and do not pick another game', async () => {
+    expect(pickScheduleGame({ dates: [] }, 824460)).toBeNull()
+    expect(pickScheduleGame({
+      dates: [{
+        date: '2026-04-05',
+        games: [{
+          gamePk: 999001,
+          doubleHeader: 'N',
+          teams: { home: { probablePitcher: { fullName: 'Other Game' } } },
+        }],
+      }],
+    }, 824460)).toBeNull()
+
+    const parsed = await fetchMlbConfirmedLineup('824460', {
+      espnGameId: 'espn-824460',
+      fetchImpl: async (url) => {
+        if (String(url).includes('espn.com')) {
+          return {
+            ok: true,
+            json: async () => ({
+              header: {
+                competitions: [{
+                  competitors: [
+                    { homeAway: 'home', probables: [{ athlete: { displayName: 'ESPN Home' } }] },
+                  ],
+                }],
+              },
+            }),
+          }
+        }
+        return { ok: true, json: async () => ({ dates: [] }) }
+      },
+      fetchBoxscoreLineup: async () => ({ home: [], away: [] }),
+    })
+    expect(parsed.scheduleUnavailable).toBe(true)
+    expect(parsed.doubleHeader).toBeNull()
+    expect(parsed.probableHome.fullName).toBe('ESPN Home')
+    expect(mlbPublishedRecordDecision(mlbProp({
+      playerName: 'ESPN Home',
+      type: 'pitcher_strikeouts',
+    }), {
+      now: new Date('2026-10-11T22:20:00.000Z'),
+      gamesById: new Map([[game().id, game({ mlbGameId: '824460' })]]),
+      lineupsByGameId: new Map([[game().id, parsed]]),
+    })).toEqual({
+      record: false,
+      reason: 'mlb_schedule_unavailable',
+    })
+  })
+
   test('parseEspnProbablePitchers reads the summary header', () => {
     const parsed = parseEspnProbablePitchers({
       header: {
