@@ -5,6 +5,7 @@ import {
   closeCapturePayload,
   clvFromOdds,
   estimateCloseCaptureCalls,
+  estimateCloseCaptureCost,
   flattenEventOddsQuotes,
   gameIsInCloseWindow,
   hasCloseAlready,
@@ -53,6 +54,11 @@ describe('odds API market mapping', () => {
     expect(url).toContain('markets=batter_hits%2Cpitcher_strikeouts')
     expect(url).not.toContain('player_receptions')
     expect(estimateCloseCaptureCalls(7)).toEqual(expect.objectContaining({ httpCalls: 7 }))
+    expect(estimateCloseCaptureCost({
+      gameCount: 3,
+      marketCounts: [2, 1, 3],
+      regions: 1,
+    })).toEqual(expect.objectContaining({ httpCalls: 3, credits: 6, regions: 1 }))
   })
 })
 
@@ -67,12 +73,12 @@ describe('quiet period and close window', () => {
 
   test('gameIsInCloseWindow is last 90 minutes before first pitch, never after', () => {
     const now = new Date('2026-07-15T22:00:00.000Z')
-    expect(gameIsInCloseWindow({ date: '2026-07-15T23:10:00.000Z' }, now)).toBe(true)
-    expect(gameIsInCloseWindow({ date: '2026-07-15T23:30:00.000Z' }, now)).toBe(true)
-    expect(gameIsInCloseWindow({ date: '2026-07-15T23:31:00.000Z' }, now)).toBe(false)
+    expect(gameIsInCloseWindow({ date: '2026-07-15T22:59:00.000Z' }, now)).toBe(true)
+    expect(gameIsInCloseWindow({ date: '2026-07-15T23:00:00.000Z' }, now)).toBe(true)
+    expect(gameIsInCloseWindow({ date: '2026-07-15T23:01:00.000Z' }, now)).toBe(false)
     expect(gameIsInCloseWindow({ date: '2026-07-15T21:59:00.000Z' }, now)).toBe(false)
     expect(gameIsInCloseWindow({ date: now.toISOString() }, now)).toBe(false)
-    expect(CLOSE_CAPTURE_WINDOW_MINUTES).toBe(90)
+    expect(CLOSE_CAPTURE_WINDOW_MINUTES).toBe(60)
   })
 })
 
@@ -171,12 +177,12 @@ describe('CLV math', () => {
       sameLine: 2,
       lineMoved: 1,
     })
-    expect(summary.pctBeatClose).toBeCloseTo(2 / 3, 8)
+    expect(summary.pctBeatClose).toBeCloseTo(1, 8)
     expect(summary.avgClvProb).toBeCloseTo((
       clvFromOdds(150, 130).clvProb
       + clvFromOdds(-110, -120).clvProb
-      + clvFromOdds(140, 160).clvProb
-    ) / 3, 8)
+    ) / 2, 8)
+    expect(summary.lineMovedAvgClvProb).toBeCloseTo(clvFromOdds(140, 160).clvProb, 8)
   })
 
   test('empty or missing closes stay honest zeros', () => {

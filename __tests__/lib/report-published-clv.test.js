@@ -73,14 +73,17 @@ describe('formatClvSummary', () => {
     const formatted = formatClvSummary({
       sample: 10,
       withClose: 8,
+      sameLine: 8,
+      lineMoved: 2,
       beatClose: 5,
       pctBeatClose: 5 / 8,
       avgClvProb: 0.0215,
     })
     expect(formatted.avg).toBe('+2.15pp')
     expect(formatted.beat).toBe('62.5%')
-    expect(formatted.line).toMatch(/8 with close \/ 10 Published/)
+    expect(formatted.line).toMatch(/8 same-line close \/ 10 Published/)
     expect(formatted.line).toMatch(/beat close 62.5%/)
+    expect(formatted.line).toMatch(/line-moved excluded: 2/)
   })
 })
 

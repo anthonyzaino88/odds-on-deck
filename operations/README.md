@@ -123,21 +123,33 @@ Morning ops status (required):
 6. Include those cleanup fields in the morning report every time.
 ```
 
-### Hourly close capture (:16 ET or later)
+### Hourly MLB record + close capture (:16 and :46 ET)
 
 Do **not** add this to the :09 ET job. `:05–:15` is a no-write window.
 
-After `007_published_close_odds.sql` is applied:
+**One task**, record first, then capture. Hours **11–22 ET** regular
+season (**12–22** postseason). After `007_published_close_odds.sql`:
 
 ```bash
-# Preview (no Odds API, no writes)
-node scripts/capture-published-closes.js --dry-run
-# Write closes — 1 Odds API call per in-window Published game
+node scripts/record-mlb-window-props.js
 node scripts/capture-published-closes.js --apply
-# or: npm run capture:published-closes -- --apply
 ```
 
-Read-only CLV: `npm run report:published-clv`
+PowerShell: use the `node scripts/...` form. `npm run … -- --apply`
+silently dry-runs.
+
+Kill switch: `CLOSING_CAPTURE=0`. Caps: `--max-calls N`,
+`--min-remaining N` (default 50). Close window is **60 minutes**.
+London NFL 9:30 AM ET games are missed on this 11–22 clock.
+
+Preview (no Odds API, no writes):
+
+```bash
+node scripts/capture-published-closes.js --dry-run
+```
+
+Read-only CLV (same-line only; line-moved rows are excluded):
+`node scripts/report-published-clv.js`
 
 ### During Games (Every 15-30 min)
 ```bash

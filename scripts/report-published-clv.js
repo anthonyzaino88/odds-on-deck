@@ -33,9 +33,10 @@ export function formatClvSummary(summary) {
     ? 'n/a'
     : `${(summary.pctBeatClose * 100).toFixed(1)}%`
   return {
-    line: `${summary.withClose} with close / ${summary.sample} Published   `
+    line: `${summary.sameLine} same-line close / ${summary.sample} Published   `
       + `avg CLV ${avg}   beat close ${beat}   `
-      + `(${summary.beatClose} beat / ${summary.withClose - summary.beatClose} worse)`,
+      + `(${summary.beatClose} beat / ${summary.sameLine - summary.beatClose} worse)   `
+      + `line-moved excluded: ${summary.lineMoved}`,
     avg,
     beat,
   }
@@ -77,8 +78,9 @@ export async function runReportPublishedClv({
   log.log('\n📈 PUBLISHED CLV (read-only)')
   log.log('='.repeat(60))
   log.log(formatted.line)
-  log.log(`Same line as recorded: ${summary.sameLine}   line moved: ${summary.lineMoved}`)
-  log.log('CLV is implied(close) − implied(recorded). Positive = we beat the close.')
+  log.log(`Headline uses same-line closes only (closeLine = recorded line).`)
+  log.log(`Line-moved rows excluded from avg / % beat-close: ${summary.lineMoved}`)
+  log.log('CLV is implied(close) − implied(recorded) on the same line. Positive = we beat the close.')
   log.log('Does not write. Does not call The Odds API.')
   return { exitCode: 0, summary, published }
 }

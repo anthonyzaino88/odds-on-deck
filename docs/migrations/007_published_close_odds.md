@@ -1,6 +1,8 @@
 # S1: Published closing-price capture + CLV
 
 Executable SQL: `scripts/migrations/007_published_close_odds.sql`.
+Rollback: `scripts/migrations/007_published_close_odds_rollback.sql`.
+Both set `lock_timeout = '5s'`.
 
 Do **not** add these columns to the Prisma `PropValidation` model until
 the SQL has been applied. Prisma `findMany()` without an explicit
@@ -17,17 +19,32 @@ database. Writers retry without the close columns on `PGRST204` / `42703`.
 
 Do **not** apply from CI. Do not backfill. Do not regrade.
 
+Rollback (same editor, do not run from CI):
+`scripts/migrations/007_published_close_odds_rollback.sql` drops the
+five columns. Captured closes are lost; recorded odds/grades stay.
+
 ## Capture strategy (quota-aware)
 
 Morning ops already spends about **22 Odds API calls** on the full
 slate. Do not re-run `fetch-live-odds` to get closes.
 
-Instead, an hourly laptop job (same :16 ET slot as MLB window
-recording, or right after it) captures **only** games that:
+One laptop task at **:16 and :46 ET**, **record first, then capture**:
 
-- have at least one Published-track pick (`source=system_generated`,
-  edge > 0, QS ≥ 40, MLB/NFL) still missing `closeOdds`
-- start within the next **90 minutes**
+```
+node scripts/record-mlb-window-props.js
+node scripts/capture-published-closes.js --apply
+```
+
+(PowerShell: do **not** use `npm run capture:published-closes -- --apply`
+— the `--apply` is eaten and the script dry-runs.)
+
+Kill switch: `CLOSING_CAPTURE=0`. Caps: `--max-calls N` and
+`--min-remaining N` (default 50 remaining credits).
+
+The capture step takes **only** games that:
+
+- have at least one Published-track pick still missing `closeOdds`
+- start within the next **60 minutes**
 - have not started
 
 One HTTP call per such game:
@@ -37,73 +54,49 @@ GET /v4/sports/{sport}/events/{oddsApiEventId}/odds
   ?regions=us&markets={only the markets those picks need}&oddsFormat=american
 ```
 
-After a pick has `closeOdds`, later hours skip it. We never fetch a
-game twice for close, and we never fetch NHL (not on the Published
-card).
+Credits = **markets × regions** (we use `regions=us`, so 1 region).
+A game with 2 markets costs 2 credits, not 1.
 
-### Per-day call cost
+After a pick has `closeOdds`, later hours skip it. NHL is never
+fetched. London NFL **9:30 AM ET** games are missed if this job only
+runs in the MLB 11–22 ET window — their 60-minute close window is
+8:30–9:30 ET.
 
-| Slate | Typical games with Published picks | HTTP calls / day |
-| --- | --- | --- |
-| MLB regular day | 6–12 | 6–12 |
-| NFL Sunday | 8–16 | 8–16 |
-| NFL weeknight | 1–4 | 1–4 |
-| Off day | 0 | 0 |
+### Per-day cost
 
-Credits: The Odds API bills some plans per market. We request **only
-the markets on those picks** (often 1–3: `batter_hits`,
-`batter_total_bases`, `player_receptions`), not the morning 8–10
-market bundle. Worst case still far cheaper than re-running morning
-ops.
+| Slate | Typical games | HTTP calls / day | Credits / day (≈2 markets) |
+| --- | --- | --- | --- |
+| MLB regular day | 6–12 | 6–12 | 12–24 |
+| NFL Sunday | 8–16 | 8–16 | 16–32 |
+| NFL weeknight | 1–4 | 1–4 | 2–8 |
+| Off day | 0 | 0 | 0 |
 
-Monthly add vs a 20k quota: ~8 calls × 30 days ≈ **240**, plus NFL
+Monthly add vs a 20k quota: ~16 credits × 30 ≈ **480**, plus NFL
 Sundays. Leave morning’s ~22/day alone.
+
+## CLV headline
+
+`clvProb = implied(close) − implied(recorded)` on the **same line**.
+Beat-close = recorded decimal > close decimal.
+
+Rows where `closeLine != threshold` (line moved; `matchClosingQuote`
+fell back) are **excluded** from average CLV and % beat-close. The
+report prints them separately.
 
 ## Impact analysis (no downtime)
 
 | Surface | Impact |
 | --- | --- |
-| **Migration size** | 5 nullable columns on `PropValidation`. `IF NOT EXISTS`. No index required for the first year of volume. No backfill. |
-| **DB / disk** | ~40 bytes × new Published rows going forward (~5–20/day). Existing ~18k PropValidation rows stay NULL. No rewrite of `odds` / `result`. |
-| **API calls** | See table above. Laptop only. Not a Vercel cron. |
-| **Vercel** | No new serverless function, no new env, no build change. The public card does not read `closeOdds` yet. |
-| **Downtime** | None. Additive columns. App code writes them when present and retries without them if the SQL has not been applied. Reads of the Published ROI card are unchanged. |
-
-The owner’s “no downtime before infrastructure changes” bar is met:
-this is a nullable ALTER plus a laptop script.
+| **Migration** | 5 nullable columns. `IF NOT EXISTS`. `lock_timeout 5s`. No backfill. |
+| **DB / disk** | ~40 bytes × new Published rows. Existing rows stay NULL. |
+| **API** | Laptop only. Credits = markets × regions. |
+| **Vercel** | No new function, env, or build change. |
+| **Downtime** | None. Additive ALTER + laptop script. Rollback drops columns only. |
 
 ## Owner commands
 
-Preview (no Odds API, no writes) — lists games/picks that would be
-fetched:
-
 ```
 node scripts/capture-published-closes.js --dry-run
-```
-
-`--apply` refuses if the 007 columns are missing (dry-run still lists
-the in-window games). After the SQL is in (writes `closeOdds`; calls
-the Odds API):
-
-```
 node scripts/capture-published-closes.js --apply
-```
-
-Schedule on the ops laptop at **:16 ET or later**, hourly. Do not add
-it to the :09 job (`:05–:15` is a no-write window; the script exits 0).
-
-Read-only CLV report (after some closes exist):
-
-```
 node scripts/report-published-clv.js
 ```
-
-or `npm run report:published-clv`.
-
-## What success looks like
-
-`summarizePublishedClv` reports average CLV (implied-probability
-points) and the share of Published picks that beat the close. Positive
-average CLV is the first bar for a real projection model. ROI comes
-after. See `docs/projection-model-proposal.md` if that file is on
-the branch; otherwise it ships in the companion docs PR.

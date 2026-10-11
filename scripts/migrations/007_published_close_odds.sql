@@ -28,6 +28,8 @@
 --   ORDER BY column_name;
 -- ============================================================================
 
+SET lock_timeout = '5s';
+
 ALTER TABLE "PropValidation"
   ADD COLUMN IF NOT EXISTS "closeOdds" INTEGER,
   ADD COLUMN IF NOT EXISTS "closeLine" DOUBLE PRECISION,

@@ -1,5 +1,6 @@
 import { PUBLISHED_SOURCE } from '../../lib/published-picks.js'
 import {
+  isClosingCaptureDisabled,
   parseCaptureClosesArgs,
   runCapturePublishedCloses,
 } from '../../scripts/capture-published-closes.js'
@@ -101,6 +102,9 @@ describe('parseCaptureClosesArgs', () => {
     expect(parseCaptureClosesArgs(['--dry-run'])).toMatchObject({ apply: false, dryRun: true })
     expect(parseCaptureClosesArgs(['--apply'])).toMatchObject({ apply: true, dryRun: false })
     expect(parseCaptureClosesArgs(['--apply', '--dry-run'])).toMatchObject({ apply: false, dryRun: true })
+    expect(parseCaptureClosesArgs(['--max-calls', '3']).maxCalls).toBe(3)
+    expect(isClosingCaptureDisabled({ CLOSING_CAPTURE: '0' })).toBe(true)
+    expect(isClosingCaptureDisabled({ CLOSING_CAPTURE: '1' })).toBe(false)
   })
 })
 
@@ -227,6 +231,36 @@ describe('runCapturePublishedCloses', () => {
     })
     expect(dry.exitCode).toBe(0)
     expect(dry.openPicks).toHaveLength(1)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+
+  test('CLOSING_CAPTURE=0 is a no-op', async () => {
+    const fetchEventOdds = jest.fn()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      env: { CLOSING_CAPTURE: '0' },
+      createClient: () => { throw new Error('should not connect') },
+      fetchEventOdds,
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(result).toMatchObject({ exitCode: 0, calls: 0, skippedDisabled: true })
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+
+  test('--max-calls 0 does not fetch', async () => {
+    const fetchEventOdds = jest.fn()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--max-calls', '0'],
+      now: IN_WINDOW,
+      createClient: () => mockClient(),
+      fetchEventOdds,
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.calls).toBe(0)
     expect(fetchEventOdds).not.toHaveBeenCalled()
   })
 

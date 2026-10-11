@@ -10,7 +10,8 @@
  *   node scripts/capture-published-closes.js --dry-run
  *   node scripts/capture-published-closes.js --apply
  *
- * Schedule hourly at :16 ET or later. No-ops during :05–:15 ET.
+ * Schedule at :16 and :46 ET after record-mlb-window-props.
+ * No-ops during :05–:15 ET. CLOSING_CAPTURE=0 disables.
  * Uses createScriptSupabaseClient. Do not run --apply from CI.
  */
 
@@ -29,7 +30,8 @@ import {
   CLOSE_CAPTURE_WINDOW_MINUTES,
   buildEventOddsUrl,
   closeCapturePayload,
-  estimateCloseCaptureCalls,
+  CLOSE_CAPTURE_DEFAULT_MIN_REMAINING,
+  estimateCloseCaptureCost,
   flattenEventOddsQuotes,
   gameIsInCloseWindow,
   hasCloseAlready,
@@ -51,14 +53,34 @@ export const PICK_SELECT_BASE = [
 ].join(', ')
 export const PICK_SELECT = `${PICK_SELECT_BASE}, closeOdds, closeCapturedAt`
 
-export function parseCaptureClosesArgs(argv = []) {
+function takeIntFlag(args, flag) {
+  const i = args.indexOf(flag)
+  if (i < 0 || !args[i + 1] || String(args[i + 1]).startsWith('--')) return null
+  const n = Number(args[i + 1])
+  return Number.isFinite(n) && n >= 0 ? n : null
+}
+
+export function isClosingCaptureDisabled(env = process.env) {
+  const raw = String(env.CLOSING_CAPTURE ?? '').trim().toLowerCase()
+  return raw === '0' || raw === 'false' || raw === 'off'
+}
+
+export function parseCaptureClosesArgs(argv = [], env = process.env) {
   const args = Array.isArray(argv) ? argv : []
   const dryRunFlag = args.includes('--dry-run')
   const applyFlag = args.includes('--apply')
+  const maxCalls = takeIntFlag(args, '--max-calls')
+  const minRemaining = takeIntFlag(args, '--min-remaining')
+    ?? Number(env.CLOSING_CAPTURE_MIN_REMAINING)
   return {
     apply: applyFlag && !dryRunFlag,
     dryRun: !applyFlag || dryRunFlag,
     help: args.includes('--help') || args.includes('-h'),
+    maxCalls,
+    minRemaining: Number.isFinite(minRemaining) && minRemaining >= 0
+      ? minRemaining
+      : CLOSE_CAPTURE_DEFAULT_MIN_REMAINING,
+    disabled: isClosingCaptureDisabled(env),
   }
 }
 
@@ -82,17 +104,28 @@ export async function runCapturePublishedCloses({
   now = new Date(),
   fetchEventOdds = defaultFetchEventOdds,
   apiKey = process.env.ODDS_API_KEY,
+  env = process.env,
   log = console,
 } = {}) {
-  const args = parseCaptureClosesArgs(argv)
+  const args = parseCaptureClosesArgs(argv, env)
   if (args.help) {
-    log.log(`Usage: node scripts/capture-published-closes.js [--dry-run|--apply]
+    log.log(`Usage: node scripts/capture-published-closes.js [--dry-run|--apply] [--max-calls N] [--min-remaining N]
 
 Dry-run (default): list in-window Published picks missing a close.
 --apply: one Odds API call per game, write closeOdds. Requires
          ODDS_API_KEY + SUPABASE_SECRET_KEY. Do not run from CI.
-No-ops during :05–:15 ET. Schedule at :16 ET or later.`)
+CLOSING_CAPTURE=0 disables the job. --max-calls caps HTTP calls.
+--min-remaining (default ${CLOSE_CAPTURE_DEFAULT_MIN_REMAINING}) stops when
+Odds API remaining credits fall below the floor.
+No-ops during :05–:15 ET. Schedule at :16 and :46 ET, after
+record-mlb-window-props. London NFL 9:30 AM ET games are missed
+if this job only runs in the 11–22 ET MLB window.`)
     return { exitCode: 0, updates: [], calls: 0 }
+  }
+
+  if (args.disabled) {
+    log.log('⏸️  CLOSING_CAPTURE=0 — close capture disabled.')
+    return { exitCode: 0, updates: [], calls: 0, skippedDisabled: true }
   }
 
   if (isOpsWriteQuietPeriod(now)) {
@@ -162,7 +195,8 @@ No-ops during :05–:15 ET. Schedule at :16 ET or later.`)
     byGame.set(pick.gameIdRef, list)
   }
 
-  const cost = estimateCloseCaptureCalls(byGame.size)
+  const marketCounts = [...byGame.values()].map((picks) => marketsForPublishedPicks(picks).length)
+  const cost = estimateCloseCaptureCost({ gameCount: byGame.size, marketCounts })
 
   log.log('\n📸 PUBLISHED CLOSE CAPTURE')
   log.log('='.repeat(60))
@@ -171,6 +205,7 @@ No-ops during :05–:15 ET. Schedule at :16 ET or later.`)
   log.log(`Games in window: ${windowGames.length}`)
   log.log(`Published picks missing close: ${openPicks.length}`)
   log.log(`Odds API HTTP calls this run: ${cost.httpCalls}`)
+  log.log(`Odds API credits this run: ${cost.credits} (markets × regions=${cost.regions})`)
   log.log(cost.note)
 
   if (byGame.size === 0) {
@@ -211,6 +246,16 @@ No-ops during :05–:15 ET. Schedule at :16 ET or later.`)
     if (markets.length === 0) {
       log.log(`  skip ${gameId}: no mapped markets`)
       continue
+    }
+    if (args.maxCalls != null && calls >= args.maxCalls) {
+      log.log(`⏸️  --max-calls ${args.maxCalls} reached. Stopping.`)
+      break
+    }
+    if (lastQuota.remaining != null && lastQuota.remaining < args.minRemaining) {
+      log.log(
+        `⏸️  Odds API remaining ${lastQuota.remaining} < min-remaining ${args.minRemaining}. Stopping.`,
+      )
+      break
     }
 
     const url = buildEventOddsUrl({
