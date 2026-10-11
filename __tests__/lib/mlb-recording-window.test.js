@@ -16,9 +16,11 @@ import {
   buildMlbFeaturedRequests,
 } from '../../lib/mlb-recording-window.js'
 import {
+  fetchMlbConfirmedLineup,
   isMlbStatsDoubleheader,
   parseEspnProbablePitchers,
   parseMlbConfirmedLineup,
+  pickScheduleGame,
 } from '../../lib/mlb-confirmed-lineup.js'
 
 const FIRST_PITCH = new Date('2026-10-11T23:10:00.000Z') // 7:10 PM EDT
@@ -208,6 +210,104 @@ describe('confirmed MLB starters', () => {
     }).reason).toBe('mlb_doubleheader')
   })
 
+  const SCHEDULE_824460 = {
+    dates: [
+      {
+        date: '2026-04-04',
+        games: [{
+          gamePk: 824460,
+          officialDate: '2026-04-04',
+          doubleHeader: 'N',
+          gameNumber: 1,
+          status: { detailedState: 'Postponed', abstractGameState: 'Final' },
+          teams: {
+            home: { probablePitcher: { fullName: 'Stale Home' } },
+            away: { probablePitcher: { fullName: 'Stale Away' } },
+          },
+        }],
+      },
+      {
+        date: '2026-04-05',
+        games: [{
+          gamePk: 824460,
+          officialDate: '2026-04-05',
+          doubleHeader: 'Y',
+          gameNumber: 2,
+          status: { detailedState: 'Scheduled', abstractGameState: 'Preview' },
+          teams: {
+            home: { probablePitcher: { fullName: 'Live Home' } },
+            away: { probablePitcher: { fullName: 'Live Away' } },
+          },
+        }],
+      },
+    ],
+  }
+
+  test('gamePk 824460 skips the postponed N entry and flags the replay DH', async () => {
+    const picked = pickScheduleGame(SCHEDULE_824460, 824460)
+    expect(picked).toMatchObject({
+      officialDate: '2026-04-05',
+      doubleHeader: 'Y',
+      gameNumber: 2,
+      status: { detailedState: 'Scheduled' },
+    })
+    expect(picked.teams.home.probablePitcher.fullName).toBe('Live Home')
+
+    const parsed = await fetchMlbConfirmedLineup('824460', {
+      fetchImpl: async () => ({
+        ok: true,
+        json: async () => SCHEDULE_824460,
+      }),
+      fetchBoxscoreLineup: async () => ({ home: [], away: [] }),
+    })
+    expect(parsed).toMatchObject({
+      mlbGameId: '824460',
+      doubleHeader: 'Y',
+      gameNumber: 2,
+      scheduleUnavailable: false,
+    })
+    expect(parsed.probableHome.fullName).toBe('Live Home')
+    expect(parsed.probableAway.fullName).toBe('Live Away')
+    expect(isMlbStatsDoubleheader(parsed)).toBe(true)
+  })
+
+  test('any schedule entry with doubleHeader Y or S flags the gamePk', () => {
+    const parsed = parseMlbConfirmedLineup({
+      game: {
+        gamePk: 824460,
+        officialDate: '2026-04-05',
+        doubleHeader: 'N',
+        gameNumber: 2,
+        teams: { home: {}, away: {} },
+      },
+      scheduleGames: [
+        { gamePk: 824460, doubleHeader: 'N' },
+        { gamePk: 824460, doubleHeader: 'Y', gameNumber: 2 },
+      ],
+    })
+    expect(parsed.doubleHeader).toBe('Y')
+    expect(isMlbStatsDoubleheader(parsed)).toBe(true)
+  })
+
+  test('fetchMlbConfirmedLineup marks scheduleUnavailable on 500 or network error', async () => {
+    const down = await fetchMlbConfirmedLineup('824460', {
+      fetchImpl: async () => ({ ok: false, status: 500 }),
+      fetchBoxscoreLineup: async () => ({
+        home: [{ fullName: 'Aaron Judge' }],
+        away: [],
+      }),
+    })
+    expect(down.scheduleUnavailable).toBe(true)
+    expect(down.doubleHeader).toBeNull()
+    expect(down.batters.map((p) => p.fullName)).toContain('Aaron Judge')
+
+    const thrown = await fetchMlbConfirmedLineup('824460', {
+      fetchImpl: async () => { throw new Error('network') },
+      fetchBoxscoreLineup: async () => ({ home: [], away: [] }),
+    })
+    expect(thrown.scheduleUnavailable).toBe(true)
+  })
+
   test('parseEspnProbablePitchers reads the summary header', () => {
     const parsed = parseEspnProbablePitchers({
       header: {
@@ -248,6 +348,20 @@ describe('mlbPublishedRecordDecision', () => {
     expect(mlbPublishedRecordDecision(mlbProp(), gate)).toEqual({
       record: true,
       reason: 'mlb_confirmed',
+    })
+  })
+
+  test('fails closed when the schedule fetch is unavailable', () => {
+    expect(mlbPublishedRecordDecision(mlbProp(), {
+      ...gate,
+      lineupsByGameId: new Map([[game().id, {
+        ...lineup(),
+        doubleHeader: null,
+        scheduleUnavailable: true,
+      }]]),
+    })).toEqual({
+      record: false,
+      reason: 'mlb_schedule_unavailable',
     })
   })
 
