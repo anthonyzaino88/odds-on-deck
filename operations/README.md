@@ -133,14 +133,19 @@ season (**12–22** postseason). After `007_published_close_odds.sql`:
 ```bash
 node scripts/record-mlb-window-props.js
 node scripts/capture-published-closes.js --apply
+# postseason (12–22 ET):
+node scripts/record-mlb-window-props.js --postseason
+node scripts/capture-published-closes.js --apply
 ```
 
 PowerShell: use the `node scripts/...` form. `npm run … -- --apply`
 silently dry-runs.
 
 Kill switch: `CLOSING_CAPTURE=0`. Caps: `--max-calls N`,
-`--min-remaining N` (default 50). Close window is **60 minutes**.
-London NFL 9:30 AM ET games are missed on this 11–22 clock.
+`--min-remaining N` (default 50; a free `/v4/sports` probe checks
+quota before the first event call). Close window is **30 minutes**
+(T−30..T−2). London NFL 9:30 AM ET games are missed on this 11–22
+clock.
 
 Preview (no Odds API, no writes):
 

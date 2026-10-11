@@ -40,6 +40,7 @@ import {
   matchClosingQuote,
   oddsApiSportKey,
   parseOddsApiQuota,
+  probeOddsApiQuota,
   updateWithOptionalCloseOdds,
 } from '../lib/closing-line.js'
 
@@ -103,6 +104,7 @@ export async function runCapturePublishedCloses({
   createClient = createScriptSupabaseClient,
   now = new Date(),
   fetchEventOdds = defaultFetchEventOdds,
+  probeQuota = probeOddsApiQuota,
   apiKey = process.env.ODDS_API_KEY,
   env = process.env,
   log = console,
@@ -150,6 +152,10 @@ if this job only runs in the 11–22 ET MLB window.`)
 
   const windowGames = (games || []).filter((game) => gameIsInCloseWindow(game, now))
   const gamesById = new Map(windowGames.map((game) => [game.id, game]))
+  if (windowGames.length === 0) {
+    log.log('✅ No games in the close-capture window.')
+    return { exitCode: 0, updates: [], calls: 0, openPicks: [], windowGames: [] }
+  }
 
   async function loadPicks(select) {
     return paginateSupabaseSelect(() => supabase
@@ -234,6 +240,18 @@ if this job only runs in the 11–22 ET MLB window.`)
   const updates = []
   let calls = 0
   let lastQuota = { remaining: null, used: null }
+  try {
+    lastQuota = await probeQuota({ apiKey }) || lastQuota
+  } catch (error) {
+    log.log(`⚠️ Quota probe failed (${error.message}); continuing without a pre-check.`)
+  }
+  if (lastQuota.remaining != null && lastQuota.remaining < args.minRemaining) {
+    log.log(
+      `⏸️  Odds API remaining ${lastQuota.remaining} < min-remaining ${args.minRemaining}. `
+      + 'No event-odds calls.',
+    )
+    return { exitCode: 0, updates: [], calls: 0, lastQuota, skippedQuota: true }
+  }
 
   for (const [gameId, picks] of byGame) {
     const game = gamesById.get(gameId)

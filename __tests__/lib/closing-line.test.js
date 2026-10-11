@@ -14,6 +14,7 @@ import {
   matchClosingQuote,
   oddsApiSportKey,
   parseOddsApiQuota,
+  buildSportsQuotaProbeUrl,
   publishedMarketKey,
   resetCloseColumnCache,
   summarizePublishedClv,
@@ -71,14 +72,15 @@ describe('quiet period and close window', () => {
     expect(isOpsWriteQuietPeriod(new Date('2026-07-15T16:04:00.000Z'))).toBe(false)
   })
 
-  test('gameIsInCloseWindow is last 90 minutes before first pitch, never after', () => {
+  test('gameIsInCloseWindow is T−30..T−2 so :16/:46 gets one look', () => {
     const now = new Date('2026-07-15T22:00:00.000Z')
-    expect(gameIsInCloseWindow({ date: '2026-07-15T22:59:00.000Z' }, now)).toBe(true)
-    expect(gameIsInCloseWindow({ date: '2026-07-15T23:00:00.000Z' }, now)).toBe(true)
-    expect(gameIsInCloseWindow({ date: '2026-07-15T23:01:00.000Z' }, now)).toBe(false)
+    expect(gameIsInCloseWindow({ date: '2026-07-15T22:30:00.000Z' }, now)).toBe(true)
+    expect(gameIsInCloseWindow({ date: '2026-07-15T22:03:00.000Z' }, now)).toBe(true)
+    expect(gameIsInCloseWindow({ date: '2026-07-15T22:02:00.000Z' }, now)).toBe(false)
+    expect(gameIsInCloseWindow({ date: '2026-07-15T22:31:00.000Z' }, now)).toBe(false)
     expect(gameIsInCloseWindow({ date: '2026-07-15T21:59:00.000Z' }, now)).toBe(false)
     expect(gameIsInCloseWindow({ date: now.toISOString() }, now)).toBe(false)
-    expect(CLOSE_CAPTURE_WINDOW_MINUTES).toBe(60)
+    expect(CLOSE_CAPTURE_WINDOW_MINUTES).toBe(30)
   })
 })
 
@@ -252,5 +254,8 @@ describe('close write payload and missing-column retry', () => {
     expect(parseOddsApiQuota({
       get: (name) => (name === 'x-requests-remaining' ? '18420' : '1580'),
     })).toEqual({ remaining: 18420, used: 1580 })
+    expect(buildSportsQuotaProbeUrl('k')).toBe(
+      'https://api.the-odds-api.com/v4/sports?apiKey=k',
+    )
   })
 })

@@ -33,6 +33,9 @@ One laptop task at **:16 and :46 ET**, **record first, then capture**:
 ```
 node scripts/record-mlb-window-props.js
 node scripts/capture-published-closes.js --apply
+# postseason (12–22 ET):
+node scripts/record-mlb-window-props.js --postseason
+node scripts/capture-published-closes.js --apply
 ```
 
 (PowerShell: do **not** use `npm run capture:published-closes -- --apply`
@@ -44,7 +47,7 @@ Kill switch: `CLOSING_CAPTURE=0`. Caps: `--max-calls N` and
 The capture step takes **only** games that:
 
 - have at least one Published-track pick still missing `closeOdds`
-- start within the next **60 minutes**
+- start within the next **30 minutes**, and not within 2 minutes
 - have not started
 
 One HTTP call per such game:

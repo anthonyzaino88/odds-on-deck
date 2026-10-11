@@ -93,7 +93,7 @@ function mockClient({
   }
 }
 
-const IN_WINDOW = new Date('2026-07-15T22:16:00.000Z')
+const IN_WINDOW = new Date('2026-07-15T22:46:00.000Z')
 const QUIET = new Date('2026-07-15T16:09:00.000Z')
 
 describe('parseCaptureClosesArgs', () => {
@@ -193,6 +193,7 @@ describe('runCapturePublishedCloses', () => {
       now: IN_WINDOW,
       createClient: () => mockClient({ updates }),
       fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
       apiKey: 'test-key',
       log: memoryLog(),
     })
@@ -256,12 +257,42 @@ describe('runCapturePublishedCloses', () => {
       now: IN_WINDOW,
       createClient: () => mockClient(),
       fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
       apiKey: 'test-key',
       log: memoryLog(),
     })
     expect(result.exitCode).toBe(0)
     expect(result.calls).toBe(0)
     expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+
+  test('--min-remaining stops before the first event call after the sports probe', async () => {
+    const fetchEventOdds = jest.fn()
+    const probeQuota = jest.fn(async () => ({ remaining: 40, used: 1960 }))
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--min-remaining', '50'],
+      now: IN_WINDOW,
+      createClient: () => mockClient(),
+      fetchEventOdds,
+      probeQuota,
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(result.skippedQuota).toBe(true)
+    expect(result.calls).toBe(0)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(probeQuota).toHaveBeenCalledTimes(1)
+  })
+
+  test('skips games that start within 2 minutes', async () => {
+    const result = await runCapturePublishedCloses({
+      argv: [],
+      now: new Date('2026-07-15T23:09:00.000Z'),
+      createClient: () => mockClient(),
+      log: memoryLog(),
+    })
+    expect(result).toMatchObject({ exitCode: 0, calls: 0 })
+    expect(result.openPicks || []).toHaveLength(0)
   })
 
   test('--apply without ODDS_API_KEY fails before any HTTP call', async () => {
