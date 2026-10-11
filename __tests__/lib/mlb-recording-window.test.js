@@ -15,7 +15,11 @@ import {
   findMlbDoubleheaderIds,
   buildMlbFeaturedRequests,
 } from '../../lib/mlb-recording-window.js'
-import { parseMlbConfirmedLineup, parseEspnProbablePitchers } from '../../lib/mlb-confirmed-lineup.js'
+import {
+  isMlbStatsDoubleheader,
+  parseEspnProbablePitchers,
+  parseMlbConfirmedLineup,
+} from '../../lib/mlb-confirmed-lineup.js'
 
 const FIRST_PITCH = new Date('2026-10-11T23:10:00.000Z') // 7:10 PM EDT
 
@@ -167,6 +171,41 @@ describe('confirmed MLB starters', () => {
       'Juan Soto',
       'Giancarlo Stanton',
     ]))
+    expect(parsed.doubleHeader).toBeNull()
+  })
+
+  test('skips StatsAPI doubleHeader Y and S on a collapsed single Game row', () => {
+    expect(isMlbStatsDoubleheader('Y')).toBe(true)
+    expect(isMlbStatsDoubleheader('S')).toBe(true)
+    expect(isMlbStatsDoubleheader('N')).toBe(false)
+    const chcBos = parseMlbConfirmedLineup({
+      game: {
+        gamePk: 776401,
+        doubleHeader: 'S',
+        gameNumber: 1,
+        teams: { home: {}, away: {} },
+      },
+    })
+    expect(chcBos).toMatchObject({
+      mlbGameId: '776401',
+      doubleHeader: 'S',
+      gameNumber: 1,
+    })
+    expect(isMlbStatsDoubleheader(chcBos)).toBe(true)
+    expect(mlbPublishedRecordDecision(mlbProp({
+      gameId: 'CHC_at_BOS_2026-09-25',
+    }), {
+      now: new Date('2026-10-11T22:20:00.000Z'),
+      gamesById: new Map([['CHC_at_BOS_2026-09-25', game({
+        id: 'CHC_at_BOS_2026-09-25',
+        mlbGameId: '776401',
+      })]]),
+      lineupsByGameId: new Map([['CHC_at_BOS_2026-09-25', {
+        ...lineup(),
+        doubleHeader: 'Y',
+        gameNumber: 2,
+      }]]),
+    }).reason).toBe('mlb_doubleheader')
   })
 
   test('parseEspnProbablePitchers reads the summary header', () => {

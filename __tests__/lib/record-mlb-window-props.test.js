@@ -181,6 +181,52 @@ describe('record-mlb-window-props CLI', () => {
     expect(log.lines.join('\n')).toMatch(/doubleheader/)
   })
 
+  test('skips a collapsed single-row DH when StatsAPI says doubleHeader Y', async () => {
+    const persistPublished = jest.fn(async (rows) => rows)
+    const generateFeatured = jest.fn(async () => [])
+    const log = memoryLog()
+    const result = await runRecordMlbWindowProps({
+      argv: [],
+      now: new Date('2026-10-11T22:20:00.000Z'),
+      createClient: () => fakeClient({
+        games: [{
+          id: 'CHC_at_BOS_2026-09-25',
+          sport: 'mlb',
+          date: FIRST_PITCH,
+          status: 'scheduled',
+          mlbGameId: '776401',
+        }],
+        props: [{
+          sport: 'mlb',
+          playerName: 'Kyle Tucker',
+          type: 'batter_hits',
+          pick: 'over',
+          threshold: 0.5,
+          odds: -110,
+          edge: 0.04,
+          qualityScore: 42,
+          gameId: 'CHC_at_BOS_2026-09-25',
+        }],
+      }),
+      fetchLineup: async () => ({
+        batters: [{ fullName: 'Kyle Tucker' }],
+        pitchers: [],
+        doubleHeader: 'Y',
+        gameNumber: 1,
+      }),
+      persistPublished,
+      generateFeatured,
+      persistFeatured: async () => [],
+      log,
+    })
+    expect(result.windowGames).toHaveLength(0)
+    expect(result.skippedDoubleheaders).toHaveLength(1)
+    expect(result.skippedDoubleheaders[0].id).toBe('CHC_at_BOS_2026-09-25')
+    expect(persistPublished).not.toHaveBeenCalled()
+    expect(generateFeatured).not.toHaveBeenCalled()
+    expect(log.lines.join('\n')).toMatch(/doubleHeader=Y/)
+  })
+
   test('asks Featured for one single-game card per in-window game', async () => {
     const games = [
       {

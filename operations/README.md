@@ -145,9 +145,10 @@ node scripts/record-mlb-window-props.js --postseason
 ```
 
 A 7:05 first pitch gets looks at 5:46 / 6:16 / 6:46. Same-day
-doubleheaders are skipped (shared `away_at_home_date` id). Safe to
-run when there are no MLB games — it prints "No MLB games in the
-recording window" and exits 0.
+doubleheaders are skipped when StatsAPI `doubleHeader` is `Y` or `S`
+(fetch-fresh-games keeps one row / first gamePk). Safe to run when
+there are no MLB games — it prints "No MLB games in the recording
+window" and exits 0.
 
 ### During Games (Every 15-30 min)
 ```bash

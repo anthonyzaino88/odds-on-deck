@@ -35,7 +35,7 @@ import {
   isOpsWriteQuietPeriod,
   mlbPublishedRecordDecision,
 } from '../lib/mlb-recording-window.js'
-import { fetchMlbConfirmedLineup } from '../lib/mlb-confirmed-lineup.js'
+import { fetchMlbConfirmedLineup, isMlbStatsDoubleheader } from '../lib/mlb-confirmed-lineup.js'
 
 config({ path: '.env.local' })
 
@@ -142,11 +142,20 @@ Schedule at :16 and :46 ET, hours ${MLB_RECORD_HOUR_START}–${MLB_RECORD_HOUR_E
     }
   }
 
-  const gamesById = new Map(windowGames.map((game) => [game.id, game]))
+  const gamesById = new Map()
   const lineupsByGameId = new Map()
 
   for (const game of windowGames) {
     const lineup = await fetchLineup(game.mlbGameId, { espnGameId: game.espnGameId })
+    if (isMlbStatsDoubleheader(lineup)) {
+      skippedDoubleheaders.push(game)
+      log.log(
+        `⚠️ Skipping ${game.id} StatsAPI doubleHeader=${lineup.doubleHeader} `
+        + `gameNumber=${lineup.gameNumber ?? '—'} (collapsed DH row)`,
+      )
+      continue
+    }
+    gamesById.set(game.id, game)
     lineupsByGameId.set(game.id, lineup)
     log.log(
       `  ${game.id}  pk=${game.mlbGameId || '—'}  batters=${lineup.batters?.length || 0}  `
@@ -158,7 +167,21 @@ Schedule at :16 and :46 ET, hours ${MLB_RECORD_HOUR_START}–${MLB_RECORD_HOUR_E
     )
   }
 
-  const gameIds = windowGames.map((game) => game.id)
+  const recordableGames = [...gamesById.values()]
+  log.log(`Skipped doubleheaders: ${skippedDoubleheaders.length}`)
+  if (recordableGames.length === 0) {
+    log.log('✅ No MLB games in the recording window after doubleheader skip.')
+    return {
+      exitCode: 0,
+      saved: [],
+      featured: [],
+      skippedQuiet: false,
+      windowGames: [],
+      skippedDoubleheaders,
+    }
+  }
+
+  const gameIds = recordableGames.map((game) => game.id)
   const { data: cacheProps, error: cacheError } = await supabase
     .from('PlayerPropCache')
     .select('*')
@@ -184,7 +207,7 @@ Schedule at :16 and :46 ET, hours ${MLB_RECORD_HOUR_START}–${MLB_RECORD_HOUR_E
   log.log(`📌 Published MLB: recorded ${saved.length}`)
 
   const featured = []
-  for (const request of buildMlbFeaturedRequests(windowGames)) {
+  for (const request of buildMlbFeaturedRequests(recordableGames)) {
     const parlays = await generateSimpleParlays({
       sport: 'mlb',
       type: request.type,
@@ -213,7 +236,7 @@ Schedule at :16 and :46 ET, hours ${MLB_RECORD_HOUR_START}–${MLB_RECORD_HOUR_E
     saved,
     featured,
     skippedQuiet: false,
-    windowGames,
+    windowGames: recordableGames,
     recordable,
     skippedDoubleheaders,
   }

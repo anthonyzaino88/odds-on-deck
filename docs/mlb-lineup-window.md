@@ -63,12 +63,14 @@ The script:
 
 ## Doubleheaders
 
-`Game.id` is `away_at_home_YYYY-MM-DD`. Game 2 can inherit game 1's
-window or lineup (and cache props share that id). When two upcoming
-rows share that matchup+day (including a `_g2` suffix) or two
-`mlbGameId`s, **both games are skipped** and logged. We do not guess
-which props belong to which gamePk. If only one Game row exists for a
-true DH, we cannot see the twin and may still record that row.
+`fetch-fresh-games` collapses a same-day doubleheader into **one**
+`Game.id` (`away_at_home_YYYY-MM-DD`) and keeps the first `gamePk`.
+Examples: `CHC_at_BOS_2026-09-25`, `TB_at_NYY_2026-09-22`.
+
+The schedule call `fetchMlbConfirmedLineup` already makes returns
+`doubleHeader` and `gameNumber`. When `doubleHeader` is `Y`
+(scheduled) or `S` (split), that game is skipped. We do not record
+it. Two-row leftovers (`_g2` / two gamePks) are still skipped too.
 
 ## Why 90 minutes + :16 / :46
 
