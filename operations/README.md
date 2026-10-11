@@ -42,8 +42,11 @@ node scripts/calculate-game-edges.js   # Requires SUPABASE_SECRET_KEY
 
 # 6. Record public-track rows (do NOT rely on page visits)
 # fetch-live-odds already records Published props; record:published is the backup sweep.
+# MLB Published/Featured are NOT recorded here — morning is before lineups.
+# They wait for `npm run record:mlb-window` (hourly, :16 ET or later).
 npm run record:published
 # Required after PR-E: /parlays GET no longer inserts Featured cards.
+# NFL only. MLB Featured is recorded by record:mlb-window.
 npm run record:featured
 # Required after PR-E: homepage / /api/picks no longer insert game-line rows.
 # Requires EdgeSnapshot from step 4.
@@ -146,6 +149,11 @@ Kill switch: `CLOSING_CAPTURE=0`. Caps: `--max-calls N`,
 quota before the first event call). Close window is **30 minutes**
 (T−30..T−2). London NFL 9:30 AM ET games are missed on this 11–22
 clock.
+
+Same-day doubleheaders are skipped when StatsAPI `doubleHeader` is
+`Y` or `S` (fetch-fresh-games keeps one row / first gamePk). Safe to
+run when there are no MLB games — record prints "No MLB games in the
+recording window" and exits 0.
 
 Preview (no Odds API, no writes):
 
