@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 /**
- * Snapshot today's Featured-cleared 3-leg cards onto the tracked cohort.
+ * Snapshot today's Featured-cleared 3-leg NFL cards onto the tracked cohort.
  *
  * Reads PlayerPropCache via the Featured generator — does not call The Odds API.
  * First write for each sport + SGP/multi + ET slate day wins. Empty slates
  * write nothing.
+ *
+ * MLB Featured is recorded by `npm run record:mlb-window` once lineups
+ * are confirmed (not in this morning script).
  *
  * Usage:
  *   node scripts/record-featured-parlays.js
@@ -21,7 +24,10 @@ async function main() {
   let skipped = 0
   let empty = 0
 
-  for (const sport of ['mlb', 'nfl']) {
+  // MLB Featured waits for `npm run record:mlb-window` (confirmed
+  // lineups, 90 minutes before first pitch). Morning persist would
+  // lock a stale no-play card for the ET slate day.
+  for (const sport of ['nfl']) {
     for (const type of ['single_game', 'multi_game']) {
       const parlays = await generateSimpleParlays({
         sport,

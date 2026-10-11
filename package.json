@@ -23,6 +23,7 @@
     "archive:nfl:audit": "node scripts/archive-nfl-box-scores.js --audit",
     "regrade:featured": "node scripts/auto-validate-parlays.js --regrade",
     "record:published": "node scripts/record-published-props.js",
+    "record:mlb-window": "node scripts/record-mlb-window-props.js",
     "record:featured": "node scripts/record-featured-parlays.js",
     "record:game-lines": "node scripts/record-game-lines.js",
     "fetch:team-performance": "node scripts/fetch-team-performance-data.js",

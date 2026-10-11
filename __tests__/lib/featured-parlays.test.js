@@ -185,6 +185,30 @@ describe('persistFeaturedClearedParlay', () => {
     expect(calls.insert).toBe(0)
   })
 
+  test('rejects morning MLB Featured without a lineup gate so the slot stays open', async () => {
+    const calls = { find: 0, insert: 0 }
+    const future = new Date('2026-10-11T23:10:00.000Z').toISOString()
+    const result = await persistCard({
+      ...featuredParlay(),
+      sport: 'mlb',
+      legs: [
+        publishedLeg('Aaron Judge', { sport: 'mlb', propType: 'batter_hits', type: 'batter_hits', threshold: 0.5, gameTime: future }),
+        publishedLeg('Juan Soto', { sport: 'mlb', propType: 'batter_hits', type: 'batter_hits', threshold: 0.5, gameTime: future }),
+        publishedLeg('Gerrit Cole', { sport: 'mlb', propType: 'pitcher_strikeouts', type: 'pitcher_strikeouts', threshold: 5.5, gameTime: future }),
+      ],
+    }, {
+      now: new Date('2026-10-11T22:20:00.000Z'),
+      findSnapshots: async () => { calls.find += 1; return [] },
+      insertParlay: async (row) => { calls.insert += 1; return row },
+      insertLegs: async (legs) => legs,
+    })
+    expect(result.ok).toBe(false)
+    expect(result.rejected).toBe(true)
+    expect(result.reason).toBe('mlb_lineup_window')
+    expect(calls.find).toBe(0)
+    expect(calls.insert).toBe(0)
+  })
+
   test('rejects nhl / mixed so no featured:mixed:* snapshot is written', async () => {
     const calls = { find: 0, insert: 0 }
     const deps = {
@@ -235,8 +259,21 @@ describe('persistFeaturedClearedParlay', () => {
     }
     let inserted = null
     const deleted = []
+    const now = new Date('2026-09-15T14:50:42.673Z')
+    const mlbGate = {
+      now,
+      gamesById: new Map([['tor-1', { id: 'tor-1', date: '2026-09-15T16:00:00.000Z', status: 'scheduled' }]]),
+      lineupsByGameId: new Map([['tor-1', {
+        batters: [
+          { fullName: 'Ernie Clement' },
+          { fullName: 'Vladimir Guerrero Jr.' },
+          { fullName: 'Nathan Lukes' },
+        ],
+      }]]),
+    }
     const result = await persistCard(sgp, {
-      now: new Date('2026-09-15T14:50:42.673Z'),
+      now,
+      mlbGate,
       findSnapshots: async () => (inserted ? [winner, inserted] : []),
       insertParlay: async (row) => {
         inserted = row
@@ -270,8 +307,20 @@ describe('persistFeaturedClearedParlay', () => {
     let inserted = null
     const deleted = []
     const now = new Date('2026-09-15T14:50:41.123Z')
+    const mlbGate = {
+      now,
+      gamesById: new Map([['tor-1', { id: 'tor-1', date: '2026-09-15T16:00:00.000Z', status: 'scheduled' }]]),
+      lineupsByGameId: new Map([['tor-1', {
+        batters: [
+          { fullName: 'Ernie Clement' },
+          { fullName: 'Vladimir Guerrero Jr.' },
+          { fullName: 'Nathan Lukes' },
+        ],
+      }]]),
+    }
     const result = await persistCard(sgp, {
       now,
+      mlbGate,
       findSnapshots: async () => (inserted ? [inserted, later] : []),
       insertParlay: async (row) => {
         inserted = row

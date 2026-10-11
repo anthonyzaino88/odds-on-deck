@@ -42,8 +42,11 @@ node scripts/calculate-game-edges.js   # Requires SUPABASE_SECRET_KEY
 
 # 6. Record public-track rows (do NOT rely on page visits)
 # fetch-live-odds already records Published props; record:published is the backup sweep.
+# MLB Published/Featured are NOT recorded here — morning is before lineups.
+# They wait for `npm run record:mlb-window` (hourly, :16 ET or later).
 npm run record:published
 # Required after PR-E: /parlays GET no longer inserts Featured cards.
+# NFL only. MLB Featured is recorded by record:mlb-window.
 npm run record:featured
 # Required after PR-E: homepage / /api/picks no longer insert game-line rows.
 # Requires EdgeSnapshot from step 4.
@@ -122,6 +125,25 @@ Morning ops status (required):
    remaining-expired is the pre-run count (or unavailable).
 6. Include those cleanup fields in the morning report every time.
 ```
+
+### Hourly MLB lineup-window recording (:16 ET or later)
+
+The owner already has an hourly job at **:09 ET**. That job must **not
+write to the DB during :05–:15**. Do not add recording steps to it.
+
+Schedule a second hourly task at **:16 ET** (or :20 / :30):
+
+```bash
+# MLB Published + Featured, only for games 90 minutes from first pitch
+# whose player is in the confirmed lineup (or is the confirmed
+# probable / starting pitcher). Never after first pitch.
+# Free MLB Stats API + ESPN. No Odds API. No-ops during :05–:15 ET.
+npm run record:mlb-window
+# or: node scripts/record-mlb-window-props.js
+```
+
+Safe to run when there are no MLB games — it prints "No MLB games in
+the recording window" and exits 0.
 
 ### During Games (Every 15-30 min)
 ```bash

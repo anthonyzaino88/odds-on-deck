@@ -1,0 +1,227 @@
+import {
+  MLB_RECORD_WINDOW_MINUTES,
+  featuredMlbRecordDecision,
+  hasMlbGameStarted,
+  isConfirmedMlbBatter,
+  isConfirmedMlbPitcher,
+  isInMlbRecordWindow,
+  isMlbPlayerConfirmedForProp,
+  isOpsWriteQuietPeriod,
+  isPitcherProp,
+  mlbPlayerNamesMatch,
+  mlbPublishedRecordDecision,
+} from '../../lib/mlb-recording-window.js'
+import { parseMlbConfirmedLineup, parseEspnProbablePitchers } from '../../lib/mlb-confirmed-lineup.js'
+
+const FIRST_PITCH = new Date('2026-10-11T23:10:00.000Z') // 7:10 PM EDT
+
+function mlbProp(overrides = {}) {
+  return {
+    sport: 'mlb',
+    playerName: 'Aaron Judge',
+    type: 'batter_hits',
+    pick: 'over',
+    threshold: 0.5,
+    odds: -110,
+    edge: 0.04,
+    qualityScore: 42,
+    gameId: 'NYY_at_BOS_2026-10-11',
+    ...overrides,
+  }
+}
+
+function game(overrides = {}) {
+  return {
+    id: 'NYY_at_BOS_2026-10-11',
+    sport: 'mlb',
+    date: FIRST_PITCH.toISOString(),
+    status: 'scheduled',
+    mlbGameId: '778899',
+    ...overrides,
+  }
+}
+
+function lineup(overrides = {}) {
+  return {
+    batters: [{ fullName: 'Aaron Judge' }, { fullName: 'Juan Soto' }],
+    pitchers: [],
+    probableHome: { fullName: 'Gerrit Cole' },
+    probableAway: { fullName: 'Tarik Skubal' },
+    ...overrides,
+  }
+}
+
+describe('MLB recording window', () => {
+  test('opens 90 minutes before first pitch and closes at start', () => {
+    expect(MLB_RECORD_WINDOW_MINUTES).toBe(90)
+    expect(isInMlbRecordWindow(game(), new Date('2026-10-11T21:40:00.000Z'))).toBe(true)
+    expect(isInMlbRecordWindow(game(), new Date('2026-10-11T21:39:00.000Z'))).toBe(false)
+    expect(isInMlbRecordWindow(game(), FIRST_PITCH)).toBe(false)
+    expect(isInMlbRecordWindow(game(), new Date('2026-10-11T23:11:00.000Z'))).toBe(false)
+  })
+
+  test('hasMlbGameStarted uses clock and status', () => {
+    expect(hasMlbGameStarted(game(), new Date('2026-10-11T23:00:00.000Z'))).toBe(false)
+    expect(hasMlbGameStarted(game(), FIRST_PITCH)).toBe(true)
+    expect(hasMlbGameStarted(game({ status: 'in_progress' }), new Date('2026-10-11T22:00:00.000Z'))).toBe(true)
+    expect(hasMlbGameStarted(game({ status: 'postponed' }), new Date('2026-10-11T22:00:00.000Z'))).toBe(true)
+  })
+
+  test('ops quiet period is :05–:15 ET inclusive', () => {
+    // 2026-10-11 is EDT (UTC-4)
+    expect(isOpsWriteQuietPeriod(new Date('2026-10-11T16:09:00.000Z'))).toBe(true) // 12:09 ET
+    expect(isOpsWriteQuietPeriod(new Date('2026-10-11T16:05:00.000Z'))).toBe(true)
+    expect(isOpsWriteQuietPeriod(new Date('2026-10-11T16:15:00.000Z'))).toBe(true)
+    expect(isOpsWriteQuietPeriod(new Date('2026-10-11T16:16:00.000Z'))).toBe(false)
+    expect(isOpsWriteQuietPeriod(new Date('2026-10-11T16:04:00.000Z'))).toBe(false)
+  })
+})
+
+describe('confirmed MLB starters', () => {
+  test('matches names with Jr / initial drift', () => {
+    expect(mlbPlayerNamesMatch('Aaron Judge', 'aaron judge')).toBe(true)
+    expect(mlbPlayerNamesMatch('Gerrit Cole', 'G. Cole')).toBe(true)
+    expect(mlbPlayerNamesMatch('Vladimir Guerrero Jr.', 'Vladimir Guerrero Jr')).toBe(true)
+    expect(mlbPlayerNamesMatch('Aaron Judge', 'Juan Soto')).toBe(false)
+  })
+
+  test('batters need the batting order; pitchers need probable/starter', () => {
+    const card = lineup()
+    expect(isConfirmedMlbBatter('Aaron Judge', card)).toBe(true)
+    expect(isConfirmedMlbBatter('Giancarlo Stanton', card)).toBe(false)
+    expect(isConfirmedMlbPitcher('Gerrit Cole', card)).toBe(true)
+    expect(isConfirmedMlbPitcher('Aaron Judge', card)).toBe(false)
+    expect(isPitcherProp({ type: 'pitcher_strikeouts' })).toBe(true)
+    expect(isMlbPlayerConfirmedForProp(mlbProp(), card)).toBe(true)
+    expect(isMlbPlayerConfirmedForProp(mlbProp({
+      playerName: 'Gerrit Cole',
+      type: 'pitcher_strikeouts',
+    }), card)).toBe(true)
+    expect(isMlbPlayerConfirmedForProp(mlbProp({ playerName: 'Bench Bat' }), card)).toBe(false)
+  })
+
+  test('parseMlbConfirmedLineup reads schedule + boxscore shapes', () => {
+    const parsed = parseMlbConfirmedLineup({
+      game: {
+        gamePk: 778899,
+        teams: {
+          home: { probablePitcher: { id: 1, fullName: 'Gerrit Cole' } },
+          away: { probablePitcher: { id: 2, fullName: 'Tarik Skubal' } },
+        },
+        lineups: {
+          home: [{ fullName: 'Aaron Judge' }, { fullName: 'Juan Soto' }],
+        },
+      },
+      home: [{ fullName: 'Giancarlo Stanton', battingOrder: 5 }],
+      away: [],
+    })
+    expect(parsed.probableHome.fullName).toBe('Gerrit Cole')
+    expect(parsed.batters.map((p) => p.fullName)).toEqual(expect.arrayContaining([
+      'Aaron Judge',
+      'Juan Soto',
+      'Giancarlo Stanton',
+    ]))
+  })
+
+  test('parseEspnProbablePitchers reads the summary header', () => {
+    const parsed = parseEspnProbablePitchers({
+      header: {
+        competitions: [{
+          competitors: [
+            { homeAway: 'home', probables: [{ athlete: { displayName: 'Gerrit Cole' } }] },
+            { homeAway: 'away', probables: [{ athlete: { fullName: 'Tarik Skubal' } }] },
+          ],
+        }],
+      },
+    })
+    expect(parsed.home.fullName).toBe('Gerrit Cole')
+    expect(parsed.away.fullName).toBe('Tarik Skubal')
+  })
+})
+
+describe('mlbPublishedRecordDecision', () => {
+  const now = new Date('2026-10-11T22:20:00.000Z') // 50 min before
+  const gate = {
+    now,
+    gamesById: new Map([[game().id, game()]]),
+    lineupsByGameId: new Map([[game().id, lineup()]]),
+  }
+
+  test('NFL is unchanged', () => {
+    expect(mlbPublishedRecordDecision({ sport: 'nfl', playerName: 'A' }, {})).toEqual({
+      record: true,
+      reason: 'not_mlb',
+    })
+  })
+
+  test('morning persist without a gate skips MLB', () => {
+    expect(mlbPublishedRecordDecision(mlbProp(), { now }).reason).toBe('mlb_game_missing')
+    expect(mlbPublishedRecordDecision(mlbProp(), { now }).record).toBe(false)
+  })
+
+  test('records a confirmed batter in the window', () => {
+    expect(mlbPublishedRecordDecision(mlbProp(), gate)).toEqual({
+      record: true,
+      reason: 'mlb_confirmed',
+    })
+  })
+
+  test('skips unconfirmed, started, outside window, and quiet period', () => {
+    expect(mlbPublishedRecordDecision(mlbProp({ playerName: 'Bench Bat' }), gate).reason)
+      .toBe('mlb_player_not_confirmed')
+    expect(mlbPublishedRecordDecision(mlbProp(), {
+      ...gate,
+      now: new Date('2026-10-11T23:16:00.000Z'), // 7:16 PM ET — after first pitch, not quiet
+    }).reason).toBe('mlb_game_started')
+    expect(mlbPublishedRecordDecision(mlbProp(), {
+      ...gate,
+      now: new Date('2026-10-11T16:10:00.000Z'), // 8:10 AM ET, also quiet
+    }).reason).toBe('ops_quiet_period')
+    expect(mlbPublishedRecordDecision(mlbProp(), {
+      ...gate,
+      now: new Date('2026-10-11T20:00:00.000Z'), // 3.1h before
+    }).reason).toBe('mlb_outside_window')
+  })
+})
+
+describe('featuredMlbRecordDecision', () => {
+  const now = new Date('2026-10-11T22:20:00.000Z')
+  const gate = {
+    now,
+    gamesById: new Map([[game().id, game()]]),
+    lineupsByGameId: new Map([[game().id, lineup()]]),
+  }
+
+  test('NFL featured does not need a lineup gate', () => {
+    expect(featuredMlbRecordDecision({
+      sport: 'nfl',
+      legs: [{ sport: 'nfl', playerName: 'Geno Smith', gameId: 'g1' }],
+    }, {})).toEqual({ record: true, reason: 'not_mlb' })
+  })
+
+  test('MLB featured without a gate is rejected so morning cannot lock the slot', () => {
+    expect(featuredMlbRecordDecision({
+      sport: 'mlb',
+      legs: [mlbProp(), mlbProp({ playerName: 'Juan Soto', gameId: game().id }), mlbProp({
+        playerName: 'Gerrit Cole',
+        type: 'pitcher_strikeouts',
+        gameId: game().id,
+      })],
+    }, { now }).reason).toBe('mlb_lineup_window')
+  })
+
+  test('MLB featured records when every leg is confirmed', () => {
+    const parlay = {
+      sport: 'mlb',
+      legs: [
+        mlbProp(),
+        mlbProp({ playerName: 'Juan Soto' }),
+        mlbProp({ playerName: 'Gerrit Cole', type: 'pitcher_strikeouts' }),
+      ],
+    }
+    expect(featuredMlbRecordDecision(parlay, gate)).toEqual({
+      record: true,
+      reason: 'mlb_confirmed',
+    })
+  })
+})
