@@ -126,24 +126,28 @@ Morning ops status (required):
 6. Include those cleanup fields in the morning report every time.
 ```
 
-### Hourly MLB lineup-window recording (:16 ET or later)
+### Hourly MLB lineup-window recording (:16 and :46 ET)
 
 The owner already has an hourly job at **:09 ET**. That job must **not
 write to the DB during :05–:15**. Do not add recording steps to it.
 
-Schedule a second hourly task at **:16 ET** (or :20 / :30):
+Schedule **two** tasks, at **:16 ET and :46 ET**, hours **11–22 ET**
+in the regular season (**12–22 ET** in the postseason):
 
 ```bash
 # MLB Published + Featured, only for games 90 minutes from first pitch
 # whose player is in the confirmed lineup (or is the confirmed
 # probable / starting pitcher). Never after first pitch.
 # Free MLB Stats API + ESPN. No Odds API. No-ops during :05–:15 ET.
-npm run record:mlb-window
-# or: node scripts/record-mlb-window-props.js
+node scripts/record-mlb-window-props.js
+# postseason (12–22 ET):
+node scripts/record-mlb-window-props.js --postseason
 ```
 
-Safe to run when there are no MLB games — it prints "No MLB games in
-the recording window" and exits 0.
+A 7:05 first pitch gets looks at 5:46 / 6:16 / 6:46. Same-day
+doubleheaders are skipped (shared `away_at_home_date` id). Safe to
+run when there are no MLB games — it prints "No MLB games in the
+recording window" and exits 0.
 
 ### During Games (Every 15-30 min)
 ```bash

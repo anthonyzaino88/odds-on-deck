@@ -6,10 +6,14 @@ import {
   isConfirmedMlbPitcher,
   isInMlbRecordWindow,
   isMlbPlayerConfirmedForProp,
+  isMlbRecordingClockHour,
   isOpsWriteQuietPeriod,
   isPitcherProp,
+  mlbMatchupDayKey,
   mlbPlayerNamesMatch,
   mlbPublishedRecordDecision,
+  findMlbDoubleheaderIds,
+  buildMlbFeaturedRequests,
 } from '../../lib/mlb-recording-window.js'
 import { parseMlbConfirmedLineup, parseEspnProbablePitchers } from '../../lib/mlb-confirmed-lineup.js'
 
@@ -75,6 +79,16 @@ describe('MLB recording window', () => {
     expect(isOpsWriteQuietPeriod(new Date('2026-10-11T16:16:00.000Z'))).toBe(false)
     expect(isOpsWriteQuietPeriod(new Date('2026-10-11T16:04:00.000Z'))).toBe(false)
   })
+
+  test('recording hours are 11–22 ET regular, 12–22 postseason', () => {
+    expect(isMlbRecordingClockHour(new Date('2026-07-15T15:16:00.000Z'))).toBe(true) // 11:16 ET
+    expect(isMlbRecordingClockHour(new Date('2026-07-15T15:00:00.000Z'))).toBe(true) // 11:00 ET
+    expect(isMlbRecordingClockHour(new Date('2026-07-15T14:46:00.000Z'))).toBe(false) // 10:46 ET
+    expect(isMlbRecordingClockHour(new Date('2026-07-15T14:46:00.000Z'), { postseason: true })).toBe(false)
+    expect(isMlbRecordingClockHour(new Date('2026-07-15T16:16:00.000Z'), { postseason: true })).toBe(true) // 12:16 ET
+    expect(isMlbRecordingClockHour(new Date('2026-07-15T02:16:00.000Z'))).toBe(true) // 22:16 ET
+    expect(isMlbRecordingClockHour(new Date('2026-07-15T03:16:00.000Z'))).toBe(false) // 23:16 ET
+  })
 })
 
 describe('confirmed MLB starters', () => {
@@ -83,6 +97,38 @@ describe('confirmed MLB starters', () => {
     expect(mlbPlayerNamesMatch('Gerrit Cole', 'G. Cole')).toBe(true)
     expect(mlbPlayerNamesMatch('Vladimir Guerrero Jr.', 'Vladimir Guerrero Jr')).toBe(true)
     expect(mlbPlayerNamesMatch('Aaron Judge', 'Juan Soto')).toBe(false)
+    expect(mlbPlayerNamesMatch('José Ramírez', 'Jose Ramirez')).toBe(true)
+    expect(mlbPlayerNamesMatch('Yandy Díaz', 'Yandy Diaz')).toBe(true)
+    expect(mlbPlayerNamesMatch('Jeremy Peña', 'Jeremy Pena')).toBe(true)
+    expect(mlbPlayerNamesMatch('Teoscar Hernández', 'Teoscar Hernandez')).toBe(true)
+    expect(mlbPlayerNamesMatch('J.D. Martínez', 'JD Martinez')).toBe(true)
+    expect(mlbPlayerNamesMatch('Salvador Pérez', 'Salvador Perez')).toBe(true)
+    expect(mlbPlayerNamesMatch('Pablo López', 'Pablo Lopez')).toBe(true)
+    expect(mlbPlayerNamesMatch('José Ramírez', 'Yandy Diaz')).toBe(false)
+  })
+
+  test('doubleheader ids share a matchup-day key and are skipped together', () => {
+    const g1 = game({ id: 'NYY_at_BOS_2026-10-11', mlbGameId: '778801' })
+    const g2 = game({
+      id: 'NYY_at_BOS_2026-10-11_g2',
+      mlbGameId: '778802',
+      date: '2026-10-11T23:40:00.000Z',
+    })
+    expect(mlbMatchupDayKey(g1)).toBe(mlbMatchupDayKey(g2))
+    expect([...findMlbDoubleheaderIds([g1, g2])].sort()).toEqual([
+      'NYY_at_BOS_2026-10-11',
+      'NYY_at_BOS_2026-10-11_g2',
+    ])
+    expect(findMlbDoubleheaderIds([g1]).size).toBe(0)
+    expect(buildMlbFeaturedRequests([g1, game({ id: 'TOR_at_BAL_2026-10-11' })])).toEqual([
+      { type: 'single_game', gameId: 'NYY_at_BOS_2026-10-11', gameIds: ['NYY_at_BOS_2026-10-11'] },
+      { type: 'single_game', gameId: 'TOR_at_BAL_2026-10-11', gameIds: ['TOR_at_BAL_2026-10-11'] },
+      {
+        type: 'multi_game',
+        gameId: null,
+        gameIds: ['NYY_at_BOS_2026-10-11', 'TOR_at_BAL_2026-10-11'],
+      },
+    ])
   })
 
   test('batters need the batting order; pitchers need probable/starter', () => {

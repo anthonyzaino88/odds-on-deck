@@ -7,11 +7,13 @@
  *
  * Does not call The Odds API. Uses MLB Stats API + ESPN (free).
  *
- * Schedule this on the ops laptop at about :16 ET (or later), hourly.
+ * Schedule on the ops laptop at :16 and :46 ET, hours 11–22 ET
+ * (regular season) or 12–22 ET (postseason, pass --postseason).
  * The :09 ET job must not write during :05–:15 — this script no-ops
  * in that window and exits 0.
  *
  *   node scripts/record-mlb-window-props.js
+ *   node scripts/record-mlb-window-props.js --postseason
  *   npm run record:mlb-window
  */
 
@@ -21,9 +23,15 @@ import { fileURLToPath } from 'node:url'
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { isPublishedEligibleProp } from '../lib/published-picks.js'
 import {
+  MLB_RECORD_HOUR_END,
+  MLB_RECORD_HOUR_START,
+  MLB_RECORD_HOUR_START_POSTSEASON,
   MLB_RECORD_WINDOW_MINUTES,
+  buildMlbFeaturedRequests,
+  findMlbDoubleheaderIds,
   hasMlbGameStarted,
   isInMlbRecordWindow,
+  isMlbRecordingClockHour,
   isOpsWriteQuietPeriod,
   mlbPublishedRecordDecision,
 } from '../lib/mlb-recording-window.js'
@@ -31,13 +39,13 @@ import { fetchMlbConfirmedLineup } from '../lib/mlb-confirmed-lineup.js'
 
 config({ path: '.env.local' })
 
-const GAME_SELECT = 'id, sport, date, status, mlbGameId, espnGameId'
+const GAME_SELECT = 'id, sport, date, status, mlbGameId, espnGameId, homeId, awayId'
 
 export function parseRecordMlbWindowArgs(argv = []) {
   const args = Array.isArray(argv) ? argv : []
   return {
     help: args.includes('--help') || args.includes('-h'),
-    allowQuietPeriod: args.includes('--allow-quiet-period'),
+    postseason: args.includes('--postseason'),
   }
 }
 
@@ -52,20 +60,31 @@ export async function runRecordMlbWindowProps({
   log = console,
 } = {}) {
   const args = parseRecordMlbWindowArgs(argv)
+  const hourStart = args.postseason ? MLB_RECORD_HOUR_START_POSTSEASON : MLB_RECORD_HOUR_START
   if (args.help) {
-    log.log(`Usage: node scripts/record-mlb-window-props.js
+    log.log(`Usage: node scripts/record-mlb-window-props.js [--postseason]
 
 Record lineup-confirmed MLB Published props in the ${MLB_RECORD_WINDOW_MINUTES}-minute
-window before first pitch. Also tries Featured MLB if a 3-leg card clears.
+window before first pitch. Featured: one single-game card per in-window
+gameId; multi-game legs stay inside those games.
 Does not call The Odds API. No-ops during :05–:15 ET (exit 0).
-Schedule hourly at :16 ET or later.`)
+Schedule at :16 and :46 ET, hours ${MLB_RECORD_HOUR_START}–${MLB_RECORD_HOUR_END} ET
+(regular) or ${MLB_RECORD_HOUR_START_POSTSEASON}–${MLB_RECORD_HOUR_END} ET (--postseason).`)
     return { exitCode: 0, saved: [], featured: [], skippedQuiet: false }
   }
 
-  if (isOpsWriteQuietPeriod(now) && !args.allowQuietPeriod) {
+  if (isOpsWriteQuietPeriod(now)) {
     log.log('⏸️  Ops quiet period (:05–:15 ET) — no MLB recording writes.')
-    log.log('   Re-run at :16 ET or later (or pass --allow-quiet-period in tests).')
+    log.log('   Re-run at :16 or :46 ET.')
     return { exitCode: 0, saved: [], featured: [], skippedQuiet: true }
+  }
+
+  if (!isMlbRecordingClockHour(now, { postseason: args.postseason })) {
+    log.log(
+      `⏸️  Outside MLB recording hours (${hourStart}–${MLB_RECORD_HOUR_END} ET`
+      + `${args.postseason ? ', postseason' : ''}) — no writes.`,
+    )
+    return { exitCode: 0, saved: [], featured: [], skippedHours: true }
   }
 
   const persistPublishedEligibleProps = persistPublished
@@ -87,20 +106,40 @@ Schedule hourly at :16 ET or later.`)
     return { exitCode: 1, saved: [], featured: [], skippedQuiet: false }
   }
 
+  const doubleheaderIds = findMlbDoubleheaderIds(games || [])
+  const skippedDoubleheaders = (games || []).filter((game) => doubleheaderIds.has(game.id))
+  if (skippedDoubleheaders.length) {
+    log.log(
+      `⚠️ Skipping same-day doubleheader(s) (shared away_at_home_date id / lineup): `
+      + skippedDoubleheaders.map((game) => `${game.id} pk=${game.mlbGameId || '—'}`).join(', '),
+    )
+  }
+
   const windowGames = (games || []).filter((game) => (
-    !hasMlbGameStarted(game, now) && isInMlbRecordWindow(game, now)
+    !doubleheaderIds.has(game.id)
+    && !hasMlbGameStarted(game, now)
+    && isInMlbRecordWindow(game, now)
   ))
 
   log.log('\n🧢 MLB LINEUP-WINDOW RECORD')
   log.log('='.repeat(60))
   log.log(`Now: ${now.toISOString()}`)
   log.log(`Window: ${MLB_RECORD_WINDOW_MINUTES} minutes before first pitch`)
+  log.log(`Hours: ${hourStart}–${MLB_RECORD_HOUR_END} ET at :16 and :46`)
   log.log(`MLB games not started: ${(games || []).length}`)
+  log.log(`Skipped doubleheaders: ${skippedDoubleheaders.length}`)
   log.log(`In recording window: ${windowGames.length}`)
 
   if (windowGames.length === 0) {
     log.log('✅ No MLB games in the recording window.')
-    return { exitCode: 0, saved: [], featured: [], skippedQuiet: false, windowGames: [] }
+    return {
+      exitCode: 0,
+      saved: [],
+      featured: [],
+      skippedQuiet: false,
+      windowGames: [],
+      skippedDoubleheaders,
+    }
   }
 
   const gamesById = new Map(windowGames.map((game) => [game.id, game]))
@@ -110,7 +149,7 @@ Schedule hourly at :16 ET or later.`)
     const lineup = await fetchLineup(game.mlbGameId, { espnGameId: game.espnGameId })
     lineupsByGameId.set(game.id, lineup)
     log.log(
-      `  ${game.id}  batters=${lineup.batters?.length || 0}  `
+      `  ${game.id}  pk=${game.mlbGameId || '—'}  batters=${lineup.batters?.length || 0}  `
       + `pitchers=${[
         ...(lineup.pitchers || []),
         lineup.probableHome,
@@ -134,7 +173,7 @@ Schedule hourly at :16 ET or later.`)
     return { exitCode: 1, saved: [], featured: [], skippedQuiet: false, windowGames }
   }
 
-  const mlbGate = { now, gamesById, lineupsByGameId }
+  const mlbGate = { now, gamesById, lineupsByGameId, postseason: args.postseason }
   const eligible = (cacheProps || []).filter((prop) => isPublishedEligibleProp(prop))
   const recordable = eligible.filter((prop) => mlbPublishedRecordDecision(prop, mlbGate).record)
 
@@ -145,23 +184,26 @@ Schedule hourly at :16 ET or later.`)
   log.log(`📌 Published MLB: recorded ${saved.length}`)
 
   const featured = []
-  for (const type of ['single_game', 'multi_game']) {
+  for (const request of buildMlbFeaturedRequests(windowGames)) {
     const parlays = await generateSimpleParlays({
       sport: 'mlb',
-      type,
+      type: request.type,
       featured: true,
       maxParlays: 1,
       legCount: 3,
+      gameId: request.gameId,
+      gameIds: request.gameIds,
     })
     if (!parlays.length) {
-      log.log(`✅ Featured MLB ${type}: empty (no 3 confirmed legs)`)
+      log.log(`✅ Featured MLB ${request.type}${request.gameId ? ` ${request.gameId}` : ''}: empty`)
       continue
     }
     const results = await persistFeaturedClearedParlays(parlays, { now, mlbGate })
     for (const result of results) {
       featured.push(result)
       log.log(
-        `📌 Featured MLB ${type}: ${result.reason}${result.parlay?.id ? ` (${result.parlay.id})` : ''}`,
+        `📌 Featured MLB ${request.type}${request.gameId ? ` ${request.gameId}` : ''}: `
+        + `${result.reason}${result.parlay?.id ? ` (${result.parlay.id})` : ''}`,
       )
     }
   }
@@ -173,6 +215,7 @@ Schedule hourly at :16 ET or later.`)
     skippedQuiet: false,
     windowGames,
     recordable,
+    skippedDoubleheaders,
   }
 }
 

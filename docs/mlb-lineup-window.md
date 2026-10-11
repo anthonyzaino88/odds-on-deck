@@ -15,22 +15,36 @@ are true:
    status is not live / final / postponed).
 3. The player is in the **confirmed batting order**, or is the
    **confirmed probable / starting pitcher**.
+4. The clock is inside the recording hours below (and not `:05–:15`).
 
 NFL (and NHL) recording is unchanged. Morning `record:published` and
 `record:featured` still run for NFL.
+
+Player names use the PR #45 matcher: NFD + strip diacritics, then the
+usual Jr / initial fold. `José Ramírez` matches `Jose Ramirez`.
 
 ## What the owner schedules
 
 Keep the existing :09 ET hourly job as-is. **Do not write to the DB
 during :05–:15 ET.**
 
-Add a second hourly task at **:16 ET** (or later):
+Add **two** tasks, at **:16 ET and :46 ET**, during:
+
+| Season | Hours (ET) |
+| --- | --- |
+| Regular | **11–22** |
+| Postseason | **12–22** (`--postseason`) |
+
+A 7:05 ET first pitch then gets a look at 5:46, 6:16, and 6:46 after
+lineups usually post — not a single :16 that can miss.
 
 ```
-npm run record:mlb-window
+node scripts/record-mlb-window-props.js
+node scripts/record-mlb-window-props.js --postseason
 ```
 
-or `node scripts/record-mlb-window-props.js`.
+or `npm run record:mlb-window` (add `-- --postseason` only in bash;
+on PowerShell use the `node scripts/...` form).
 
 If it is accidentally invoked at :09, it no-ops and exits 0.
 
@@ -41,16 +55,27 @@ The script:
   (`hydrate=probablePitcher,lineups`) and boxscore batting order
 - Falls back to ESPN summary probables (same source as `lib/db.js`)
 - Records Published-eligible cache props for in-window games
-- Tries Featured MLB (`single_game` / `multi_game`) only if a 3-leg
-  card clears with confirmed legs; first write still wins the slate slot
+- Builds Featured **single-game** cards **per in-window gameId**
+- Builds Featured **multi-game** only from those same in-window,
+  confirmed games (not the whole morning cache)
+- First write still wins the sport+kind+ET-day slot — an afternoon
+  SGP can lock the day's single-game card before a night game
 
-## Why 90 minutes + :16 ET
+## Doubleheaders
 
-A 90-minute window plus an hourly :16 job always has at least one
-run about 54 minutes before first pitch (lineups are usually posted
-by then). We never write after first pitch. If lineups are still
-missing at T−54 and the next :16 is after first pitch, that game is
-skipped — honest miss, not a no-play.
+`Game.id` is `away_at_home_YYYY-MM-DD`. Game 2 can inherit game 1's
+window or lineup (and cache props share that id). When two upcoming
+rows share that matchup+day (including a `_g2` suffix) or two
+`mlbGameId`s, **both games are skipped** and logged. We do not guess
+which props belong to which gamePk. If only one Game row exists for a
+true DH, we cannot see the twin and may still record that row.
+
+## Why 90 minutes + :16 / :46
+
+A 90-minute window plus two looks an hour apart always has a run
+inside about an hour of first pitch. We never write after first
+pitch. If lineups are still missing at the last :16/:46 before start,
+that game is skipped — honest miss, not a no-play.
 
 ## Morning path
 
