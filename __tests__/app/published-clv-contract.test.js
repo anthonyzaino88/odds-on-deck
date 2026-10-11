@@ -1,0 +1,36 @@
+const fs = require('fs')
+const path = require('path')
+
+const captureSrc = fs.readFileSync(path.join(__dirname, '../../scripts/capture-published-closes.js'), 'utf8')
+const reportSrc = fs.readFileSync(path.join(__dirname, '../../scripts/report-published-clv.js'), 'utf8')
+const closingSrc = fs.readFileSync(path.join(__dirname, '../../lib/closing-line.js'), 'utf8')
+const sql = fs.readFileSync(path.join(__dirname, '../../scripts/migrations/007_published_close_odds.sql'), 'utf8')
+const docs = fs.readFileSync(path.join(__dirname, '../../docs/migrations/007_published_close_odds.md'), 'utf8')
+const ops = fs.readFileSync(path.join(__dirname, '../../operations/README.md'), 'utf8')
+const pkg = fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8')
+const schema = fs.readFileSync(path.join(__dirname, '../../prisma/schema.prisma'), 'utf8')
+
+describe('S1 closing-price capture contract', () => {
+  test('does not re-run morning fetch-live-odds or add Prisma close scalars', () => {
+    expect(captureSrc).not.toMatch(/from ['"].*fetch-live-odds/)
+    expect(captureSrc).toMatch(/Never re-runs morning fetch-live-odds/)
+    expect(captureSrc).toMatch(/createScriptSupabaseClient/)
+    expect(captureSrc).toMatch(/isOpsWriteQuietPeriod/)
+    expect(captureSrc).toMatch(/one Odds API event-odds call per game/)
+    expect(reportSrc).toMatch(/Never writes/)
+    expect(reportSrc).toMatch(/Never calls The Odds API/)
+    expect(schema).not.toMatch(/closeOdds/)
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS "closeOdds"/)
+    expect(sql).toMatch(/DO NOT run from CI/)
+  })
+
+  test('owner commands and quota notes are documented', () => {
+    expect(pkg).toMatch(/"capture:published-closes": "node scripts\/capture-published-closes\.js"/)
+    expect(pkg).toMatch(/"report:published-clv": "node scripts\/report-published-clv\.js"/)
+    expect(ops).toMatch(/capture-published-closes\.js --dry-run/)
+    expect(ops).toMatch(/:16 ET or later/)
+    expect(docs).toMatch(/HTTP calls \/ day/)
+    expect(docs).toMatch(/Downtime/)
+    expect(closingSrc).toMatch(/summarizePublishedClv/)
+  })
+})

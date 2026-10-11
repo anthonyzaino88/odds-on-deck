@@ -123,6 +123,22 @@ Morning ops status (required):
 6. Include those cleanup fields in the morning report every time.
 ```
 
+### Hourly close capture (:16 ET or later)
+
+Do **not** add this to the :09 ET job. `:05–:15` is a no-write window.
+
+After `007_published_close_odds.sql` is applied:
+
+```bash
+# Preview (no Odds API, no writes)
+node scripts/capture-published-closes.js --dry-run
+# Write closes — 1 Odds API call per in-window Published game
+node scripts/capture-published-closes.js --apply
+# or: npm run capture:published-closes -- --apply
+```
+
+Read-only CLV: `npm run report:published-clv`
+
 ### During Games (Every 15-30 min)
 ```bash
 node scripts/update-scores-safely.js all

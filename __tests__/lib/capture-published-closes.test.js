@@ -1,0 +1,246 @@
+import { PUBLISHED_SOURCE } from '../../lib/published-picks.js'
+import {
+  parseCaptureClosesArgs,
+  runCapturePublishedCloses,
+} from '../../scripts/capture-published-closes.js'
+
+function memoryLog() {
+  const lines = []
+  return {
+    lines,
+    log: (...args) => lines.push(args.join(' ')),
+    error: (...args) => lines.push(args.join(' ')),
+  }
+}
+
+function publishedPick(overrides = {}) {
+  return {
+    id: 'pv-vinnie',
+    propId: 'prop-vinnie',
+    gameIdRef: 'KC_at_HOU_2026-07-15',
+    playerName: 'Vinnie Pasquantino',
+    propType: 'batter_hits',
+    threshold: 0.5,
+    prediction: 'over',
+    odds: -105,
+    edge: 0.06,
+    qualityScore: 52,
+    sport: 'mlb',
+    source: PUBLISHED_SOURCE,
+    status: 'pending',
+    closeOdds: null,
+    closeCapturedAt: null,
+    ...overrides,
+  }
+}
+
+function windowGame(overrides = {}) {
+  return {
+    id: 'KC_at_HOU_2026-07-15',
+    sport: 'mlb',
+    date: '2026-07-15T23:10:00.000Z',
+    status: 'scheduled',
+    oddsApiEventId: 'evt-kc-hou',
+    ...overrides,
+  }
+}
+
+function chainable(terminal) {
+  const query = {
+    select() { return query },
+    eq() { return query },
+    in() { return query },
+    gt() { return query },
+    gte() { return query },
+    lte() { return terminal },
+    order() { return query },
+    range() { return terminal },
+    then: terminal.then?.bind(terminal),
+  }
+  return query
+}
+
+function mockClient({
+  games = [windowGame()],
+  picks = [publishedPick()],
+  pickError = null,
+  updates = [],
+} = {}) {
+  return {
+    from(table) {
+      if (table === 'Game') {
+        return chainable(Promise.resolve({ data: games, error: null }))
+      }
+      return {
+        select(cols) {
+          const error = String(cols).includes('closeOdds') ? pickError : null
+          const data = error ? null : picks
+          const terminal = Promise.resolve({ data, error })
+          const query = chainable(terminal)
+          query.update = (body) => {
+            updates.push(body)
+            return { eq: async () => ({ error: null }) }
+          }
+          return query
+        },
+        update(body) {
+          updates.push(body)
+          return { eq: async () => ({ error: null }) }
+        },
+      }
+    },
+  }
+}
+
+const IN_WINDOW = new Date('2026-07-15T22:16:00.000Z')
+const QUIET = new Date('2026-07-15T16:09:00.000Z')
+
+describe('parseCaptureClosesArgs', () => {
+  test('defaults to dry-run; --apply is required to write', () => {
+    expect(parseCaptureClosesArgs([])).toMatchObject({ apply: false, dryRun: true })
+    expect(parseCaptureClosesArgs(['--dry-run'])).toMatchObject({ apply: false, dryRun: true })
+    expect(parseCaptureClosesArgs(['--apply'])).toMatchObject({ apply: true, dryRun: false })
+    expect(parseCaptureClosesArgs(['--apply', '--dry-run'])).toMatchObject({ apply: false, dryRun: true })
+  })
+})
+
+describe('runCapturePublishedCloses', () => {
+  test('quiet period is a no-op: no Odds API, no writes', async () => {
+    const fetchEventOdds = jest.fn()
+    const createClient = jest.fn()
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: QUIET,
+      createClient,
+      fetchEventOdds,
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result).toMatchObject({ exitCode: 0, calls: 0, skippedQuiet: true })
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(createClient).not.toHaveBeenCalled()
+    expect(log.lines.join('\n')).toMatch(/quiet period/)
+  })
+
+  test('dry-run lists in-window picks and never fetches or writes', async () => {
+    const updates = []
+    const fetchEventOdds = jest.fn()
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: [],
+      now: IN_WINDOW,
+      createClient: () => mockClient({ updates }),
+      fetchEventOdds,
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.calls).toBe(0)
+    expect(result.openPicks).toHaveLength(1)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(updates).toHaveLength(0)
+    expect(log.lines.join('\n')).toMatch(/DRY-RUN/)
+    expect(log.lines.join('\n')).toMatch(/evt-kc-hou/)
+    expect(log.lines.join('\n')).toMatch(/batter_hits/)
+  })
+
+  test('skips picks that already have a close', async () => {
+    const fetchEventOdds = jest.fn()
+    const result = await runCapturePublishedCloses({
+      argv: [],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        picks: [publishedPick({
+          closeOdds: -110,
+          closeCapturedAt: '2026-07-15T22:00:00.000Z',
+        })],
+      }),
+      fetchEventOdds,
+      log: memoryLog(),
+    })
+    expect(result.openPicks).toHaveLength(0)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+
+  test('--apply fetches one event and writes the best close', async () => {
+    const updates = []
+    const fetchEventOdds = jest.fn(async ({ url }) => {
+      expect(url).toContain('/sports/baseball_mlb/events/evt-kc-hou/odds')
+      expect(url).toContain('markets=batter_hits')
+      expect(url).not.toContain('player_receptions')
+      return {
+        data: {
+          bookmakers: [{
+            title: 'FanDuel',
+            markets: [{
+              key: 'batter_hits',
+              outcomes: [
+                { name: 'Over', description: 'Vinnie Pasquantino', point: 0.5, price: -118 },
+              ],
+            }],
+          }],
+        },
+        quota: { remaining: 18000, used: 2000 },
+      }
+    })
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({ updates }),
+      fetchEventOdds,
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.calls).toBe(1)
+    expect(result.updates).toHaveLength(1)
+    expect(updates[0]).toMatchObject({
+      closeOdds: -118,
+      closeLine: 0.5,
+      closeBook: 'FanDuel',
+    })
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+  })
+
+  test('refuses --apply when 007 columns are missing; dry-run still lists', async () => {
+    const fetchEventOdds = jest.fn()
+    const missing = { code: 'PGRST204', message: "Could not find the 'closeOdds' column" }
+    const apply = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({ pickError: missing }),
+      fetchEventOdds,
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(apply.exitCode).toBe(1)
+    expect(apply.closeColumnsMissing).toBe(true)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+
+    const dry = await runCapturePublishedCloses({
+      argv: [],
+      now: IN_WINDOW,
+      createClient: () => mockClient({ pickError: missing }),
+      fetchEventOdds,
+      log: memoryLog(),
+    })
+    expect(dry.exitCode).toBe(0)
+    expect(dry.openPicks).toHaveLength(1)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+
+  test('--apply without ODDS_API_KEY fails before any HTTP call', async () => {
+    const fetchEventOdds = jest.fn()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      createClient: () => mockClient(),
+      fetchEventOdds,
+      apiKey: '',
+      log: memoryLog(),
+    })
+    expect(result.exitCode).toBe(1)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+})
