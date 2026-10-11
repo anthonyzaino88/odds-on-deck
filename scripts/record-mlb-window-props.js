@@ -149,6 +149,7 @@ Schedule at :16 and :46 ET, hours ${MLB_RECORD_HOUR_START}–${MLB_RECORD_HOUR_E
     const lineup = await fetchLineup(game.mlbGameId, { espnGameId: game.espnGameId })
     if (lineup.scheduleUnavailable) {
       log.log(`⚠️ Skipping ${game.id} StatsAPI schedule unavailable (fail closed)`)
+      continue
     }
     if (isMlbStatsDoubleheader(lineup)) {
       skippedDoubleheaders.push(game)
