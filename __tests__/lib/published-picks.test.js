@@ -86,7 +86,10 @@ describe('isPublishedPick', () => {
 
   test('holds NHL off the public published card', () => {
     expect(isPublishedPick(publishedBase({ sport: 'nhl' }))).toBe(false)
-    expect(isPublishedPick(publishedBase({ sport: 'nfl' }))).toBe(true)
+    expect(isPublishedPick(publishedBase({
+      sport: 'nfl',
+      timestamp: '2026-09-10T16:00:00.000Z',
+    }))).toBe(true)
   })
 
   test('excludes user_saved and other non-system sources from the public record', () => {
@@ -171,6 +174,7 @@ describe('matchesPublishedStatsPrefilter', () => {
       'status',
       'result',
       'timestamp',
+      'completedAt',
       'playerName',
     ]))
   })
@@ -221,6 +225,30 @@ describe('legacy NFL Published exclusion', () => {
       timestamp: null,
       completedAt: null,
     }))).toBe(false)
+  })
+
+  test('falls back to completedAt when timestamp is omitted or null', () => {
+    const viaCompletedAt = publishedBase({
+      sport: 'nfl',
+      completedAt: '2025-11-03T12:00:00.000Z',
+    })
+    delete viaCompletedAt.timestamp
+    expect(isLegacyNflPublishedRow(viaCompletedAt)).toBe(true)
+    expect(publishedRecordedAt(viaCompletedAt).toISOString()).toBe('2025-11-03T12:00:00.000Z')
+
+    expect(isLegacyNflPublishedRow(publishedBase({
+      sport: 'nfl',
+      timestamp: null,
+      completedAt: '2025-11-03T12:00:00.000Z',
+    }))).toBe(true)
+  })
+
+  test('throws when a narrower select omits both timestamp and completedAt', () => {
+    const narrow = publishedBase({ sport: 'nfl' })
+    delete narrow.timestamp
+    delete narrow.completedAt
+    expect(() => isLegacyNflPublishedRow(narrow)).toThrow(/PUBLISHED_STATS_SELECT/)
+    expect(() => isPublishedPick(narrow)).toThrow(/timestamp or completedAt/)
   })
 
   test('old-generator fingerprint is corroboration, not the gate', () => {

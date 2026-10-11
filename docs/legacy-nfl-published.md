@@ -10,8 +10,12 @@ generator. Those rows stay in `PropValidation`. Nothing is deleted.
 `2026-03-01` 00:00 America/New_York (`2026-03-01T05:00:00.000Z`).**
 
 Record time is `PropValidation.timestamp` (insert), then `completedAt`.
-A row with neither timestamp is kept — no evidence, so we do not
-exclude it.
+A row whose select includes both columns but they are null is kept —
+no evidence, so we do not exclude it. A narrower select that omits
+**both** columns throws (`isLegacyNflPublishedRow requires timestamp
+or completedAt`) so we cannot silently readmit the 81. Stats and
+homepage queries use `PUBLISHED_STATS_SELECT` or `select('*')`, which
+include `timestamp`.
 
 Helper: `isLegacyNflPublishedRow` in `lib/published-picks.js`.
 Constant: `PUBLISHED_PIPELINE_START`.

@@ -44,6 +44,10 @@ describe('public-record write surfaces stay closed', () => {
     expect(published).toMatch(/source: PUBLISHED_SOURCE/)
     expect(published).toMatch(/isLegacyNflPublishedRow/)
     expect(published).toMatch(/PUBLISHED_PIPELINE_START/)
+    expect(published).toMatch(/'timestamp'/)
+    expect(validation).toMatch(/\.select\(PUBLISHED_STATS_SELECT\)/)
+    expect(hook).toMatch(/getPublishedPicksStats/)
+    expect(hook).toMatch(/\.select\('\*'\)/)
   })
 
   test('CRON_SECRET is not referenced from client components', () => {

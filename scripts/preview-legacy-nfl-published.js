@@ -64,7 +64,6 @@ function formatFingerprint(row) {
 }
 
 export function formatPublishedSummaryLine(summary) {
-  const sign = (summary?.units || 0) >= 0 ? '+' : ''
   return `${summary.record}   ${summary.decided} decided   ${formatUnits(summary.units)}   ROI ${formatPct(summary.roi)}`
 }
 
