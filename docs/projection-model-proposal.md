@@ -51,8 +51,9 @@ Published band (−200 to +250) is exactly where the juice is efficient.
 - **The close is the judge.** If we cannot beat the last price before
   first pitch on average, we do not have information. ROI over a few
   hundred picks has a standard error of several ROI points (the review
-  quoted ~3.9% on 740). A +1.7% ROI after DNP voids is not
-  distinguishable from zero.
+  quoted ~3.9% on 740). After PR #46 drops the 81 legacy NFL rows,
+  the honest sample is about 659 picks and **+0.4% ROI** — not
+  distinguishable from zero. The +1.7% figure was DNP voids only.
 - **Leakage is easy.** Fitting on the same `PropValidation` rows we
   later “backtest,” or using post-game box scores as if they were
   known at record time, will invent an edge. Random train/test splits
@@ -76,11 +77,14 @@ prop models never clear the first bar.
 Do not fit anything until we can score against the close.
 
 1. Apply `007_published_close_odds.sql` and run
-   `scripts/capture-published-closes.js` hourly at :16 ET.
-2. Read `scripts/report-published-clv.js` weekly. Lock the definitions:
+   `scripts/capture-published-closes.js` at :16 and :46 ET.
+2. Read `scripts/report-published-clv.js` weekly. Lock the definitions
+   (same as PR #48 after the line-moved fix):
+   - Headline rows only: `closeLine` equals the recorded line
    - `clvProb = implied(close) − implied(recorded)`
    - beat-close = recorded decimal > close decimal
-   - same-line vs line-moved reported separately
+   - Line-moved rows (`closeLine != threshold`) are excluded from
+     average CLV and % beat-close and reported separately
 3. Keep the line-shopper running. It is the **baseline**, not the
    opponent. A new model must beat *its* CLV and *its* log-loss, not
    a coin flip.
@@ -260,15 +264,15 @@ self-confidence. An EV score should be:
 
 ```
 EV_u = P_model × (decimal − 1) − (1 − P_model)     # push mass = 0 on half-lines
-QS_ev = 100 × clip( (EV_u / 0.15) × 0.70 + 0.30 × size_penalty , 0, 1)
+QS_ev = 100 × clip( (EV_u / 0.15) × 0.70 − 0.30 × size_penalty , 0, 1)
 ```
 
 - `P_model` is the projection, **not** the vig-free consensus.
 - `decimal` is the best available book at record time (already what
   we store).
-- `size_penalty` shrinks QS when trailing PA/TBF or game-log n is
-  below a floor (e.g. < 40 PA or < 4 starts). Small n cannot print
-  Elite.
+- `size_penalty` is 0 when the trailing sample is large and 1 when
+  it is tiny (e.g. < 40 PA or < 4 starts). It is **subtracted**, so
+  small n cannot print Elite.
 - Book count may remain as a **tie-break** or a “price is real”
   check (numBooks ≥ 2). It does not get 20% of the score.
 
@@ -282,14 +286,20 @@ Production switch (later PR, not this one):
    is posted.
 
 Do not silently change `calculateQualityScore` in place. The public
-card and the 740-pick history are defined on the current formula.
+card and the honest ~659-pick history (after #46) are defined on the
+current formula.
 
 ## What success looks like
 
-**Gate A — CLV (required):** on the frozen holdout, mean `clvProb` >
-0 and % beat-close > 50% with a 95% CI that does not sit entirely
-below 50%, sample ≥ 200 Published-band picks. If S1 has not produced
-200 closes yet, wait.
+**Gate A — CLV (required):** on the frozen holdout, **same-line
+closes only**, sample ≥ 200 Published-band picks. Pass only if
+**both** are true:
+
+- mean `clvProb` > 0 and its 95% CI sits entirely above 0
+- % beat-close > 50% and its 95% CI sits entirely above 50%
+
+A CI that merely “does not sit entirely below 50%” is not enough.
+If S1 has not produced 200 same-line closes yet, wait.
 
 **Gate B — probability skill:** holdout log-loss strictly better than
 the line-shopper on the same picks.
