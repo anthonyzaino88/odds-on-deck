@@ -126,29 +126,43 @@ Morning ops status (required):
 6. Include those cleanup fields in the morning report every time.
 ```
 
-### Hourly MLB lineup-window recording (:16 and :46 ET)
+### Hourly MLB record + close capture (:16 and :46 ET)
 
-The owner already has an hourly job at **:09 ET**. That job must **not
-write to the DB during :05–:15**. Do not add recording steps to it.
+Do **not** add this to the :09 ET job. `:05–:15` is a no-write window.
 
-Schedule **two** tasks, at **:16 ET and :46 ET**, hours **11–22 ET**
-in the regular season (**12–22 ET** in the postseason):
+**One task**, record first, then capture. Hours **11–22 ET** regular
+season (**12–22** postseason). After `007_published_close_odds.sql`:
 
 ```bash
-# MLB Published + Featured, only for games 90 minutes from first pitch
-# whose player is in the confirmed lineup (or is the confirmed
-# probable / starting pitcher). Never after first pitch.
-# Free MLB Stats API + ESPN. No Odds API. No-ops during :05–:15 ET.
 node scripts/record-mlb-window-props.js
+node scripts/capture-published-closes.js --apply
 # postseason (12–22 ET):
 node scripts/record-mlb-window-props.js --postseason
+node scripts/capture-published-closes.js --apply
 ```
 
-A 7:05 first pitch gets looks at 5:46 / 6:16 / 6:46. Same-day
-doubleheaders are skipped when StatsAPI `doubleHeader` is `Y` or `S`
-(fetch-fresh-games keeps one row / first gamePk). Safe to run when
-there are no MLB games — it prints "No MLB games in the recording
-window" and exits 0.
+PowerShell: use the `node scripts/...` form. `npm run … -- --apply`
+silently dry-runs.
+
+Kill switch: `CLOSING_CAPTURE=0`. Caps: `--max-calls N`,
+`--min-remaining N` (default 50; a free `/v4/sports` probe checks
+quota before the first event call). Close window is **30 minutes**
+(T−30..T−2). London NFL 9:30 AM ET games are missed on this 11–22
+clock.
+
+Same-day doubleheaders are skipped when StatsAPI `doubleHeader` is
+`Y` or `S` (fetch-fresh-games keeps one row / first gamePk). Safe to
+run when there are no MLB games — record prints "No MLB games in the
+recording window" and exits 0.
+
+Preview (no Odds API, no writes):
+
+```bash
+node scripts/capture-published-closes.js --dry-run
+```
+
+Read-only CLV (same-line only; line-moved rows are excluded):
+`node scripts/report-published-clv.js`
 
 ### During Games (Every 15-30 min)
 ```bash
