@@ -66,6 +66,8 @@ describe('Featured parlay persist contract — Phase B', () => {
     expect(persist).toMatch(/deleteParlay/)
     expect(persist).toMatch(/normalizeFeaturedSnapshotSport/)
     expect(persist).toMatch(/sport_not_published/)
+    expect(persist).toMatch(/featuredMlbRecordDecision/)
+    expect(persist).toMatch(/mlbGate/)
   })
 
   test('history UI is honest empty and labeled Featured-cleared', () => {
@@ -99,6 +101,9 @@ describe('Featured parlay persist contract — Phase B', () => {
     expect(script).toMatch(/persistFeaturedClearedParlays/)
     expect(script).toMatch(/featured: true/)
     expect(pkg).toMatch(/"record:featured": "node scripts\/record-featured-parlays\.js"/)
+    expect(pkg).toMatch(/"record:mlb-window": "node scripts\/record-mlb-window-props\.js"/)
+    expect(script).toMatch(/MLB Featured is recorded by/)
+    expect(script).toMatch(/for \(const sport of \['nfl'\]\)/)
     expect(pkg).toMatch(/"cleanup:featured-dupes": "node scripts\/cleanup-duplicate-featured-parlays\.js"/)
     expect(pkg).toMatch(/"report:featured-game-mismatch": "node scripts\/report-featured-game-mismatch\.js"/)
     expect(pkg).toMatch(/"report:odds-format": "node scripts\/report-odds-format-ambiguity\.js"/)
