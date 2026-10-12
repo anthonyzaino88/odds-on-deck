@@ -23,8 +23,13 @@ import {
   PUBLISHED_MIN_QUALITY,
   PUBLISHED_STATS_PREFILTER,
   PUBLISHED_STATS_SELECT_FIELDS,
+  PUBLISHED_PIPELINE_START,
   TODAYS_BOARD_CAP,
   TODAYS_BOARD_MIN_PUBLISHED,
+  isLegacyNflPublishedRow,
+  publishedRecordedAt,
+  legacyNflPublishedFingerprint,
+  comparePublishedLegacyNfl,
 } from '../../lib/published-picks.js'
 import { unitsFromResult } from '../../lib/odds-units.js'
 
@@ -81,10 +86,27 @@ describe('isPublishedPick', () => {
 
   test('holds NHL off the public published card', () => {
     expect(isPublishedPick(publishedBase({ sport: 'nhl' }))).toBe(false)
-    expect(isPublishedPick(publishedBase({ sport: 'nfl' }))).toBe(true)
+    expect(isPublishedPick(publishedBase({
+      sport: 'nfl',
+      timestamp: '2026-09-10T16:00:00.000Z',
+    }))).toBe(true)
   })
 
   test('excludes user_saved and other non-system sources from the public record', () => {
+    expect(isPublishedPick(publishedBase({
+      sport: 'nfl',
+      timestamp: '2025-11-02T18:00:00.000Z',
+      probability: 0.508,
+      edge: 0.24,
+      odds: 150,
+    }))).toBe(false)
+    expect(isPublishedPick(publishedBase({
+      sport: 'nfl',
+      timestamp: '2026-09-10T18:00:00.000Z',
+      probability: 0.49,
+      edge: 0.014,
+      odds: -110,
+    }))).toBe(true)
     expect(isPublishedPick(publishedBase({ source: 'user_saved' }))).toBe(false)
     expect(isPublishedPick(publishedBase({ source: 'parlay_leg' }))).toBe(false)
     expect(isPublishedPick(publishedBase({ source: 'api_generated' }))).toBe(false)
@@ -151,7 +173,132 @@ describe('matchesPublishedStatsPrefilter', () => {
       'source',
       'status',
       'result',
+      'timestamp',
+      'completedAt',
+      'playerName',
     ]))
+  })
+})
+
+describe('legacy NFL Published exclusion', () => {
+  test('PUBLISHED_PIPELINE_START is midnight ET on 2026-03-01', () => {
+    expect(PUBLISHED_PIPELINE_START).toBe('2026-03-01T05:00:00.000Z')
+  })
+
+  test('flags NFL rows recorded before the current persist path', () => {
+    const legacy = publishedBase({
+      sport: 'nfl',
+      timestamp: '2025-11-02T16:00:00.000Z',
+      completedAt: '2025-11-03T12:00:00.000Z',
+      probability: 0.508,
+      edge: 0.24,
+      odds: 150,
+    })
+    expect(isLegacyNflPublishedRow(legacy)).toBe(true)
+    expect(publishedRecordedAt(legacy).toISOString()).toBe('2025-11-02T16:00:00.000Z')
+    expect(isPublishedPick(legacy)).toBe(false)
+    expect(isPublishedPick(legacy, { includeLegacyNfl: true })).toBe(true)
+    expect(isPublishedEligibleProp(legacy)).toBe(true)
+  })
+
+  test('keeps 2026 NFL and all MLB, even with a large edge', () => {
+    expect(isLegacyNflPublishedRow(publishedBase({
+      sport: 'nfl',
+      timestamp: '2026-09-10T16:00:00.000Z',
+      edge: 0.20,
+      odds: 150,
+    }))).toBe(false)
+    expect(isLegacyNflPublishedRow(publishedBase({
+      sport: 'mlb',
+      timestamp: '2025-11-02T16:00:00.000Z',
+      edge: 0.24,
+    }))).toBe(false)
+    expect(isPublishedPick(publishedBase({
+      sport: 'nfl',
+      timestamp: '2026-03-01T05:00:00.000Z',
+    }))).toBe(true)
+  })
+
+  test('does not exclude an NFL row we cannot date', () => {
+    expect(isLegacyNflPublishedRow(publishedBase({
+      sport: 'nfl',
+      timestamp: null,
+      completedAt: null,
+    }))).toBe(false)
+  })
+
+  test('falls back to completedAt when timestamp is omitted or null', () => {
+    const viaCompletedAt = publishedBase({
+      sport: 'nfl',
+      completedAt: '2025-11-03T12:00:00.000Z',
+    })
+    delete viaCompletedAt.timestamp
+    expect(isLegacyNflPublishedRow(viaCompletedAt)).toBe(true)
+    expect(publishedRecordedAt(viaCompletedAt).toISOString()).toBe('2025-11-03T12:00:00.000Z')
+
+    expect(isLegacyNflPublishedRow(publishedBase({
+      sport: 'nfl',
+      timestamp: null,
+      completedAt: '2025-11-03T12:00:00.000Z',
+    }))).toBe(true)
+  })
+
+  test('throws when a narrower select omits both timestamp and completedAt', () => {
+    const narrow = publishedBase({ sport: 'nfl' })
+    delete narrow.timestamp
+    delete narrow.completedAt
+    expect(() => isLegacyNflPublishedRow(narrow)).toThrow(/PUBLISHED_STATS_SELECT/)
+    expect(() => isPublishedPick(narrow)).toThrow(/timestamp or completedAt/)
+  })
+
+  test('old-generator fingerprint is corroboration, not the gate', () => {
+    const fp = legacyNflPublishedFingerprint(publishedBase({
+      probability: 0.508,
+      edge: 0.24,
+      odds: 150,
+    }))
+    expect(fp).toEqual({
+      probabilityInOldBand: true,
+      edgeInOldBand: true,
+      americanInOldBand: true,
+    })
+    expect(isLegacyNflPublishedRow(publishedBase({
+      sport: 'nfl',
+      timestamp: '2025-11-02T16:00:00.000Z',
+      probability: 0.62,
+      edge: 0.03,
+      odds: -110,
+    }))).toBe(true)
+  })
+
+  test('comparePublishedLegacyNfl reports before / after / excluded', () => {
+    const legacyWin = publishedBase({
+      sport: 'nfl',
+      result: 'correct',
+      odds: 150,
+      timestamp: '2025-11-02T16:00:00.000Z',
+      playerName: 'Legacy WR',
+    })
+    const modernLoss = publishedBase({
+      sport: 'nfl',
+      result: 'incorrect',
+      odds: -110,
+      timestamp: '2026-09-10T16:00:00.000Z',
+      playerName: 'Modern WR',
+    })
+    const mlbWin = publishedBase({
+      result: 'correct',
+      odds: 110,
+      timestamp: '2026-04-01T16:00:00.000Z',
+    })
+    const comparison = comparePublishedLegacyNfl([legacyWin, modernLoss, mlbWin])
+    expect(comparison.excluded).toHaveLength(1)
+    expect(comparison.excluded[0].playerName).toBe('Legacy WR')
+    expect(comparison.before.correct).toBe(2)
+    expect(comparison.before.incorrect).toBe(1)
+    expect(comparison.after.correct).toBe(1)
+    expect(comparison.after.incorrect).toBe(1)
+    expect(comparison.after.units).toBeLessThan(comparison.before.units)
   })
 })
 
