@@ -25,6 +25,10 @@ import {
   oddsInsertFailedForMissingCommenceTime,
   oddsInsertPayload,
   pickUnmappedOddsGame,
+  shouldRemapEvent,
+  eventStartDriftMs,
+  ODDS_EVENT_REMAP_DRIFT_MS,
+  msSinceEtMidnight,
   resolveTeamNameFallback,
   resolvePropLanding,
 } from '../lib/live-odds-landing.js'
@@ -469,7 +473,7 @@ async function callOddsAPI(endpoint) {
 // CACHE CHECKING
 // ============================================================================
 
-async function checkCache(table, where, maxAgeMs, ignoreCache = false) {
+async function checkCache(table, where, maxAgeMs, ignoreCache = false, tsColumn = 'ts') {
   // If cache should be ignored, always return false (no cache)
   if (ignoreCache) {
     return false
@@ -478,13 +482,13 @@ async function checkCache(table, where, maxAgeMs, ignoreCache = false) {
   try {
     const { data } = await supabase
       .from(table)
-      .select('ts')
+      .select(tsColumn)
       .match(where)
-      .order('ts', { ascending: false })
+      .order(tsColumn, { ascending: false })
       .limit(1)
     
     if (data?.[0]) {
-      const age = Date.now() - new Date(data[0].ts).getTime()
+      const age = Date.now() - new Date(data[0][tsColumn]).getTime()
       if (age < maxAgeMs) {
         return true  // Cache is fresh
       }
@@ -665,13 +669,45 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
   let mapped = 0
   let unmapped = []
   let alreadyMappedCount = 0
+  let remapped = 0
+  // Event ids still offered by the Odds API. A row mapped to an id that is
+  // no longer in the feed (re-issued event after a start-time change) may
+  // be reclaimed by a feed event within the match window.
+  const feedEventIds = new Set(oddsGames.map(g => g.id))
+  const isReclaimable = (g) => Boolean(g?.oddsApiEventId) && !feedEventIds.has(g.oddsApiEventId)
   
   for (const oddsGame of oddsGames) {
-    // Check if this odds game is already correctly mapped to a database game
+    // Check if this odds game is already mapped to a database game
     const alreadyMapped = dbGames.find(g => g.oddsApiEventId === oddsGame.id)
     if (alreadyMapped) {
+      const mappedEventTime = eventCommenceMs(oddsGame.commence_time, date)
+      if (shouldRemapEvent(alreadyMapped, mappedEventTime)) {
+        // Mapped row's start differs from the event by > ODDS_EVENT_REMAP_DRIFT_MS:
+        // move the event to a same-teams row that actually matches its start.
+        const siblings = dbGames.filter(g => g.id !== alreadyMapped.id
+          && matchTeams((g.home?.abbr || g.home?.name || '').trim(), (g.away?.abbr || g.away?.name || '').trim(),
+            (oddsGame.home_team || '').trim(), (oddsGame.away_team || '').trim(), sport))
+        const better = pickUnmappedOddsGame(siblings, mappedEventTime, { windowMs: ODDS_EVENT_REMAP_DRIFT_MS, isReclaimable })
+        const driftH = (eventStartDriftMs(alreadyMapped, mappedEventTime) / 3600000).toFixed(1)
+        if (better) {
+          const { error: clearError } = await supabase.from('Game').update({ oddsApiEventId: null }).eq('id', alreadyMapped.id)
+          const { error: setError } = clearError
+            ? { error: clearError }
+            : await supabase.from('Game').update({ oddsApiEventId: oddsGame.id }).eq('id', better.id)
+          if (setError) {
+            console.error(`    ❌ Re-map error ${alreadyMapped.id} → ${better.id}: ${setError.message}`)
+          } else {
+            console.log(`    🔁 Re-mapped ${oddsGame.id.substring(0, 8)}... ${alreadyMapped.id} → ${better.id} (start drift ${driftH}h)`)
+            alreadyMapped.oddsApiEventId = null
+            better.oddsApiEventId = oddsGame.id
+            remapped++
+          }
+        } else {
+          console.warn(`    ⚠️  ${alreadyMapped.id} start differs from event ${oddsGame.id.substring(0, 8)}... by ${driftH}h; no better row — kept`)
+        }
+      }
       alreadyMappedCount++
-      continue  // Skip games that are already correctly mapped
+      continue
     }
     
     // Debug specific game
@@ -701,7 +737,7 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
       return matchTeams(homeName, awayName, oddsHome, oddsAway, sport)
     })
 
-    const dbGame = pickUnmappedOddsGame(teamMatches, eventTime)
+    const dbGame = pickUnmappedOddsGame(teamMatches, eventTime, { isReclaimable })
     
     if (dbGame) {
       // Save mapping
@@ -714,14 +750,21 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
         console.error(`    ❌ Mapping error for ${dbGame.id}: ${error.message}`)
       } else {
         console.log(`    ✅ Mapped: ${dbGame.away.abbr} @ ${dbGame.home.abbr} → ${oddsGame.id.substring(0, 8)}...`)
+        if (dbGame.oddsApiEventId) {
+          console.log(`       (reclaimed from stale event ${String(dbGame.oddsApiEventId).substring(0, 8)}... no longer in feed)`)
+        }
+        // Keep the in-memory rows in sync so a later event cannot take this row too.
+        dbGame.oddsApiEventId = oddsGame.id
         mapped++
       }
     } else {
-      unmapped.push(`${oddsGame.away_team} @ ${oddsGame.home_team}`)
+      const when = oddsGame.commence_time ? ` (${oddsGame.commence_time})` : ''
+      const why = teamMatches.length > 0 ? ' — no open game within ±6h of event start' : ''
+      unmapped.push(`${oddsGame.away_team} @ ${oddsGame.home_team}${when}${why}`)
     }
   }
   
-  console.log(`  ✅ Mapped ${mapped} new games`)
+  console.log(`  ✅ Mapped ${mapped} new games${remapped ? `, re-mapped ${remapped}` : ''}`)
   if (alreadyMappedCount > 0) {
     console.log(`  ℹ️  ${alreadyMappedCount} games already correctly mapped`)
   }
@@ -1021,7 +1064,7 @@ async function fetchPlayerProps(sport, date, oddsGames) {
 
     const { data: mappedRows, error: mappedError } = await supabase
       .from('Game')
-      .select('oddsApiEventId')
+      .select('id, oddsApiEventId')
       .eq('sport', sport)
       .not('oddsApiEventId', 'is', null)
       .gte('date', dateStart.toISOString())
@@ -1035,6 +1078,10 @@ async function fetchPlayerProps(sport, date, oddsGames) {
 
     const mappedEventIds = new Set(
       (mappedRows || []).map(row => row.oddsApiEventId).filter(Boolean)
+    )
+    // PlayerPropCache.gameId stores OUR Game.id, not the Odds API event id.
+    const eventIdToOurGameId = new Map(
+      (mappedRows || []).filter(row => row.oddsApiEventId).map(row => [row.oddsApiEventId, row.id])
     )
     const totalOddsEvents = oddsGames.length
     const mappedOddsGames = oddsGames.filter(game => mappedEventIds.has(game.id))
@@ -1056,12 +1103,18 @@ async function fetchPlayerProps(sport, date, oddsGames) {
         ? `${game.away_team} vs ${game.home_team}` 
         : `Game ${eventId.slice(0, 8)}...`
       
-      // Check cache using the Odds API event ID
-      const isCached = await checkCache('PlayerPropCache',
-        { gameId: eventId },
-        CACHE_DURATION.PROPS,
-        false  // Props cache is always respected
-      )
+      // Cache is keyed by our Game.id (PlayerPropCache.gameId) and fetchedAt,
+      // and only counts props fetched since midnight ET today so yesterday's
+      // morning pull never suppresses today's.
+      const ourGameId = eventIdToOurGameId.get(eventId)
+      const isCached = ourGameId
+        ? await checkCache('PlayerPropCache',
+          { gameId: ourGameId },
+          Math.min(CACHE_DURATION.PROPS, msSinceEtMidnight()),
+          false,  // Props cache is always respected
+          'fetchedAt'
+        )
+        : false
       
       if (isCached) {
         console.log(`    ✅ Cache hit for ${gameDisplayName}`)
