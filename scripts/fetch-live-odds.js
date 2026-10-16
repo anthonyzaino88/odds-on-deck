@@ -25,13 +25,16 @@ import {
   oddsInsertFailedForMissingCommenceTime,
   oddsInsertPayload,
   pickUnmappedOddsGame,
-  shouldRemapEvent,
-  eventStartDriftMs,
-  ODDS_EVENT_REMAP_DRIFT_MS,
   msSinceEtMidnight,
   resolveTeamNameFallback,
   resolvePropLanding,
 } from '../lib/live-odds-landing.js'
+import { applyEventRemap, planEventRemap, shouldCheckPropsCache } from '../lib/odds-event-remap.js'
+
+// Game ids whose oddsApiEventId changed during this run (new map, reclaim,
+// re-map). Their cached props belong to a different event, so the props
+// cache is bypassed for them.
+const CHANGED_MAPPING_GAME_IDS = new Set()
 import { calculateQualityScore } from '../lib/quality-score.js'
 import { isJuiceTrap, attachNumBooks } from '../lib/juice-traps.js'
 import { isPublishedEligibleProp } from '../lib/published-picks.js'
@@ -681,30 +684,32 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
     const alreadyMapped = dbGames.find(g => g.oddsApiEventId === oddsGame.id)
     if (alreadyMapped) {
       const mappedEventTime = eventCommenceMs(oddsGame.commence_time, date)
-      if (shouldRemapEvent(alreadyMapped, mappedEventTime)) {
-        // Mapped row's start differs from the event by > ODDS_EVENT_REMAP_DRIFT_MS:
-        // move the event to a same-teams row that actually matches its start.
-        const siblings = dbGames.filter(g => g.id !== alreadyMapped.id
-          && matchTeams((g.home?.abbr || g.home?.name || '').trim(), (g.away?.abbr || g.away?.name || '').trim(),
-            (oddsGame.home_team || '').trim(), (oddsGame.away_team || '').trim(), sport))
-        const better = pickUnmappedOddsGame(siblings, mappedEventTime, { windowMs: ODDS_EVENT_REMAP_DRIFT_MS, isReclaimable })
-        const driftH = (eventStartDriftMs(alreadyMapped, mappedEventTime) / 3600000).toFixed(1)
-        if (better) {
-          const { error: clearError } = await supabase.from('Game').update({ oddsApiEventId: null }).eq('id', alreadyMapped.id)
-          const { error: setError } = clearError
-            ? { error: clearError }
-            : await supabase.from('Game').update({ oddsApiEventId: oddsGame.id }).eq('id', better.id)
-          if (setError) {
-            console.error(`    ❌ Re-map error ${alreadyMapped.id} → ${better.id}: ${setError.message}`)
-          } else {
-            console.log(`    🔁 Re-mapped ${oddsGame.id.substring(0, 8)}... ${alreadyMapped.id} → ${better.id} (start drift ${driftH}h)`)
-            alreadyMapped.oddsApiEventId = null
-            better.oddsApiEventId = oddsGame.id
-            remapped++
-          }
-        } else {
-          console.warn(`    ⚠️  ${alreadyMapped.id} start differs from event ${oddsGame.id.substring(0, 8)}... by ${driftH}h; no better row — kept`)
+      const siblings = dbGames.filter(g => g.id !== alreadyMapped.id
+        && matchTeams((g.home?.abbr || g.home?.name || '').trim(), (g.away?.abbr || g.away?.name || '').trim(),
+          (oddsGame.home_team || '').trim(), (oddsGame.away_team || '').trim(), sport))
+      const plan = planEventRemap({ mapped: alreadyMapped, siblings, eventTime: mappedEventTime, isReclaimable })
+      const driftH = plan.driftMs != null ? (plan.driftMs / 3600000).toFixed(1) : '?'
+      if (plan.action === 'remap') {
+        const result = await applyEventRemap(supabase, { fromId: alreadyMapped.id, toId: plan.target.id, eventId: oddsGame.id })
+        if (result.ok) {
+          console.log(`    🔁 Re-mapped ${oddsGame.id.substring(0, 8)}... ${alreadyMapped.id} → ${plan.target.id} (start drift ${driftH}h)`)
+          alreadyMapped.oddsApiEventId = null
+          plan.target.oddsApiEventId = oddsGame.id
+          CHANGED_MAPPING_GAME_IDS.add(alreadyMapped.id)
+          CHANGED_MAPPING_GAME_IDS.add(plan.target.id)
+          remapped++
+        } else if (result.state === 'both_mapped') {
+          plan.target.oddsApiEventId = oddsGame.id
+          CHANGED_MAPPING_GAME_IDS.add(alreadyMapped.id)
+          CHANGED_MAPPING_GAME_IDS.add(plan.target.id)
+        } else if (result.state === 'unmapped') {
+          alreadyMapped.oddsApiEventId = null
+          CHANGED_MAPPING_GAME_IDS.add(alreadyMapped.id)
         }
+      } else if (plan.action === 'skip_doubleheader') {
+        console.warn(`    ⚠️  ${alreadyMapped.id} start differs from event ${oddsGame.id.substring(0, 8)}... by ${driftH}h; doubleheader — re-map skipped`)
+      } else if (plan.action === 'keep') {
+        console.warn(`    ⚠️  ${alreadyMapped.id} start differs from event ${oddsGame.id.substring(0, 8)}... by ${driftH}h; no better row — kept`)
       }
       alreadyMappedCount++
       continue
@@ -755,6 +760,7 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
         }
         // Keep the in-memory rows in sync so a later event cannot take this row too.
         dbGame.oddsApiEventId = oddsGame.id
+        CHANGED_MAPPING_GAME_IDS.add(dbGame.id)
         mapped++
       }
     } else {
@@ -1037,7 +1043,7 @@ async function saveGameOdds(games, sport, date) {
 // PLAYER PROPS FETCHING
 // ============================================================================
 
-async function fetchPlayerProps(sport, date, oddsGames) {
+async function fetchPlayerProps(sport, date, oddsGames, ignoreCache = false) {
   const sportConfig = SPORTS[sport]
   if (!sportConfig) return []
   
@@ -1107,11 +1113,11 @@ async function fetchPlayerProps(sport, date, oddsGames) {
       // and only counts props fetched since midnight ET today so yesterday's
       // morning pull never suppresses today's.
       const ourGameId = eventIdToOurGameId.get(eventId)
-      const isCached = ourGameId
+      const isCached = shouldCheckPropsCache({ ignoreCache, ourGameId, changedGameIds: CHANGED_MAPPING_GAME_IDS })
         ? await checkCache('PlayerPropCache',
           { gameId: ourGameId },
           Math.min(CACHE_DURATION.PROPS, msSinceEtMidnight()),
-          false,  // Props cache is always respected
+          false,  // ignoreCache already handled by shouldCheckPropsCache
           'fetchedAt'
         )
         : false
@@ -1739,7 +1745,7 @@ async function main() {
       }
       
       // 2. Fetch and save player props (using The Odds API event IDs from games)
-      const gameProps = await fetchPlayerProps(s, date, games)
+      const gameProps = await fetchPlayerProps(s, date, games, cacheFresh)
       if (!dryRun && gameProps.length > 0) {
         await savePlayerProps(gameProps, s)
         
