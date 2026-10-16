@@ -1,5 +1,6 @@
 import {
   evaluateTeamStatsForEdge,
+  isTeamSeasonStatsFrozen,
   mergeStatsDataThrough,
   parseStoredUtcInstantMs,
 } from '../../lib/team-performance-stats.js'
@@ -10,6 +11,7 @@ const NOW = new Date('2026-10-16T12:25:00.000Z')
 function gameQuery(rows, calls) {
   const q = {
     select() { return q },
+    eq(col, val) { calls.push(['eq', col, val]); return q },
     or(expr) { calls.push(['or', expr]); return q },
     in(col, vals) { calls.push(['in', col, vals]); return q },
     lte(col, val) { calls.push(['lte', col, val]); return q },
@@ -93,9 +95,15 @@ describe('mergeStatsDataThrough', () => {
 describe('loadLatestFinalGameDate', () => {
   test('queries final home/away games up to now', async () => {
     const sb = supabaseWith({ games: [{ date: '2026-10-15T17:00:00' }] })
-    await expect(loadLatestFinalGameDate(sb, { id: 'MLB_139' }, { now: NOW })).resolves.toBe('2026-10-15T17:00:00')
+    await expect(loadLatestFinalGameDate(sb, { id: 'MLB_139', sport: 'mlb' }, { now: NOW })).resolves.toBe('2026-10-15T17:00:00')
+    expect(sb.calls).toContainEqual(['eq', 'sport', 'mlb'])
     expect(sb.calls).toContainEqual(['or', 'homeId.eq.MLB_139,awayId.eq.MLB_139'])
     expect(sb.calls.find((c) => c[0] === 'in')[2]).toContain('final')
+  })
+  test('no sport -> no lookup (team ids are not unique across sports)', async () => {
+    const sb = supabaseWith({ games: [{ date: '2026-10-15T17:00:00' }] })
+    await expect(loadLatestFinalGameDate(sb, { id: 'MLB_139' }, { now: NOW })).resolves.toBeNull()
+    expect(sb.calls).toHaveLength(0)
   })
   test('lookup failure is non-fatal', async () => {
     await expect(loadLatestFinalGameDate(supabaseWith({ gameThrows: true }), { id: 'X' })).resolves.toBeNull()
@@ -119,5 +127,39 @@ describe('fetchAndUpdateTeam statsDataThrough', () => {
     const res = await fetchAndUpdateTeam(team, { supabase: sb, fetchImpl, extractedAt: NOW, logger })
     expect(res.updated).toBe(true)
     expect(sb.updates[0].payload.statsDataThrough).toBeUndefined()
+  })
+})
+
+describe('isTeamSeasonStatsFrozen', () => {
+  test('full regular season by record or gamesPlayed', () => {
+    expect(isTeamSeasonStatsFrozen('mlb', { record: '98-64' })).toBe(true)
+    expect(isTeamSeasonStatsFrozen('mlb', { record: '80-60' })).toBe(false)
+    expect(isTeamSeasonStatsFrozen('mlb', { gamesPlayed: 162 })).toBe(true)
+    expect(isTeamSeasonStatsFrozen('nhl', { record: '50-25-7' })).toBe(true)
+    expect(isTeamSeasonStatsFrozen('nhl', { record: '5-2-0' })).toBe(false)
+    expect(isTeamSeasonStatsFrozen('nfl', { record: '12-5' })).toBe(true)
+    expect(isTeamSeasonStatsFrozen('xyz', { record: '200-0' })).toBe(false)
+  })
+  test('ESPN nextEvent postseason flag', () => {
+    const post = { team: { nextEvent: [{ seasonType: { type: 3, name: 'Postseason' } }] } }
+    const reg = { team: { nextEvent: [{ seasonType: { type: 2, name: 'Regular Season' } }] } }
+    expect(isTeamSeasonStatsFrozen('mlb', { record: '80-60', espnData: post })).toBe(true)
+    expect(isTeamSeasonStatsFrozen('mlb', { record: '80-60', espnData: reg })).toBe(false)
+  })
+})
+
+describe('fetchAndUpdateTeam in regular season', () => {
+  test('does NOT bump statsDataThrough from DB finals mid-season', async () => {
+    const midSeason = JSON.parse(JSON.stringify(ESPN_TB))
+    midSeason.team.record.items[0].summary = '80-60'
+    midSeason.team.record.items[0].stats = midSeason.team.record.items[0].stats.map((st) => (
+      st.name === 'gamesPlayed' ? { ...st, value: 140 } : st))
+    const sb = supabaseWith({ games: [{ date: '2026-10-15T17:00:00' }] })
+    const res = await fetchAndUpdateTeam({ id: 'MLB_139', abbr: 'TB', sport: 'mlb' }, {
+      supabase: sb, fetchImpl: async () => ({ ok: true, json: async () => midSeason }), extractedAt: NOW, logger: { log() {}, error() {} },
+    })
+    expect(res.updated).toBe(true)
+    expect(sb.updates[0].payload.statsDataThrough).toBeUndefined()
+    expect(sb.calls).toHaveLength(0)
   })
 })
