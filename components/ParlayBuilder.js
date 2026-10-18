@@ -41,9 +41,12 @@ export default function ParlayBuilder({ onGenerate }) {
     if (shouldFetchGames) fetchAvailableGames()
   }, [type])
 
+  // Re-filter whenever SGP is selected, not only on sport/cache changes:
+  // the mount-time detectSport() fills the cache, so switching to SGP with a
+  // fresh cache skips the fetch above and nothing else would populate games.
   useEffect(() => {
     if (type === 'single_game' && allGamesCache) filterCachedGames()
-  }, [sport, allGamesCache])
+  }, [type, sport, allGamesCache])
 
   useEffect(() => {
     async function detectSport() {
