@@ -24,6 +24,7 @@ import {
   eventCommenceMs,
   MAP_EVENT_GAME_SELECT,
   oddsInsertFailedForMissingCommenceTime,
+  gamesEligibleForPropSave,
   propSaveDecision,
   oddsInsertPayload,
   pickUnmappedOddsGame,
@@ -1329,7 +1330,7 @@ async function savePlayerProps(gameProps, sport) {
   for (const skipped of skippedGames) {
     console.log(`  ⏭️  Skipping props for ${skipped.id} (status=${skipped.status}; not moving onto another game)`)
   }
-  const skippedEventIds = new Set(skippedGames.map((g) => g.oddsApiEventId).filter(Boolean))
+  const skippedGameIds = new Set(skippedGames.map((g) => g.id))
   const finalGames = (dbGames || []).filter((g) => propSaveDecision(g) === 'redirect')
   let siblingLookup = {}
   if (finalGames.length > 0) {
@@ -1355,16 +1356,13 @@ async function savePlayerProps(gameProps, sport) {
   
   // Create lookup map (redirect final games to their sibling)
   const eventIdToGameData = {}
-  if (dbGames) {
-    dbGames.forEach(g => {
-      if (!g.oddsApiEventId || skippedEventIds.has(g.oddsApiEventId) || propSaveDecision(g) === 'skip') return
-      const redirectGame = siblingLookup[g.id] || null
-      eventIdToGameData[g.oddsApiEventId] = {
-        mappedGame: g,
-        redirectGame,
-      }
-    })
-  }
+  gamesEligibleForPropSave(dbGames).forEach((g) => {
+    if (skippedGameIds.has(g.id)) return
+    eventIdToGameData[g.oddsApiEventId] = {
+      mappedGame: g,
+      redirectGame: siblingLookup[g.id] || null,
+    }
+  })
   
   // If direct lookup didn't find all, try broader query
   if (Object.keys(eventIdToGameData).length < eventIds.length) {
@@ -1382,7 +1380,7 @@ async function savePlayerProps(gameProps, sport) {
             && eventIds.includes(g.oddsApiEventId)
             && !eventIdToGameData[g.oddsApiEventId]
             && propSaveDecision(g) !== 'skip'
-            && !skippedEventIds.has(g.oddsApiEventId)
+            && !skippedGameIds.has(g.id)
           ) {
             eventIdToGameData[g.oddsApiEventId] = {
               mappedGame: g,

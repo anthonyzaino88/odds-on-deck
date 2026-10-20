@@ -10,6 +10,7 @@ import {
   pickUnmappedOddsGame,
   resolveTeamNameFallback,
   resolvePropLanding,
+  gamesEligibleForPropSave,
   propSaveDecision,
 } from '../../lib/live-odds-landing.js'
 
@@ -155,7 +156,17 @@ describe('propSaveDecision', () => {
     expect(propSaveDecision({ status: 'scheduled' })).toBe('keep')
     const src = readFileSync(join(process.cwd(), 'scripts/fetch-live-odds.js'), 'utf8')
     expect(src).toMatch(/propSaveDecision/)
+    expect(src).toMatch(/skippedGameIds/)
+    expect(src).not.toMatch(/skippedEventIds/)
     expect(src).toMatch(/not moving onto another game/)
+  })
+
+  test('a live row that shares an event id with a retired row still maps', () => {
+    const retired = { id: 'CLE_at_TB_2026-10-20', oddsApiEventId: 'evt-1', status: 'not_needed' }
+    const live = { id: 'TB_at_CLE_2026-10-20', oddsApiEventId: 'evt-1', status: 'scheduled' }
+    expect(gamesEligibleForPropSave([retired, live]).map((game) => game.id)).toEqual([
+      'TB_at_CLE_2026-10-20',
+    ])
   })
 })
 
