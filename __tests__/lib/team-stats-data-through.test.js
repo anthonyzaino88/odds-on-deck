@@ -34,7 +34,16 @@ function supabaseWith({ games = [], gameThrows = false } = {}) {
       }
       return {
         update(payload) {
-          return { async eq(col, id) { updates.push({ id, payload }); return { error: null } } }
+          return {
+            eq(col, id) {
+              return {
+                async select() {
+                  updates.push({ id, payload })
+                  return { data: [{ id }], error: null }
+                },
+              }
+            },
+          }
         },
       }
     },
@@ -126,7 +135,7 @@ describe('fetchAndUpdateTeam statsDataThrough', () => {
     const sb = supabaseWith({ games: [] })
     const res = await fetchAndUpdateTeam(team, { supabase: sb, fetchImpl, extractedAt: NOW, logger })
     expect(res.updated).toBe(true)
-    expect(sb.updates[0].payload.statsDataThrough).toBeUndefined()
+    expect(sb.updates[0].payload.statsDataThrough).toBe('2026-10-08T00:00:00.000Z')
   })
 })
 
@@ -159,7 +168,51 @@ describe('fetchAndUpdateTeam in regular season', () => {
       supabase: sb, fetchImpl: async () => ({ ok: true, json: async () => midSeason }), extractedAt: NOW, logger: { log() {}, error() {} },
     })
     expect(res.updated).toBe(true)
-    expect(sb.updates[0].payload.statsDataThrough).toBeUndefined()
+    expect(sb.updates[0].payload.statsDataThrough).toBe('2026-10-08T00:00:00.000Z')
     expect(sb.calls).toHaveLength(0)
+  })
+})
+
+const NHL_NOW = new Date('2026-10-20T16:00:00.000Z')
+const ESPN_NHL_NO_SPLITS = {
+  team: {
+    record: {
+      items: [{
+        type: 'total',
+        summary: '7-2',
+        stats: [
+          { name: 'avgPointsFor', value: 3.7777777 },
+          { name: 'avgPointsAgainst', value: 2.1111112 },
+          { name: 'gamesPlayed', value: 9 },
+        ],
+      }],
+    },
+  },
+}
+
+describe('fetchAndUpdateTeam NHL without previousEvent', () => {
+  const team = { id: 'NHL_1', abbr: 'BOS', sport: 'nhl' }
+  const logger = { log() {}, error() {} }
+  const fetchImpl = async () => ({ ok: true, json: async () => ESPN_NHL_NO_SPLITS })
+
+  test('in-season: derives statsDataThrough from latest same-sport final Game', async () => {
+    const sb = supabaseWith({ games: [{ date: '2026-10-19T00:00:00' }] })
+    const res = await fetchAndUpdateTeam(team, { supabase: sb, fetchImpl, extractedAt: NHL_NOW, logger })
+    expect(res.updated).toBe(true)
+    expect(res.plan.partial).toBe(false)
+    expect(res.plan.freshnessTimestampsWritten).toBe(true)
+    expect(sb.updates[0].payload.statsCapturedAt).toBe(NHL_NOW.toISOString())
+    expect(sb.updates[0].payload.statsDataThrough).toBe('2026-10-19T00:00:00.000Z')
+    expect(sb.updates[0].payload).not.toHaveProperty('homeRecord')
+    expect(sb.calls).toContainEqual(['eq', 'sport', 'nhl'])
+    expect(sb.calls).toContainEqual(['or', 'homeId.eq.NHL_1,awayId.eq.NHL_1'])
+  })
+
+  test('in-season: does not invent statsDataThrough when DB has no final', async () => {
+    const sb = supabaseWith({ games: [] })
+    const res = await fetchAndUpdateTeam(team, { supabase: sb, fetchImpl, extractedAt: NHL_NOW, logger })
+    expect(res.updated).toBe(true)
+    expect(sb.updates[0].payload.statsCapturedAt).toBe(NHL_NOW.toISOString())
+    expect(sb.updates[0].payload.statsDataThrough).toBeUndefined()
   })
 })

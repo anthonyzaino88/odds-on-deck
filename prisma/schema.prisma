@@ -35,8 +35,8 @@ model Team {
   season           String? // e.g. "2025" — ESPN season year, not Game.season
   gamesPlayed      Int?
   statsKind        String? // "season" (ESPN team endpoint) or "last10" (true window; not written today)
-  statsCapturedAt  DateTime? // when this fetch wrote a full present-stats extract
-  statsDataThrough DateTime? // last completed game date from ESPN, when present
+  statsCapturedAt  DateTime? // when this fetch wrote core season stats (record + avg for/against)
+  statsDataThrough DateTime? // last completed game from ESPN previousEvent, else latest same-sport final Game
 
   players   Player[]
   homeGames Game[]   @relation("homeTeam")

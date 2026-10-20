@@ -125,6 +125,6 @@ Ask before adding paid data services.
 
 **Keep public NFL selections disabled** until:
 
-1. Team freshness / season / data-through columns are applied in the target database and populated by a full ESPN extract (`statsDataThrough` still requires a last completed game in the ESPN payload).
+1. Team freshness / season / data-through columns are applied in the target database and populated by a core ESPN extract (`statsDataThrough` comes from ESPN `previousEvent` when present, otherwise the team's latest same-sport final `Game`).
 2. A chronological out-of-sample evaluation reports sample size, calibration, probability score vs the market, and a defined staking rule.
 3. Totals have a fitted or empirically validated mapping that handles NFL scoring variance and integer pushes.
