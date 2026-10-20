@@ -32,8 +32,8 @@ node scripts/fetch-live-odds.js all --cache-fresh
 # Per-sport API failures do not abort the other sports.
 # Prisma preflight runs first (ops:morning-edges / this script): if
 # node_modules/.prisma/client is missing it logs loudly and runs
-# `npx prisma generate`. Partial ESPN writes (no timestamps) are counted
-# separately from timestamped updates.
+# `node prisma/build/index.js generate` (npx is fallback only). Partial
+# ESPN writes (no timestamps) are counted separately from timestamped updates.
 node scripts/fetch-team-performance-data.js   # Requires SUPABASE_SECRET_KEY
 # or: npm run fetch:team-performance
 # Combined: npm run ops:morning-edges  (prisma preflight, fetch, then calculate-game-edges)
@@ -221,7 +221,7 @@ ODDS_API_KEY=your_odds_api_key
 
 ## Prisma client + git worktrees
 
-Morning ops and Prisma-backed scripts (`auto-validate-parlays.js`, etc.) need a generated client at `node_modules/.prisma/client/index.js`. `npm ci` / `npm install` run `prisma generate` via the `postinstall` script. `npm run ops:morning-edges` and the fetch/edge scripts also preflight: if that file is missing or a `PrismaClient` import fails, they log loudly and run `npx prisma generate`.
+Morning ops and Prisma-backed scripts (`auto-validate-parlays.js`, etc.) need a generated client at `node_modules/.prisma/client/index.js`. `npm ci` / `npm install` run `prisma generate` via the `postinstall` script. `npm run ops:morning-edges` and the fetch/edge scripts also preflight: if that file is missing or a `PrismaClient` import fails, they log loudly and run `node require.resolve('prisma/build/index.js') generate`. `npx prisma generate` is a secondary fallback only — a missing `node_modules/.bin/prisma.cmd` makes `npx` fail with `'prisma' is not recognized`.
 
 - **Never junction `node_modules` into a git worktree.** A junction reuses another checkout's generated client and breaks `@prisma/client`.
 - Run `npm ci` in **each** worktree so it gets its own `node_modules`.

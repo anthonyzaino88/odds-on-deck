@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Morning-ops Prisma preflight. Safe to run before any script that imports
-// @prisma/client. Logs loudly and runs `npx prisma generate` if the generated
-// client is missing or unimportable.
+// @prisma/client. Logs loudly and runs `node prisma/build/index.js generate`
+// if the generated client is missing or unimportable (`npx` is fallback only).
 
 import { ensurePrismaClient } from '../lib/prisma-preflight.js'
 
