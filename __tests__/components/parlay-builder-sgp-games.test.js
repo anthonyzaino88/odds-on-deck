@@ -1,19 +1,42 @@
 /**
  * @jest-environment node
  */
-import fs from 'fs'
-import path from 'path'
+import {
+  nextParlayBuilderGameId,
+  parlayBuilderGamesForSport,
+} from '../../lib/parlay-builder-games.js'
 
-// Regression: switching Parlay Type to SGP showed an empty "Select Game"
-// list until the sport changed. The game filter effect must re-run when
-// the parlay type changes, since the cache is usually already warm.
+const mlbNoon = { id: 'NYY_at_BOS_2026-10-18', sport: 'mlb', status: 'scheduled' }
+const mlbWarmup = { id: 'CLE_at_DET_2026-10-18', sport: 'mlb', status: 'warmup' }
+const mlbLive = { id: 'CHC_at_STL_2026-10-18', sport: 'mlb', status: 'in_progress' }
+const mlbFinal = { id: 'LAD_at_SDP_2026-10-18', sport: 'mlb', status: 'final' }
+const nflKick = { id: 'KC_at_BUF_2026-10-18', sport: 'nfl', status: 'pre_game' }
+const nflHalf = { id: 'DAL_at_PHI_2026-10-18', sport: 'nfl', status: 'halftime' }
+
+const cache = {
+  mlb: [mlbNoon, mlbWarmup, mlbLive, mlbFinal],
+  nfl: [nflKick, nflHalf],
+  nhl: [],
+}
+
 describe('ParlayBuilder SGP game list', () => {
-  const src = fs.readFileSync(path.join(__dirname, '../../components/ParlayBuilder.js'), 'utf8')
+  test('lists pre-start games for the selected sport, including warmup', () => {
+    expect(parlayBuilderGamesForSport(cache, 'mlb').map((g) => g.id)).toEqual([
+      mlbNoon.id,
+      mlbWarmup.id,
+    ])
+    expect(parlayBuilderGamesForSport(cache, 'nfl').map((g) => g.id)).toEqual([
+      nflKick.id,
+    ])
+  })
 
-  test('cached-games filter effect depends on type, sport, and cache', () => {
-    const m = src.match(/filterCachedGames\(\)\s*\}\s*,\s*\[([^\]]*)\]\)/)
-    expect(m).not.toBeNull()
-    const deps = m[1].split(',').map(d => d.trim())
-    expect(deps).toEqual(expect.arrayContaining(['type', 'sport', 'allGamesCache']))
+  test('switching sport/type resets selectedGameId when it is not in the new list', () => {
+    const mlbGames = parlayBuilderGamesForSport(cache, 'mlb')
+    const nflGames = parlayBuilderGamesForSport(cache, 'nfl')
+
+    expect(nextParlayBuilderGameId(mlbGames, '')).toBe(mlbNoon.id)
+    expect(nextParlayBuilderGameId(mlbGames, mlbNoon.id)).toBe(mlbNoon.id)
+    expect(nextParlayBuilderGameId(nflGames, mlbNoon.id)).toBe(nflKick.id)
+    expect(nextParlayBuilderGameId([], mlbNoon.id)).toBe('')
   })
 })

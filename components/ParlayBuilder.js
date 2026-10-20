@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { cn } from '../lib/utils'
+import { nextParlayBuilderGameId, parlayBuilderGamesForSport } from '../lib/parlay-builder-games.js'
 
 const STRATEGIES = [
   { id: 'safe', label: 'Safe Mode', sub: '52%+ win rate' },
@@ -94,27 +95,10 @@ export default function ParlayBuilder({ onGenerate }) {
   }
 
   const filterGamesForSport = (gamesData, selectedSport) => {
-    let games = []
-    if (selectedSport === 'mlb') {
-      games = gamesData.mlb || []
-    } else if (selectedSport === 'nfl') {
-      games = gamesData.nfl || []
-    } else if (selectedSport === 'nhl') {
-      games = gamesData.nhl || []
-    } else {
-      // Mixed: combine all
-      games = [...(gamesData.mlb || []), ...(gamesData.nfl || []), ...(gamesData.nhl || [])]
-    }
-    
-    const activeGames = games.filter(g => 
-      // For single-game parlays, prefer scheduled games (more likely to have props)
-      // Exclude in_progress and final games as props expire when games start
-      ['scheduled', 'pre-game', 'pre_game', 'delayed_start', 'warmup'].includes(g.status)
-    )
+    const activeGames = parlayBuilderGamesForSport(gamesData, selectedSport)
     setAvailableGames(activeGames)
-    if (activeGames.length > 0 && !selectedGameId) {
-      setSelectedGameId(activeGames[0].id)
-    }
+    const nextId = nextParlayBuilderGameId(activeGames, selectedGameId)
+    if (nextId !== selectedGameId) setSelectedGameId(nextId)
   }
 
   const handleGenerate = async () => {
