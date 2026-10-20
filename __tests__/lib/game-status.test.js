@@ -51,6 +51,38 @@ describe('game-status buckets', () => {
     expect(isStartedOrEndedStatus('halftime')).toBe(true)
     expect(isStartedOrEndedStatus('scheduled')).toBe(false)
   })
+
+  test('ESPN state=post postponed is never FINAL', () => {
+    expect(FINAL.has('post')).toBe(false)
+    expect(isFinalStatus('post')).toBe(false)
+    expect(isFinalStatus('postponed')).toBe(false)
+    expect(classifyVendorStatus('postponed')).toBe('dead')
+    expect(isStartedOrEndedStatus('postponed')).toBe(false)
+
+    const postponed = {
+      type: { state: 'post', name: 'STATUS_POSTPONED', detail: 'Postponed' },
+    }
+    expect(isFinalStatus(postponed)).toBe(false)
+    expect(isDeadStatus(postponed)).toBe(true)
+    expect(classifyVendorStatus(postponed)).toBe('dead')
+
+    const cancelled = {
+      type: { state: 'post', name: 'STATUS_CANCELED', detail: 'Canceled' },
+    }
+    expect(isFinalStatus(cancelled)).toBe(false)
+    expect(isDeadStatus(cancelled)).toBe(true)
+
+    const barePost = { type: { state: 'post' } }
+    expect(isFinalStatus(barePost)).toBe(false)
+    expect(classifyVendorStatus(barePost)).toBeNull()
+
+    const finished = {
+      type: { state: 'post', name: 'STATUS_FINAL', completed: true },
+    }
+    expect(isFinalStatus(finished)).toBe(true)
+    expect(isDeadStatus(finished)).toBe(false)
+    expect(classifyVendorStatus(finished)).toBe('final')
+  })
 })
 
 describe('vendor-emitted Game.status contract', () => {

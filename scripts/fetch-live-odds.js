@@ -702,9 +702,6 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
           plan.target.oddsApiEventId = oddsGame.id
           CHANGED_MAPPING_GAME_IDS.add(alreadyMapped.id)
           CHANGED_MAPPING_GAME_IDS.add(plan.target.id)
-        } else if (result.state === 'unmapped') {
-          alreadyMapped.oddsApiEventId = null
-          CHANGED_MAPPING_GAME_IDS.add(alreadyMapped.id)
         }
       } else if (plan.action === 'skip_doubleheader') {
         console.warn(`    ⚠️  ${alreadyMapped.id} start differs from event ${oddsGame.id.substring(0, 8)}... by ${driftH}h; doubleheader — re-map skipped`)

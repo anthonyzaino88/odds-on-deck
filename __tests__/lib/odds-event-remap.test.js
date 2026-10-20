@@ -80,8 +80,8 @@ describe('planEventRemap', () => {
     expect(planEventRemap({ mapped: G17, siblings: [{ ...G16, oddsApiEventId: 'b9d2-other' }], eventTime: EV, isReclaimable: () => false }).action).toBe('keep')
   })
   test('doubleheader rows are never re-mapped', () => {
-    const dh1 = { id: 'NYY_at_BOS_2026-07-04', date: '2026-07-04T17:05:00', oddsApiEventId: 'ev2' }
-    const dh2 = { id: 'NYY_at_BOS_2026-07-04_2', date: '2026-07-04T23:10:00', oddsApiEventId: null }
+    const dh1 = { id: 'NYY_at_BOS_2026-07-04', date: '2026-07-04T17:05:00', oddsApiEventId: 'ev2', status: 'scheduled' }
+    const dh2 = { id: 'NYY_at_BOS_2026-07-04_2', date: '2026-07-04T23:10:00', oddsApiEventId: null, status: 'scheduled' }
     const ev2 = eventCommenceMs('2026-07-04T23:10:00Z')
     expect(planEventRemap({ mapped: dh1, siblings: [dh2], eventTime: ev2 }).action).toBe('skip_doubleheader')
     // target is half of a doubleheader
@@ -155,5 +155,6 @@ describe('fetch-live-odds wiring', () => {
   test('re-map goes through applyEventRemap (set-before-clear)', () => {
     expect(src).toMatch(/applyEventRemap\(supabase/)
     expect(src).not.toMatch(/update\(\{ oddsApiEventId: null \}\)\.eq\('id', alreadyMapped\.id\)/)
+    expect(src).not.toMatch(/state === 'unmapped'/)
   })
 })

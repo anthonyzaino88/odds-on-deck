@@ -14,11 +14,13 @@ describe('pickUnmappedOddsGame', () => {
     id: 'CHC_at_CLE_2026-04-04',
     date: '2026-04-04T17:10:00',
     oddsApiEventId: 'event-game-1',
+    status: 'scheduled',
   }
   const game2 = {
     id: 'CHC_at_CLE_2026-04-05',
     date: '2026-04-05T17:10:00',
     oddsApiEventId: null,
+    status: 'scheduled',
   }
 
   test('split doubleheader: a new event lands on the unmapped game, not the closest mapped row', () => {
