@@ -11,6 +11,7 @@ import {
   parseGameIdParts,
   parseReconcileCliArgs,
   planReconcile,
+  shouldAbortReconcileSources,
   RECONCILE_CLI_USAGE,
   runReconcile,
   runReconcileCli,
@@ -196,14 +197,38 @@ describe('planReconcile ghosts', () => {
 })
 
 describe('planReconcile source aborts', () => {
-  test('unavailable, zero events, or malformed aborts that date', () => {
-    for (const state of ['unavailable', 'zero', 'malformed']) {
+  test('both valid empty slates agree there are no games, so ghosts retire', () => {
+    const plan = planReconcile({
+      dbRows: [row('CLE_at_TB_2026-10-20')],
+      espnEvents: [],
+      statsApiGames: [],
+      espnStatusByDate: { [TODAY]: 'empty' },
+      statsStatusByDate: { [TODAY]: 'empty' },
+      nowEt: TODAY,
+      lastFetchedDate: TODAY,
+      fetchedDates: [TODAY],
+    })
+    expect(shouldAbortReconcileSources('empty', 'empty')).toEqual({ abort: false, bothEmpty: true })
+    expect(plan.aborts).toEqual([])
+    expect(plan.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20')).toMatchObject({
+      action: 'retire_not_needed',
+      reason: 'ghost',
+    })
+  })
+
+  test('unavailable, malformed, or a one-sided empty abort that date', () => {
+    for (const [espn, stats] of [
+      ['unavailable', 'ok'],
+      ['malformed', 'ok'],
+      ['empty', 'ok'],
+      ['ok', 'empty'],
+    ]) {
       const plan = planReconcile({
         dbRows: [row('CLE_at_TB_2026-10-20')],
-        espnEvents: [],
-        statsApiGames: [],
-        espnStatusByDate: { [TODAY]: state },
-        statsStatusByDate: { [TODAY]: 'ok' },
+        espnEvents: espn === 'ok' ? [{ date: TODAY, awayAbbr: 'LAD', homeAbbr: 'MIL' }] : [],
+        statsApiGames: stats === 'ok' ? [{ date: TODAY, gamePk: '1', awayAbbr: 'LAD', homeAbbr: 'MIL' }] : [],
+        espnStatusByDate: { [TODAY]: espn },
+        statsStatusByDate: { [TODAY]: stats },
         nowEt: TODAY,
         lastFetchedDate: TODAY,
         fetchedDates: [TODAY],
@@ -234,8 +259,8 @@ describe('planReconcile source aborts', () => {
   test('map helpers mark missing collections as malformed', () => {
     expect(mapEspnScoreboardEvents({}, TODAY).state).toBe('malformed')
     expect(mapStatsApiSchedule({ dates: null }, TODAY).state).toBe('malformed')
-    expect(mapEspnScoreboardEvents({ events: [] }, TODAY).state).toBe('zero')
-    expect(mapStatsApiSchedule({ dates: [] }, TODAY).state).toBe('zero')
+    expect(mapEspnScoreboardEvents({ events: [] }, TODAY).state).toBe('empty')
+    expect(mapStatsApiSchedule({ dates: [] }, TODAY).state).toBe('empty')
   })
 })
 
@@ -257,6 +282,28 @@ describe('planReconcile flips', () => {
     })
     expect(plan.actions.find((action) => action.id === 'TB_at_CLE_2026-10-20')).toBeUndefined()
     expect(plan.summary.flips).toBe(1)
+  })
+
+  test('wrong-orientation row is flipped_duplicate when the keep row is final or in_progress', () => {
+    for (const siblingStatus of ['final', 'in_progress']) {
+      const plan = planWithSlate({
+        extraRows: [
+          row('TB_at_CLE_2026-10-20', {
+            status: siblingStatus,
+            homeScore: siblingStatus === 'final' ? 3 : 1,
+            awayScore: siblingStatus === 'final' ? 1 : 0,
+          }),
+          row('CLE_at_TB_2026-10-20'),
+        ],
+        extraEspn: [{ date: TODAY, espnGameId: 'alcs', awayAbbr: 'TB', homeAbbr: 'CLE' }],
+        extraStats: [{ date: TODAY, gamePk: '123', awayAbbr: 'TB', homeAbbr: 'CLE', doubleHeader: 'N' }],
+      })
+      expect(plan.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20')).toMatchObject({
+        action: 'retire_not_needed',
+        reason: 'flipped_duplicate',
+      })
+      expect(plan.actions.find((action) => action.id === 'TB_at_CLE_2026-10-20')).toBeUndefined()
+    }
   })
 
   test('feeds disagree on home/away → flip_ambiguous, no retire', () => {
@@ -392,7 +439,7 @@ describe('planReconcile caps', () => {
     expect(plan.summary.retired).toBe(0)
   })
 
-  test('>30% of that date\'s candidates abort', () => {
+  test('1 ghost out of 3 candidates is allowed (pct cap needs 5+ candidates)', () => {
     const slate = slateFillers()
     const plan = planReconcile({
       dbRows: [slate.rows[0], slate.rows[1], row('CLE_at_TB_2026-10-20')],
@@ -405,8 +452,27 @@ describe('planReconcile caps', () => {
       fetchedDates: [TODAY],
     })
     expect(plan.summary.candidates).toBe(3)
+    expect(plan.aborts).toEqual([])
+    expect(plan.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20')).toMatchObject({
+      action: 'retire_not_needed',
+      reason: 'ghost',
+    })
+  })
+
+  test('>30% aborts only when the date has 5 or more candidates', () => {
+    const extraRows = [1, 2].map((n) => row(`AAA_at_BB${n}_${TODAY}`))
+    const plan = planWithSlate({ extraRows })
+    expect(plan.summary.candidates).toBe(5)
     expect(plan.aborts[0]).toMatchObject({ reason: 'cap_exceeded' })
     expect(plan.actions.filter((action) => action.action === 'retire_not_needed')).toEqual([])
+  })
+
+  test('--max-pct overrides the percentage cap', () => {
+    const extraRows = [1, 2].map((n) => row(`AAA_at_BB${n}_${TODAY}`))
+    const plan = planWithSlate({ extraRows, caps: { maxRetires: 5, maxPct: 0.5 } })
+    expect(plan.summary.candidates).toBe(5)
+    expect(plan.aborts).toEqual([])
+    expect(plan.actions.filter((action) => action.action === 'retire_not_needed')).toHaveLength(2)
   })
 
   test('--max overrides the retire count cap', () => {
@@ -423,8 +489,11 @@ describe('CLI parse / help', () => {
       sport: 'mlb',
       apply: false,
       days: 3,
+      includePast: false,
       maxRetires: DEFAULT_MAX_RETIRES,
     })
+    expect(parseReconcileCliArgs(['--max-pct', '50'])).toMatchObject({ maxPct: 0.5 })
+    expect(parseReconcileCliArgs(['--include-past']).includePast).toBe(true)
     expect(parseReconcileCliArgs(['--sport', 'nhl']).error).toMatch(/mlb/)
     expect(parseReconcileCliArgs(['--explode']).error).toMatch(/Unknown/)
     expect(RECONCILE_CLI_USAGE).toMatch(/Dry-run is the default/)
@@ -442,6 +511,43 @@ describe('CLI parse / help', () => {
     expect(exitCode).toBe(0)
     expect(stdout.toString()).toContain('Usage:')
     expect(createClient).not.toHaveBeenCalled()
+  })
+})
+
+describe('include-past', () => {
+  test('a past --date is out_of_range unless --include-past', () => {
+    const past = row('MIL_at_LAD_2026-10-16')
+    const without = planReconcile({
+      dbRows: [past],
+      espnEvents: [],
+      statsApiGames: [],
+      espnStatusByDate: { '2026-10-16': 'empty' },
+      statsStatusByDate: { '2026-10-16': 'empty' },
+      nowEt: TODAY,
+      lastFetchedDate: '2026-10-16',
+      fetchedDates: ['2026-10-16'],
+      includePast: false,
+    })
+    expect(without.actions.find((action) => action.id === past.id)).toMatchObject({
+      reason: 'out_of_range',
+    })
+    expect(without.summary.candidates).toBe(0)
+
+    const withFlag = planReconcile({
+      dbRows: [past],
+      espnEvents: [],
+      statsApiGames: [],
+      espnStatusByDate: { '2026-10-16': 'empty' },
+      statsStatusByDate: { '2026-10-16': 'empty' },
+      nowEt: TODAY,
+      lastFetchedDate: '2026-10-16',
+      fetchedDates: ['2026-10-16'],
+      includePast: true,
+    })
+    expect(withFlag.actions.find((action) => action.id === past.id)).toMatchObject({
+      action: 'retire_not_needed',
+      reason: 'ghost',
+    })
   })
 })
 
@@ -529,10 +635,12 @@ describe('apply path', () => {
 describe('fetch-fresh-games reconcile hook', () => {
   const src = readFileSync(join(process.cwd(), 'scripts/fetch-fresh-games.js'), 'utf8')
 
-  test('logs possible_flip for reverse orientation and does not delete it here', () => {
+  test('possible_flip is batched and only runs with --reconcile', () => {
+    expect(src).toMatch(/logPossibleFlipRows/)
+    expect(src).toMatch(/if \(logPossibleFlips\)/)
     expect(src).toMatch(/possible_flip/)
-    expect(src).toMatch(/homeId',\s*game\.awayId/)
-    expect(src).toMatch(/awayId',\s*game\.homeId/)
+    expect(src).toMatch(/fetchState === 'ok' \|\| games\.fetchState === 'empty'/)
+    expect(src).not.toMatch(/\.eq\('homeId',\s*game\.awayId\)/)
   })
 
   test('optional --reconcile hook runs after upsert', () => {
