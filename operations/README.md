@@ -22,6 +22,14 @@ node scripts/clear-stale-props.js
 # 2. Fetch fresh games from ESPN
 # Continue even if cleanup exited 1. Independent slate-refresh must still run.
 node scripts/fetch-fresh-games.js all
+# 2b. Reconcile ghost / flipped MLB scheduled games. Dry-run until two clean mornings.
+# Never deletes. Caps abort when more than 5 rows or >30% of that date's candidates would change.
+# PowerShell: use node scripts/... — npm run … -- --apply drops flags.
+node scripts/reconcile-games.js --sport mlb
+# After two clean dry-runs, one manual apply outside :05–:15 ET (ideally 9:30–11:00 AM):
+# node scripts/reconcile-games.js --sport mlb --apply
+# Later, after morning review: node scripts/fetch-fresh-games.js all --reconcile
+# Then enable writes: node scripts/fetch-fresh-games.js all --reconcile --apply
 
 # 3. Fetch odds with proper gameTime mapping
 node scripts/fetch-live-odds.js all --cache-fresh
@@ -103,6 +111,30 @@ node scripts/clear-stale-props.js --collect-only --page-size 50
 `--help` prints usage and exits 0 with no DB/archive activity. Unknown args exit 2 before any side effects. Read failures in `--dry-run` / `--collect-only` exit **1**.
 
 Do **not** treat a drop in expired counts as explained by elapsed time alone. A failed collect deletes nothing; counts can also move because of other writers, expiry, or a later successful cleanup.
+
+### Reconcile ghost / flipped scheduled games (MLB)
+
+`fetch-fresh-games.js` only upserts what ESPN still lists. If-necessary postseason
+games and home/away flips stay `scheduled` forever unless reconciled.
+
+```bash
+# Dry-run (default, no writes)
+node scripts/reconcile-games.js --sport mlb
+node scripts/reconcile-games.js --sport mlb --date 2026-10-20 --days 3 --json
+
+# Write status=not_needed + clear oddsApiEventId. Refused during :05–:15 ET.
+# Never deletes. Both ESPN and StatsAPI must agree the matchup is gone.
+node scripts/reconcile-games.js --sport mlb --apply
+```
+
+`--reconcile` on fetch-fresh-games is the same dry-run after the upsert;
+`--reconcile --apply` writes. Keep dry-run in the 8:09 job until two clean
+mornings, then one manual `--apply` (9:30–11:00 AM ET), then enable
+`--reconcile --apply` with caps on. No migration, no downtime (status only).
+
+Rows with pending PropValidation / ParlayLeg are reported as
+`protected_has_picks` and left alone. Cap abort: more than 5 retires or more
+than 30% of that date's candidates (`--max N` overrides the count).
 
 ### Proposed Grok Bot morning-ops prompt change (pending — do not apply from this cloud agent)
 
@@ -239,7 +271,8 @@ Morning ops and Prisma-backed scripts (`auto-validate-parlays.js`, etc.) need a 
 scripts/
 ├── clear-stale-props.js        # Archive then delete past/expired props (RUN DAILY!)
 ├── archive-nfl-box-scores.js   # Independent NFL box-score archive / coverage audit
-├── fetch-fresh-games.js        # Fetch games from ESPN (FREE)
+├── fetch-fresh-games.js        # Fetch games from ESPN (FREE); --reconcile dry-runs ghost/flip plan
+├── reconcile-games.js          # Retire ghost / flipped MLB games (dry-run default; --apply writes)
 ├── fetch-live-odds.js          # Fetch odds/props from Odds API (PAID)
 ├── fetch-team-performance-data.js # ESPN team records / PPG (run before edges)
 ├── update-scores-safely.js     # Live score updates (FREE)
