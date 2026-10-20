@@ -17,7 +17,7 @@
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import { createGameId } from '../lib/team-mapping.js'
-import { DEFAULT_MAX_RETIRE_PCT, runReconcile } from '../lib/game-reconcile.js'
+import { DEFAULT_MAX_RETIRE_PCT, runReconcile, shiftEtDate } from '../lib/game-reconcile.js'
 
 config({ path: '.env.local' })
 
@@ -447,10 +447,17 @@ async function ensureTeamsExist(sport, games) {
 async function logPossibleFlipRows(sport, games) {
   const incoming = (games || []).filter((game) => game?.id && game.homeId && game.awayId)
   if (incoming.length === 0) return
+  const fetchedDates = [...new Set(incoming.map((game) => game.id.match(/\d{4}-\d{2}-\d{2}$/)?.[0]).filter(Boolean))].sort()
+  if (fetchedDates.length === 0) return
+  const start = shiftEtDate(fetchedDates[0], -1) || fetchedDates[0]
+  const end = shiftEtDate(fetchedDates[fetchedDates.length - 1], 1) || fetchedDates[fetchedDates.length - 1]
+  const dateSet = new Set(fetchedDates)
   const { data: existing, error } = await supabase
     .from('Game')
     .select('id, homeId, awayId')
     .eq('sport', sport)
+    .gte('date', `${start}T00:00:00.000Z`)
+    .lte('date', `${end}T23:59:59.999Z`)
   if (error) {
     console.warn(`  ⚠️  possible_flip lookup failed: ${error.message}`)
     return
@@ -458,7 +465,7 @@ async function logPossibleFlipRows(sport, games) {
   const byReverse = new Map()
   for (const row of existing || []) {
     const date = row.id.match(/\d{4}-\d{2}-\d{2}$/)?.[0]
-    if (!date) continue
+    if (!date || !dateSet.has(date)) continue
     byReverse.set(`${row.awayId}|${row.homeId}|${date}`, row)
   }
   for (const game of incoming) {
