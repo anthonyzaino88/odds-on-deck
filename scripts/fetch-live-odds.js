@@ -31,6 +31,7 @@ import {
   resolvePropLanding,
 } from '../lib/live-odds-landing.js'
 import { applyEventRemap, planEventRemap, shouldCheckPropsCache } from '../lib/odds-event-remap.js'
+import { isCancelledGameStatus } from '../lib/game-grade-eligibility.js'
 
 // Game ids whose oddsApiEventId changed during this run (new map, reclaim,
 // re-map). Their cached props belong to a different event, so the props
@@ -657,6 +658,7 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
   }
   
   if (dbGames && dbGames.length > 0) {
+    dbGames = dbGames.filter((g) => !isCancelledGameStatus(g.status))
     console.log(`  📅 Found ${dbGames.length} games in ±3 day range (${dateStart.toISOString().split('T')[0]} to ${dateEnd.toISOString().split('T')[0]})`)
   }
   
@@ -1320,8 +1322,8 @@ async function savePlayerProps(gameProps, sport) {
     console.warn(`  ⚠️  Error querying games for props: ${error.message}`)
   }
   
-  // For any final games, find the next scheduled game with same teams
-  const finalGames = (dbGames || []).filter(g => g.status === 'final')
+  // For any final / cancelled / not_needed games, find the next scheduled sibling
+  const finalGames = (dbGames || []).filter(g => g.status === 'final' || isCancelledGameStatus(g.status))
   let siblingLookup = {}
   if (finalGames.length > 0) {
     console.log(`  ⚠️  ${finalGames.length} mapped games are final — looking for next scheduled sibling...`)

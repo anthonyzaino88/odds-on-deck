@@ -75,6 +75,11 @@ describe('pickUnmappedOddsGame', () => {
     expect(picked.id).toBe('CHC_at_CLE_2026-04-05')
   })
 
+  test('retired not_needed rows are not mappable', () => {
+    expect(pickUnmappedOddsGame([{ ...game2, status: 'not_needed' }], eventCommenceMs('2026-04-05T17:10:00Z'))).toBeNull()
+    expect(pickUnmappedOddsGame([{ ...game2, status: 'cancelled' }], eventCommenceMs('2026-04-05T17:10:00Z'))).toBeNull()
+  })
+
   test('does not steal a mapped sibling when every match is already mapped', () => {
     const mappedTwin = { ...game2, oddsApiEventId: 'event-game-2' }
     expect(pickUnmappedOddsGame([game1, mappedTwin], eventCommenceMs('2026-04-05T17:10:00Z'))).toBeNull()
@@ -96,6 +101,7 @@ describe('pickUnmappedOddsGame', () => {
       'id', 'oddsApiEventId', 'sport', 'status',
     ])
     expect(row).not.toHaveProperty('lastUpdate')
+    expect(src).toMatch(/isCancelledGameStatus/)
     expect(pickUnmappedOddsGame([row], eventCommenceMs('2026-10-17T00:00:00Z')).id).toBe(row.id)
 
     const { status, ...withoutStatus } = row
