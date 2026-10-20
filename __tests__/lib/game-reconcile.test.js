@@ -217,6 +217,58 @@ describe('planReconcile source aborts', () => {
     })
   })
 
+  test('scheduled 0-0 with both sources empty is scoreless and retires', () => {
+    const plan = planReconcile({
+      dbRows: [row('CLE_at_TB_2026-10-20', { homeScore: 0, awayScore: 0 })],
+      espnEvents: [],
+      statsApiGames: [],
+      espnStatusByDate: { [TODAY]: 'empty' },
+      statsStatusByDate: { [TODAY]: 'empty' },
+      nowEt: TODAY,
+      lastFetchedDate: TODAY,
+      fetchedDates: [TODAY],
+    })
+    expect(classifyReconcileCandidate(
+      row('CLE_at_TB_2026-10-20', { homeScore: 0, awayScore: 0 }),
+      { todayEt: TODAY, lastFetchedDate: TODAY },
+    )).toMatchObject({ candidate: true, date: TODAY })
+    expect(plan.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20')).toMatchObject({
+      action: 'retire_not_needed',
+      reason: 'ghost',
+    })
+    expect(plan.summary.candidates).toBe(1)
+    expect(plan.summary.hasScore).toBe(0)
+  })
+
+  test('scheduled 1-0 is has_score, reported and counted, not retired', () => {
+    const plan = planReconcile({
+      dbRows: [row('CLE_at_TB_2026-10-20', { homeScore: 1, awayScore: 0 })],
+      espnEvents: [],
+      statsApiGames: [],
+      espnStatusByDate: { [TODAY]: 'empty' },
+      statsStatusByDate: { [TODAY]: 'empty' },
+      nowEt: TODAY,
+      lastFetchedDate: TODAY,
+      fetchedDates: [TODAY],
+    })
+    expect(classifyReconcileCandidate(
+      row('CLE_at_TB_2026-10-20', { homeScore: 1, awayScore: 0 }),
+      { todayEt: TODAY, lastFetchedDate: TODAY },
+    )).toMatchObject({ candidate: false, reason: 'has_score' })
+    expect(plan.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20')).toMatchObject({
+      action: 'report',
+      reason: 'has_score',
+    })
+    expect(plan.actions.filter((action) => action.action === 'retire_not_needed')).toEqual([])
+    expect(plan.summary.candidates).toBe(0)
+    expect(plan.summary.hasScore).toBe(1)
+    expect(plan.dateSummaries.find((entry) => entry.date === TODAY)).toMatchObject({
+      candidates: 0,
+      hasScore: 1,
+      notPreStart: 0,
+    })
+  })
+
   test('unavailable, malformed, or a one-sided empty abort that date', () => {
     for (const [espn, stats] of [
       ['unavailable', 'ok'],
@@ -356,8 +408,9 @@ describe('planReconcile doubleheaders and non-candidates', () => {
         row('CLE_at_TB_2026-10-20', { status: 'in_progress' }),
         row('NYY_at_BOS_2026-10-20', { status: 'final', homeScore: 4, awayScore: 2 }),
         row('SEA_at_HOU_2026-10-20', { status: 'postponed' }),
-        row('CHC_at_CIN_2026-10-20', { homeScore: 0, awayScore: 0 }),
+        row('CHC_at_CIN_2026-10-20', { homeScore: 1, awayScore: 0 }),
         row('DET_at_KC_2026-10-20', { status: 'delayed' }),
+        row('TOR_at_BAL_2026-10-20', { status: 'unknown' }),
       ],
       espnEvents: [{ date: TODAY, awayAbbr: 'LAD', homeAbbr: 'MIL' }],
       statsApiGames: [{ date: TODAY, gamePk: '1', awayAbbr: 'LAD', homeAbbr: 'MIL' }],
@@ -373,8 +426,25 @@ describe('planReconcile doubleheaders and non-candidates', () => {
     expect(plan.actions.find((action) => action.id === 'MIL_at_LAD_2026-10-16')).toMatchObject({
       reason: 'out_of_range',
     })
+    expect(plan.actions.find((action) => action.id === 'CHC_at_CIN_2026-10-20')).toMatchObject({
+      action: 'report',
+      reason: 'has_score',
+    })
+    expect(plan.actions.find((action) => action.id === 'TOR_at_BAL_2026-10-20')).toMatchObject({
+      action: 'report',
+      reason: 'not_pre_start',
+    })
+    expect(plan.summary.hasScore).toBe(1)
+    expect(plan.summary.notPreStart).toBe(1)
+    expect(plan.dateSummaries.find((entry) => entry.date === TODAY)).toMatchObject({
+      candidates: 0,
+      hasScore: 1,
+      notPreStart: 1,
+    })
     expect(classifyReconcileCandidate(row('MIL_at_LAD_2026-10-16'), { todayEt: TODAY, lastFetchedDate: TODAY }).reason).toBe('out_of_range')
     expect(classifyReconcileCandidate(row('CLE_at_TB_2026-10-20', { status: 'in_progress' }), { todayEt: TODAY }).candidate).toBe(false)
+    expect(classifyReconcileCandidate(row('CHC_at_CIN_2026-10-20', { homeScore: 1, awayScore: 0 }), { todayEt: TODAY }).reason).toBe('has_score')
+    expect(classifyReconcileCandidate(row('TOR_at_BAL_2026-10-20', { status: 'unknown' }), { todayEt: TODAY }).reason).toBe('not_pre_start')
   })
 })
 
