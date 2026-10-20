@@ -12,12 +12,18 @@
  *   node scripts/fetch-fresh-games.js nfl 2025-11-02   # NFL for specific date
  *   node scripts/fetch-fresh-games.js mlb --reconcile          # dry-run ghost/flip plan after upsert
  *   node scripts/fetch-fresh-games.js mlb --reconcile --apply  # write not_needed (outside :05–:15 ET)
+ *   --max-pct N   Percentage 0-100 (same as reconcile-games.js; default 30)
  */
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import { createGameId } from '../lib/team-mapping.js'
-import { DEFAULT_MAX_RETIRE_PCT, runReconcile, shiftEtDate } from '../lib/game-reconcile.js'
+import {
+  DEFAULT_MAX_RETIRE_PCT,
+  parseMaxPctValue,
+  runReconcile,
+  shiftEtDate,
+} from '../lib/game-reconcile.js'
 
 config({ path: '.env.local' })
 
@@ -855,10 +861,9 @@ function parseFetchFreshArgs(argv = []) {
     else if (arg === '--include-past') includePast = true
     else if (arg === '--max-pct') {
       const raw = argv[i + 1]
-      if (raw == null || String(raw).startsWith('--')) {
-        throw new Error('--max-pct requires a number')
-      }
-      maxPct = Number(raw)
+      const parsedPct = parseMaxPctValue(raw)
+      if (parsedPct.error) throw new Error(parsedPct.error)
+      maxPct = parsedPct.value
       i += 1
     }
     else if (arg === '--max') {
@@ -904,9 +909,7 @@ async function maybeReconcileAfterFetch(parsed, mlbFetchedSuccessfully) {
     caps: (Number.isInteger(parsed.maxRetires) || Number.isFinite(parsed.maxPct))
       ? {
           maxRetires: Number.isInteger(parsed.maxRetires) ? parsed.maxRetires : undefined,
-          maxPct: Number.isFinite(parsed.maxPct)
-            ? (parsed.maxPct > 1 ? parsed.maxPct / 100 : parsed.maxPct)
-            : DEFAULT_MAX_RETIRE_PCT,
+          maxPct: Number.isFinite(parsed.maxPct) ? parsed.maxPct : DEFAULT_MAX_RETIRE_PCT,
         }
       : undefined,
     supabase,

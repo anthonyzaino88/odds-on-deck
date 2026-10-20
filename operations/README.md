@@ -136,7 +136,7 @@ mornings, then one manual `--apply` (9:30–11:00 AM ET), then enable
 Rows with pending PropValidation / ParlayLeg are reported as
 `protected_has_picks` and left alone. Cap abort: more than 5 retires or more
 than 30% of that date's candidates when the date has 5+ candidates
-(`--max N` / `--max-pct N` override). Both feeds returning a valid empty
+(`--max N` / `--max-pct 30` is a percent 0-100, same flag on both CLIs). Both feeds returning a valid empty
 slate (`events:[]` / `dates:[]`) is agreement, not an abort.
 
 ### Proposed Grok Bot morning-ops prompt change (pending — do not apply from this cloud agent)

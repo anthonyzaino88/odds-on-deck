@@ -9,6 +9,7 @@ import {
   mapEspnScoreboardEvents,
   mapStatsApiSchedule,
   parseGameIdParts,
+  parseMaxPctValue,
   parseReconcileCliArgs,
   planReconcile,
   shouldAbortReconcileSources,
@@ -506,6 +507,10 @@ describe('CLI parse / help', () => {
       maxRetires: DEFAULT_MAX_RETIRES,
     })
     expect(parseReconcileCliArgs(['--max-pct', '50'])).toMatchObject({ maxPct: 0.5 })
+    expect(parseReconcileCliArgs(['--max-pct', '30'])).toMatchObject({ maxPct: 0.3 })
+    expect(parseMaxPctValue('0')).toEqual({ value: 0 })
+    expect(parseMaxPctValue('100')).toEqual({ value: 1 })
+    expect(parseMaxPctValue('101').error).toMatch(/0 and 100/)
     expect(parseReconcileCliArgs(['--include-past']).includePast).toBe(true)
     expect(parseReconcileCliArgs(['--sport', 'nhl']).error).toMatch(/mlb/)
     expect(parseReconcileCliArgs(['--explode']).error).toMatch(/Unknown/)
@@ -655,6 +660,7 @@ describe('fetch-fresh-games reconcile hook', () => {
     expect(src).toMatch(/fetchedDates/)
     expect(src).toMatch(/\.gte\('date'/)
     expect(src).toMatch(/\.lte\('date'/)
+    expect(src).toMatch(/parseMaxPctValue/)
     expect(src).toMatch(/fetchState === 'ok' \|\| games\.fetchState === 'empty'/)
     expect(src).not.toMatch(/\.eq\('homeId',\s*game\.awayId\)/)
   })
