@@ -10,11 +10,14 @@
  *   node scripts/fetch-fresh-games.js           # Fetch all sports for today
  *   node scripts/fetch-fresh-games.js mlb       # MLB only
  *   node scripts/fetch-fresh-games.js nfl 2025-11-02   # NFL for specific date
+ *   node scripts/fetch-fresh-games.js mlb --reconcile          # dry-run ghost/flip plan after upsert
+ *   node scripts/fetch-fresh-games.js mlb --reconcile --apply  # write not_needed (outside :05–:15 ET)
  */
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import { createGameId } from '../lib/team-mapping.js'
+import { DEFAULT_MAX_RETIRE_PCT, runReconcile } from '../lib/game-reconcile.js'
 
 config({ path: '.env.local' })
 
@@ -612,6 +615,24 @@ async function saveToSupabase(sport, games) {
           })
         }
       }
+
+      // Reverse orientation on the same ET date is a home/away flip, not a
+      // same-matchup duplicate. Log only — reconcile retires the extra row.
+      const { data: reverseOrientationRaw } = await supabase
+        .from('Game')
+        .select('id, espnGameId, oddsApiEventId, status, date')
+        .eq('sport', sport)
+        .eq('homeId', game.awayId)
+        .eq('awayId', game.homeId)
+        .neq('id', game.id)
+
+      const reverseOrientation = (reverseOrientationRaw || []).filter(dup => {
+        const dupIdDate = dup.id.match(/\d{4}-\d{2}-\d{2}$/)?.[0]
+        return dupIdDate === gameDateStr
+      })
+      if (reverseOrientation.length > 0) {
+        console.log(`  ⚠️  possible_flip: ${game.id} vs ${reverseOrientation.map(g => g.id).join(', ')}`)
+      }
     }
     
     // Create upsert array AFTER duplicate check (filter out removed games)
@@ -785,27 +806,91 @@ async function populateMLBGameIds(games) {
   console.log(`  🔗 Matched ${matched}/${games.length} games with MLB gamePk IDs`)
 }
 
+function parseFetchFreshArgs(argv = []) {
+  const positional = []
+  let reconcile = false
+  let apply = false
+  let json = false
+  let maxRetires = null
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i]
+    if (arg === '--reconcile') reconcile = true
+    else if (arg === '--apply') apply = true
+    else if (arg === '--json') json = true
+    else if (arg === '--max') {
+      const raw = argv[i + 1]
+      if (raw == null || String(raw).startsWith('--')) {
+        throw new Error('--max requires an integer value')
+      }
+      maxRetires = Number(raw)
+      i += 1
+    } else if (!String(arg).startsWith('--')) {
+      positional.push(arg)
+    }
+  }
+  return {
+    sport: positional[0]?.toLowerCase() || 'all',
+    date: positional[1] || null,
+    reconcile,
+    apply,
+    json,
+    maxRetires,
+  }
+}
+
+async function maybeReconcileAfterFetch(parsed, mlbFetchedSuccessfully) {
+  if (!parsed.reconcile) return 0
+  if (parsed.sport !== 'all' && parsed.sport !== 'mlb') {
+    console.log('⏭️  --reconcile skipped (MLB only)')
+    return 0
+  }
+  if (!mlbFetchedSuccessfully) {
+    console.log('⏭️  --reconcile skipped (MLB was not fetched successfully this run)')
+    return 0
+  }
+  console.log('\n🔎 Reconciling MLB scheduled games (ghost / flip)...')
+  const result = await runReconcile({
+    sport: 'mlb',
+    date: parsed.date,
+    apply: parsed.apply,
+    json: parsed.json,
+    caps: Number.isInteger(parsed.maxRetires)
+      ? { maxRetires: parsed.maxRetires, maxPct: DEFAULT_MAX_RETIRE_PCT }
+      : undefined,
+    supabase,
+    logger: console,
+  })
+  return result.exitCode || 0
+}
+
 async function main() {
-  const allArgs = process.argv.slice(2)
-  const sport = allArgs[0]?.toLowerCase() || 'all'
-  const date = allArgs[1] || null
+  const parsed = parseFetchFreshArgs(process.argv.slice(2))
+  const sport = parsed.sport
+  const date = parsed.date
   
   console.log('🎯 FETCH FRESH GAMES FROM ESPN API')
   console.log(`📅 Date: ${date || 'Today'}`)
   console.log(''.padEnd(50, '='))
   
   let totalSaved = 0
+  let mlbFetchedSuccessfully = false
   
   if (sport === 'all') {
     for (const s of ['mlb', 'nfl', 'nhl']) {
       const games = await fetchGamesFromESPN(s, date)
-      if (s === 'mlb') await populateMLBGameIds(games)
+      if (s === 'mlb') {
+        await populateMLBGameIds(games)
+        mlbFetchedSuccessfully = true
+      }
       totalSaved += await saveToSupabase(s, games)
       await new Promise(r => setTimeout(r, 1000))
     }
   } else if (SPORT_MAP[sport]) {
     const games = await fetchGamesFromESPN(sport, date)
-    if (sport === 'mlb') await populateMLBGameIds(games)
+    if (sport === 'mlb') {
+      await populateMLBGameIds(games)
+      mlbFetchedSuccessfully = true
+    }
     totalSaved += await saveToSupabase(sport, games)
   } else {
     console.error(`❌ Invalid sport: ${sport}. Use: mlb, nfl, nhl, or all`)
@@ -815,6 +900,9 @@ async function main() {
   console.log('\n' + ''.padEnd(50, '='))
   console.log(`📊 TOTAL SAVED: ${totalSaved} games`)
   console.log('✅ Fresh games fetched and saved!')
+
+  const reconcileExit = await maybeReconcileAfterFetch(parsed, mlbFetchedSuccessfully)
+  if (reconcileExit) process.exit(reconcileExit)
 }
 
 main().catch(error => {

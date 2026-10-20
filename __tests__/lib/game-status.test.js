@@ -6,6 +6,7 @@ import {
   FINAL,
   LIVE,
   PRE_START,
+  RETIRABLE_PRE_START,
   classifyVendorStatus,
   isDeadStatus,
   isFinalStatus,
@@ -29,6 +30,9 @@ describe('game-status buckets', () => {
     expect(DEAD.has('cancelled')).toBe(true)
     expect(DEAD.has('postponed')).toBe(true)
     expect(DEAD.has('not_needed')).toBe(true)
+    expect(RETIRABLE_PRE_START).toBe(PRE_START)
+    expect(RETIRABLE_PRE_START.has('scheduled')).toBe(true)
+    expect(RETIRABLE_PRE_START.has('not_needed')).toBe(false)
   })
 
   test('ACTIVE_GAME_STATUSES includes halftime so the updater keeps selecting NFL', () => {
