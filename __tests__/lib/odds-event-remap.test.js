@@ -7,11 +7,11 @@ import {
 } from '../../lib/odds-event-remap.js'
 import { eventCommenceMs } from '../../lib/live-odds-landing.js'
 
-const G16 = { id: 'TB_at_CLE_2026-10-16', date: '2026-10-17T00:00:00', oddsApiEventId: 'a681-stale' }
-const G17 = { id: 'TB_at_CLE_2026-10-17', date: '2026-10-18T00:00:00', oddsApiEventId: 'b9d2' }
+const G16 = { id: 'TB_at_CLE_2026-10-16', date: '2026-10-17T00:00:00', oddsApiEventId: 'a681-stale', status: 'scheduled' }
+const G17 = { id: 'TB_at_CLE_2026-10-17', date: '2026-10-18T00:00:00', oddsApiEventId: 'b9d2', status: 'scheduled' }
 const EV = eventCommenceMs('2026-10-17T00:00:00Z') // tonight 8 PM ET
 
-function mockSupabase(failures = []) {
+function mockSupabase(failures = [], { emptyAt = [] } = {}) {
   const ops = []
   return {
     ops,
@@ -24,11 +24,19 @@ function mockSupabase(failures = []) {
               op.filters.push([col, val])
               return chain
             },
+            select(cols) {
+              op.select = cols
+              return chain
+            },
             then(resolve, reject) {
               ops.push(op)
               const idx = ops.length - 1
               const fail = failures.find((f) => f.at === idx)
-              return Promise.resolve({ error: fail ? fail.error : null }).then(resolve, reject)
+              const empty = emptyAt.includes(idx)
+              return Promise.resolve({
+                error: fail ? fail.error : null,
+                data: fail ? null : (empty ? [] : [{ id: 'row' }]),
+              }).then(resolve, reject)
             },
           }
           return chain
@@ -84,12 +92,12 @@ describe('planEventRemap', () => {
 
 describe('applyEventRemap', () => {
   const args = { fromId: G17.id, toId: G16.id, eventId: 'b9d2' }
-  test('sets new row before clearing old', async () => {
+  test('sets new row before clearing old and selects id on both writes', async () => {
     const sb = mockSupabase()
     const res = await applyEventRemap(sb, args, quiet)
     expect(res).toEqual({ ok: true, state: 'remapped' })
-    expect(sb.ops[0]).toMatchObject({ payload: { oddsApiEventId: 'b9d2' }, filters: [['id', G16.id]] })
-    expect(sb.ops[1]).toMatchObject({ payload: { oddsApiEventId: null }, filters: [['id', G17.id], ['oddsApiEventId', 'b9d2']] })
+    expect(sb.ops[0]).toMatchObject({ payload: { oddsApiEventId: 'b9d2' }, filters: [['id', G16.id]], select: 'id' })
+    expect(sb.ops[1]).toMatchObject({ payload: { oddsApiEventId: null }, filters: [['id', G17.id], ['oddsApiEventId', 'b9d2']], select: 'id' })
   })
   test('clear failure after set -> both_mapped, logged loudly', async () => {
     const errors = []
@@ -98,24 +106,28 @@ describe('applyEventRemap', () => {
     expect(res.state).toBe('both_mapped')
     expect(errors[0]).toMatch(/HALF-DONE/)
   })
-  test('non-unique set failure -> unchanged, no clear attempted', async () => {
+  test('set failure -> unchanged, no clear attempted', async () => {
     const sb = mockSupabase([{ at: 0, error: { message: 'net', code: 'XX' } }])
     const res = await applyEventRemap(sb, args, quiet)
     expect(res.state).toBe('unchanged')
     expect(sb.ops).toHaveLength(1)
   })
-  test('unique violation -> clear then set', async () => {
-    const sb = mockSupabase([{ at: 0, error: { message: 'dup', code: '23505' } }])
+  test('zero-row set -> unchanged, no unique-index fallback', async () => {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '../../lib/odds-event-remap.js'), 'utf8')
+    expect(src).not.toMatch(/isUniqueViolation/)
+    expect(src).not.toMatch(/state: 'unmapped'/)
+    const sb = mockSupabase([], { emptyAt: [0] })
     const res = await applyEventRemap(sb, args, quiet)
-    expect(res.state).toBe('remapped')
-    expect(sb.ops.map((o) => o.payload.oddsApiEventId)).toEqual(['b9d2', null, 'b9d2'])
+    expect(res.state).toBe('unchanged')
+    expect(sb.ops).toHaveLength(1)
   })
-  test('unique violation and retry fails -> unmapped, logged loudly', async () => {
+  test('zero-row clear after set -> both_mapped', async () => {
     const errors = []
-    const sb = mockSupabase([{ at: 0, error: { code: '23505', message: 'dup' } }, { at: 2, error: { message: 'boom' } }])
+    const sb = mockSupabase([], { emptyAt: [1] })
     const res = await applyEventRemap(sb, args, { error: (m) => errors.push(m) })
-    expect(res.state).toBe('unmapped')
+    expect(res.state).toBe('both_mapped')
     expect(errors[0]).toMatch(/HALF-DONE/)
+    expect(sb.ops).toHaveLength(2)
   })
 })
 

@@ -8,9 +8,9 @@ import {
 } from '../../lib/live-odds-landing.js'
 
 // Real TB @ CLE 2026 ALCS rows (Game.date is zone-less UTC).
-const G15 = { id: 'TB_at_CLE_2026-10-15', date: '2026-10-15T17:00:00', oddsApiEventId: '2572-stale' }
-const G16 = { id: 'TB_at_CLE_2026-10-16', date: '2026-10-17T00:00:00', oddsApiEventId: null }
-const G17 = { id: 'TB_at_CLE_2026-10-17', date: '2026-10-18T00:00:00', oddsApiEventId: null }
+const G15 = { id: 'TB_at_CLE_2026-10-15', date: '2026-10-15T17:00:00', oddsApiEventId: '2572-stale', status: 'scheduled' }
+const G16 = { id: 'TB_at_CLE_2026-10-16', date: '2026-10-17T00:00:00', oddsApiEventId: null, status: 'scheduled' }
+const G17 = { id: 'TB_at_CLE_2026-10-17', date: '2026-10-18T00:00:00', oddsApiEventId: null, status: 'scheduled' }
 
 describe('pickUnmappedOddsGame ±6h window', () => {
   test('event outside window of every open row stays unmapped (no next-day cascade)', () => {
@@ -40,6 +40,15 @@ describe('pickUnmappedOddsGame ±6h window', () => {
   test('does not reclaim a row whose event is still in the feed', () => {
     const isReclaimable = () => false
     expect(pickUnmappedOddsGame([G15], eventCommenceMs('2026-10-15T17:00:00Z'), { isReclaimable })).toBeNull()
+  })
+
+  test('does not reclaim live, final, or dead rows even when the event left the feed', () => {
+    const isReclaimable = () => true
+    const t = eventCommenceMs('2026-10-15T17:00:00Z')
+    expect(pickUnmappedOddsGame([{ ...G15, status: 'in_progress' }], t, { isReclaimable })).toBeNull()
+    expect(pickUnmappedOddsGame([{ ...G15, status: 'halftime' }], t, { isReclaimable })).toBeNull()
+    expect(pickUnmappedOddsGame([{ ...G15, status: 'final' }], t, { isReclaimable })).toBeNull()
+    expect(pickUnmappedOddsGame([{ ...G15, status: 'postponed' }], t, { isReclaimable })).toBeNull()
   })
 
   test('traditional doubleheader: each event lands on its own game', () => {
