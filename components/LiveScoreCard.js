@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { isLiveStatus } from '../lib/game-status.js'
 
 export default function LiveScoreCard({ game, refreshInterval = 15000 }) {
   const [liveData, setLiveData] = useState(game)
@@ -36,9 +37,7 @@ export default function LiveScoreCard({ game, refreshInterval = 15000 }) {
     return () => clearInterval(interval)
   }, [game.id, refreshInterval, isRefreshing])
 
-  const isGameLive = (game) => {
-    return game.status === 'in_progress' || game.status === 'warmup' || game.status === 'halftime'
-  }
+  const isGameLive = (game) => isLiveStatus(game?.status)
 
   const formatScore = () => {
     if (liveData.homeScore === null || liveData.awayScore === null) {

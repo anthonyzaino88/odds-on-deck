@@ -107,6 +107,13 @@ describe('classifyGameForGrading', () => {
     expect(shouldGradeGameLine(fake)).toBe(false)
   })
 
+  test('not_needed if-necessary games void instead of grading', () => {
+    const game = mlbGame({ status: 'not_needed', homeScore: 0, awayScore: 0 })
+    expect(classifyGameForGrading(game)).toEqual({ action: 'void', reason: 'cancelled' })
+    expect(shouldVoidFromGame(game)).toBe(true)
+    expect(canGradeFromGame(game)).toBe(false)
+  })
+
   test('NHL / NFL 0-0 finals remain gradeable', () => {
     const nhl = { sport: 'nhl', status: 'final', homeScore: 0, awayScore: 0 }
     const nfl = { sport: 'nfl', status: 'final', homeScore: 0, awayScore: 0 }

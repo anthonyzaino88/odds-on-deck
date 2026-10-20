@@ -235,6 +235,16 @@ describe('Featured freshness clock', () => {
       gameTime: '2026-09-21T00:00:00.000Z',
       gameStatus: 'in_progress',
     }, now)).toBe(false)
+    expect(isFeaturedFreshLeg({
+      ...live,
+      gameTime: '2026-09-21T00:00:00.000Z',
+      gameStatus: 'halftime',
+    }, now)).toBe(false)
+    expect(isFeaturedFreshLeg({
+      ...live,
+      gameTime: '2026-09-21T00:00:00.000Z',
+      gameStatus: 'warmup',
+    }, now)).toBe(false)
   })
 
   test('keeps an upcoming Game.date', () => {

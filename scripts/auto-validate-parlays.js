@@ -41,8 +41,10 @@ import {
   etDateKey,
   HOLD_TIMEOUT_DAYS,
   isEspnCompetitionGradeable,
+  isUnplayedHoldStatus,
   shouldVoidFromGame,
 } from '../lib/game-grade-eligibility.js'
+import { isInProgressStatus } from '../lib/game-status.js'
 import { planGameLineSettlement } from '../lib/game-lines.js'
 import {
   gradeMoneylineFromGame,
@@ -146,7 +148,9 @@ function isPropLeg(leg) {
 function shouldSkipEspnFallback(game) {
   if (shouldVoidFromGame(game)) return true
   const reason = classifyGameForGrading(game).reason
-  return ['postponed', 'suspended', 'delayed', 'in_progress', 'live', 'halftime', 'mlb_unplayed_0_0'].includes(reason)
+  if (reason === 'mlb_unplayed_0_0') return true
+  if (isUnplayedHoldStatus(reason)) return true
+  return isInProgressStatus(reason)
 }
 
 function holdTimeoutFromGame(game) {
