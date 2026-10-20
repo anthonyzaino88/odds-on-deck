@@ -20,7 +20,7 @@
 import path from 'path'
 import { fileURLToPath } from 'url'
 import dotenv from 'dotenv'
-import { PrismaClient } from '@prisma/client'
+import { ensurePrismaClient } from '../lib/prisma-preflight.js'
 import {
   FEATURED_COHORT_TAG,
   featuredLegGradePatch,
@@ -52,6 +52,8 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.join(__dirname, '..', '.env.local') })
+ensurePrismaClient()
+const { PrismaClient } = await import('@prisma/client')
 const prisma = new PrismaClient()
 
 function parseArgs(argv) {
@@ -82,6 +84,17 @@ const TEAM_VARIATIONS = {
 
 function isNumeric(value) {
   return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value))
+}
+
+function gradeLogIcon(outcome) {
+  switch (String(outcome || '').toLowerCase()) {
+    case 'won': return '✅'
+    case 'lost': return '❌'
+    case 'push': return '➖'
+    case 'void': return '⚪'
+    case 'needs_review': return '🔍'
+    default: return '•'
+  }
 }
 
 function namesEqual(a, b) {
@@ -342,7 +355,7 @@ async function applyFeaturedGrade(parlay, validations, gamesById = new Map()) {
       const actual = isNumericFeaturedActual(legOutcome.actualValue)
         ? ` (Actual: ${legOutcome.actualValue})`
         : ''
-      console.log(`    ✅ ${leg.playerName} ${leg.propType}: ${legOutcome.outcome}${actual}`)
+      console.log(`    ${gradeLogIcon(legOutcome.outcome)} ${leg.playerName} ${leg.propType}: ${legOutcome.outcome}${actual}`)
       continue
     }
 
@@ -492,7 +505,7 @@ async function autoValidateParlays() {
         } else if (outcome === 'needs_review') {
           console.log(`    🔍 ${teamAbbrev} ML: needs_review (${notes})`)
         } else if (outcome) {
-          console.log(`    ✅ ${teamAbbrev} ML: ${outcome} (${notes})`)
+          console.log(`    ${gradeLogIcon(outcome)} ${teamAbbrev} ML: ${outcome} (${notes})`)
         } else {
           skipReason = skipReason || `${teamAbbrev} ML: game not final / not found`
           console.log(`    ⏳ ${skipReason}`)
@@ -527,7 +540,7 @@ async function autoValidateParlays() {
             ? `${game.away?.abbr || '?'} ${game.awayScore ?? '?'} @ ${game.home?.abbr || '?'} ${game.homeScore ?? '?'}`
             : ''
           notes = `Total: ${totalScore} vs ${String(side).toUpperCase()} ${line} (${source}${lineSource ? ` / line ${lineSource}` : ''}${matchup ? `; ${matchup}` : ''})`
-          console.log(`    ✅ Game ${String(side).toUpperCase()} ${line}: ${outcome} (${notes})`)
+          console.log(`    ${gradeLogIcon(outcome)} Game ${String(side).toUpperCase()} ${line}: ${outcome} (${notes})`)
         } else {
           const timeout = holdTimeoutFromGame(game)
           if (timeout) {
@@ -553,7 +566,7 @@ async function autoValidateParlays() {
             notes = actualValue != null
               ? `From PropValidation: ${actualValue} (${pv.status}${otherParlay})`
               : `From PropValidation result: ${pv?.result} (${pv?.status}${otherParlay})`
-            console.log(`    ✅ ${leg.playerName} ${leg.propType}: ${outcome}${actualValue != null ? ` (Actual: ${actualValue})` : ''}`)
+            console.log(`    ${gradeLogIcon(outcome)} ${leg.playerName} ${leg.propType}: ${outcome}${actualValue != null ? ` (Actual: ${actualValue})` : ''}`)
           } else {
             const timeout = holdTimeoutFromGame(game)
             if (timeout) {

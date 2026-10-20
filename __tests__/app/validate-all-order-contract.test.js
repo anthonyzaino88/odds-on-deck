@@ -32,6 +32,8 @@ describe('validate:all grades props before parlays', () => {
     expect(src).toMatch(/gradePropLegFromValidation/)
     expect(src).toMatch(/--regrade/)
     expect(src).toMatch(/Pending prop validation \(no numeric actual\)/)
+    expect(src).toMatch(/ensurePrismaClient\(\)/)
+    expect(src).not.toMatch(/ensurePrismaClient\(\{\s*warnOnly/)
   })
 
   test('ops docs state props-then-parlays and the local regrade command', () => {
@@ -113,5 +115,18 @@ describe('validate:all grades props before parlays', () => {
     expect(src).toMatch(/planGameLineSettlement/)
     expect(src).toMatch(/applyFeaturedHoldTimeout/)
     expect(src).not.toMatch(/state === 'post'/)
+  })
+
+  test('auto-validate-parlays does not log a checkmark on lost legs', () => {
+    const src = read('scripts/auto-validate-parlays.js')
+    expect(src).toMatch(/function gradeLogIcon/)
+    expect(src).toMatch(/case 'won': return '✅'/)
+    expect(src).toMatch(/case 'lost': return '❌'/)
+    expect(src).toMatch(/gradeLogIcon\(legOutcome\.outcome\)/)
+    expect(src).toMatch(/gradeLogIcon\(outcome\)/)
+    expect(src).not.toMatch(/console\.log\(`    ✅ \$\{teamAbbrev\} ML: \$\{outcome\}/)
+    expect(src).not.toMatch(/console\.log\(`    ✅ Game \$\{String\(side\)/)
+    expect(src).not.toMatch(/console\.log\(`    ✅ \$\{leg\.playerName\} \$\{leg\.propType\}: \$\{outcome\}/)
+    expect(src).not.toMatch(/console\.log\(`    ✅ \$\{leg\.playerName\} \$\{leg\.propType\}: \$\{legOutcome\.outcome\}/)
   })
 })

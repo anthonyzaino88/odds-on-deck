@@ -30,9 +30,13 @@ node scripts/fetch-live-odds.js all --cache-fresh
 # Writes present ESPN season fields only. Failed/empty sport fetches leave
 # existing Team rows unchanged (never overwrite good stats with 0 or null).
 # Per-sport API failures do not abort the other sports.
+# Prisma preflight on fetch/edges is warn-only (these scripts do not use
+# Prisma and must not exit 1). auto-validate-parlays fails closed.
+# Partial ESPN writes (no timestamps) are counted separately from
+# timestamped updates.
 node scripts/fetch-team-performance-data.js   # Requires SUPABASE_SECRET_KEY
 # or: npm run fetch:team-performance
-# Combined: npm run ops:morning-edges  (fetch then calculate-game-edges)
+# Combined: npm run ops:morning-edges  (prisma preflight, fetch, then calculate-game-edges)
 
 # 5. REQUIRED: calculate game edges before record-game-lines
 # record-game-lines reads EdgeSnapshot. Without this step the sides/totals
@@ -214,6 +218,14 @@ ODDS_API_KEY=your_odds_api_key
 2. **Use `--cache-fresh` flag** - ensures proper gameTime mapping from Game.date
 3. **SUPABASE_SECRET_KEY is required** - for `clear-stale-props.js`, `fetch-live-odds.js`, `fetch-team-performance-data.js`, `calculate-game-edges.js`
 4. **Windows PowerShell** - `npm run <script> -- --flag` can drop the flags. Run `node scripts/<file>.js --flag`, or `npm run x --% -- --flag`.
+
+## Prisma client + git worktrees
+
+Morning ops and Prisma-backed scripts (`auto-validate-parlays.js`, etc.) need a generated client at `node_modules/.prisma/client/index.js`. `npm ci` / `npm install` run `prisma generate` via the `postinstall` script (`prisma` is a runtime dependency, not a devDependency). Fetch/edge preflight is **warn-only** and never exits 1 — those scripts do not import Prisma. `scripts/auto-validate-parlays.js` calls `ensurePrismaClient()` and fails closed. Repair prefers `node require.resolve('prisma/build/index.js') generate`; `npx prisma generate` is a secondary fallback only — a missing `node_modules/.bin/prisma.cmd` makes `npx` fail with `'prisma' is not recognized`.
+
+- **Never junction `node_modules` into a git worktree.** A junction reuses another checkout's generated client and breaks `@prisma/client`.
+- Run `npm ci` in **each** worktree so it gets its own `node_modules`.
+- If a junction already exists, remove it with `cmd /c rmdir <link>` (**no `/s`** — `/s` would delete the junction target's files). Then run `npm ci` in the worktree.
 
 ## 🔐 Security
 

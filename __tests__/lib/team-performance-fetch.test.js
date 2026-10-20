@@ -1,4 +1,5 @@
 import {
+  fetchAndUpdateTeam,
   fetchTeamPerformanceForSports,
   planTeamPerformanceWrite,
 } from '../../lib/team-performance-fetch.js'
@@ -18,11 +19,51 @@ const GOOD_EXISTING = {
   statsCapturedAt: '2025-12-12T00:00:00.000Z',
 }
 
-function createSupabase({ teamsBySport }) {
+function createSupabase({ teamsBySport, games = [], finalsCount, updateRows } = {}) {
   const updates = []
+  const gameCalls = []
   return {
     updates,
+    gameCalls,
     from(table) {
+      if (table === 'Game') {
+        const bounds = { gte: null, lte: null }
+        const applyBounds = () => games.filter((row) => {
+          const raw = row?.date
+          if (!raw) return true
+          const ms = Date.parse(/^\d{4}-\d{2}-\d{2}T/.test(raw) && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw) ? `${raw}Z` : raw)
+          if (!Number.isFinite(ms)) return true
+          if (bounds.gte != null && ms < bounds.gte) return false
+          if (bounds.lte != null && ms > bounds.lte) return false
+          return true
+        })
+        const resolve = () => {
+          const filtered = applyBounds()
+          return { data: filtered, error: null, count: finalsCount ?? filtered.length }
+        }
+        const q = {
+          select() { return q },
+          eq(col, val) { gameCalls.push(['eq', col, val]); return q },
+          gte(col, val) {
+            gameCalls.push(['gte', col, val])
+            if (col === 'date') bounds.gte = Date.parse(val)
+            return q
+          },
+          or(expr) { gameCalls.push(['or', expr]); return q },
+          in(col, vals) { gameCalls.push(['in', col, vals]); return q },
+          lte(col, val) {
+            gameCalls.push(['lte', col, val])
+            if (col === 'date') bounds.lte = Date.parse(val)
+            return q
+          },
+          order() { return q },
+          async limit() { return resolve() },
+          then(resolveP, reject) {
+            return Promise.resolve(resolve()).then(resolveP, reject)
+          },
+        }
+        return q
+      }
       if (table !== 'Team') throw new Error(`unexpected table ${table}`)
       return {
         select() {
@@ -38,13 +79,42 @@ function createSupabase({ teamsBySport }) {
         },
         update(payload) {
           return {
-            async eq(column, id) {
-              updates.push({ id, payload })
-              return { error: null }
+            eq(column, id) {
+              return {
+                async select() {
+                  const known = Object.values(teamsBySport || {}).flat()
+                  const matched = typeof updateRows === 'function'
+                    ? updateRows(id, payload)
+                    : known.filter((team) => team.id === id).map((team) => ({ id: team.id }))
+                  if (matched.length > 0) updates.push({ id, payload })
+                  return { data: matched, error: null }
+                },
+              }
             },
           }
         },
       }
+    },
+  }
+}
+
+function nhlEspnTeamWithoutSplits() {
+  return {
+    team: {
+      season: { year: 2026 },
+      record: {
+        items: [
+          {
+            type: 'total',
+            summary: '7-2',
+            stats: [
+              { name: 'avgPointsFor', value: '3.7777777' },
+              { name: 'avgPointsAgainst', value: '2.1111112' },
+              { name: 'gamesPlayed', value: '9' },
+            ],
+          },
+        ],
+      },
     },
   }
 }
@@ -65,6 +135,32 @@ describe('planTeamPerformanceWrite', () => {
     }, 'nhl')
     expect(planTeamPerformanceWrite(zeros).shouldWrite).toBe(false)
     expect(planTeamPerformanceWrite(zeros).payload).toEqual({})
+  })
+
+  test('NHL payload without splits is a timestamped write, not a partial', () => {
+    const extracted = extractEspnTeamPerformance(
+      nhlEspnTeamWithoutSplits(),
+      'nhl',
+      { extractedAt: new Date('2026-10-20T16:00:00.000Z') },
+    )
+    const plan = planTeamPerformanceWrite(extracted)
+    expect(plan.shouldWrite).toBe(true)
+    expect(plan.partial).toBe(false)
+    expect(plan.freshnessTimestampsWritten).toBe(true)
+    expect(plan.payload.statsCapturedAt).toBe('2026-10-20T16:00:00.000Z')
+    expect(plan.payload).not.toHaveProperty('homeRecord')
+    expect(plan.payload).not.toHaveProperty('statsDataThrough')
+  })
+
+  test('record-only extract is a partial write (no timestamps)', () => {
+    const extracted = extractEspnTeamPerformance({
+      team: { record: { items: [{ type: 'total', summary: '8-3' }] } },
+    }, 'nhl')
+    const plan = planTeamPerformanceWrite(extracted)
+    expect(plan.shouldWrite).toBe(true)
+    expect(plan.partial).toBe(true)
+    expect(plan.freshnessTimestampsWritten).toBe(false)
+    expect(plan.payload).not.toHaveProperty('statsCapturedAt')
   })
 })
 
@@ -130,10 +226,76 @@ describe('fetchTeamPerformanceForSports', () => {
     expect(summary.fatal).toBe(false)
     expect(summary.results.find((row) => row.sport === 'nhl').errors).toBeGreaterThan(0)
     expect(summary.results.find((row) => row.sport === 'mlb').updated).toBe(1)
+    expect(summary.results.find((row) => row.sport === 'mlb').partial).toBe(0)
     expect(supabase.updates.some((row) => row.id === 'NHL_1')).toBe(false)
     expect(supabase.updates.some((row) => row.id === 'MLB_147')).toBe(true)
     expect(supabase.updates.find((row) => row.id === 'MLB_147').payload.last10Record).toBe('91-71')
     expect(supabase.updates.find((row) => row.id === 'MLB_147').payload.avgPointsLast10).not.toBe(0)
+  })
+
+  test('NHL without splits writes timestamps and counts as updated, not partial', async () => {
+    const supabase = createSupabase({
+      teamsBySport: { nhl: [{ ...GOOD_EXISTING, season: '2026' }], nfl: [], mlb: [] },
+      games: [{ date: '2026-10-19T00:00:00' }],
+      finalsCount: 9,
+    })
+    const extractedAt = new Date('2026-10-20T16:00:00.000Z')
+    const summary = await fetchTeamPerformanceForSports({
+      supabase,
+      sports: ['nhl'],
+      fetchImpl: async () => ({ ok: true, json: async () => nhlEspnTeamWithoutSplits() }),
+      extractedAt,
+      delayMs: 0,
+      logger: { log: jest.fn(), error: jest.fn() },
+    })
+    expect(summary.results[0].updated).toBe(1)
+    expect(summary.results[0].partial).toBe(0)
+    expect(summary.partial).toBe(0)
+    expect(supabase.updates[0].payload.last10Record).toBe('7-2')
+    expect(supabase.updates[0].payload.statsCapturedAt).toBe(extractedAt.toISOString())
+    expect(supabase.updates[0].payload.statsDataThrough).toBe('2026-10-19T00:00:00.000Z')
+    expect(supabase.updates[0].payload).not.toHaveProperty('homeRecord')
+  })
+
+  test('record-only NHL write is counted as partial, not updated', async () => {
+    const logger = { log: jest.fn(), error: jest.fn() }
+    const supabase = createSupabase({
+      teamsBySport: { nhl: [GOOD_EXISTING], nfl: [], mlb: [] },
+    })
+    const summary = await fetchTeamPerformanceForSports({
+      supabase,
+      sports: ['nhl'],
+      fetchImpl: async () => ({
+        ok: true,
+        json: async () => ({ team: { record: { items: [{ type: 'total', summary: '8-3' }] } } }),
+      }),
+      delayMs: 0,
+      logger,
+    })
+    expect(summary.results[0].updated).toBe(0)
+    expect(summary.results[0].partial).toBe(1)
+    expect(summary.partial).toBe(1)
+    expect(supabase.updates[0].payload.last10Record).toBe('8-3')
+    expect(supabase.updates[0].payload).not.toHaveProperty('statsCapturedAt')
+    expect(logger.log.mock.calls.flat().join('\n')).toMatch(/partial=1/)
+  })
+
+  test('zero-row Team update is an error, not a successful write', async () => {
+    const logger = { log: jest.fn(), error: jest.fn() }
+    const supabase = createSupabase({
+      teamsBySport: { nhl: [GOOD_EXISTING] },
+      updateRows: () => [],
+    })
+    const result = await fetchAndUpdateTeam(GOOD_EXISTING, {
+      supabase,
+      fetchImpl: async () => ({ ok: true, json: async () => nhlEspnTeamWithoutSplits() }),
+      extractedAt: new Date('2026-10-20T16:00:00.000Z'),
+      logger,
+    })
+    expect(result.updated).toBe(false)
+    expect(result.reason).toBe('update_no_rows')
+    expect(supabase.updates).toEqual([])
+    expect(logger.error.mock.calls.flat().join('\n')).toMatch(/matched 0 rows/)
   })
 
   test('HTTP 500 on one team leaves that row untouched', async () => {

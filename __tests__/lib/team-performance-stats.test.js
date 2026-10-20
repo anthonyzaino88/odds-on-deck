@@ -7,6 +7,8 @@ import {
   parseRecordString,
   resolveTeamStatsTimestamp,
   shouldSkipParlayGameLines,
+  TEAM_CORE_PERFORMANCE_COLUMNS,
+  TEAM_OPTIONAL_SPLIT_COLUMNS,
   TEAM_STATS_STALE_AFTER_DAYS,
   teamPerformanceWritePayload,
 } from '../../lib/team-performance-stats.js'
@@ -80,6 +82,29 @@ describe('team performance field meaning', () => {
   })
 })
 
+function nhlEspnTeamWithoutSplits(overrides = {}) {
+  return {
+    team: {
+      record: {
+        items: [
+          {
+            type: 'total',
+            summary: '7-2',
+            stats: [
+              { name: 'avgPointsFor', value: '3.7777777' },
+              { name: 'avgPointsAgainst', value: '2.1111112' },
+              { name: 'gamesPlayed', value: '9' },
+              { name: 'pointsFor', value: '34' },
+              { name: 'pointsAgainst', value: '19' },
+            ],
+          },
+        ],
+      },
+      ...overrides,
+    },
+  }
+}
+
 describe('full ESPN extract persists freshness fields', () => {
   test('writes season, gamesPlayed, statsKind, and timestamps when ESPN data is complete', () => {
     const extracted = extractEspnTeamPerformance(
@@ -151,6 +176,48 @@ describe('full ESPN extract persists freshness fields', () => {
     const extracted = extractEspnTeamPerformance(fullEspnTeam(), 'mlb', { extractedAt: EXTRACTED_AT })
     expect(extracted.statsKind).toBe('season')
     expect(extracted.statsKind).not.toBe('last10')
+  })
+
+  test('NHL payload without splits still writes timestamps from core season stats', () => {
+    expect(TEAM_CORE_PERFORMANCE_COLUMNS).toEqual([
+      'last10Record',
+      'avgPointsLast10',
+      'avgPointsAllowedLast10',
+    ])
+    expect(TEAM_OPTIONAL_SPLIT_COLUMNS).toEqual(['homeRecord', 'awayRecord'])
+
+    const extracted = extractEspnTeamPerformance(
+      nhlEspnTeamWithoutSplits(),
+      'nhl',
+      { extractedAt: EXTRACTED_AT },
+    )
+
+    expect(extracted.last10Record).toBe('7-2')
+    expect(extracted.avgPointsLast10).toBeCloseTo(3.7777777, 5)
+    expect(extracted.avgPointsAllowedLast10).toBeCloseTo(2.1111112, 5)
+    expect(extracted).not.toHaveProperty('homeRecord')
+    expect(extracted).not.toHaveProperty('awayRecord')
+    expect(extracted.statsCapturedAt).toBe(EXTRACTED_AT.toISOString())
+    expect(extracted).not.toHaveProperty('statsDataThrough')
+    expect(extracted.meta.coreComplete).toBe(true)
+    expect(extracted.meta.fullExtract).toBe(false)
+    expect(extracted.meta.partial).toBe(false)
+    expect(extracted.meta.timestampsWritten).toBe(true)
+    expect(extracted.meta.omittedFields).toEqual(['homeRecord', 'awayRecord'])
+    expect(extractEspnStatsDataThrough(nhlEspnTeamWithoutSplits())).toBeNull()
+
+    const write = teamPerformanceWritePayload(extracted)
+    expect(write.freshnessTimestampsWritten).toBe(true)
+    expect(write.representsFullRefresh).toBe(false)
+    expect(write.payload.statsCapturedAt).toBe(EXTRACTED_AT.toISOString())
+    expect(write.payload).not.toHaveProperty('statsDataThrough')
+    expect(write.payload).not.toHaveProperty('homeRecord')
+    expect(write.payload).not.toHaveProperty('awayRecord')
+    expect(write.retained).toEqual(expect.arrayContaining([
+      'homeRecord',
+      'awayRecord',
+      'statsDataThrough',
+    ]))
   })
 })
 
