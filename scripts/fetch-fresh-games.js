@@ -35,6 +35,11 @@ const ESPN_HEADERS = {
   'User-Agent': 'OddsOnDeck/1.0'
 }
 
+function attachFetchState(games, fetchState) {
+  Object.defineProperty(games, 'fetchState', { value: fetchState, enumerable: false })
+  return games
+}
+
 function formatDateForESPN(date) {
   return date.toISOString().split('T')[0].replace(/-/g, '')
 }
@@ -108,6 +113,7 @@ async function fetchGamesFromESPN(sport, date) {
     console.log(`\n🔄 Fetching ${sport.toUpperCase()} games from ESPN...`)
     
     let allEvents = []
+    let espnFetchOk = false
     
     if (sport === 'nhl') {
       // NHL: Fetch games for next 7 days (to match Odds API which returns games for multiple days)
@@ -124,6 +130,7 @@ async function fetchGamesFromESPN(sport, date) {
         
         try {
           const data = await fetchScoreboardJson(url)
+          espnFetchOk = true
           const events = data.events || []
           if (events.length > 0) {
             const eventsWithDate = events.map(event => ({
@@ -160,6 +167,7 @@ async function fetchGamesFromESPN(sport, date) {
         
         console.log(`📡 URL: ${url}`)
         const data = await fetchScoreboardJson(url)
+        espnFetchOk = true
         const events = data.events || []
         console.log(`📅 Found ${events.length} games for ${requestedDate.toLocaleDateString()}`)
         eventsForWeek.push(...events)
@@ -174,6 +182,7 @@ async function fetchGamesFromESPN(sport, date) {
           
           try {
             const data = await fetchScoreboardJson(url)
+            espnFetchOk = true
             const events = data.events || []
             if (events.length > 0) {
               eventsForWeek.push(...events)
@@ -206,6 +215,7 @@ async function fetchGamesFromESPN(sport, date) {
         
         try {
           const data = await fetchScoreboardJson(url)
+          espnFetchOk = true
           const events = data.events || []
           if (events.length > 0) {
             allEvents = [...allEvents, ...events]
@@ -229,12 +239,13 @@ async function fetchGamesFromESPN(sport, date) {
       console.log(`📡 URL: ${url}`)
       
       const data = await fetchScoreboardJson(url)
+      espnFetchOk = true
       allEvents = data.events || []
     }
     
     console.log(`✅ Found ${allEvents.length} ${sport.toUpperCase()} games`)
     
-    return allEvents.map(event => {
+    const mapped = allEvents.map(event => {
       const competition = event.competitions?.[0]
       const home = competition?.competitors?.[0]
       const away = competition?.competitors?.[1]
@@ -374,9 +385,10 @@ async function fetchGamesFromESPN(sport, date) {
         _awayTeam: away?.team
       }
     })
+    return attachFetchState(mapped, mapped.length ? 'ok' : (espnFetchOk ? 'empty' : 'unavailable'))
   } catch (error) {
     console.error(`❌ Error fetching ${sport}:`, error.message)
-    return []
+    return attachFetchState([], 'unavailable')
   }
 }
 
@@ -432,7 +444,34 @@ async function ensureTeamsExist(sport, games) {
   console.log(`  ✅ ${Object.keys(abbrToId).length} ${sport.toUpperCase()} teams mapped`)
 }
 
-async function saveToSupabase(sport, games) {
+async function logPossibleFlipRows(sport, games) {
+  const incoming = (games || []).filter((game) => game?.id && game.homeId && game.awayId)
+  if (incoming.length === 0) return
+  const { data: existing, error } = await supabase
+    .from('Game')
+    .select('id, homeId, awayId')
+    .eq('sport', sport)
+  if (error) {
+    console.warn(`  ⚠️  possible_flip lookup failed: ${error.message}`)
+    return
+  }
+  const byReverse = new Map()
+  for (const row of existing || []) {
+    const date = row.id.match(/\d{4}-\d{2}-\d{2}$/)?.[0]
+    if (!date) continue
+    byReverse.set(`${row.awayId}|${row.homeId}|${date}`, row)
+  }
+  for (const game of incoming) {
+    const date = game.id.match(/\d{4}-\d{2}-\d{2}$/)?.[0]
+    if (!date) continue
+    const hit = byReverse.get(`${game.homeId}|${game.awayId}|${date}`)
+    if (hit && hit.id !== game.id) {
+      console.log(`  ⚠️  possible_flip: ${game.id} vs ${hit.id}`)
+    }
+  }
+}
+
+async function saveToSupabase(sport, games, { logPossibleFlips = false } = {}) {
   if (!games.length) {
     console.log(`⚠️  No games to save for ${sport.toUpperCase()}`)
     return 0
@@ -616,23 +655,10 @@ async function saveToSupabase(sport, games) {
         }
       }
 
-      // Reverse orientation on the same ET date is a home/away flip, not a
-      // same-matchup duplicate. Log only — reconcile retires the extra row.
-      const { data: reverseOrientationRaw } = await supabase
-        .from('Game')
-        .select('id, espnGameId, oddsApiEventId, status, date')
-        .eq('sport', sport)
-        .eq('homeId', game.awayId)
-        .eq('awayId', game.homeId)
-        .neq('id', game.id)
+    }
 
-      const reverseOrientation = (reverseOrientationRaw || []).filter(dup => {
-        const dupIdDate = dup.id.match(/\d{4}-\d{2}-\d{2}$/)?.[0]
-        return dupIdDate === gameDateStr
-      })
-      if (reverseOrientation.length > 0) {
-        console.log(`  ⚠️  possible_flip: ${game.id} vs ${reverseOrientation.map(g => g.id).join(', ')}`)
-      }
+    if (logPossibleFlips) {
+      await logPossibleFlipRows(sport, games)
     }
     
     // Create upsert array AFTER duplicate check (filter out removed games)
@@ -811,12 +837,23 @@ function parseFetchFreshArgs(argv = []) {
   let reconcile = false
   let apply = false
   let json = false
+  let includePast = false
   let maxRetires = null
+  let maxPct = null
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === '--reconcile') reconcile = true
     else if (arg === '--apply') apply = true
     else if (arg === '--json') json = true
+    else if (arg === '--include-past') includePast = true
+    else if (arg === '--max-pct') {
+      const raw = argv[i + 1]
+      if (raw == null || String(raw).startsWith('--')) {
+        throw new Error('--max-pct requires a number')
+      }
+      maxPct = Number(raw)
+      i += 1
+    }
     else if (arg === '--max') {
       const raw = argv[i + 1]
       if (raw == null || String(raw).startsWith('--')) {
@@ -834,7 +871,9 @@ function parseFetchFreshArgs(argv = []) {
     reconcile,
     apply,
     json,
+    includePast,
     maxRetires,
+    maxPct,
   }
 }
 
@@ -854,8 +893,14 @@ async function maybeReconcileAfterFetch(parsed, mlbFetchedSuccessfully) {
     date: parsed.date,
     apply: parsed.apply,
     json: parsed.json,
-    caps: Number.isInteger(parsed.maxRetires)
-      ? { maxRetires: parsed.maxRetires, maxPct: DEFAULT_MAX_RETIRE_PCT }
+    includePast: parsed.includePast,
+    caps: (Number.isInteger(parsed.maxRetires) || Number.isFinite(parsed.maxPct))
+      ? {
+          maxRetires: Number.isInteger(parsed.maxRetires) ? parsed.maxRetires : undefined,
+          maxPct: Number.isFinite(parsed.maxPct)
+            ? (parsed.maxPct > 1 ? parsed.maxPct / 100 : parsed.maxPct)
+            : DEFAULT_MAX_RETIRE_PCT,
+        }
       : undefined,
     supabase,
     logger: console,
@@ -880,18 +925,20 @@ async function main() {
       const games = await fetchGamesFromESPN(s, date)
       if (s === 'mlb') {
         await populateMLBGameIds(games)
-        mlbFetchedSuccessfully = true
+        mlbFetchedSuccessfully = games.fetchState === 'ok' || games.fetchState === 'empty'
       }
-      totalSaved += await saveToSupabase(s, games)
+      totalSaved += await saveToSupabase(s, games, { logPossibleFlips: parsed.reconcile && s === 'mlb' })
       await new Promise(r => setTimeout(r, 1000))
     }
   } else if (SPORT_MAP[sport]) {
     const games = await fetchGamesFromESPN(sport, date)
     if (sport === 'mlb') {
       await populateMLBGameIds(games)
-      mlbFetchedSuccessfully = true
+      mlbFetchedSuccessfully = games.fetchState === 'ok' || games.fetchState === 'empty'
     }
-    totalSaved += await saveToSupabase(sport, games)
+    totalSaved += await saveToSupabase(sport, games, {
+      logPossibleFlips: parsed.reconcile && sport === 'mlb',
+    })
   } else {
     console.error(`❌ Invalid sport: ${sport}. Use: mlb, nfl, nhl, or all`)
     process.exit(1)
