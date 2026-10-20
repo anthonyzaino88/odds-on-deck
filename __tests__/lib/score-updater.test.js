@@ -76,6 +76,7 @@ describe('ACTIVE_GAME_STATUSES covers every MLB resolver non-terminal', () => {
     for (const status of MLB_RESOLVER_NON_TERMINAL_STATUSES) {
       expect(ACTIVE_GAME_STATUSES).toContain(status)
     }
+    expect(ACTIVE_GAME_STATUSES).toContain('halftime')
   })
 
   test('every non-terminal resolveMlbLinescoreStatus value is selectable', () => {

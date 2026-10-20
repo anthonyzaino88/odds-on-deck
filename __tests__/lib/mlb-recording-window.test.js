@@ -75,6 +75,9 @@ describe('MLB recording window', () => {
     expect(hasMlbGameStarted(game(), FIRST_PITCH)).toBe(true)
     expect(hasMlbGameStarted(game({ status: 'in_progress' }), new Date('2026-10-11T22:00:00.000Z'))).toBe(true)
     expect(hasMlbGameStarted(game({ status: 'postponed' }), new Date('2026-10-11T22:00:00.000Z'))).toBe(true)
+    expect(hasMlbGameStarted(game({ status: 'halftime' }), new Date('2026-10-11T22:00:00.000Z'))).toBe(true)
+    expect(hasMlbGameStarted(game({ status: 'warmup' }), new Date('2026-10-11T22:00:00.000Z'))).toBe(true)
+    expect(hasMlbGameStarted(game({ status: 'not_needed' }), new Date('2026-10-11T22:00:00.000Z'))).toBe(true)
   })
 
   test('ops quiet period is :05–:15 ET inclusive', () => {

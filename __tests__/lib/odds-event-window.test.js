@@ -8,9 +8,9 @@ import {
 } from '../../lib/live-odds-landing.js'
 
 // Real TB @ CLE 2026 ALCS rows (Game.date is zone-less UTC).
-const G15 = { id: 'TB_at_CLE_2026-10-15', date: '2026-10-15T17:00:00', oddsApiEventId: '2572-stale' }
-const G16 = { id: 'TB_at_CLE_2026-10-16', date: '2026-10-17T00:00:00', oddsApiEventId: null }
-const G17 = { id: 'TB_at_CLE_2026-10-17', date: '2026-10-18T00:00:00', oddsApiEventId: null }
+const G15 = { id: 'TB_at_CLE_2026-10-15', date: '2026-10-15T17:00:00', oddsApiEventId: '2572-stale', status: 'scheduled' }
+const G16 = { id: 'TB_at_CLE_2026-10-16', date: '2026-10-17T00:00:00', oddsApiEventId: null, status: 'scheduled' }
+const G17 = { id: 'TB_at_CLE_2026-10-17', date: '2026-10-18T00:00:00', oddsApiEventId: null, status: 'scheduled' }
 
 describe('pickUnmappedOddsGame ±6h window', () => {
   test('event outside window of every open row stays unmapped (no next-day cascade)', () => {
@@ -42,9 +42,26 @@ describe('pickUnmappedOddsGame ±6h window', () => {
     expect(pickUnmappedOddsGame([G15], eventCommenceMs('2026-10-15T17:00:00Z'), { isReclaimable })).toBeNull()
   })
 
+  test('does not reclaim live, final, or dead rows even when the event left the feed', () => {
+    const isReclaimable = () => true
+    const t = eventCommenceMs('2026-10-15T17:00:00Z')
+    expect(pickUnmappedOddsGame([{ ...G15, status: 'in_progress' }], t, { isReclaimable })).toBeNull()
+    expect(pickUnmappedOddsGame([{ ...G15, status: 'halftime' }], t, { isReclaimable })).toBeNull()
+    expect(pickUnmappedOddsGame([{ ...G15, status: 'final' }], t, { isReclaimable })).toBeNull()
+    expect(pickUnmappedOddsGame([{ ...G15, status: 'postponed' }], t, { isReclaimable })).toBeNull()
+  })
+
+  test('does not map unmapped live, final, or dead rows', () => {
+    const t = eventCommenceMs('2026-10-15T17:00:00Z')
+    expect(pickUnmappedOddsGame([{ ...G15, oddsApiEventId: null, status: 'in_progress' }], t)).toBeNull()
+    expect(pickUnmappedOddsGame([{ ...G15, oddsApiEventId: null, status: 'final' }], t)).toBeNull()
+    expect(pickUnmappedOddsGame([{ ...G15, oddsApiEventId: null, status: 'postponed' }], t)).toBeNull()
+    expect(pickUnmappedOddsGame([{ ...G15, oddsApiEventId: null, status: 'scheduled' }], t).id).toBe(G15.id)
+  })
+
   test('traditional doubleheader: each event lands on its own game', () => {
-    const dh1 = { id: 'NYY_at_BOS_2026-07-04', date: '2026-07-04T17:05:00', oddsApiEventId: null }
-    const dh2 = { id: 'NYY_at_BOS_2026-07-04_2', date: '2026-07-04T23:10:00', oddsApiEventId: null }
+    const dh1 = { id: 'NYY_at_BOS_2026-07-04', date: '2026-07-04T17:05:00', oddsApiEventId: null, status: 'scheduled' }
+    const dh2 = { id: 'NYY_at_BOS_2026-07-04_2', date: '2026-07-04T23:10:00', oddsApiEventId: null, status: 'scheduled' }
     expect(pickUnmappedOddsGame([dh1, dh2], eventCommenceMs('2026-07-04T17:05:00Z')).id).toBe(dh1.id)
     expect(pickUnmappedOddsGame([dh1, dh2], eventCommenceMs('2026-07-04T23:10:00Z')).id).toBe(dh2.id)
     // game 1 already mapped: game-2 event still goes to game 2, not stolen

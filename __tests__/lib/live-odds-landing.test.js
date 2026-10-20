@@ -1,5 +1,8 @@
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import {
   eventCommenceMs,
+  MAP_EVENT_GAME_SELECT,
   oddsInsertFailedForMissingCommenceTime,
   oddsInsertPayload,
   isOpenForOddsEvent,
@@ -9,16 +12,61 @@ import {
   resolvePropLanding,
 } from '../../lib/live-odds-landing.js'
 
+function parseSelectColumns(select) {
+  const cols = []
+  let current = ''
+  let depth = 0
+  for (const ch of select) {
+    if (ch === '(') depth += 1
+    else if (ch === ')') depth -= 1
+    if (ch === ',' && depth === 0) {
+      cols.push(current.trim())
+      current = ''
+    } else {
+      current += ch
+    }
+  }
+  if (current.trim()) cols.push(current.trim())
+  return cols
+}
+
+function rowFromSelect(select, values) {
+  const row = {}
+  for (const col of parseSelectColumns(select)) {
+    const key = col.split(':')[0].trim()
+    if (!Object.prototype.hasOwnProperty.call(values, key)) {
+      throw new Error(`fixture missing ${key} for select ${select}`)
+    }
+    row[key] = values[key]
+  }
+  return row
+}
+
+const SELECT_FIXTURE = {
+  id: 'TB_at_CLE_2026-10-16',
+  sport: 'mlb',
+  date: '2026-10-17T00:00:00',
+  status: 'scheduled',
+  homeId: 'MLB_114',
+  awayId: 'MLB_139',
+  oddsApiEventId: null,
+  espnGameId: '401696969',
+  home: { name: 'Cleveland Guardians', abbr: 'CLE' },
+  away: { name: 'Tampa Bay Rays', abbr: 'TB' },
+}
+
 describe('pickUnmappedOddsGame', () => {
   const game1 = {
     id: 'CHC_at_CLE_2026-04-04',
     date: '2026-04-04T17:10:00',
     oddsApiEventId: 'event-game-1',
+    status: 'scheduled',
   }
   const game2 = {
     id: 'CHC_at_CLE_2026-04-05',
     date: '2026-04-05T17:10:00',
     oddsApiEventId: null,
+    status: 'scheduled',
   }
 
   test('split doubleheader: a new event lands on the unmapped game, not the closest mapped row', () => {
@@ -30,6 +78,29 @@ describe('pickUnmappedOddsGame', () => {
   test('does not steal a mapped sibling when every match is already mapped', () => {
     const mappedTwin = { ...game2, oddsApiEventId: 'event-game-2' }
     expect(pickUnmappedOddsGame([game1, mappedTwin], eventCommenceMs('2026-04-05T17:10:00Z'))).toBeNull()
+  })
+
+  test('maps from exactly the mapAndSaveEventIds Game select columns', () => {
+    const src = readFileSync(join(process.cwd(), 'scripts/fetch-live-odds.js'), 'utf8')
+    const fnStart = src.indexOf('async function mapAndSaveEventIds')
+    expect(fnStart).toBeGreaterThanOrEqual(0)
+    const fn = src.slice(fnStart, src.indexOf('\nasync function', fnStart + 1))
+    const selects = [...fn.matchAll(/\.select\(([^)]+)\)/g)].map((m) => m[1].trim())
+    expect(selects[0]).toBe('MAP_EVENT_GAME_SELECT')
+    expect(selects[1]).toBe('MAP_EVENT_GAME_SELECT')
+    expect(MAP_EVENT_GAME_SELECT).toMatch(/\bstatus\b/)
+
+    const row = rowFromSelect(MAP_EVENT_GAME_SELECT, SELECT_FIXTURE)
+    expect(Object.keys(row).sort()).toEqual([
+      'away', 'awayId', 'date', 'espnGameId', 'home', 'homeId',
+      'id', 'oddsApiEventId', 'sport', 'status',
+    ])
+    expect(row).not.toHaveProperty('lastUpdate')
+    expect(pickUnmappedOddsGame([row], eventCommenceMs('2026-10-17T00:00:00Z')).id).toBe(row.id)
+
+    const { status, ...withoutStatus } = row
+    expect(status).toBe('scheduled')
+    expect(pickUnmappedOddsGame([withoutStatus], eventCommenceMs('2026-10-17T00:00:00Z'))).toBeNull()
   })
 })
 
