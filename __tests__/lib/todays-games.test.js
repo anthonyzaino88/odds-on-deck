@@ -9,5 +9,7 @@ describe('today slate hides cancelled games', () => {
     expect(isHiddenFromTodaysSlate({ status: 'in_progress' })).toBe(false)
     expect(isHiddenFromTodaysSlate({ status: 'postponed' })).toBe(false)
     expect(isHiddenFromTodaysSlate({ status: 'final' })).toBe(false)
+    expect(isHiddenFromTodaysSlate({ status: 'not_needed' })).toBe(true)
+    expect(isHiddenFromTodaysSlate({ status: 'not needed' })).toBe(true)
   })
 })

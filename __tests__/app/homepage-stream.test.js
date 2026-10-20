@@ -41,6 +41,7 @@ describe('homepage public board is Published-only', () => {
     expect(hookSrc).toMatch(/attachGameDates/)
     expect(hookSrc).toMatch(/getEtCalendarDayRange\(-2\)/)
     expect(hookSrc).not.toMatch(/gameLines.*selectTodaysBoardRows/)
+    expect(hookSrc).toMatch(/isCancelledGameStatus/)
   })
 
   test('board UI labels Published and tells an honest short/empty story', () => {

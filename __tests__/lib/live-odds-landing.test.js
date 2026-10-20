@@ -10,6 +10,8 @@ import {
   pickUnmappedOddsGame,
   resolveTeamNameFallback,
   resolvePropLanding,
+  gamesEligibleForPropSave,
+  propSaveDecision,
 } from '../../lib/live-odds-landing.js'
 
 function parseSelectColumns(select) {
@@ -75,6 +77,11 @@ describe('pickUnmappedOddsGame', () => {
     expect(picked.id).toBe('CHC_at_CLE_2026-04-05')
   })
 
+  test('retired not_needed rows are not mappable', () => {
+    expect(pickUnmappedOddsGame([{ ...game2, status: 'not_needed' }], eventCommenceMs('2026-04-05T17:10:00Z'))).toBeNull()
+    expect(pickUnmappedOddsGame([{ ...game2, status: 'cancelled' }], eventCommenceMs('2026-04-05T17:10:00Z'))).toBeNull()
+  })
+
   test('does not steal a mapped sibling when every match is already mapped', () => {
     const mappedTwin = { ...game2, oddsApiEventId: 'event-game-2' }
     expect(pickUnmappedOddsGame([game1, mappedTwin], eventCommenceMs('2026-04-05T17:10:00Z'))).toBeNull()
@@ -96,6 +103,7 @@ describe('pickUnmappedOddsGame', () => {
       'id', 'oddsApiEventId', 'sport', 'status',
     ])
     expect(row).not.toHaveProperty('lastUpdate')
+    expect(src).toMatch(/isCancelledGameStatus/)
     expect(pickUnmappedOddsGame([row], eventCommenceMs('2026-10-17T00:00:00Z')).id).toBe(row.id)
 
     const { status, ...withoutStatus } = row
@@ -137,6 +145,28 @@ describe('pickOpenTeamMatch (saveGameOdds team-name fallback)', () => {
     const nextDay = [{ id: 'NYY_at_BOS_2026-10-02', oddsApiEventId: null }]
     expect(resolveTeamNameFallback(sameDay, nextDay, 'event-g2')).toBeNull()
     expect(resolveTeamNameFallback([], nextDay, 'event-g2').id).toBe('NYY_at_BOS_2026-10-02')
+  })
+})
+
+describe('propSaveDecision', () => {
+  test('does not move not_needed or cancelled props onto another game', () => {
+    expect(propSaveDecision({ status: 'not_needed' })).toBe('skip')
+    expect(propSaveDecision({ status: 'cancelled' })).toBe('skip')
+    expect(propSaveDecision({ status: 'final' })).toBe('redirect')
+    expect(propSaveDecision({ status: 'scheduled' })).toBe('keep')
+    const src = readFileSync(join(process.cwd(), 'scripts/fetch-live-odds.js'), 'utf8')
+    expect(src).toMatch(/propSaveDecision/)
+    expect(src).toMatch(/skippedGameIds/)
+    expect(src).not.toMatch(/skippedEventIds/)
+    expect(src).toMatch(/not moving onto another game/)
+  })
+
+  test('a live row that shares an event id with a retired row still maps', () => {
+    const retired = { id: 'CLE_at_TB_2026-10-20', oddsApiEventId: 'evt-1', status: 'not_needed' }
+    const live = { id: 'TB_at_CLE_2026-10-20', oddsApiEventId: 'evt-1', status: 'scheduled' }
+    expect(gamesEligibleForPropSave([retired, live]).map((game) => game.id)).toEqual([
+      'TB_at_CLE_2026-10-20',
+    ])
   })
 })
 

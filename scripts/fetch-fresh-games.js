@@ -10,11 +10,20 @@
  *   node scripts/fetch-fresh-games.js           # Fetch all sports for today
  *   node scripts/fetch-fresh-games.js mlb       # MLB only
  *   node scripts/fetch-fresh-games.js nfl 2025-11-02   # NFL for specific date
+ *   node scripts/fetch-fresh-games.js mlb --reconcile          # dry-run ghost/flip plan after upsert
+ *   node scripts/fetch-fresh-games.js mlb --reconcile --apply  # write not_needed (outside :05–:15 ET)
+ *   --max-pct N   Percentage 0-100 (same as reconcile-games.js; default 30)
  */
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import { createGameId } from '../lib/team-mapping.js'
+import {
+  DEFAULT_MAX_RETIRE_PCT,
+  parseMaxPctValue,
+  runReconcile,
+  shiftEtDate,
+} from '../lib/game-reconcile.js'
 
 config({ path: '.env.local' })
 
@@ -30,6 +39,11 @@ const SPORT_MAP = {
 
 const ESPN_HEADERS = {
   'User-Agent': 'OddsOnDeck/1.0'
+}
+
+function attachFetchState(games, fetchState) {
+  Object.defineProperty(games, 'fetchState', { value: fetchState, enumerable: false })
+  return games
 }
 
 function formatDateForESPN(date) {
@@ -105,6 +119,7 @@ async function fetchGamesFromESPN(sport, date) {
     console.log(`\n🔄 Fetching ${sport.toUpperCase()} games from ESPN...`)
     
     let allEvents = []
+    let espnFetchOk = false
     
     if (sport === 'nhl') {
       // NHL: Fetch games for next 7 days (to match Odds API which returns games for multiple days)
@@ -121,6 +136,7 @@ async function fetchGamesFromESPN(sport, date) {
         
         try {
           const data = await fetchScoreboardJson(url)
+          espnFetchOk = true
           const events = data.events || []
           if (events.length > 0) {
             const eventsWithDate = events.map(event => ({
@@ -157,6 +173,7 @@ async function fetchGamesFromESPN(sport, date) {
         
         console.log(`📡 URL: ${url}`)
         const data = await fetchScoreboardJson(url)
+        espnFetchOk = true
         const events = data.events || []
         console.log(`📅 Found ${events.length} games for ${requestedDate.toLocaleDateString()}`)
         eventsForWeek.push(...events)
@@ -171,6 +188,7 @@ async function fetchGamesFromESPN(sport, date) {
           
           try {
             const data = await fetchScoreboardJson(url)
+            espnFetchOk = true
             const events = data.events || []
             if (events.length > 0) {
               eventsForWeek.push(...events)
@@ -203,6 +221,7 @@ async function fetchGamesFromESPN(sport, date) {
         
         try {
           const data = await fetchScoreboardJson(url)
+          espnFetchOk = true
           const events = data.events || []
           if (events.length > 0) {
             allEvents = [...allEvents, ...events]
@@ -226,12 +245,13 @@ async function fetchGamesFromESPN(sport, date) {
       console.log(`📡 URL: ${url}`)
       
       const data = await fetchScoreboardJson(url)
+      espnFetchOk = true
       allEvents = data.events || []
     }
     
     console.log(`✅ Found ${allEvents.length} ${sport.toUpperCase()} games`)
     
-    return allEvents.map(event => {
+    const mapped = allEvents.map(event => {
       const competition = event.competitions?.[0]
       const home = competition?.competitors?.[0]
       const away = competition?.competitors?.[1]
@@ -371,9 +391,10 @@ async function fetchGamesFromESPN(sport, date) {
         _awayTeam: away?.team
       }
     })
+    return attachFetchState(mapped, mapped.length ? 'ok' : (espnFetchOk ? 'empty' : 'unavailable'))
   } catch (error) {
     console.error(`❌ Error fetching ${sport}:`, error.message)
-    return []
+    return attachFetchState([], 'unavailable')
   }
 }
 
@@ -429,7 +450,41 @@ async function ensureTeamsExist(sport, games) {
   console.log(`  ✅ ${Object.keys(abbrToId).length} ${sport.toUpperCase()} teams mapped`)
 }
 
-async function saveToSupabase(sport, games) {
+async function logPossibleFlipRows(sport, games) {
+  const incoming = (games || []).filter((game) => game?.id && game.homeId && game.awayId)
+  if (incoming.length === 0) return
+  const fetchedDates = [...new Set(incoming.map((game) => game.id.match(/\d{4}-\d{2}-\d{2}$/)?.[0]).filter(Boolean))].sort()
+  if (fetchedDates.length === 0) return
+  const start = shiftEtDate(fetchedDates[0], -1) || fetchedDates[0]
+  const end = shiftEtDate(fetchedDates[fetchedDates.length - 1], 1) || fetchedDates[fetchedDates.length - 1]
+  const dateSet = new Set(fetchedDates)
+  const { data: existing, error } = await supabase
+    .from('Game')
+    .select('id, homeId, awayId')
+    .eq('sport', sport)
+    .gte('date', `${start}T00:00:00.000Z`)
+    .lte('date', `${end}T23:59:59.999Z`)
+  if (error) {
+    console.warn(`  ⚠️  possible_flip lookup failed: ${error.message}`)
+    return
+  }
+  const byReverse = new Map()
+  for (const row of existing || []) {
+    const date = row.id.match(/\d{4}-\d{2}-\d{2}$/)?.[0]
+    if (!date || !dateSet.has(date)) continue
+    byReverse.set(`${row.awayId}|${row.homeId}|${date}`, row)
+  }
+  for (const game of incoming) {
+    const date = game.id.match(/\d{4}-\d{2}-\d{2}$/)?.[0]
+    if (!date) continue
+    const hit = byReverse.get(`${game.homeId}|${game.awayId}|${date}`)
+    if (hit && hit.id !== game.id) {
+      console.log(`  ⚠️  possible_flip: ${game.id} vs ${hit.id}`)
+    }
+  }
+}
+
+async function saveToSupabase(sport, games, { logPossibleFlips = false } = {}) {
   if (!games.length) {
     console.log(`⚠️  No games to save for ${sport.toUpperCase()}`)
     return 0
@@ -612,6 +667,11 @@ async function saveToSupabase(sport, games) {
           })
         }
       }
+
+    }
+
+    if (logPossibleFlips) {
+      await logPossibleFlipRows(sport, games)
     }
     
     // Create upsert array AFTER duplicate check (filter out removed games)
@@ -785,28 +845,110 @@ async function populateMLBGameIds(games) {
   console.log(`  🔗 Matched ${matched}/${games.length} games with MLB gamePk IDs`)
 }
 
+function parseFetchFreshArgs(argv = []) {
+  const positional = []
+  let reconcile = false
+  let apply = false
+  let json = false
+  let includePast = false
+  let maxRetires = null
+  let maxPct = null
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i]
+    if (arg === '--reconcile') reconcile = true
+    else if (arg === '--apply') apply = true
+    else if (arg === '--json') json = true
+    else if (arg === '--include-past') includePast = true
+    else if (arg === '--max-pct') {
+      const raw = argv[i + 1]
+      const parsedPct = parseMaxPctValue(raw)
+      if (parsedPct.error) throw new Error(parsedPct.error)
+      maxPct = parsedPct.value
+      i += 1
+    }
+    else if (arg === '--max') {
+      const raw = argv[i + 1]
+      if (raw == null || String(raw).startsWith('--')) {
+        throw new Error('--max requires an integer value')
+      }
+      maxRetires = Number(raw)
+      i += 1
+    } else if (!String(arg).startsWith('--')) {
+      positional.push(arg)
+    }
+  }
+  return {
+    sport: positional[0]?.toLowerCase() || 'all',
+    date: positional[1] || null,
+    reconcile,
+    apply,
+    json,
+    includePast,
+    maxRetires,
+    maxPct,
+  }
+}
+
+async function maybeReconcileAfterFetch(parsed, mlbFetchedSuccessfully) {
+  if (!parsed.reconcile) return 0
+  if (parsed.sport !== 'all' && parsed.sport !== 'mlb') {
+    console.log('⏭️  --reconcile skipped (MLB only)')
+    return 0
+  }
+  if (!mlbFetchedSuccessfully) {
+    console.log('⏭️  --reconcile skipped (MLB was not fetched successfully this run)')
+    return 0
+  }
+  console.log('\n🔎 Reconciling MLB scheduled games (ghost / flip)...')
+  const result = await runReconcile({
+    sport: 'mlb',
+    date: parsed.date,
+    apply: parsed.apply,
+    json: parsed.json,
+    includePast: parsed.includePast,
+    caps: (Number.isInteger(parsed.maxRetires) || Number.isFinite(parsed.maxPct))
+      ? {
+          maxRetires: Number.isInteger(parsed.maxRetires) ? parsed.maxRetires : undefined,
+          maxPct: Number.isFinite(parsed.maxPct) ? parsed.maxPct : DEFAULT_MAX_RETIRE_PCT,
+        }
+      : undefined,
+    supabase,
+    logger: console,
+  })
+  return result.exitCode || 0
+}
+
 async function main() {
-  const allArgs = process.argv.slice(2)
-  const sport = allArgs[0]?.toLowerCase() || 'all'
-  const date = allArgs[1] || null
+  const parsed = parseFetchFreshArgs(process.argv.slice(2))
+  const sport = parsed.sport
+  const date = parsed.date
   
   console.log('🎯 FETCH FRESH GAMES FROM ESPN API')
   console.log(`📅 Date: ${date || 'Today'}`)
   console.log(''.padEnd(50, '='))
   
   let totalSaved = 0
+  let mlbFetchedSuccessfully = false
   
   if (sport === 'all') {
     for (const s of ['mlb', 'nfl', 'nhl']) {
       const games = await fetchGamesFromESPN(s, date)
-      if (s === 'mlb') await populateMLBGameIds(games)
-      totalSaved += await saveToSupabase(s, games)
+      if (s === 'mlb') {
+        await populateMLBGameIds(games)
+        mlbFetchedSuccessfully = games.fetchState === 'ok' || games.fetchState === 'empty'
+      }
+      totalSaved += await saveToSupabase(s, games, { logPossibleFlips: parsed.reconcile && s === 'mlb' })
       await new Promise(r => setTimeout(r, 1000))
     }
   } else if (SPORT_MAP[sport]) {
     const games = await fetchGamesFromESPN(sport, date)
-    if (sport === 'mlb') await populateMLBGameIds(games)
-    totalSaved += await saveToSupabase(sport, games)
+    if (sport === 'mlb') {
+      await populateMLBGameIds(games)
+      mlbFetchedSuccessfully = games.fetchState === 'ok' || games.fetchState === 'empty'
+    }
+    totalSaved += await saveToSupabase(sport, games, {
+      logPossibleFlips: parsed.reconcile && sport === 'mlb',
+    })
   } else {
     console.error(`❌ Invalid sport: ${sport}. Use: mlb, nfl, nhl, or all`)
     process.exit(1)
@@ -815,6 +957,9 @@ async function main() {
   console.log('\n' + ''.padEnd(50, '='))
   console.log(`📊 TOTAL SAVED: ${totalSaved} games`)
   console.log('✅ Fresh games fetched and saved!')
+
+  const reconcileExit = await maybeReconcileAfterFetch(parsed, mlbFetchedSuccessfully)
+  if (reconcileExit) process.exit(reconcileExit)
 }
 
 main().catch(error => {
