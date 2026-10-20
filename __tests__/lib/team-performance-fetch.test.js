@@ -27,17 +27,39 @@ function createSupabase({ teamsBySport, games = [], finalsCount, updateRows } = 
     gameCalls,
     from(table) {
       if (table === 'Game') {
-        const count = finalsCount ?? games.length
+        const bounds = { gte: null, lte: null }
+        const applyBounds = () => games.filter((row) => {
+          const raw = row?.date
+          if (!raw) return true
+          const ms = Date.parse(/^\d{4}-\d{2}-\d{2}T/.test(raw) && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw) ? `${raw}Z` : raw)
+          if (!Number.isFinite(ms)) return true
+          if (bounds.gte != null && ms < bounds.gte) return false
+          if (bounds.lte != null && ms > bounds.lte) return false
+          return true
+        })
+        const resolve = () => {
+          const filtered = applyBounds()
+          return { data: filtered, error: null, count: finalsCount ?? filtered.length }
+        }
         const q = {
           select() { return q },
           eq(col, val) { gameCalls.push(['eq', col, val]); return q },
+          gte(col, val) {
+            gameCalls.push(['gte', col, val])
+            if (col === 'date') bounds.gte = Date.parse(val)
+            return q
+          },
           or(expr) { gameCalls.push(['or', expr]); return q },
           in(col, vals) { gameCalls.push(['in', col, vals]); return q },
-          lte(col, val) { gameCalls.push(['lte', col, val]); return q },
+          lte(col, val) {
+            gameCalls.push(['lte', col, val])
+            if (col === 'date') bounds.lte = Date.parse(val)
+            return q
+          },
           order() { return q },
-          async limit() { return { data: games, error: null, count } },
-          then(resolve, reject) {
-            return Promise.resolve({ data: games, error: null, count }).then(resolve, reject)
+          async limit() { return resolve() },
+          then(resolveP, reject) {
+            return Promise.resolve(resolve()).then(resolveP, reject)
           },
         }
         return q

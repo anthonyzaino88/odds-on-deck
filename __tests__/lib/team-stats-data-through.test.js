@@ -6,24 +6,53 @@ import {
 } from '../../lib/team-performance-stats.js'
 import {
   countTeamSeasonFinals,
+  espnGamesPlayedLooksFrozen,
   fetchAndUpdateTeam,
-  gamesPlayedAgreesWithDbFinals,
   loadLatestFinalGameDate,
+  regularSeasonStartUtc,
 } from '../../lib/team-performance-fetch.js'
 
 const NOW = new Date('2026-10-16T12:25:00.000Z')
 
-function gameQuery(rows, calls, { count = rows.length } = {}) {
+function rowDateMs(row) {
+  const raw = row?.date
+  if (!raw) return null
+  const ms = Date.parse(/^\d{4}-\d{2}-\d{2}T/.test(raw) && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw) ? `${raw}Z` : raw)
+  return Number.isFinite(ms) ? ms : null
+}
+
+function gameQuery(rows, calls, { count } = {}) {
+  const bounds = { gte: null, lte: null }
+  const applyBounds = () => rows.filter((row) => {
+    const ms = rowDateMs(row)
+    if (ms == null) return true
+    if (bounds.gte != null && ms < bounds.gte) return false
+    if (bounds.lte != null && ms > bounds.lte) return false
+    return true
+  })
+  const resolve = () => {
+    const filtered = applyBounds()
+    return { data: filtered, error: null, count: count ?? filtered.length }
+  }
   const q = {
     select() { return q },
     eq(col, val) { calls.push(['eq', col, val]); return q },
+    gte(col, val) {
+      calls.push(['gte', col, val])
+      if (col === 'date') bounds.gte = Date.parse(val)
+      return q
+    },
     or(expr) { calls.push(['or', expr]); return q },
     in(col, vals) { calls.push(['in', col, vals]); return q },
-    lte(col, val) { calls.push(['lte', col, val]); return q },
+    lte(col, val) {
+      calls.push(['lte', col, val])
+      if (col === 'date') bounds.lte = Date.parse(val)
+      return q
+    },
     order() { return q },
-    async limit() { return { data: rows, error: null, count } },
-    then(resolve, reject) {
-      return Promise.resolve({ data: rows, error: null, count }).then(resolve, reject)
+    async limit() { return resolve() },
+    then(resolveP, reject) {
+      return Promise.resolve(resolve()).then(resolveP, reject)
     },
   }
   return q
@@ -38,7 +67,7 @@ function supabaseWith({ games = [], finalsCount, gameThrows = false } = {}) {
     from(table) {
       if (table === 'Game') {
         if (gameThrows) throw new Error('no Game table')
-        return gameQuery(games, calls, { count: finalsCount ?? games.length })
+        return gameQuery(games, calls, finalsCount == null ? {} : { count: finalsCount })
       }
       return {
         update(payload) {
@@ -110,12 +139,24 @@ describe('mergeStatsDataThrough', () => {
 })
 
 describe('loadLatestFinalGameDate', () => {
-  test('queries final home/away games up to now', async () => {
+  test('queries final home/away games up to now from regular-season start', async () => {
     const sb = supabaseWith({ games: [{ date: '2026-10-15T17:00:00' }] })
     await expect(loadLatestFinalGameDate(sb, { id: 'MLB_139', sport: 'mlb' }, { now: NOW })).resolves.toBe('2026-10-15T17:00:00')
     expect(sb.calls).toContainEqual(['eq', 'sport', 'mlb'])
+    expect(sb.calls).toContainEqual(['gte', 'date', '2026-03-01T00:00:00.000Z'])
     expect(sb.calls).toContainEqual(['or', 'homeId.eq.MLB_139,awayId.eq.MLB_139'])
     expect(sb.calls.find((c) => c[0] === 'in')[2]).toContain('final')
+    expect(sb.calls.some((c) => c[0] === 'eq' && c[1] === 'season')).toBe(false)
+  })
+  test('ignores preseason finals when picking latest date', async () => {
+    const sb = supabaseWith({
+      games: [
+        { date: '2026-02-20T17:00:00', season: null },
+        { date: '2026-10-15T17:00:00', season: null },
+      ],
+    })
+    await expect(loadLatestFinalGameDate(sb, { id: 'MLB_139', sport: 'mlb' }, { now: NOW }))
+      .resolves.toBe('2026-10-15T17:00:00')
   })
   test('no sport -> no lookup (team ids are not unique across sports)', async () => {
     const sb = supabaseWith({ games: [{ date: '2026-10-15T17:00:00' }] })
@@ -219,31 +260,69 @@ const ESPN_NFL_NO_PREV = {
   },
 }
 
-describe('gamesPlayedAgreesWithDbFinals', () => {
-  test('allows a slack of 2 and rejects missing counts', () => {
-    expect(gamesPlayedAgreesWithDbFinals(9, 9)).toBe(true)
-    expect(gamesPlayedAgreesWithDbFinals(9, 7)).toBe(true)
-    expect(gamesPlayedAgreesWithDbFinals(9, 11)).toBe(true)
-    expect(gamesPlayedAgreesWithDbFinals(9, 6)).toBe(false)
-    expect(gamesPlayedAgreesWithDbFinals(9, 12)).toBe(false)
-    expect(gamesPlayedAgreesWithDbFinals(9, null)).toBe(false)
-    expect(gamesPlayedAgreesWithDbFinals(null, 9)).toBe(false)
+describe('regularSeasonStartUtc', () => {
+  test('NHL Oct 1 wrapping Oct–Jun, NFL Sep 1 wrapping Sep–Feb, MLB Mar 1', () => {
+    expect(regularSeasonStartUtc('nhl', NHL_NOW).toISOString()).toBe('2026-10-01T00:00:00.000Z')
+    expect(regularSeasonStartUtc('nhl', new Date('2027-01-15T00:00:00.000Z')).toISOString())
+      .toBe('2026-10-01T00:00:00.000Z')
+    expect(regularSeasonStartUtc('nfl', NHL_NOW).toISOString()).toBe('2026-09-01T00:00:00.000Z')
+    expect(regularSeasonStartUtc('nfl', new Date('2027-02-01T00:00:00.000Z')).toISOString())
+      .toBe('2026-09-01T00:00:00.000Z')
+    expect(regularSeasonStartUtc('mlb', NHL_NOW).toISOString()).toBe('2026-03-01T00:00:00.000Z')
+    expect(regularSeasonStartUtc('mlb', new Date('2027-01-15T00:00:00.000Z')).toISOString())
+      .toBe('2026-03-01T00:00:00.000Z')
+    expect(regularSeasonStartUtc('xyz', NHL_NOW)).toBeNull()
+  })
+})
+
+describe('espnGamesPlayedLooksFrozen', () => {
+  test('is one-way: only DB ahead of ESPN by more than 2 is frozen', () => {
+    expect(espnGamesPlayedLooksFrozen(9, 9)).toBe(false)
+    expect(espnGamesPlayedLooksFrozen(9, 11)).toBe(false)
+    expect(espnGamesPlayedLooksFrozen(9, 12)).toBe(true)
+    expect(espnGamesPlayedLooksFrozen(9, 0)).toBe(false)
+    expect(espnGamesPlayedLooksFrozen(9, 2)).toBe(false)
+    expect(espnGamesPlayedLooksFrozen(9, null)).toBe(false)
+    expect(espnGamesPlayedLooksFrozen(null, 12)).toBe(false)
   })
 })
 
 describe('countTeamSeasonFinals', () => {
-  test('counts finals for sport + season + team', async () => {
+  test('counts finals on or after the regular-season start, with no season eq', async () => {
     const sb = supabaseWith({ games: [{ date: '2026-10-19T00:00:00' }], finalsCount: 9 })
     await expect(countTeamSeasonFinals(sb, { id: 'NHL_1', sport: 'nhl' }, {
       now: NHL_NOW,
-      season: '2026',
     })).resolves.toBe(9)
     expect(sb.calls).toContainEqual(['eq', 'sport', 'nhl'])
-    expect(sb.calls).toContainEqual(['eq', 'season', '2026'])
+    expect(sb.calls).toContainEqual(['gte', 'date', '2026-10-01T00:00:00.000Z'])
+    expect(sb.calls.some((c) => c[0] === 'eq' && c[1] === 'season')).toBe(false)
   })
-  test('no season -> no lookup', async () => {
+  test('counts null-season regular-season rows', async () => {
+    const sb = supabaseWith({
+      games: [
+        { date: '2026-10-12T00:00:00', season: null },
+        { date: '2026-10-14T00:00:00', season: null },
+        { date: '2026-10-19T00:00:00', season: null },
+      ],
+    })
+    await expect(countTeamSeasonFinals(sb, { id: 'NHL_1', sport: 'nhl' }, { now: NHL_NOW })).resolves.toBe(3)
+    expect(sb.calls.some((c) => c[0] === 'eq' && c[1] === 'season')).toBe(false)
+  })
+  test('excludes preseason rows before the regular-season start', async () => {
+    const sb = supabaseWith({
+      games: [
+        { date: '2026-09-22T00:00:00', season: null },
+        { date: '2026-09-28T00:00:00', season: '2026' },
+        { date: '2026-10-12T00:00:00', season: null },
+        { date: '2026-10-19T00:00:00', season: null },
+      ],
+    })
+    await expect(countTeamSeasonFinals(sb, { id: 'NHL_1', sport: 'nhl' }, { now: NHL_NOW })).resolves.toBe(2)
+    expect(sb.calls).toContainEqual(['gte', 'date', '2026-10-01T00:00:00.000Z'])
+  })
+  test('unknown sport -> no lookup', async () => {
     const sb = supabaseWith({ games: [{ date: '2026-10-19T00:00:00' }] })
-    await expect(countTeamSeasonFinals(sb, { id: 'NHL_1', sport: 'nhl' }, { now: NHL_NOW })).resolves.toBeNull()
+    await expect(countTeamSeasonFinals(sb, { id: 'X_1', sport: 'xyz' }, { now: NHL_NOW })).resolves.toBeNull()
     expect(sb.calls).toHaveLength(0)
   })
 })
@@ -253,8 +332,11 @@ describe('fetchAndUpdateTeam NHL without previousEvent', () => {
   const logger = { log() {}, error() {} }
   const fetchImpl = async () => ({ ok: true, json: async () => ESPN_NHL_NO_SPLITS })
 
-  test('in-season: derives statsDataThrough when DB finals agree with gamesPlayed', async () => {
-    const sb = supabaseWith({ games: [{ date: '2026-10-19T00:00:00' }], finalsCount: 9 })
+  test('in-season: derives statsDataThrough from regular-season finals (null season ok)', async () => {
+    const sb = supabaseWith({
+      games: [{ date: '2026-10-19T00:00:00', season: null }],
+      finalsCount: 9,
+    })
     const res = await fetchAndUpdateTeam(team, { supabase: sb, fetchImpl, extractedAt: NHL_NOW, logger })
     expect(res.updated).toBe(true)
     expect(res.plan.partial).toBe(false)
@@ -263,12 +345,13 @@ describe('fetchAndUpdateTeam NHL without previousEvent', () => {
     expect(sb.updates[0].payload.statsDataThrough).toBe('2026-10-19T00:00:00.000Z')
     expect(sb.updates[0].payload).not.toHaveProperty('homeRecord')
     expect(sb.calls).toContainEqual(['eq', 'sport', 'nhl'])
-    expect(sb.calls).toContainEqual(['eq', 'season', '2026'])
+    expect(sb.calls).toContainEqual(['gte', 'date', '2026-10-01T00:00:00.000Z'])
+    expect(sb.calls.some((c) => c[0] === 'eq' && c[1] === 'season')).toBe(false)
     expect(sb.calls).toContainEqual(['or', 'homeId.eq.NHL_1,awayId.eq.NHL_1'])
   })
 
-  test('in-season: mismatch vs DB finals withholds timestamps (partial)', async () => {
-    const sb = supabaseWith({ games: [{ date: '2026-10-19T00:00:00' }], finalsCount: 2 })
+  test('in-season: DB finals ahead of ESPN by more than 2 withholds timestamps (frozen ESPN)', async () => {
+    const sb = supabaseWith({ games: [{ date: '2026-10-19T00:00:00' }], finalsCount: 12 })
     const res = await fetchAndUpdateTeam(team, { supabase: sb, fetchImpl, extractedAt: NHL_NOW, logger })
     expect(res.updated).toBe(true)
     expect(res.plan.partial).toBe(true)
@@ -278,12 +361,27 @@ describe('fetchAndUpdateTeam NHL without previousEvent', () => {
     expect(sb.updates[0].payload).not.toHaveProperty('statsDataThrough')
   })
 
-  test('in-season: does not invent statsDataThrough when DB has no final', async () => {
+  test('in-season: DB behind ESPN still writes capturedAt and does not invent dataThrough', async () => {
     const sb = supabaseWith({ games: [], finalsCount: 0 })
     const res = await fetchAndUpdateTeam(team, { supabase: sb, fetchImpl, extractedAt: NHL_NOW, logger })
     expect(res.updated).toBe(true)
-    expect(res.plan.partial).toBe(true)
-    expect(sb.updates[0].payload).not.toHaveProperty('statsCapturedAt')
+    expect(res.plan.partial).toBe(false)
+    expect(res.plan.freshnessTimestampsWritten).toBe(true)
+    expect(sb.updates[0].payload.statsCapturedAt).toBe(NHL_NOW.toISOString())
+    expect(sb.updates[0].payload).not.toHaveProperty('statsDataThrough')
+  })
+
+  test('in-season: preseason-only finals do not invent dataThrough', async () => {
+    const sb = supabaseWith({
+      games: [
+        { date: '2026-09-22T00:00:00', season: null },
+        { date: '2026-09-28T00:00:00', season: null },
+      ],
+    })
+    const res = await fetchAndUpdateTeam(team, { supabase: sb, fetchImpl, extractedAt: NHL_NOW, logger })
+    expect(res.updated).toBe(true)
+    expect(res.plan.partial).toBe(false)
+    expect(sb.updates[0].payload.statsCapturedAt).toBe(NHL_NOW.toISOString())
     expect(sb.updates[0].payload).not.toHaveProperty('statsDataThrough')
   })
 })
@@ -293,18 +391,30 @@ describe('fetchAndUpdateTeam NFL without previousEvent', () => {
   const logger = { log() {}, error() {} }
   const fetchImpl = async () => ({ ok: true, json: async () => ESPN_NFL_NO_PREV })
 
-  test('uses DB finals date when gamesPlayed agrees', async () => {
-    const sb = supabaseWith({ games: [{ date: '2026-10-13T00:20:00' }], finalsCount: 5 })
+  test('uses DB finals date when ESPN is not frozen (null season ok)', async () => {
+    const sb = supabaseWith({
+      games: [{ date: '2026-10-13T00:20:00', season: null }],
+      finalsCount: 5,
+    })
     const res = await fetchAndUpdateTeam(team, { supabase: sb, fetchImpl, extractedAt: NHL_NOW, logger })
     expect(res.updated).toBe(true)
     expect(res.plan.partial).toBe(false)
     expect(sb.updates[0].payload.statsDataThrough).toBe('2026-10-13T00:20:00.000Z')
     expect(sb.calls).toContainEqual(['eq', 'sport', 'nfl'])
-    expect(sb.calls).toContainEqual(['eq', 'season', '2026'])
+    expect(sb.calls).toContainEqual(['gte', 'date', '2026-09-01T00:00:00.000Z'])
+    expect(sb.calls.some((c) => c[0] === 'eq' && c[1] === 'season')).toBe(false)
   })
 
-  test('treats a stale ESPN gamesPlayed vs few DB finals as partial', async () => {
-    const sb = supabaseWith({ games: [{ date: '2026-09-08T00:20:00' }], finalsCount: 1 })
+  test('DB behind ESPN is not partial; writes capturedAt', async () => {
+    const sb = supabaseWith({ games: [{ date: '2026-09-08T00:20:00', season: null }], finalsCount: 1 })
+    const res = await fetchAndUpdateTeam(team, { supabase: sb, fetchImpl, extractedAt: NHL_NOW, logger })
+    expect(res.plan.partial).toBe(false)
+    expect(sb.updates[0].payload.statsCapturedAt).toBe(NHL_NOW.toISOString())
+    expect(sb.updates[0].payload.statsDataThrough).toBe('2026-09-08T00:20:00.000Z')
+  })
+
+  test('frozen ESPN (DB finals ahead by more than 2) is partial', async () => {
+    const sb = supabaseWith({ games: [{ date: '2026-10-13T00:20:00' }], finalsCount: 8 })
     const res = await fetchAndUpdateTeam(team, { supabase: sb, fetchImpl, extractedAt: NHL_NOW, logger })
     expect(res.plan.partial).toBe(true)
     expect(sb.updates[0].payload).not.toHaveProperty('statsCapturedAt')

@@ -37,7 +37,7 @@ Fetch write rules (`lib/team-performance-stats.js`):
 - `statsKind` is `season` for the ESPN team endpoint (season averages, not a trailing 10).
 - `statsCapturedAt` / `statsDataThrough` are written when **core** season stats are present (overall record + avg for/against). Home/road splits are optional — ESPN's NHL team endpoint no longer sends them.
 - Record-only ESPN updates keep prior freshness timestamps. Retained scoring averages are not marked freshly updated.
-- `statsDataThrough` is the last completed ESPN game date when `previousEvent` is in the payload. If ESPN omits that event (NHL/NFL), fetch may derive it from the team's latest same-sport final `Game` only when ESPN `gamesPlayed` is within 2 of the DB finals count for that team and season. Otherwise the write is partial (no timestamps) so frozen ESPN numbers are not masked. It is never set to the fetch clock.
+- `statsDataThrough` is the last completed ESPN game date when `previousEvent` is in the payload. If ESPN omits that event (NHL/NFL), fetch may derive it from the team's latest same-sport final `Game` on or after the sport's regular-season start (`Game.season` is typically null — `fetch-fresh-games` never writes it). The write is partial (no timestamps) only when DB finals exceed ESPN `gamesPlayed` by more than 2 (frozen ESPN). It is never set to the fetch clock.
 
 ## EdgeSnapshot
 
