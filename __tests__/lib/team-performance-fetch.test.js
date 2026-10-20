@@ -19,7 +19,7 @@ const GOOD_EXISTING = {
   statsCapturedAt: '2025-12-12T00:00:00.000Z',
 }
 
-function createSupabase({ teamsBySport, games = [], updateRows } = {}) {
+function createSupabase({ teamsBySport, games = [], finalsCount, updateRows } = {}) {
   const updates = []
   const gameCalls = []
   return {
@@ -27,6 +27,7 @@ function createSupabase({ teamsBySport, games = [], updateRows } = {}) {
     gameCalls,
     from(table) {
       if (table === 'Game') {
+        const count = finalsCount ?? games.length
         const q = {
           select() { return q },
           eq(col, val) { gameCalls.push(['eq', col, val]); return q },
@@ -34,7 +35,10 @@ function createSupabase({ teamsBySport, games = [], updateRows } = {}) {
           in(col, vals) { gameCalls.push(['in', col, vals]); return q },
           lte(col, val) { gameCalls.push(['lte', col, val]); return q },
           order() { return q },
-          async limit() { return { data: games, error: null } },
+          async limit() { return { data: games, error: null, count } },
+          then(resolve, reject) {
+            return Promise.resolve({ data: games, error: null, count }).then(resolve, reject)
+          },
         }
         return q
       }
@@ -75,6 +79,7 @@ function createSupabase({ teamsBySport, games = [], updateRows } = {}) {
 function nhlEspnTeamWithoutSplits() {
   return {
     team: {
+      season: { year: 2026 },
       record: {
         items: [
           {
@@ -208,8 +213,9 @@ describe('fetchTeamPerformanceForSports', () => {
 
   test('NHL without splits writes timestamps and counts as updated, not partial', async () => {
     const supabase = createSupabase({
-      teamsBySport: { nhl: [GOOD_EXISTING], nfl: [], mlb: [] },
+      teamsBySport: { nhl: [{ ...GOOD_EXISTING, season: '2026' }], nfl: [], mlb: [] },
       games: [{ date: '2026-10-19T00:00:00' }],
+      finalsCount: 9,
     })
     const extractedAt = new Date('2026-10-20T16:00:00.000Z')
     const summary = await fetchTeamPerformanceForSports({
