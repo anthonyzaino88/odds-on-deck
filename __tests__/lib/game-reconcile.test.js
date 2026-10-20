@@ -306,6 +306,19 @@ describe('planReconcile flips', () => {
     }
   })
 
+  test('wrong-orientation row with no vendor id and no twin is flip_no_twin, not a ghost', () => {
+    const plan = planWithSlate({
+      extraRows: [row('CLE_at_TB_2026-10-20', { espnGameId: null, mlbGameId: null })],
+      extraEspn: [{ date: TODAY, espnGameId: 'alcs', awayAbbr: 'TB', homeAbbr: 'CLE' }],
+      extraStats: [{ date: TODAY, gamePk: '123', awayAbbr: 'TB', homeAbbr: 'CLE', doubleHeader: 'N' }],
+    })
+    expect(plan.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20')).toMatchObject({
+      action: 'report',
+      reason: 'flip_no_twin',
+    })
+    expect(plan.actions.some((action) => action.action === 'retire_not_needed' && action.id === 'CLE_at_TB_2026-10-20')).toBe(false)
+  })
+
   test('feeds disagree on home/away → flip_ambiguous, no retire', () => {
     const plan = planWithSlate({
       extraRows: [
