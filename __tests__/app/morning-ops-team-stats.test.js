@@ -19,9 +19,22 @@ describe('morning ops team-stats refresh', () => {
     const pkg = JSON.parse(read('package.json'))
     expect(pkg.scripts['fetch:team-performance']).toBe('node scripts/fetch-team-performance-data.js')
     expect(pkg.scripts['calculate:game-edges']).toBe('node scripts/calculate-game-edges.js')
+    expect(pkg.scripts.postinstall).toBe('prisma generate')
     expect(pkg.scripts['ops:morning-edges']).toBe(
-      'node scripts/fetch-team-performance-data.js && node scripts/calculate-game-edges.js',
+      'node scripts/ensure-prisma-client.js && node scripts/fetch-team-performance-data.js && node scripts/calculate-game-edges.js',
     )
+  })
+
+  test('morning scripts preflight the generated Prisma client', () => {
+    expect(read('scripts/ensure-prisma-client.js')).toMatch(/ensurePrismaClient/)
+    expect(read('scripts/fetch-team-performance-data.js')).toMatch(/ensurePrismaClient/)
+    expect(read('scripts/calculate-game-edges.js')).toMatch(/ensurePrismaClient/)
+    expect(read('operations/fetch-team-performance-data.js')).toMatch(/ensurePrismaClient/)
+    const ops = read('operations/README.md')
+    expect(ops).toMatch(/Never junction `node_modules`/)
+    expect(ops).toMatch(/npm ci/)
+    expect(ops).toMatch(/cmd \/c rmdir <link>/)
+    expect(ops).not.toMatch(/rmdir <link> \/s/)
   })
 
   test('fetch script uses the secret-key helper and does not auto-run on import', () => {

@@ -6,6 +6,7 @@ import { calculateGameEdges } from '../lib/edge.js' // MLB model math unchanged
 import { calculateNHLEdges } from '../lib/edge-nfl-nhl.js' // NHL heuristic + team-stats skip
 import { calculateNFLEdges, toNflEdgeSnapshotInsert } from '../lib/edge-nfl.js' // isolated NFL model
 import { evaluateMatchupTeamStatsForEdge } from '../lib/team-performance-stats.js'
+import { ensurePrismaClient } from '../lib/prisma-preflight.js'
 import crypto from 'crypto'
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 
@@ -210,6 +211,13 @@ async function calculateEdgesForToday() {
   } catch (error) {
     console.error('❌ Fatal error:', error)
   }
+}
+
+try {
+  ensurePrismaClient()
+} catch (error) {
+  console.error('❌ Fatal error:', error)
+  process.exit(1)
 }
 
 // Run the calculation

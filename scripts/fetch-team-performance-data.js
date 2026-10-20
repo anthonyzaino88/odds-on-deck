@@ -6,6 +6,7 @@
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { config } from 'dotenv'
+import { ensurePrismaClient } from '../lib/prisma-preflight.js'
 import { runFetchTeamPerformanceData } from '../lib/team-performance-fetch.js'
 
 config({ path: '.env.local' })
@@ -22,6 +23,12 @@ export { runFetchTeamPerformanceData }
 
 if (invokedDirectly()) {
   console.log('\n📊 Fetching Team Performance Data from ESPN...\n')
+  try {
+    ensurePrismaClient()
+  } catch (error) {
+    console.error('❌ Fatal error:', error)
+    process.exit(1)
+  }
   runFetchTeamPerformanceData()
     .then((summary) => {
       console.log('\n✅ Team performance data fetch complete!\n')
