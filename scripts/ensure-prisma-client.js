@@ -6,8 +6,9 @@
 import { ensurePrismaClient } from '../lib/prisma-preflight.js'
 
 try {
-  ensurePrismaClient()
+  // Warn-only: morning-edges (fetch + calculate) does not import Prisma.
+  // Scripts that construct PrismaClient (auto-validate-parlays) fail closed.
+  ensurePrismaClient({ warnOnly: true })
 } catch (error) {
-  console.error('❌ Fatal error:', error.message || error)
-  process.exit(1)
+  console.error('⚠️  PRISMA PREFLIGHT: continuing after unexpected error:', error.message || error)
 }

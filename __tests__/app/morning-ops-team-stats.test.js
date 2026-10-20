@@ -20,16 +20,22 @@ describe('morning ops team-stats refresh', () => {
     expect(pkg.scripts['fetch:team-performance']).toBe('node scripts/fetch-team-performance-data.js')
     expect(pkg.scripts['calculate:game-edges']).toBe('node scripts/calculate-game-edges.js')
     expect(pkg.scripts.postinstall).toBe('prisma generate')
+    expect(pkg.dependencies.prisma).toBe('5.22.0')
+    expect(pkg.devDependencies.prisma).toBeUndefined()
     expect(pkg.scripts['ops:morning-edges']).toBe(
       'node scripts/ensure-prisma-client.js && node scripts/fetch-team-performance-data.js && node scripts/calculate-game-edges.js',
     )
   })
 
   test('morning scripts preflight the generated Prisma client', () => {
-    expect(read('scripts/ensure-prisma-client.js')).toMatch(/ensurePrismaClient/)
-    expect(read('scripts/fetch-team-performance-data.js')).toMatch(/ensurePrismaClient/)
-    expect(read('scripts/calculate-game-edges.js')).toMatch(/ensurePrismaClient/)
-    expect(read('operations/fetch-team-performance-data.js')).toMatch(/ensurePrismaClient/)
+    expect(read('scripts/ensure-prisma-client.js')).toMatch(/ensurePrismaClient\(\{ warnOnly: true \}\)/)
+    expect(read('scripts/fetch-team-performance-data.js')).toMatch(/ensurePrismaClient\(\{ warnOnly: true \}\)/)
+    expect(read('scripts/calculate-game-edges.js')).toMatch(/ensurePrismaClient\(\{ warnOnly: true \}\)/)
+    expect(read('operations/fetch-team-performance-data.js')).toMatch(/ensurePrismaClient\(\{ warnOnly: true \}\)/)
+    expect(read('scripts/auto-validate-parlays.js')).toMatch(/ensurePrismaClient\(\)/)
+    expect(read('scripts/auto-validate-parlays.js')).not.toMatch(/ensurePrismaClient\(\{ warnOnly/)
+    expect(read('scripts/fetch-team-performance-data.js')).not.toMatch(/ensurePrismaClient\(\)[\s\S]{0,120}process\.exit\(1\)/)
+    expect(read('scripts/calculate-game-edges.js')).not.toMatch(/ensurePrismaClient\(\)[\s\S]{0,120}process\.exit\(1\)/)
     const preflight = read('lib/prisma-preflight.js')
     expect(preflight).toMatch(/prisma\/build\/index\.js/)
     expect(preflight).toMatch(/require\.resolve/)

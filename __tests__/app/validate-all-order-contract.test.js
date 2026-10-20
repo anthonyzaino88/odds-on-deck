@@ -32,6 +32,8 @@ describe('validate:all grades props before parlays', () => {
     expect(src).toMatch(/gradePropLegFromValidation/)
     expect(src).toMatch(/--regrade/)
     expect(src).toMatch(/Pending prop validation \(no numeric actual\)/)
+    expect(src).toMatch(/ensurePrismaClient\(\)/)
+    expect(src).not.toMatch(/ensurePrismaClient\(\{\s*warnOnly/)
   })
 
   test('ops docs state props-then-parlays and the local regrade command', () => {

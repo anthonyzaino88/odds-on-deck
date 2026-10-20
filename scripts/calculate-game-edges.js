@@ -213,12 +213,7 @@ async function calculateEdgesForToday() {
   }
 }
 
-try {
-  ensurePrismaClient()
-} catch (error) {
-  console.error('❌ Fatal error:', error)
-  process.exit(1)
-}
+ensurePrismaClient({ warnOnly: true })
 
 // Run the calculation
 calculateEdgesForToday()

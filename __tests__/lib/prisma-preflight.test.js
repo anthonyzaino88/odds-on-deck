@@ -76,6 +76,19 @@ describe('ensurePrismaClient', () => {
     expect(logs).toMatch(/cmd \/c rmdir/)
   })
 
+  test('warnOnly does not throw when generate fails', () => {
+    const logger = silentLogger()
+    const result = ensurePrismaClient({
+      exists: () => false,
+      importPrisma: () => function PrismaClient() {},
+      generate: () => ({ status: 1, stderr: "'prisma' is not recognized" }),
+      logger,
+      warnOnly: true,
+    })
+    expect(result).toEqual(expect.objectContaining({ ok: false, warned: true }))
+    expect(logger.error.mock.calls.flat().join('\n')).toMatch(/warn-only/)
+  })
+
   test('throws when the client is still missing after generate', () => {
     const logger = silentLogger()
     expect(() => ensurePrismaClient({

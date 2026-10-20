@@ -20,7 +20,7 @@
 import path from 'path'
 import { fileURLToPath } from 'url'
 import dotenv from 'dotenv'
-import { PrismaClient } from '@prisma/client'
+import { ensurePrismaClient } from '../lib/prisma-preflight.js'
 import {
   FEATURED_COHORT_TAG,
   featuredLegGradePatch,
@@ -52,6 +52,8 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.join(__dirname, '..', '.env.local') })
+ensurePrismaClient()
+const { PrismaClient } = await import('@prisma/client')
 const prisma = new PrismaClient()
 
 function parseArgs(argv) {
