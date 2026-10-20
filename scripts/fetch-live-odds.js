@@ -22,6 +22,7 @@ import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import {
   eventCommenceMs,
+  MAP_EVENT_GAME_SELECT,
   oddsInsertFailedForMissingCommenceTime,
   oddsInsertPayload,
   pickUnmappedOddsGame,
@@ -621,7 +622,7 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
   // IMPORTANT: Also get games with same ESPN ID across different dates to handle duplicates
   let { data: dbGames, error: dbError } = await supabase
     .from('Game')
-    .select('id, sport, date, homeId, awayId, oddsApiEventId, espnGameId, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
+    .select(MAP_EVENT_GAME_SELECT)
     .eq('sport', sport)
     .gte('date', dateStart.toISOString())
     .lte('date', dateEnd.toISOString())
@@ -634,7 +635,7 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
       // Get all games with these ESPN IDs, even if outside the date range
       const { data: additionalGames } = await supabase
         .from('Game')
-        .select('id, sport, date, homeId, awayId, oddsApiEventId, espnGameId, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
+        .select(MAP_EVENT_GAME_SELECT)
         .eq('sport', sport)
         .in('espnGameId', espnIds)
       
