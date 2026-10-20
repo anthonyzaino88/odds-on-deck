@@ -23,7 +23,7 @@ node scripts/clear-stale-props.js
 # Continue even if cleanup exited 1. Independent slate-refresh must still run.
 node scripts/fetch-fresh-games.js all
 # 2b. Reconcile ghost / flipped MLB scheduled games. Dry-run until two clean mornings.
-# Never deletes. Caps abort when more than 5 rows or >30% of that date's candidates would change.
+# Never deletes. Absolute cap 5 rows; 30% cap only when a date has 5+ candidates.
 # PowerShell: use node scripts/... — npm run … -- --apply drops flags.
 node scripts/reconcile-games.js --sport mlb
 # After two clean dry-runs, one manual apply outside :05–:15 ET (ideally 9:30–11:00 AM):
@@ -121,6 +121,7 @@ games and home/away flips stay `scheduled` forever unless reconciled.
 # Dry-run (default, no writes)
 node scripts/reconcile-games.js --sport mlb
 node scripts/reconcile-games.js --sport mlb --date 2026-10-20 --days 3 --json
+# Past dates are reports only unless --include-past.
 
 # Write status=not_needed + clear oddsApiEventId. Refused during :05–:15 ET.
 # Never deletes. Both ESPN and StatsAPI must agree the matchup is gone.
@@ -134,7 +135,9 @@ mornings, then one manual `--apply` (9:30–11:00 AM ET), then enable
 
 Rows with pending PropValidation / ParlayLeg are reported as
 `protected_has_picks` and left alone. Cap abort: more than 5 retires or more
-than 30% of that date's candidates (`--max N` overrides the count).
+than 30% of that date's candidates when the date has 5+ candidates
+(`--max N` / `--max-pct N` override). Both feeds returning a valid empty
+slate (`events:[]` / `dates:[]`) is agreement, not an abort.
 
 ### Proposed Grok Bot morning-ops prompt change (pending — do not apply from this cloud agent)
 

@@ -24,6 +24,7 @@ import {
   eventCommenceMs,
   MAP_EVENT_GAME_SELECT,
   oddsInsertFailedForMissingCommenceTime,
+  propSaveDecision,
   oddsInsertPayload,
   pickUnmappedOddsGame,
   msSinceEtMidnight,
@@ -1322,8 +1323,14 @@ async function savePlayerProps(gameProps, sport) {
     console.warn(`  ⚠️  Error querying games for props: ${error.message}`)
   }
   
-  // For any final / cancelled / not_needed games, find the next scheduled sibling
-  const finalGames = (dbGames || []).filter(g => g.status === 'final' || isCancelledGameStatus(g.status))
+  // Final games may redirect props to the next scheduled sibling.
+  // not_needed / cancelled must not move props onto another game.
+  const skippedGames = (dbGames || []).filter((g) => propSaveDecision(g) === 'skip')
+  for (const skipped of skippedGames) {
+    console.log(`  ⏭️  Skipping props for ${skipped.id} (status=${skipped.status}; not moving onto another game)`)
+  }
+  const skippedEventIds = new Set(skippedGames.map((g) => g.oddsApiEventId).filter(Boolean))
+  const finalGames = (dbGames || []).filter((g) => propSaveDecision(g) === 'redirect')
   let siblingLookup = {}
   if (finalGames.length > 0) {
     console.log(`  ⚠️  ${finalGames.length} mapped games are final — looking for next scheduled sibling...`)
@@ -1350,12 +1357,11 @@ async function savePlayerProps(gameProps, sport) {
   const eventIdToGameData = {}
   if (dbGames) {
     dbGames.forEach(g => {
-      if (g.oddsApiEventId) {
-        const redirectGame = siblingLookup[g.id] || null
-        eventIdToGameData[g.oddsApiEventId] = {
-          mappedGame: g,
-          redirectGame,
-        }
+      if (!g.oddsApiEventId || skippedEventIds.has(g.oddsApiEventId) || propSaveDecision(g) === 'skip') return
+      const redirectGame = siblingLookup[g.id] || null
+      eventIdToGameData[g.oddsApiEventId] = {
+        mappedGame: g,
+        redirectGame,
       }
     })
   }
@@ -1371,7 +1377,13 @@ async function savePlayerProps(gameProps, sport) {
     
       if (allMappedGames) {
         allMappedGames.forEach(g => {
-          if (g.oddsApiEventId && eventIds.includes(g.oddsApiEventId) && !eventIdToGameData[g.oddsApiEventId]) {
+          if (
+            g.oddsApiEventId
+            && eventIds.includes(g.oddsApiEventId)
+            && !eventIdToGameData[g.oddsApiEventId]
+            && propSaveDecision(g) !== 'skip'
+            && !skippedEventIds.has(g.oddsApiEventId)
+          ) {
             eventIdToGameData[g.oddsApiEventId] = {
               mappedGame: g,
               redirectGame: null,

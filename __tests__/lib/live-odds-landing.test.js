@@ -10,6 +10,7 @@ import {
   pickUnmappedOddsGame,
   resolveTeamNameFallback,
   resolvePropLanding,
+  propSaveDecision,
 } from '../../lib/live-odds-landing.js'
 
 function parseSelectColumns(select) {
@@ -143,6 +144,18 @@ describe('pickOpenTeamMatch (saveGameOdds team-name fallback)', () => {
     const nextDay = [{ id: 'NYY_at_BOS_2026-10-02', oddsApiEventId: null }]
     expect(resolveTeamNameFallback(sameDay, nextDay, 'event-g2')).toBeNull()
     expect(resolveTeamNameFallback([], nextDay, 'event-g2').id).toBe('NYY_at_BOS_2026-10-02')
+  })
+})
+
+describe('propSaveDecision', () => {
+  test('does not move not_needed or cancelled props onto another game', () => {
+    expect(propSaveDecision({ status: 'not_needed' })).toBe('skip')
+    expect(propSaveDecision({ status: 'cancelled' })).toBe('skip')
+    expect(propSaveDecision({ status: 'final' })).toBe('redirect')
+    expect(propSaveDecision({ status: 'scheduled' })).toBe('keep')
+    const src = readFileSync(join(process.cwd(), 'scripts/fetch-live-odds.js'), 'utf8')
+    expect(src).toMatch(/propSaveDecision/)
+    expect(src).toMatch(/not moving onto another game/)
   })
 })
 
