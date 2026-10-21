@@ -5,6 +5,7 @@ import {
   canApplyReconcile,
   classifyReconcileCandidate,
   DEFAULT_MAX_RETIRES,
+  ENABLE_DRIFT_DUPLICATE_RETIRE,
   formatReconcilePlanTable,
   mapEspnScoreboardEvents,
   mapStatsApiSchedule,
@@ -106,6 +107,64 @@ function memoryStream() {
   }
 }
 
+const CLE_TB_DRIFT_ROW = row('CLE_at_TB_2026-10-20', {
+  date: '2026-10-21T00:00:00.000Z',
+  homeScore: 0,
+  awayScore: 0,
+  espnGameId: '401908029',
+  mlbGameId: '849814',
+})
+
+const CLE_TB_DRIFT_ESPN = [{
+  date: '2026-10-19',
+  espnGameId: '401908028',
+  awayAbbr: 'CLE',
+  homeAbbr: 'TB',
+  status: 'final',
+}]
+
+const CLE_TB_DRIFT_STATS = [{
+  date: '2026-10-19',
+  gamePk: '849815',
+  awayAbbr: 'CLE',
+  homeAbbr: 'TB',
+  doubleHeader: 'N',
+  status: 'final',
+}]
+
+const CLE_TB_DRIFT_STATUS = {
+  '2026-10-19': 'ok',
+  '2026-10-20': 'zero',
+  '2026-10-21': 'zero',
+}
+
+function planCleTbDrift({
+  extraRows = [],
+  rowOverride = {},
+  espnEvents = CLE_TB_DRIFT_ESPN,
+  statsApiGames = CLE_TB_DRIFT_STATS,
+  espnStatusByDate = CLE_TB_DRIFT_STATUS,
+  statsStatusByDate = CLE_TB_DRIFT_STATUS,
+  nowEt = TODAY,
+  lastFetchedDate = '2026-10-21',
+  fetchedDates = [TODAY, '2026-10-21'],
+  caps,
+  enableDriftDuplicateRetire = ENABLE_DRIFT_DUPLICATE_RETIRE,
+} = {}) {
+  return planReconcile({
+    dbRows: [{ ...CLE_TB_DRIFT_ROW, ...rowOverride }, ...extraRows],
+    espnEvents,
+    statsApiGames,
+    espnStatusByDate,
+    statsStatusByDate,
+    nowEt,
+    lastFetchedDate,
+    fetchedDates,
+    caps,
+    enableDriftDuplicateRetire,
+  })
+}
+
 function createApplySupabase({ data = [{ id: 'x' }], error = null } = {}) {
   const ops = []
   return {
@@ -194,6 +253,101 @@ describe('planReconcile ghosts', () => {
       action: 'report',
       reason: 'date_drift',
     })
+  })
+
+  test('CLE_TB_DRIFT unknown ids retire as ghost_ids_unknown', () => {
+    expect(ENABLE_DRIFT_DUPLICATE_RETIRE).toBe(false)
+    const plan = planCleTbDrift()
+    expect(plan.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20')).toMatchObject({
+      action: 'retire_not_needed',
+      reason: 'ghost_ids_unknown',
+    })
+    expect(plan.summary.ghosts).toBe(1)
+    expect(plan.summary.ghostIdsUnknown).toBe(1)
+    expect(plan.dateSummaries.find((entry) => entry.date === '2026-10-20')).toMatchObject({
+      ghostIdsUnknown: 1,
+    })
+  })
+
+  test('CLE_TB matching adjacent espn id is date_drift, or date_drift_duplicate when flag on', () => {
+    const matched = planCleTbDrift({ rowOverride: { espnGameId: '401908028' } })
+    expect(matched.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20')).toMatchObject({
+      action: 'report',
+      reason: 'date_drift',
+    })
+    expect(matched.summary.driftDuplicates).toBe(0)
+
+    const on = planCleTbDrift({
+      rowOverride: { espnGameId: '401908028' },
+      enableDriftDuplicateRetire: true,
+    })
+    expect(on.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20')).toMatchObject({
+      action: 'retire_not_needed',
+      reason: 'date_drift_duplicate',
+    })
+    expect(on.summary.driftDuplicates).toBe(1)
+    expect(on.dateSummaries.find((entry) => entry.date === '2026-10-20').driftDuplicates).toBe(1)
+  })
+
+  test('matching adjacent id does not retire when StatsAPI adjacent day is unavailable', () => {
+    const plan = planCleTbDrift({
+      rowOverride: { espnGameId: '401908028' },
+      enableDriftDuplicateRetire: true,
+      statsStatusByDate: { ...CLE_TB_DRIFT_STATUS, '2026-10-19': 'unavailable' },
+    })
+    const action = plan.actions.find((item) => item.id === 'CLE_at_TB_2026-10-20')
+    expect(action?.action).not.toBe('retire_not_needed')
+    expect(action).toMatchObject({
+      action: 'report',
+      reason: 'date_drift',
+    })
+  })
+
+  test('matching adjacent id stays date_drift when only ESPN has the adjacent hit', () => {
+    const plan = planCleTbDrift({
+      rowOverride: { espnGameId: '401908028' },
+      enableDriftDuplicateRetire: true,
+      statsApiGames: [],
+    })
+    expect(plan.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20')).toMatchObject({
+      action: 'report',
+      reason: 'date_drift',
+    })
+    expect(plan.actions.some((action) => action.action === 'retire_not_needed')).toBe(false)
+  })
+
+  test('row without ids plus adjacent pair hit is date_drift', () => {
+    const plan = planWithSlate({
+      extraRows: [row('CLE_at_TB_2026-10-20', { espnGameId: null, mlbGameId: null })],
+      extraEspn: [{ date: '2026-10-21', espnGameId: 'espn-ghost', awayAbbr: 'CLE', homeAbbr: 'TB' }],
+      extraStats: [{ date: '2026-10-21', gamePk: '999', awayAbbr: 'CLE', homeAbbr: 'TB' }],
+    })
+    expect(plan.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20')).toMatchObject({
+      action: 'report',
+      reason: 'date_drift',
+    })
+  })
+
+  test('unknown ids found on a non-adjacent fetched date are date_drift, not a retire', () => {
+    const plan = planCleTbDrift({
+      espnEvents: [{
+        date: '2026-10-22',
+        espnGameId: '401908029',
+        awayAbbr: 'CLE',
+        homeAbbr: 'TB',
+        status: 'final',
+      }],
+      statsApiGames: [],
+      espnStatusByDate: { '2026-10-20': 'zero', '2026-10-21': 'zero', '2026-10-22': 'ok' },
+      statsStatusByDate: { '2026-10-20': 'zero', '2026-10-21': 'zero', '2026-10-22': 'zero' },
+      lastFetchedDate: '2026-10-22',
+      fetchedDates: [TODAY, '2026-10-21', '2026-10-22'],
+    })
+    expect(plan.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20')).toMatchObject({
+      action: 'report',
+      reason: 'date_drift',
+    })
+    expect(plan.actions.some((action) => action.action === 'retire_not_needed')).toBe(false)
   })
 })
 
@@ -401,6 +555,19 @@ describe('planReconcile doubleheaders and non-candidates', () => {
     expect(plan.actions.some((action) => action.action === 'retire_not_needed')).toBe(false)
   })
 
+  test('unknown ids stay ghost_ids_unknown when the adjacent pair is a doubleheader', () => {
+    const plan = planCleTbDrift({
+      statsApiGames: [
+        { date: '2026-10-19', gamePk: '849815', awayAbbr: 'CLE', homeAbbr: 'TB', doubleHeader: 'Y', status: 'final' },
+        { date: '2026-10-19', gamePk: '849816', awayAbbr: 'CLE', homeAbbr: 'TB', doubleHeader: 'Y', status: 'final' },
+      ],
+    })
+    expect(plan.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20')).toMatchObject({
+      action: 'retire_not_needed',
+      reason: 'ghost_ids_unknown',
+    })
+  })
+
   test('past-dated, live, final, postponed, or scored rows are never candidates', () => {
     const plan = planReconcile({
       dbRows: [
@@ -446,6 +613,34 @@ describe('planReconcile doubleheaders and non-candidates', () => {
     expect(classifyReconcileCandidate(row('CHC_at_CIN_2026-10-20', { homeScore: 1, awayScore: 0 }), { todayEt: TODAY }).reason).toBe('has_score')
     expect(classifyReconcileCandidate(row('TOR_at_BAL_2026-10-20', { status: 'unknown' }), { todayEt: TODAY }).reason).toBe('not_pre_start')
   })
+
+  test('a row already not_needed is not_retirable_status and prints nothing', () => {
+    const dead = row('CLE_at_TB_2026-10-20', {
+      status: 'not_needed',
+      espnGameId: '401908029',
+      mlbGameId: '849814',
+    })
+    expect(classifyReconcileCandidate(dead, {
+      todayEt: TODAY,
+      lastFetchedDate: TODAY,
+    })).toMatchObject({
+      candidate: false,
+      reason: 'not_retirable_status',
+    })
+    const plan = planReconcile({
+      dbRows: [dead],
+      espnEvents: CLE_TB_DRIFT_ESPN,
+      statsApiGames: CLE_TB_DRIFT_STATS,
+      espnStatusByDate: CLE_TB_DRIFT_STATUS,
+      statsStatusByDate: CLE_TB_DRIFT_STATUS,
+      nowEt: TODAY,
+      lastFetchedDate: '2026-10-21',
+      fetchedDates: [TODAY, '2026-10-21'],
+    })
+    expect(plan.actions.find((action) => action.id === dead.id)).toBeUndefined()
+    expect(plan.actions).toEqual([])
+    expect(formatReconcilePlanTable(plan.actions)).not.toMatch(/CLE_at_TB_2026-10-20/)
+  })
 })
 
 describe('planReconcile protection and dependents', () => {
@@ -482,6 +677,28 @@ describe('planReconcile protection and dependents', () => {
       })],
     })
     expect(withParlay.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20').reason).toBe('protected_has_picks')
+  })
+
+  test('CLE_TB_DRIFT with a pending ParlayLeg is protected_has_picks', () => {
+    const plan = planCleTbDrift({
+      rowOverride: {
+        dependents: {
+          propValidation: 0,
+          propValidationPending: 0,
+          parlayLeg: 1,
+          parlayLegPending: 1,
+          playerPropCache: 0,
+          odds: 0,
+          edgeSnapshot: 0,
+        },
+      },
+    })
+    expect(plan.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20')).toMatchObject({
+      action: 'report',
+      reason: 'protected_has_picks',
+    })
+    expect(plan.summary.ghosts).toBe(0)
+    expect(plan.summary.ghostIdsUnknown).toBe(0)
   })
 
   test('odds / props / edges only → retire and clear oddsApiEventId', () => {
@@ -521,6 +738,57 @@ describe('planReconcile caps', () => {
     expect(plan.aborts[0].retires).toBe(6)
     expect(plan.actions.filter((action) => action.action === 'retire_not_needed')).toEqual([])
     expect(plan.summary.retired).toBe(0)
+  })
+
+  test('6 ghost_ids_unknown rows abort with cap_exceeded and zero retires', () => {
+    const pairs = [
+      ['CLE', 'TB'],
+      ['LAD', 'MIL'],
+      ['NYY', 'BOS'],
+      ['SEA', 'HOU'],
+      ['CHC', 'CIN'],
+      ['DET', 'KC'],
+    ]
+    const extraRows = []
+    const espnEvents = []
+    const statsApiGames = []
+    pairs.forEach(([away, home], i) => {
+      extraRows.push(row(`${away}_at_${home}_2026-10-20`, {
+        date: '2026-10-21T00:00:00.000Z',
+        espnGameId: `4019081${i}`,
+        mlbGameId: `84982${i}`,
+      }))
+      espnEvents.push({
+        date: '2026-10-19',
+        espnGameId: `4019071${i}`,
+        awayAbbr: away,
+        homeAbbr: home,
+        status: 'final',
+      })
+      statsApiGames.push({
+        date: '2026-10-19',
+        gamePk: `84971${i}`,
+        awayAbbr: away,
+        homeAbbr: home,
+        doubleHeader: 'N',
+        status: 'final',
+      })
+    })
+    const plan = planReconcile({
+      dbRows: extraRows,
+      espnEvents,
+      statsApiGames,
+      espnStatusByDate: CLE_TB_DRIFT_STATUS,
+      statsStatusByDate: CLE_TB_DRIFT_STATUS,
+      nowEt: TODAY,
+      lastFetchedDate: '2026-10-21',
+      fetchedDates: [TODAY, '2026-10-21'],
+    })
+    expect(plan.aborts.some((abort) => abort.reason === 'cap_exceeded')).toBe(true)
+    expect(plan.actions.filter((action) => action.action === 'retire_not_needed')).toEqual([])
+    expect(plan.summary.retired).toBe(0)
+    expect(plan.summary.ghosts).toBe(0)
+    expect(plan.summary.ghostIdsUnknown).toBe(0)
   })
 
   test('1 ghost out of 3 candidates is allowed (pct cap needs 5+ candidates)', () => {
@@ -637,6 +905,48 @@ describe('include-past', () => {
       reason: 'ghost',
     })
   })
+
+  test('out_of_range reports under the row date bucket, not a later fetched date', () => {
+    const plan = planReconcile({
+      dbRows: [CLE_TB_DRIFT_ROW],
+      espnEvents: CLE_TB_DRIFT_ESPN,
+      statsApiGames: CLE_TB_DRIFT_STATS,
+      espnStatusByDate: {
+        '2026-10-21': 'zero',
+        '2026-10-22': 'zero',
+        '2026-10-23': 'zero',
+      },
+      statsStatusByDate: {
+        '2026-10-21': 'zero',
+        '2026-10-22': 'zero',
+        '2026-10-23': 'zero',
+      },
+      nowEt: '2026-10-21',
+      lastFetchedDate: '2026-10-23',
+      fetchedDates: ['2026-10-21', '2026-10-22', '2026-10-23'],
+    })
+    const action = plan.actions.find((item) => item.id === 'CLE_at_TB_2026-10-20')
+    expect(action).toMatchObject({
+      action: 'report',
+      reason: 'out_of_range',
+      date: '2026-10-20',
+    })
+    expect(plan.summary.candidates).toBe(0)
+    expect(plan.summary.outOfRange).toBe(1)
+    expect(plan.dateSummaries.find((entry) => entry.date === '2026-10-20')).toMatchObject({
+      outOfRange: 1,
+      candidates: 0,
+    })
+    const later = plan.dateSummaries.find((entry) => entry.date === '2026-10-23')
+    expect(later == null || (later.candidates === 0 && later.outOfRange === 0 && later.ghosts === 0)).toBe(true)
+    expect(plan.dateSummaries.every((entry) => (
+      !plan.actions.some((item) => item.date === entry.date) || entry.date
+    ))).toBe(true)
+    for (const item of plan.actions) {
+      const bucket = plan.dateSummaries.find((entry) => entry.date === item.date)
+      expect(bucket).toBeTruthy()
+    }
+  })
 })
 
 describe('apply path', () => {
@@ -697,6 +1007,77 @@ describe('apply path', () => {
     expect(result.exitCode).toBe(0)
     expect(supabase.ops).toEqual([])
     expect(formatReconcilePlanTable(result.actions)).toMatch(/CLE_at_TB_2026-10-20/)
+  })
+
+  test('logPlan summary prints the new counter keys', async () => {
+    const logs = []
+    const slate = slateFillers()
+    await runReconcile({
+      date: TODAY,
+      days: 1,
+      apply: false,
+      now: NOW_ET_APPLY,
+      supabase: createApplySupabase(),
+      dbRows: [...slate.rows, CLE_TB_DRIFT_ROW],
+      espnEvents: [...slate.espnEvents, ...CLE_TB_DRIFT_ESPN],
+      statsApiGames: [...slate.statsApiGames, ...CLE_TB_DRIFT_STATS],
+      espnStatusByDate: { [TODAY]: 'ok', '2026-10-19': 'ok' },
+      statsStatusByDate: { [TODAY]: 'ok', '2026-10-19': 'ok' },
+      logger: {
+        log: (...args) => logs.push(args.join(' ')),
+        warn() {},
+        error() {},
+      },
+    })
+    const summary = logs.find((line) => String(line).startsWith('summary:'))
+    expect(summary).toMatch(/out_of_range=/)
+    expect(summary).toMatch(/date_drift=/)
+    expect(summary).toMatch(/source_disagree=/)
+    expect(summary).toMatch(/flip_ambiguous=/)
+    expect(summary).toMatch(/flip_no_twin=/)
+    expect(summary).toMatch(/doubleheader=/)
+    expect(summary).toMatch(/protected=/)
+    expect(summary).toMatch(/ghost_ids_unknown=/)
+    expect(summary).toMatch(/drift_duplicates=/)
+    expect(summary).toMatch(/aborted=/)
+    const dateLine = logs.find((line) => String(line).startsWith('date '))
+    expect(dateLine).toMatch(/out_of_range=/)
+    expect(dateLine).toMatch(/date_drift=/)
+    expect(dateLine).toMatch(/ghost_ids_unknown=/)
+    expect(dateLine).toMatch(/drift_duplicates=/)
+  })
+
+  test('apply uses priorStatus for ghost_ids_unknown and date_drift_duplicate and never deletes', async () => {
+    const ghostPlan = planCleTbDrift()
+    const ghostSupabase = createApplySupabase({ data: [{ id: 'CLE_at_TB_2026-10-20' }] })
+    const ghostResult = await applyReconcilePlan(ghostSupabase, ghostPlan, {
+      now: NOW_ET_APPLY,
+      logger: { warn() {}, error() {} },
+    })
+    expect(ghostResult.applied).toEqual([{ id: 'CLE_at_TB_2026-10-20', status: 'not_needed' }])
+    expect(ghostSupabase.ops[0].filters).toEqual([
+      ['id', 'CLE_at_TB_2026-10-20'],
+      ['status', 'scheduled'],
+    ])
+    expect(ghostSupabase.ops.some((op) => op.type === 'delete')).toBe(false)
+
+    const driftPlan = planCleTbDrift({
+      rowOverride: { espnGameId: '401908028' },
+      enableDriftDuplicateRetire: true,
+    })
+    const driftSupabase = createApplySupabase({ data: [{ id: 'CLE_at_TB_2026-10-20' }] })
+    const driftResult = await applyReconcilePlan(driftSupabase, driftPlan, {
+      now: NOW_ET_APPLY,
+      logger: { warn() {}, error() {} },
+    })
+    expect(driftPlan.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20').reason).toBe('date_drift_duplicate')
+    expect(driftResult.applied).toEqual([{ id: 'CLE_at_TB_2026-10-20', status: 'not_needed' }])
+    expect(driftSupabase.ops[0].filters).toEqual([
+      ['id', 'CLE_at_TB_2026-10-20'],
+      ['status', 'scheduled'],
+    ])
+    expect(driftSupabase.ops.some((op) => op.type === 'delete')).toBe(false)
+    expect(() => driftSupabase.from('Game').delete()).toThrow(/delete must not/)
   })
 
   test('source-unavailable run exits non-zero and writes nothing', async () => {
