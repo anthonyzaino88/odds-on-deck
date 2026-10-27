@@ -110,23 +110,34 @@ describe('calculateGameEdges', () => {
   })
 
   test('applies park factor correctly', () => {
-    const neutralParkGame = {
+    // Both clubs play in the home park. The previous model multiplied the
+    // away team by 1 + (awayPark - 1) * 0.5, so this test could only
+    // type-check totals. Assert the home park moves the total and the
+    // away team's own park does not.
+    const homeNeutralAwayHitter = calculateGameEdges({
       ...mockGame,
       home: { ...mockGame.home, parkFactor: 1.0 },
-    }
-
-    const hittersFriendlyGame = {
+      away: { ...mockGame.away, parkFactor: 1.2 },
+    }, mockOdds)
+    const homeHitterAwayNeutral = calculateGameEdges({
       ...mockGame,
       home: { ...mockGame.home, parkFactor: 1.2 },
-    }
+      away: { ...mockGame.away, parkFactor: 1.0 },
+    }, mockOdds)
+    const bothHitter = calculateGameEdges({
+      ...mockGame,
+      home: { ...mockGame.home, parkFactor: 1.2 },
+      away: { ...mockGame.away, parkFactor: 1.2 },
+    }, mockOdds)
+    const bothNeutral = calculateGameEdges({
+      ...mockGame,
+      home: { ...mockGame.home, parkFactor: 1.0 },
+      away: { ...mockGame.away, parkFactor: 1.0 },
+    }, mockOdds)
 
-    const neutralResult = calculateGameEdges(neutralParkGame, mockOdds)
-    const hittersResult = calculateGameEdges(hittersFriendlyGame, mockOdds)
-
-    // Hitter-friendly park should generally produce higher total
-    // (though other factors may affect this in the simplified model)
-    expect(typeof neutralResult.ourTotal).toBe('number')
-    expect(typeof hittersResult.ourTotal).toBe('number')
+    expect(homeHitterAwayNeutral.ourTotal).toBeGreaterThan(bothNeutral.ourTotal)
+    expect(homeNeutralAwayHitter.ourTotal).toBeCloseTo(bothNeutral.ourTotal, 8)
+    expect(homeHitterAwayNeutral.ourTotal).toBeCloseTo(bothHitter.ourTotal, 8)
   })
 
   test('more runs allowed raises the opponent predicted runs', () => {
