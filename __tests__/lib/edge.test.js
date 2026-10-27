@@ -179,6 +179,22 @@ describe('calculateGameEdges', () => {
       expect(Math.abs(result.edgeMlHome)).toBeLessThanOrEqual(0.08)
     }
   })
+
+  test('skips probability_clamp through calculateGameEdges', () => {
+    // A 1-run gap never hits 0.1/0.9 with NB r=5, so clamp is evaluated
+    // before model_line_gap. Line 4 vs an 8.8 neutral total clamps.
+    const extremeLine = mockOdds.map((o) => (
+      o.market === 'totals' ? { ...o, total: 4 } : o
+    ))
+    const result = calculateGameEdges(mockGame, extremeLine)
+
+    expect(result.skipped).toBe(true)
+    expect(result.skipReason).toBe('probability_clamp')
+    expect(result.ourTotal).toBeCloseTo(8.8, 8)
+    expect(result.edgeTotalO).toBeNull()
+    expect(result.edgeMlHome).toBeNull()
+    expect(result.modelRun).toBe(MODEL_VERSION)
+  })
 })
 
 describe('calculateTotalProbabilities', () => {
