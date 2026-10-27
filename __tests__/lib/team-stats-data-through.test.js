@@ -454,7 +454,7 @@ describe('countTeamSeasonFinals', () => {
     await expect(countTeamSeasonFinals(sb, { id: 'MLB_147', sport: 'mlb' }, { now: april })).resolves.toBe(2)
     expect(sb.calls).toContainEqual(['gte', 'date', '2026-03-20T00:00:00.000Z'])
   })
-}
+})
 
 describe('fetchAndUpdateTeam NHL without previousEvent', () => {
   const team = { id: 'NHL_1', abbr: 'BOS', sport: 'nhl', season: '2026' }
