@@ -14,7 +14,7 @@
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
-import { createGameId } from '../lib/team-mapping.js'
+import { createGameId, espnEventSeasonYear } from '../lib/team-mapping.js'
 
 config({ path: '.env.local' })
 
@@ -313,7 +313,8 @@ async function fetchGamesFromESPN(sport, date) {
         awayId: awayId,
         homeScore: home?.score ? parseInt(home.score) : null,
         awayScore: away?.score ? parseInt(away.score) : null,
-        espnGameId: event.id // Store original ESPN ID separately
+        espnGameId: event.id, // Store original ESPN ID separately
+        season: espnEventSeasonYear(event)
       }
     }))
   } catch (error) {
@@ -500,17 +501,21 @@ async function saveToSupabase(sport, games) {
     // Create upsert array AFTER duplicate check (filter out removed games)
     const gamesToUpsert = games
       .filter(g => !gamesToRemove.includes(g.id))
-      .map(g => ({
-        id: g.id,
-        sport: g.sport,
-        date: g.date, // Already an ISO string from database
-        status: g.status,
-        homeId: g.homeId,
-        awayId: g.awayId,
-        homeScore: g.homeScore,
-        awayScore: g.awayScore,
-        espnGameId: g.espnGameId
-      }))
+      .map(g => {
+        const obj = {
+          id: g.id,
+          sport: g.sport,
+          date: g.date, // Already an ISO string from database
+          status: g.status,
+          homeId: g.homeId,
+          awayId: g.awayId,
+          homeScore: g.homeScore,
+          awayScore: g.awayScore,
+          espnGameId: g.espnGameId
+        }
+        if (g.season) obj.season = g.season
+        return obj
+      })
     
     if (gamesToRemove.length > 0) {
       console.log(`  🗑️  Removed ${gamesToRemove.length} duplicate games from batch`)

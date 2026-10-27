@@ -1,5 +1,7 @@
 import {
   evaluateTeamStatsForEdge,
+  extractEspnSeason,
+  extractEspnTeamPerformance,
   isTeamSeasonStatsFrozen,
   mergeStatsDataThrough,
   parseStoredUtcInstantMs,
@@ -143,7 +145,7 @@ describe('loadLatestFinalGameDate', () => {
     const sb = supabaseWith({ games: [{ date: '2026-10-15T17:00:00' }] })
     await expect(loadLatestFinalGameDate(sb, { id: 'MLB_139', sport: 'mlb' }, { now: NOW })).resolves.toBe('2026-10-15T17:00:00')
     expect(sb.calls).toContainEqual(['eq', 'sport', 'mlb'])
-    expect(sb.calls).toContainEqual(['gte', 'date', '2026-03-01T00:00:00.000Z'])
+    expect(sb.calls).toContainEqual(['gte', 'date', '2026-03-20T00:00:00.000Z'])
     expect(sb.calls).toContainEqual(['or', 'homeId.eq.MLB_139,awayId.eq.MLB_139'])
     expect(sb.calls.find((c) => c[0] === 'in')[2]).toContain('final')
     expect(sb.calls.some((c) => c[0] === 'eq' && c[1] === 'season')).toBe(false)
@@ -188,6 +190,55 @@ describe('fetchAndUpdateTeam statsDataThrough', () => {
   })
 })
 
+describe('extractEspnSeason', () => {
+  test('resolves 2026 from data.season / team.season, not a 2027 type-1 next event', () => {
+    const data = {
+      season: { year: 2026, type: 2 },
+      team: {
+        season: { year: 2026, type: 2 },
+        nextEvent: [{ season: { year: 2027, type: 1 }, seasonType: { type: 1, name: 'Preseason' } }],
+      },
+    }
+    expect(extractEspnSeason(data.team, data)).toBe('2026')
+    expect(extractEspnTeamPerformance({
+      ...data,
+      team: {
+        ...data.team,
+        record: {
+          items: [{
+            type: 'total',
+            summary: '94-67',
+            stats: [
+              { name: 'avgPointsFor', value: 5.2 },
+              { name: 'avgPointsAgainst', value: 4.1 },
+              { name: 'gamesPlayed', value: 161 },
+            ],
+          }],
+        },
+      },
+    }, 'mlb', { extractedAt: NOW }).season).toBe('2026')
+  })
+  test('type-1 next event only (NYY spring training) stores year minus 1', () => {
+    const team = {
+      nextEvent: [{ season: { year: 2027, type: 1 }, seasonType: { type: 1, name: 'Preseason' } }],
+      record: {
+        items: [{
+          type: 'total',
+          summary: '94-67',
+          stats: [
+            { name: 'avgPointsFor', value: 5.2 },
+            { name: 'avgPointsAgainst', value: 4.1 },
+            { name: 'gamesPlayed', value: 161 },
+          ],
+        }],
+      },
+    }
+    expect(extractEspnSeason(team, { team })).toBe('2026')
+    expect(extractEspnTeamPerformance({ team }, 'mlb', { extractedAt: NOW }).season).toBe('2026')
+    expect(extractEspnTeamPerformance({ team }, 'mlb', { extractedAt: NOW }).season).not.toBe('2027')
+  })
+})
+
 describe('isTeamSeasonStatsFrozen', () => {
   test('full regular season by record or gamesPlayed', () => {
     expect(isTeamSeasonStatsFrozen('mlb', { record: '98-64' })).toBe(true)
@@ -204,9 +255,67 @@ describe('isTeamSeasonStatsFrozen', () => {
     expect(isTeamSeasonStatsFrozen('mlb', { record: '80-60', espnData: post })).toBe(true)
     expect(isTeamSeasonStatsFrozen('mlb', { record: '80-60', espnData: reg })).toBe(false)
   })
+  test('a next event of type 1 (preseason / spring training) means frozen', () => {
+    const pre = { team: { nextEvent: [{ season: { year: 2027, type: 1 }, seasonType: { type: 1, name: 'Preseason' } }] } }
+    expect(isTeamSeasonStatsFrozen('mlb', { record: '94-67', gamesPlayed: 161, espnData: pre })).toBe(true)
+    expect(isTeamSeasonStatsFrozen('mlb', { record: '94-67', gamesPlayed: 161 })).toBe(false)
+  })
+  test('next event season greater than the record season means frozen', () => {
+    const nextYearReg = {
+      team: {
+        season: { year: 2026 },
+        nextEvent: [{ season: { year: 2027, type: 2 }, seasonType: { type: 2, name: 'Regular Season' } }],
+      },
+    }
+    expect(isTeamSeasonStatsFrozen('mlb', {
+      record: '94-67',
+      gamesPlayed: 161,
+      espnData: nextYearReg,
+      season: '2026',
+    })).toBe(true)
+  })
 })
 
 describe('fetchAndUpdateTeam in regular season', () => {
+  test('early April: spring-training finals before Mar 20 do not withhold timestamps', async () => {
+    const april = new Date('2026-04-05T16:00:00.000Z')
+    const early = JSON.parse(JSON.stringify(ESPN_TB))
+    delete early.team.previousEvent
+    early.team.season = { year: 2026, type: 2 }
+    early.team.nextEvent = [{ seasonType: { type: 2, name: 'Regular Season' } }]
+    early.team.record.items[0].summary = '6-4'
+    early.team.record.items[0].stats = early.team.record.items[0].stats.map((st) => (
+      st.name === 'gamesPlayed' ? { ...st, value: 10 } : st))
+    const sb = supabaseWith({
+      games: [
+        { date: '2026-03-05T17:00:00' },
+        { date: '2026-03-08T17:00:00' },
+        { date: '2026-03-12T17:00:00' },
+        { date: '2026-03-18T17:00:00' },
+        { date: '2026-03-20T17:00:00' },
+        { date: '2026-03-22T17:00:00' },
+        { date: '2026-03-24T17:00:00' },
+        { date: '2026-03-26T17:00:00' },
+        { date: '2026-03-28T17:00:00' },
+        { date: '2026-03-30T17:00:00' },
+        { date: '2026-04-01T17:00:00' },
+        { date: '2026-04-02T17:00:00' },
+        { date: '2026-04-03T17:00:00' },
+        { date: '2026-04-04T17:00:00' },
+      ],
+    })
+    const res = await fetchAndUpdateTeam({ id: 'MLB_139', abbr: 'TB', sport: 'mlb' }, {
+      supabase: sb,
+      fetchImpl: async () => ({ ok: true, json: async () => early }),
+      extractedAt: april,
+      logger: { log() {}, error() {} },
+    })
+    expect(res.updated).toBe(true)
+    expect(res.plan.partial).toBe(false)
+    expect(sb.updates[0].payload.statsCapturedAt).toBe(april.toISOString())
+    expect(sb.calls).toContainEqual(['gte', 'date', '2026-03-20T00:00:00.000Z'])
+  })
+
   test('does NOT bump statsDataThrough from DB finals mid-season', async () => {
     const midSeason = JSON.parse(JSON.stringify(ESPN_TB))
     midSeason.team.record.items[0].summary = '80-60'
@@ -261,16 +370,16 @@ const ESPN_NFL_NO_PREV = {
 }
 
 describe('regularSeasonStartUtc', () => {
-  test('NHL Oct 1 wrapping Oct–Jun, NFL Sep 1 wrapping Sep–Feb, MLB Mar 1', () => {
+  test('NHL Oct 1 wrapping Oct–Jun, NFL Sep 1 wrapping Sep–Feb, MLB Mar 20', () => {
     expect(regularSeasonStartUtc('nhl', NHL_NOW).toISOString()).toBe('2026-10-01T00:00:00.000Z')
     expect(regularSeasonStartUtc('nhl', new Date('2027-01-15T00:00:00.000Z')).toISOString())
       .toBe('2026-10-01T00:00:00.000Z')
     expect(regularSeasonStartUtc('nfl', NHL_NOW).toISOString()).toBe('2026-09-01T00:00:00.000Z')
     expect(regularSeasonStartUtc('nfl', new Date('2027-02-01T00:00:00.000Z')).toISOString())
       .toBe('2026-09-01T00:00:00.000Z')
-    expect(regularSeasonStartUtc('mlb', NHL_NOW).toISOString()).toBe('2026-03-01T00:00:00.000Z')
+    expect(regularSeasonStartUtc('mlb', NHL_NOW).toISOString()).toBe('2026-03-20T00:00:00.000Z')
     expect(regularSeasonStartUtc('mlb', new Date('2027-01-15T00:00:00.000Z')).toISOString())
-      .toBe('2026-03-01T00:00:00.000Z')
+      .toBe('2026-03-20T00:00:00.000Z')
     expect(regularSeasonStartUtc('xyz', NHL_NOW)).toBeNull()
   })
 })
@@ -284,6 +393,12 @@ describe('espnGamesPlayedLooksFrozen', () => {
     expect(espnGamesPlayedLooksFrozen(9, 2)).toBe(false)
     expect(espnGamesPlayedLooksFrozen(9, null)).toBe(false)
     expect(espnGamesPlayedLooksFrozen(null, 12)).toBe(false)
+  })
+  test('in-season slack is unchanged: DB ahead by 2 is fine, by 3 withholds', () => {
+    expect(espnGamesPlayedLooksFrozen(161, 163)).toBe(false)
+    expect(espnGamesPlayedLooksFrozen(161, 164)).toBe(true)
+    expect(espnGamesPlayedLooksFrozen(10, 12)).toBe(false)
+    expect(espnGamesPlayedLooksFrozen(10, 13)).toBe(true)
   })
 })
 
@@ -324,6 +439,20 @@ describe('countTeamSeasonFinals', () => {
     const sb = supabaseWith({ games: [{ date: '2026-10-19T00:00:00' }] })
     await expect(countTeamSeasonFinals(sb, { id: 'X_1', sport: 'xyz' }, { now: NHL_NOW })).resolves.toBeNull()
     expect(sb.calls).toHaveLength(0)
+  })
+  test('spring-training finals before Mar 20 are not counted', async () => {
+    const april = new Date('2026-04-05T16:00:00.000Z')
+    const sb = supabaseWith({
+      games: [
+        { date: '2026-03-05T17:00:00', season: null },
+        { date: '2026-03-12T17:00:00', season: null },
+        { date: '2026-03-19T17:00:00', season: null },
+        { date: '2026-03-20T17:00:00', season: null },
+        { date: '2026-03-28T17:00:00', season: null },
+      ],
+    })
+    await expect(countTeamSeasonFinals(sb, { id: 'MLB_147', sport: 'mlb' }, { now: april })).resolves.toBe(2)
+    expect(sb.calls).toContainEqual(['gte', 'date', '2026-03-20T00:00:00.000Z'])
   })
 })
 
@@ -419,5 +548,60 @@ describe('fetchAndUpdateTeam NFL without previousEvent', () => {
     expect(res.plan.partial).toBe(true)
     expect(sb.updates[0].payload).not.toHaveProperty('statsCapturedAt')
     expect(sb.updates[0].payload).not.toHaveProperty('statsDataThrough')
+  })
+})
+
+describe('NYY off-season freshness (161 GP + 2027 spring training next event)', () => {
+  const NYY_NOW = new Date('2026-10-27T12:00:00.000Z')
+  const ESPN_NYY = {
+    team: {
+      nextEvent: [{
+        season: { year: 2027, type: 1 },
+        seasonType: { type: 1, name: 'Preseason' },
+      }],
+      previousEvent: {
+        date: '2026-10-02T00:00Z',
+        competitions: [{ status: { type: { completed: true } } }],
+      },
+      record: {
+        items: [{
+          type: 'total',
+          summary: '94-67',
+          stats: [
+            { name: 'avgPointsFor', value: 5.2 },
+            { name: 'avgPointsAgainst', value: 4.1 },
+            { name: 'gamesPlayed', value: 161 },
+          ],
+        },
+        { type: 'home', summary: '50-31' },
+        { type: 'road', summary: '44-36' },
+        ],
+      },
+    },
+  }
+
+  test('writes timestamps instead of classifying as partial', async () => {
+    const sb = supabaseWith({
+      games: [
+        { date: '2026-03-05T17:00:00' },
+        { date: '2026-03-12T17:00:00' },
+        { date: '2026-03-15T17:00:00' },
+        { date: '2026-03-18T17:00:00' },
+        { date: '2026-10-02T00:00:00' },
+      ],
+      finalsCount: 165,
+    })
+    const res = await fetchAndUpdateTeam({ id: 'MLB_147', abbr: 'NYY', sport: 'mlb' }, {
+      supabase: sb,
+      fetchImpl: async () => ({ ok: true, json: async () => ESPN_NYY }),
+      extractedAt: NYY_NOW,
+      logger: { log() {}, error() {} },
+    })
+    expect(res.updated).toBe(true)
+    expect(res.plan.partial).toBe(false)
+    expect(res.plan.freshnessTimestampsWritten).toBe(true)
+    expect(sb.updates[0].payload.season).toBe('2026')
+    expect(sb.updates[0].payload.statsCapturedAt).toBe(NYY_NOW.toISOString())
+    expect(sb.updates[0].payload).toHaveProperty('statsDataThrough')
   })
 })

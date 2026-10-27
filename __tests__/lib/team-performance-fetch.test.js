@@ -1,6 +1,7 @@
 import {
   fetchAndUpdateTeam,
   fetchTeamPerformanceForSports,
+  isPlaceholderTeam,
   planTeamPerformanceWrite,
 } from '../../lib/team-performance-fetch.js'
 import {
@@ -311,5 +312,41 @@ describe('fetchTeamPerformanceForSports', () => {
     })
     expect(summary.results[0].errors).toBe(1)
     expect(supabase.updates).toEqual([])
+  })
+
+  test('placeholder Team rows (negative ESPN ids) are skipped and not counted', async () => {
+    expect(isPlaceholderTeam({ id: 'NHL_-1', sport: 'nhl', name: 'TBD', abbr: 'TBD' })).toBe(true)
+    expect(isPlaceholderTeam({ id: 'NHL_-2', sport: 'nhl', espnId: '-2' })).toBe(true)
+    expect(isPlaceholderTeam({ id: 'NHL_1', sport: 'nhl', abbr: 'BOS' })).toBe(false)
+    expect(isPlaceholderTeam({ id: 'MLB_147', sport: 'mlb', abbr: 'NYY' })).toBe(false)
+
+    const fetchImpl = jest.fn(async () => ({ ok: true, json: async () => nhlEspnTeamWithoutSplits() }))
+    const supabase = createSupabase({
+      teamsBySport: {
+        nhl: [
+          { id: 'NHL_-1', sport: 'nhl', name: 'TBD', abbr: 'TBD' },
+          { id: 'NHL_-2', sport: 'nhl', name: 'TBD', abbr: 'TBD2', espnId: '-2' },
+          { ...GOOD_EXISTING, season: '2026' },
+        ],
+      },
+      games: [{ date: '2026-10-19T00:00:00' }],
+      finalsCount: 9,
+    })
+    const summary = await fetchTeamPerformanceForSports({
+      supabase,
+      sports: ['nhl'],
+      fetchImpl,
+      extractedAt: new Date('2026-10-20T16:00:00.000Z'),
+      delayMs: 0,
+      logger: { log: jest.fn(), error: jest.fn() },
+    })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(summary.results[0].updated).toBe(1)
+    expect(summary.results[0].skipped).toBe(0)
+    expect(summary.results[0].partial).toBe(0)
+    expect(summary.results[0].errors).toBe(0)
+    expect(summary.skipped).toBe(0)
+    expect(supabase.updates).toHaveLength(1)
+    expect(supabase.updates[0].id).toBe('NHL_1')
   })
 })

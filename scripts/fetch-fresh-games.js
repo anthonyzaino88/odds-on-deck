@@ -17,7 +17,7 @@
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
-import { createGameId } from '../lib/team-mapping.js'
+import { createGameId, espnEventSeasonYear } from '../lib/team-mapping.js'
 import {
   DEFAULT_MAX_RETIRE_PCT,
   parseMaxPctValue,
@@ -387,6 +387,7 @@ async function fetchGamesFromESPN(sport, date) {
         homeScore: home?.score ? parseInt(home.score) : null,
         awayScore: away?.score ? parseInt(away.score) : null,
         espnGameId: event.id, // Store original ESPN ID separately
+        season: espnEventSeasonYear(event),
         _homeTeam: home?.team,
         _awayTeam: away?.team
       }
@@ -701,6 +702,7 @@ async function saveToSupabase(sport, games, { logPossibleFlips = false } = {}) {
           espnGameId: g.espnGameId
         }
         if (g.mlbGameId) obj.mlbGameId = g.mlbGameId
+        if (g.season) obj.season = g.season
         return obj
       })
     
