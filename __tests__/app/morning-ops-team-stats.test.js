@@ -61,6 +61,10 @@ describe('morning ops team-stats refresh', () => {
     expect(script).toMatch(/evaluateMatchupTeamStatsForEdge/)
     expect(script).toMatch(/Skipping MLB edge/)
     expect(script).toMatch(/from '\.\.\/lib\/edge\.js'/)
+    expect(script).toMatch(/MODEL_VERSION/)
+    expect(script).toMatch(/modelRun: edges\.modelRun \|\| MODEL_VERSION/)
+    expect(script).not.toMatch(/modelRun: 'v0\.1\.0'/)
+    expect(script).not.toMatch(/Leave lib\/edge\.js math untouched/)
   })
 
   test('parlay generate gates game-line legs on skipped / no-edge / bad team stats', () => {

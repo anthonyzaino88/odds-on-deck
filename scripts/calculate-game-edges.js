@@ -2,7 +2,7 @@
 // Calculate betting edges for today's games and store in EdgeSnapshot table
 
 import { config } from 'dotenv'
-import { calculateGameEdges } from '../lib/edge.js' // MLB model math unchanged
+import { calculateGameEdges, MODEL_VERSION } from '../lib/edge.js'
 import { calculateNHLEdges } from '../lib/edge-nfl-nhl.js' // NHL heuristic + team-stats skip
 import { calculateNFLEdges, toNflEdgeSnapshotInsert } from '../lib/edge-nfl.js' // isolated NFL model
 import { evaluateMatchupTeamStatsForEdge } from '../lib/team-performance-stats.js'
@@ -115,8 +115,9 @@ async function calculateEdgesForToday() {
         // Calculate edges using the appropriate model for the sport
         let edges
         if (game.sport === 'mlb') {
-          // Leave lib/edge.js math untouched. Skip the write when either
-          // side's Team stats are null, all-zero, or stale in-season.
+          // MLB totals math and skip rules live in lib/edge.js (MODEL_VERSION).
+          // Also skip the write when either side's Team stats are null,
+          // all-zero, or stale in-season.
           const eligibility = evaluateMatchupTeamStatsForEdge(game.home, game.away, {
             sport: 'mlb',
           })
@@ -127,7 +128,7 @@ async function calculateEdgesForToday() {
               edgeMlAway: null,
               edgeTotalO: null,
               edgeTotalU: null,
-              modelRun: 'v0.1.0',
+              modelRun: MODEL_VERSION,
               skipped: true,
               skipReason: eligibility.reason,
             }
@@ -155,7 +156,7 @@ async function calculateEdgesForToday() {
             edgeMlAway: edges.edgeMlAway,
             edgeTotalO: edges.edgeTotalO,
             edgeTotalU: edges.edgeTotalU,
-            modelRun: edges.modelRun || 'v0.1.0',
+            modelRun: edges.modelRun || MODEL_VERSION,
           }
         
         const { error: insertError } = await supabase
