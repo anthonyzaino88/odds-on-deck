@@ -2,11 +2,21 @@ import {
   calculateNFLNHLEdges,
   calculateNHLEdges,
   deriveNhlSeasonRecord,
+  shrunkGoalDifferential,
+  NHL_HOME_ICE,
+  NHL_MARKET_BLEND,
   NHL_MODEL_VERSION,
   NHL_SKIP_REASONS,
 } from '../../lib/edge-nfl-nhl.js'
+import { removeMlVig } from '../../lib/implied.js'
 import { NFL_SELECTION_MODEL_VERSION } from '../../lib/nfl-selection-model.js'
 import { TEAM_STATS_STALE_AFTER_DAYS } from '../../lib/team-performance-stats.js'
+
+function rawNhlHomeWin(home, away) {
+  const homeGd = shrunkGoalDifferential(home)
+  const awayGd = shrunkGoalDifferential(away)
+  return 1 / (1 + Math.exp(-(1.0 * (homeGd - awayGd) + NHL_HOME_ICE)))
+}
 
 const evenOdds = [
   { market: 'h2h', priceHome: -110, priceAway: -110, book: 'Test' },
@@ -129,7 +139,9 @@ describe('NHL heuristic is isolated from the NFL rewrite', () => {
 
     expect(nhl.modelRun).toBe(NHL_MODEL_VERSION)
     expect(nhl.skipped).toBeFalsy()
-    expect(nhl.edgeMlHome).not.toBeNull()
+    // BOS/NYR at even odds: raw 57.20% → blend 52.52% → ±2.52% ML edges.
+    expect(nhl.edgeMlHome).toBeCloseTo(0.0252, 4)
+    expect(nhl.edgeMlAway).toBeCloseTo(-0.0252, 4)
     expect(nfl.modelRun).toBe(NFL_SELECTION_MODEL_VERSION)
     expect(nfl.edgeMlHome).toBeNull()
   })
@@ -187,50 +199,88 @@ describe('NHL heuristic is isolated from the NFL rewrite', () => {
     expect(record.ptsPct).toBeCloseTo((2 * 3 + 3) / (2 * 13), 8)
   })
 
-  test('BUF@SJ-like stale splits stay within 0.08 of the market or skip', () => {
+  test('BUF@SJ-like stale splits stay near the market and write no ML edge', () => {
     // Old model: SJ home split 6-1 vs BUF away 0-6 floored BUF at 0.20,
     // + home bonus → ~80/20 against a ~43.9% SJ market.
+    const sj = freshTeam({
+      abbr: 'SJ',
+      homeRecord: '6-1',
+      awayRecord: '0-4',
+      last10Record: '4-6-1',
+      gamesPlayed: 11,
+      avgPointsLast10: 2.7,
+      avgPointsAllowedLast10: 3.2,
+    })
+    const buf = freshTeam({
+      abbr: 'BUF',
+      homeRecord: '5-1',
+      awayRecord: '0-6',
+      last10Record: '6-4-1',
+      gamesPlayed: 11,
+      avgPointsLast10: 3.2,
+      avgPointsAllowedLast10: 2.8,
+    })
     const sjHome = {
       market: 'h2h',
       priceHome: 128,
       priceAway: -128,
       book: 'Test',
     }
+    const modelHome = rawNhlHomeWin(sj, buf)
+    const marketHome = removeMlVig(128, -128).homeFairProb
+    const blendedHome = marketHome + NHL_MARKET_BLEND * (modelHome - marketHome)
+
+    expect(modelHome).toBeCloseTo(0.4553, 4)
+    // Exact +128/-128 vig-free is 43.86% → blend 0.4444; 0.4447 is the 43.9% rounding.
+    expect(blendedHome).toBeCloseTo(0.4447, 3)
+    expect(Math.abs(blendedHome - marketHome)).toBeLessThan(0.02)
+
     const result = calculateNHLEdges({
       sport: 'nhl',
-      home: freshTeam({
-        abbr: 'SJ',
-        homeRecord: '6-1',
-        awayRecord: '0-4',
-        last10Record: '4-6-1',
-        gamesPlayed: 11,
-        avgPointsLast10: 2.7,
-        avgPointsAllowedLast10: 3.2,
-      }),
-      away: freshTeam({
-        abbr: 'BUF',
-        homeRecord: '5-1',
-        awayRecord: '0-6',
-        last10Record: '6-4-1',
-        gamesPlayed: 11,
-        avgPointsLast10: 3.2,
-        avgPointsAllowedLast10: 2.8,
-      }),
+      home: sj,
+      away: buf,
     }, [sjHome, evenOdds[1]], { now: NOW })
 
     expect(result.modelRun).toBe(NHL_MODEL_VERSION)
-    if (result.skipped) {
-      expect([NHL_SKIP_REASONS.CLAMP_HIT, NHL_SKIP_REASONS.GAP_GT_0_08]).toContain(result.skipReason)
-      expect(result.edgeMlHome).toBeNull()
-      expect(result.edgeMlAway).toBeNull()
-      return
-    }
-    for (const edge of [result.edgeMlHome, result.edgeMlAway]) {
-      if (edge != null) {
-        expect(Math.abs(edge)).toBeLessThanOrEqual(0.08)
-        expect(Math.abs(edge)).toBeLessThanOrEqual(0.05)
-      }
-    }
+    expect(result.skipped).toBeFalsy()
+    // 0.6% blended edge is below the 2% ML write minimum.
+    expect(result.edgeMlHome).toBeNull()
+    expect(result.edgeMlAway).toBeNull()
+  })
+
+  test('a raw gap of about 0.07 writes a blended ML edge between 0.02 and 0.028', () => {
+    // Blend is applied only after the 0.08 gap guard. A 7pp raw gap must
+    // still write: 0.35 * 0.07 = 0.0245, above the 2% minimum.
+    const home = freshTeam({
+      abbr: 'BOS',
+      gamesPlayed: 12,
+      avgPointsLast10: 3.2,
+      avgPointsAllowedLast10: 2.75,
+    })
+    const away = freshTeam({
+      abbr: 'NYR',
+      last10Record: '6-6',
+      gamesPlayed: 12,
+      avgPointsLast10: 3.0,
+      avgPointsAllowedLast10: 2.93,
+    })
+    const modelHome = rawNhlHomeWin(home, away)
+    const marketHome = 0.5
+    const rawGap = Math.abs(modelHome - marketHome)
+    expect(rawGap).toBeGreaterThan(0.065)
+    expect(rawGap).toBeLessThan(0.08)
+
+    const result = calculateNHLEdges({
+      sport: 'nhl',
+      home,
+      away,
+    }, evenOdds, { now: NOW })
+
+    expect(result.skipped).toBeFalsy()
+    expect(result.edgeMlHome).toBeGreaterThanOrEqual(0.02)
+    expect(result.edgeMlHome).toBeLessThanOrEqual(0.028)
+    expect(result.edgeMlAway).toBeCloseTo(-result.edgeMlHome, 8)
+    expect(result.edgeMlHome).toBeCloseTo(NHL_MARKET_BLEND * (modelHome - marketHome), 8)
   })
 
   test('skips when |model - market| is greater than 0.08', () => {
@@ -255,6 +305,9 @@ describe('NHL heuristic is isolated from the NFL rewrite', () => {
     expect(result.skipReason).toBe(NHL_SKIP_REASONS.GAP_GT_0_08)
     expect(result.edgeMlHome).toBeNull()
     expect(result.edgeMlAway).toBeNull()
+    // ML skip returns before totals are computed (calculateNHLEdges ~66-84).
+    expect(result.edgeTotalO).toBeNull()
+    expect(result.edgeTotalU).toBeNull()
     expect(result.modelRun).toBe(NHL_MODEL_VERSION)
   })
 
@@ -281,6 +334,7 @@ describe('NHL heuristic is isolated from the NFL rewrite', () => {
     expect(result.skipReason).toBe(NHL_SKIP_REASONS.CLAMP_HIT)
     expect(result.edgeMlHome).toBeNull()
     expect(result.edgeMlAway).toBeNull()
+    // Intentional: moneyline skip short-circuits before the totals heuristic.
     expect(result.edgeTotalO).toBeNull()
     expect(result.edgeTotalU).toBeNull()
     expect(result.modelRun).toBe(NHL_MODEL_VERSION)
