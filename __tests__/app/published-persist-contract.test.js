@@ -19,6 +19,8 @@ describe('Published props are recorded when they clear the bar', () => {
     expect(validationSrc).toMatch(/skipped \$\{skippedMlb\} MLB prop/)
     expect(validationSrc).toMatch(/toPublishedValidationFields/)
     expect(validationSrc).toMatch(/publishedValidationWritePlan/)
+    expect(validationSrc).toMatch(/publishedValidationUpdateFields/)
+    expect(validationSrc).toMatch(/publishedPersistNotes/)
     expect(validationSrc).toMatch(/skip_foreign/)
     expect(validationSrc).toMatch(/will not adopt or relabel/)
     expect(validationSrc).toMatch(/Number\.isFinite\(cachedQuality\)/)

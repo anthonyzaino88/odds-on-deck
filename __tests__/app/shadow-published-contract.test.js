@@ -3,7 +3,7 @@ const path = require('path')
 
 const read = (rel) => fs.readFileSync(path.join(__dirname, '../..', rel), 'utf8')
 
-describe('private NHL shadow-published track stays off every public surface', () => {
+describe('private NHL shadow-published track stays off Published surfaces', () => {
   test('PUBLISHED_SPORTS stays mlb+nfl; shadow is a distinct NHL cohort', () => {
     const published = read('lib/published-picks.js')
     expect(published).toMatch(/export const PUBLISHED_SPORTS = Object\.freeze\(\['mlb', 'nfl'\]\)/)
@@ -26,7 +26,7 @@ describe('private NHL shadow-published track stays off every public surface', ()
     expect(pkg).toMatch(/"report:shadow-nhl": "node scripts\/report-shadow-nhl\.js"/)
   })
 
-  test('homepage, Editor\'s, Featured, and public stats queries exclude the shadow tag', () => {
+  test('Published surfaces exclude the shadow tag; NHL archive and insights keep it', () => {
     const hook = read('lib/homepage-hook.js')
     const picks = read('lib/picks.js')
     const generator = read('lib/simple-parlay-generator.js')
@@ -45,12 +45,50 @@ describe('private NHL shadow-published track stays off every public surface', ()
     expect(generator).toMatch(/return \[\.\.\.PUBLISHED_SPORTS\]/)
     expect(generator).not.toMatch(/SHADOW_PUBLISHED_SPORTS/)
 
-    expect(validation).toMatch(/applyShadowPublishedNotesExclusion/)
-    expect(validation).toMatch(/withoutShadowPublished/)
-    expect(validation).toMatch(/excludeShadowPublished !== false/)
+    const publishedFetch = validation.slice(
+      validation.indexOf('async function fetchPublishedStatsRecords'),
+      validation.indexOf('export async function getPublishedPicksStats'),
+    )
+    expect(publishedFetch).toMatch(/applyShadowPublishedNotesExclusion/)
+    expect(publishedFetch).toMatch(/withoutShadowPublished/)
     expect(report).toMatch(/applyShadowPublishedNotesExclusion/)
-    expect(insights).toMatch(/applyShadowPublishedNotesExclusion/)
-    expect(insights).toMatch(/withoutShadowPublished/)
+
+    const archiveFetch = validation.slice(
+      validation.indexOf('async function fetchCompletedValidations'),
+      validation.indexOf('async function fetchPublishedStatsRecords'),
+    )
+    expect(archiveFetch).not.toMatch(/applyShadowPublishedNotesExclusion/)
+    expect(archiveFetch).not.toMatch(/withoutShadowPublished/)
+
+    const recordsFetch = validation.slice(
+      validation.indexOf('export async function getValidationRecords'),
+      validation.indexOf('export async function getValidationCounts'),
+    )
+    expect(recordsFetch).not.toMatch(/applyShadowPublishedNotesExclusion/)
+    expect(recordsFetch).not.toMatch(/withoutShadowPublished/)
+    expect(recordsFetch).not.toMatch(/excludeShadowPublished/)
+
+    expect(insights).not.toMatch(/applyShadowPublishedNotesExclusion/)
+    expect(insights).not.toMatch(/withoutShadowPublished/)
+    expect(insights).toMatch(/Keep tagged NHL shadow rows/)
+  })
+
+  test('repair and NHL grade writers preserve cohort tags instead of overwriting notes', () => {
+    const unplayed = read('lib/unplayed-game-grades.js')
+    const sog = read('lib/repair-nhl-sog-grades.js')
+    const dnp = read('lib/repair-dnp-grades.js')
+    const forceAll = read('scripts/force-validate-all-nhl.js')
+    const revalidate = read('scripts/revalidate-nhl-props.js')
+    const forceOld = read('scripts/force-validate-old-props.js')
+    const validation = read('lib/validation.js')
+    expect(unplayed).toMatch(/withPreservedCohortNotes\(item\.notes/)
+    expect(sog).toMatch(/withPreservedCohortNotes\(\s*row\.notes/)
+    expect(dnp).toMatch(/withPreservedCohortNotes\(row\?\.notes/)
+    expect(forceAll).toMatch(/withPreservedCohortNotes\(prop\.notes/)
+    expect(revalidate).toMatch(/withPreservedCohortNotes\(\s*validation\.notes/)
+    expect(forceOld).toMatch(/withPreservedCohortNotes\(prop\.notes/)
+    expect(validation).toMatch(/publishedValidationUpdateFields\(existing, fields, game/)
+    expect(validation).toMatch(/publishedPersistNotes\(existing\?\.notes/)
   })
 
   test('public API routes do not mention the shadow cohort', () => {

@@ -6,6 +6,7 @@
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
+import { withPreservedCohortNotes } from '../lib/published-picks.js'
 import { getPlayerGameStat } from '../lib/vendors/nhl-game-stats.js'
 
 config({ path: '.env.local' })
@@ -82,7 +83,7 @@ async function forceValidateAllNHL() {
           .from('PropValidation')
           .update({
             status: 'needs_review',
-            notes: 'Game finished but no espnGameId available',
+            notes: withPreservedCohortNotes(prop.notes, 'Game finished but no espnGameId available'),
             completedAt: new Date().toISOString()
           })
           .eq('id', prop.id)
@@ -106,7 +107,7 @@ async function forceValidateAllNHL() {
           .from('PropValidation')
           .update({
             status: 'needs_review',
-            notes: 'Game finished but stat not available from API',
+            notes: withPreservedCohortNotes(prop.notes, 'Game finished but stat not available from API'),
             completedAt: new Date().toISOString()
           })
           .eq('id', prop.id)
@@ -138,7 +139,10 @@ async function forceValidateAllNHL() {
           result,
           status: 'completed',
           completedAt: new Date().toISOString(),
-          notes: `Force validated: ${prop.prediction.toUpperCase()} ${prop.threshold} → Actual: ${actualValue}`
+          notes: withPreservedCohortNotes(
+            prop.notes,
+            `Force validated: ${prop.prediction.toUpperCase()} ${prop.threshold} → Actual: ${actualValue}`,
+          ),
         })
         .eq('id', prop.id)
       

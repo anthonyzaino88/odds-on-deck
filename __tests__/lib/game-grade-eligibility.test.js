@@ -629,4 +629,28 @@ describe('unplayed-game grade report planner', () => {
       actualValue: null,
     })
   })
+
+  test('prop repair writes keep cohort tags on void and requeue', () => {
+    const notes = 'tier:elite,auto-saved | cohort:shadow-published'
+    const voidWrite = describePropRepairWrite({
+      action: 'void',
+      gameStatus: 'cancelled',
+      sport: 'nhl',
+      notes,
+    }, new Date('2026-10-29T00:00:00Z'))
+    expect(voidWrite.notes).toMatch(/cohort:shadow-published/)
+    expect(voidWrite.notes).toMatch(/voided/)
+    expect(voidWrite.result).toBe('void')
+
+    const requeueWrite = describePropRepairWrite({
+      action: 'hold',
+      gameStatus: 'postponed',
+      reason: 'postponed',
+      notes,
+    })
+    expect(requeueWrite.notes).toBe(
+      'cohort:shadow-published | Requeued — game postponed is not a true final',
+    )
+    expect(requeueWrite.status).toBe('pending')
+  })
 })

@@ -43,7 +43,6 @@ jest.mock('../../lib/supabase-admin.js', () => ({
 }))
 
 import { getValidationRecords } from '../../lib/validation.js'
-import { SHADOW_PUBLISHED_NOTES_OR_FILTER } from '../../lib/published-picks.js'
 
 describe('getValidationRecords excludePending is opt-in on both paths', () => {
   beforeEach(() => {
@@ -84,27 +83,26 @@ describe('getValidationRecords excludePending is opt-in on both paths', () => {
   })
 })
 
-describe('getValidationRecords excludes the private shadow cohort by default', () => {
+describe('getValidationRecords keeps the NHL archive, including shadow-tagged rows', () => {
   beforeEach(() => {
     recorded.length = 0
     from.mockReset()
     from.mockImplementation(() => createChain())
   })
 
-  test('limited and paginated public paths apply the shadow notes or-filter', async () => {
+  test('limited and paginated archive paths do not apply the Published-only shadow filter', async () => {
     await getValidationRecords({ limit: 50, excludePending: true })
-    expect(recorded[0]._or).toEqual([[SHADOW_PUBLISHED_NOTES_OR_FILTER]])
+    expect(recorded[0]._or).toEqual([])
 
     recorded.length = 0
     await getValidationRecords({ excludePending: true })
-    expect(recorded[0]._or).toEqual([[SHADOW_PUBLISHED_NOTES_OR_FILTER]])
+    expect(recorded[0]._or).toEqual([])
   })
 
-  test('ops/admin can opt out so grading still sees shadow pending rows', async () => {
+  test('admin pending lookup does not need a shadow opt-out flag', async () => {
     await getValidationRecords({
       gameId: 'g1',
       status: 'pending',
-      excludeShadowPublished: false,
     })
     expect(recorded[0]._or).toEqual([])
     expect(recorded[0]._eq).toContainEqual(['status', 'pending'])
