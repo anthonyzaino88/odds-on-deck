@@ -37,13 +37,18 @@ describe('S1 closing-price capture contract', () => {
 
   test('owner commands and quota notes are documented', () => {
     expect(pkg).toMatch(/"capture:published-closes": "node scripts\/capture-published-closes\.js"/)
+    expect(pkg).toMatch(/"capture:published-closes:apply": "node scripts\/capture-published-closes\.js --apply"/)
     expect(pkg).toMatch(/"report:published-clv": "node scripts\/report-published-clv\.js"/)
     expect(ops).toMatch(/capture-published-closes\.js --dry-run/)
+    expect(ops).toMatch(/capture:published-closes:apply/)
+    expect(ops).toMatch(/CLV_APPLY=1/)
     expect(ops).toMatch(/record-mlb-window-props\.js/)
     expect(ops).toMatch(/record-mlb-window-props\.js --postseason/)
     expect(ops).toMatch(/35 minutes/)
     expect(ops).toMatch(/:16 and :46 ET/)
     expect(ops).not.toMatch(/npm run capture:published-closes -- --apply/)
+    expect(captureSrc).toMatch(/MODE: APPLY/)
+    expect(captureSrc).toMatch(/CLV_APPLY/)
     expect(docs).toMatch(/markets × regions/)
     expect(docs).toMatch(/HTTP calls \/ day/)
     expect(docs).toMatch(/35 minutes/)

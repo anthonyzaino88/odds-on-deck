@@ -1,3 +1,4 @@
+import { isPublishableSupabaseKey } from '../../lib/supabase-admin-key.js'
 import {
   createScriptSupabaseClient,
   resolveScriptSupabaseKey,
@@ -82,5 +83,13 @@ describe('createScriptSupabaseClient key selection', () => {
     expect(() => createScriptSupabaseClient({
       SUPABASE_SECRET_KEY: 'secret-key',
     }, { clientFactory: jest.fn() })).toThrow(/NEXT_PUBLIC_SUPABASE_URL/)
+  })
+
+  test('isPublishableSupabaseKey is prefix-only and never echoes the key', () => {
+    expect(isPublishableSupabaseKey('sb_publishable_abc')).toBe(true)
+    expect(isPublishableSupabaseKey('sb_anon_abc')).toBe(true)
+    expect(isPublishableSupabaseKey('sb_secret_abc')).toBe(false)
+    expect(isPublishableSupabaseKey('secret-key')).toBe(false)
+    expect(isPublishableSupabaseKey('')).toBe(false)
   })
 })

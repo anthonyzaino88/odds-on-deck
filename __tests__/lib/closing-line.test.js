@@ -5,6 +5,7 @@ import {
   applyPublishedCloseUpdate,
   buildEventOddsUrl,
   closeCapturePayload,
+  closeUpdateRowCount,
   clvFromOdds,
   estimateCloseCaptureCalls,
   estimateCloseCaptureCost,
@@ -139,7 +140,12 @@ describe('event-id dedupe and conditional close write', () => {
             return {
               is(col2, val2) {
                 calls.push(['is', col2, val2])
-                return { error: null }
+                return {
+                  select(cols) {
+                    calls.push(['select', cols])
+                    return { error: null, data: [{ id: 'pv-1' }] }
+                  },
+                }
               },
             }
           },
@@ -151,7 +157,10 @@ describe('event-id dedupe and conditional close write', () => {
       ['update', { closeOdds: -110 }],
       ['eq', 'id', 'pv-1'],
       ['is', 'closeOdds', null],
+      ['select', 'id'],
     ])
+    expect(closeUpdateRowCount({ data: [], error: null })).toBe(0)
+    expect(closeUpdateRowCount({ data: [{ id: 'pv-1' }], error: null })).toBe(1)
   })
 })
 
@@ -315,10 +324,11 @@ describe('close write payload and missing-column retry', () => {
     expect(result.error.code).toBe('42501')
   })
 
-  test('hasCloseAlready requires both price and captured-at', () => {
+  test('hasCloseAlready treats closeOdds or closeCapturedAt as already captured', () => {
     expect(hasCloseAlready({ closeOdds: -110, closeCapturedAt: '2026-07-15T22:00:00Z' })).toBe(true)
-    expect(hasCloseAlready({ closeOdds: -110, closeCapturedAt: null })).toBeFalsy()
-    expect(hasCloseAlready({ closeOdds: null, closeCapturedAt: '2026-07-15T22:00:00Z' })).toBeFalsy()
+    expect(hasCloseAlready({ closeOdds: -110, closeCapturedAt: null })).toBe(true)
+    expect(hasCloseAlready({ closeOdds: null, closeCapturedAt: '2026-07-15T22:00:00Z' })).toBe(true)
+    expect(hasCloseAlready({ closeOdds: null, closeCapturedAt: null })).toBe(false)
   })
 
   test('parseOddsApiQuota reads remaining credits', () => {

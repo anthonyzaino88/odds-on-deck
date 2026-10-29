@@ -36,6 +36,7 @@
     "report:unplayed-grades": "node scripts/report-unplayed-game-grades.js",
     "preview:legacy-nfl": "node scripts/preview-legacy-nfl-published.js",
     "capture:published-closes": "node scripts/capture-published-closes.js",
+    "capture:published-closes:apply": "node scripts/capture-published-closes.js --apply",
     "report:published-clv": "node scripts/report-published-clv.js",
     "repair:dnp": "node scripts/repair-dnp-grades.js",
     "restore:dnp": "node scripts/restore-dnp-grades.js",

@@ -10,6 +10,8 @@
  *   node scripts/capture-published-closes.js            # dry-run (default)
  *   node scripts/capture-published-closes.js --dry-run
  *   node scripts/capture-published-closes.js --apply
+ *   npm run capture:published-closes:apply              # PowerShell-safe apply
+ *   CLV_APPLY=1 node scripts/capture-published-closes.js
  *
  * Schedule at :16 and :46 ET after record-mlb-window-props.
  * No-ops during :05–:15 ET. CLOSING_CAPTURE=0 disables.
@@ -21,7 +23,11 @@ import { config } from 'dotenv'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
-import { SUPABASE_REQUIRE_SECRET_ENV } from '../lib/supabase-admin-key.js'
+import {
+  SUPABASE_REQUIRE_SECRET_ENV,
+  envFlagEnabled,
+  isPublishableSupabaseKey,
+} from '../lib/supabase-admin-key.js'
 import { paginateSupabaseSelect } from '../lib/unplayed-game-grades.js'
 import {
   PUBLISHED_STATS_PREFILTER,
@@ -34,6 +40,7 @@ import {
   applyPublishedCloseUpdate,
   buildEventOddsUrl,
   closeCapturePayload,
+  closeUpdateRowCount,
   CLOSE_CAPTURE_DEFAULT_MIN_REMAINING,
   estimateCloseCaptureCost,
   flattenEventOddsQuotes,
@@ -59,6 +66,11 @@ export const PICK_SELECT_BASE = [
 ].join(', ')
 export const PICK_SELECT = `${PICK_SELECT_BASE}, closeOdds, closeCapturedAt`
 
+const KNOWN_FLAGS = new Set([
+  '--dry-run', '--apply', '--help', '-h', '--max-calls', '--min-remaining',
+])
+const FLAGS_WITH_VALUE = new Set(['--max-calls', '--min-remaining'])
+
 function takeIntFlag(args, flag) {
   const i = args.indexOf(flag)
   if (i < 0 || !args[i + 1] || String(args[i + 1]).startsWith('--')) return null
@@ -71,6 +83,10 @@ export function isClosingCaptureDisabled(env = process.env) {
   return raw === '0' || raw === 'false' || raw === 'off'
 }
 
+export function formatCaptureModeBanner(apply) {
+  return apply ? 'MODE: APPLY' : 'MODE: DRY-RUN'
+}
+
 /** Write scripts fail closed: never fall back to the public/anon key. */
 export function captureSupabaseEnv(env = process.env) {
   return {
@@ -79,13 +95,41 @@ export function captureSupabaseEnv(env = process.env) {
   }
 }
 
+/** Fail closed if the preferred write key looks publishable. Never print it. */
+export function assertCaptureSecretIsNotPublishable(env = process.env) {
+  const preferred = String(env.SUPABASE_SECRET_KEY || env.SUPABASE_SERVICE_ROLE_KEY || '').trim()
+  if (isPublishableSupabaseKey(preferred)) {
+    throw new Error(
+      'SUPABASE_SECRET_KEY is a publishable/anon key. Use the secret or service_role key.',
+    )
+  }
+  return preferred
+}
+
+export function unknownCaptureArgs(argv = []) {
+  const args = Array.isArray(argv) ? argv : []
+  const unknown = []
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = String(args[i])
+    if (FLAGS_WITH_VALUE.has(arg)) {
+      const value = args[i + 1]
+      if (value != null && !String(value).startsWith('--')) i += 1
+      continue
+    }
+    if (KNOWN_FLAGS.has(arg)) continue
+    unknown.push(arg)
+  }
+  return unknown
+}
+
 export function parseCaptureClosesArgs(argv = [], env = process.env) {
   const args = Array.isArray(argv) ? argv : []
   const dryRunFlag = args.includes('--dry-run')
-  const applyFlag = args.includes('--apply')
+  const applyFlag = args.includes('--apply') || envFlagEnabled(env.CLV_APPLY)
   const maxCalls = takeIntFlag(args, '--max-calls')
   const minRemaining = takeIntFlag(args, '--min-remaining')
     ?? Number(env.CLOSING_CAPTURE_MIN_REMAINING)
+  const unknown = unknownCaptureArgs(args)
   return {
     apply: applyFlag && !dryRunFlag,
     dryRun: !applyFlag || dryRunFlag,
@@ -95,6 +139,7 @@ export function parseCaptureClosesArgs(argv = [], env = process.env) {
       ? minRemaining
       : CLOSE_CAPTURE_DEFAULT_MIN_REMAINING,
     disabled: isClosingCaptureDisabled(env),
+    unknown,
   }
 }
 
@@ -127,11 +172,14 @@ export async function runCapturePublishedCloses({
     log.log(`Usage: node scripts/capture-published-closes.js [--dry-run|--apply] [--max-calls N] [--min-remaining N]
 
 Dry-run (default): list in-window Published picks missing a close.
---apply: one Odds API call per oddsApiEventId, write closeOdds only
-         where closeOdds IS NULL. Requires ODDS_API_KEY +
+--apply or CLV_APPLY=1: one Odds API call per oddsApiEventId, write
+         closeOdds only where closeOdds IS NULL. Requires ODDS_API_KEY +
          SUPABASE_SECRET_KEY (SUPABASE_REQUIRE_SECRET_KEY=1).
          Do not run from CI. Anon/public keys are refused.
-CLOSING_CAPTURE=0 disables the job. --max-calls caps HTTP calls.
+PowerShell: npm run capture:published-closes:apply
+            (npm.ps1 swallows the first -- so --apply is lost).
+CLOSING_CAPTURE=0 disables the job. --max-calls caps HTTP calls
+(including the /v4/sports quota probe). Unknown flags fail closed.
 --min-remaining (default ${CLOSE_CAPTURE_DEFAULT_MIN_REMAINING}) stops when
 Odds API remaining credits fall below the floor.
 Window is T−${CLOSE_CAPTURE_WINDOW_MINUTES}..T−1 (pre-start games only).
@@ -140,6 +188,13 @@ record-mlb-window-props. London NFL 9:30 AM ET games are missed
 if this job only runs in the 11–22 ET MLB window.`)
     return { exitCode: 0, updates: [], calls: 0 }
   }
+
+  if (args.unknown.length) {
+    log.error(`❌ Unknown argument(s): ${args.unknown.join(' ')}`)
+    return { exitCode: 1, updates: [], calls: 0, unknown: args.unknown }
+  }
+
+  log.log(formatCaptureModeBanner(args.apply))
 
   if (args.disabled) {
     log.log('⏸️  CLOSING_CAPTURE=0 — close capture disabled.')
@@ -153,6 +208,7 @@ if this job only runs in the 11–22 ET MLB window.`)
 
   let supabase
   try {
+    assertCaptureSecretIsNotPublishable(env)
     supabase = createClient(captureSupabaseEnv(env))
   } catch (error) {
     log.error(`❌ ${error.message}`)
@@ -229,7 +285,6 @@ if this job only runs in the 11–22 ET MLB window.`)
 
   log.log('\n📸 PUBLISHED CLOSE CAPTURE')
   log.log('='.repeat(60))
-  log.log(`Mode: ${args.apply ? 'APPLY' : 'DRY-RUN (default)'}`)
   log.log(`Window: ${CLOSE_CAPTURE_WINDOW_MINUTES} minutes before first pitch (T−1 floor, pre-start only)`)
   log.log(`Games in window: ${windowGames.length}`)
   log.log(`Published picks missing close: ${openPicks.length}`)
@@ -262,9 +317,15 @@ if this job only runs in the 11–22 ET MLB window.`)
   const updates = []
   let calls = 0
   let lastQuota = { remaining: null, used: null }
+  if (args.maxCalls != null && args.maxCalls <= 0) {
+    log.log(`⏸️  --max-calls ${args.maxCalls} reached. No Odds API calls.`)
+    return { exitCode: 0, updates: [], calls: 0, skippedMaxCalls: true }
+  }
   try {
     lastQuota = await probeQuota({ apiKey }) || lastQuota
+    calls += 1
   } catch (error) {
+    calls += 1
     log.log(`⚠️ Quota probe failed (${error.message}); continuing without a pre-check.`)
   }
   if (lastQuota.remaining != null && lastQuota.remaining < args.minRemaining) {
@@ -272,7 +333,7 @@ if this job only runs in the 11–22 ET MLB window.`)
       `⏸️  Odds API remaining ${lastQuota.remaining} < min-remaining ${args.minRemaining}. `
       + 'No event-odds calls.',
     )
-    return { exitCode: 0, updates: [], calls: 0, lastQuota, skippedQuota: true }
+    return { exitCode: 0, updates: [], calls, lastQuota, skippedQuota: true }
   }
 
   for (const job of captureJobs) {
@@ -333,6 +394,11 @@ if this job only runs in the 11–22 ET MLB window.`)
       )
       if (write?.error) {
         log.error(`  ❌ write ${pick.id}: ${write.error.message}`)
+        continue
+      }
+      const written = closeUpdateRowCount(write)
+      if (written === 0) {
+        log.log(`  skipped ${pick.id} already captured (closeOdds present)`)
         continue
       }
       updates.push({ id: pick.id, ...patch })
