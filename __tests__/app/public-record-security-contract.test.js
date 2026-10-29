@@ -48,6 +48,9 @@ describe('public-record write surfaces stay closed', () => {
     expect(validation).toMatch(/\.select\(PUBLISHED_STATS_SELECT\)/)
     expect(hook).toMatch(/getPublishedPicksStats/)
     expect(hook).toMatch(/\.select\('\*'\)/)
+    expect(validation).toMatch(/applyShadowPublishedNotesExclusion/)
+    expect(hook).toMatch(/applyShadowPublishedNotesExclusion/)
+    expect(published).toMatch(/SHADOW_PUBLISHED_COHORT_TAG/)
   })
 
   test('CRON_SECRET is not referenced from client components', () => {

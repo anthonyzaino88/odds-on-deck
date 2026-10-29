@@ -55,6 +55,8 @@ function mockClient({ rows = [], error = null, fallbackRows = null } = {}) {
             gt() { return query },
             gte() { return query },
             not() { return query },
+            or() { return query },
+            ilike() { return query },
             order() { return query },
             range() { return terminal },
           }

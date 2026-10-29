@@ -4,6 +4,7 @@ export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
 import { getValidationStats, getValidationRecords, getAccuracyByEdge, getMostAccuratePropTypes } from '../../../lib/validation.js'
+import { toPublicValidationRecord } from '../../../lib/published-picks.js'
 import { clampValidationLimit, parsePublicValidationStatus } from '../../../lib/api-limits.js'
 
 export async function GET(request) {
@@ -46,7 +47,7 @@ export async function GET(request) {
         excludePending: true,
       }
       
-      data = await getValidationRecords(options)
+      data = (await getValidationRecords(options)).map(toPublicValidationRecord)
     } else if (type === 'accuracy-by-edge') {
       // Get accuracy by edge
       data = await getAccuracyByEdge()

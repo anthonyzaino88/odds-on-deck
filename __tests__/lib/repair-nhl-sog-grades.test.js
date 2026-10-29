@@ -106,6 +106,28 @@ describe('repair preview / apply payloads', () => {
     expect(payload.gradedBy).toBe('system')
     expect(payload.actualValue).toBe(3)
     expect(payload.result).toBe('correct')
+    expect(payload.notes).toMatch(/Repair NHL SOG/)
+  })
+
+  test('apply payload preserves a shadow cohort tag on notes', () => {
+    const preview = buildRepairPreviewRow(sogRow({
+      notes: 'tier:elite,auto-saved | cohort:shadow-published',
+    }), {
+      value: 3,
+      source: 'espn-fallback',
+      matchStatus: 'matched',
+      statFound: true,
+      gameFinal: true,
+      team: 'NJD',
+    })
+    const payload = repairApplyPayload(
+      sogRow({ notes: 'tier:elite,auto-saved | cohort:shadow-published' }),
+      preview,
+      new Date('2026-10-04T18:00:00.000Z'),
+    )
+    expect(payload.notes).toMatch(/^cohort:shadow-published \| /)
+    expect(payload.notes).toMatch(/Repair NHL SOG/)
+    expect(payload.notes).not.toBe('cohort:shadow-published | ')
   })
 
   test('apply skips unchanged actual+result so reruns are idempotent', () => {

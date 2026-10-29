@@ -8,6 +8,7 @@
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
+import { withPreservedCohortNotes } from '../lib/published-picks.js'
 
 config({ path: '.env.local' })
 
@@ -200,7 +201,7 @@ async function forceValidateOldProps() {
           actualValue: actualValue,
           result: result,
           completedAt: new Date().toISOString(),
-          notes: `Backfilled via force-validate script`
+          notes: withPreservedCohortNotes(prop.notes, 'Backfilled via force-validate script'),
         })
         .eq('id', prop.id)
       

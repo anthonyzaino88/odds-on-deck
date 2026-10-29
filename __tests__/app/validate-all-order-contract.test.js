@@ -64,6 +64,7 @@ describe('validate:all grades props before parlays', () => {
     expect(src).toMatch(/shouldArchiveBoxScore/)
     expect(src).toMatch(/boxScoreArchiveRows/)
     expect(src).toMatch(/gradePendingGameLines/)
+    expect(src).toMatch(/withPreservedCohortNotes/)
   })
 
   test('gradePendingGameLines pages in id order instead of a 200-row cap', () => {
@@ -100,8 +101,12 @@ describe('validate:all grades props before parlays', () => {
     expect(src).toMatch(/chunkIds/)
     expect(src).toMatch(/applyUnplayedGradeRepairs/)
     expect(src).toMatch(/applyGameDateScope/)
-    expect(src).toMatch(/from\('PropValidation'\)/)
+    expect(src).toMatch(/loadUnplayedValidations/)
     expect(src).toMatch(/from\('ParlayLeg'\)/)
+    const lib = read('lib/unplayed-game-grades.js')
+    expect(lib).toMatch(/from\('PropValidation'\)/)
+    expect(lib).toMatch(/UNPLAYED_PROP_SELECT/)
+    expect(lib).toMatch(/\bnotes\b/)
   })
 
   test('auto-validate-parlays refuses postponed/cancelled Game rows', () => {

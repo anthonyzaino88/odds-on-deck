@@ -40,7 +40,7 @@ describe('odds API market mapping', () => {
     expect(publishedMarketKey('rec_yds')).toBe('player_reception_yds')
     expect(oddsApiSportKey('MLB')).toBe('baseball_mlb')
     expect(oddsApiSportKey('nfl')).toBe('americanfootball_nfl')
-    expect(oddsApiSportKey('nhl')).toBeNull()
+    expect(oddsApiSportKey('nhl')).toBe('icehockey_nhl')
   })
 
   test('restricts event-odds URL to the markets those picks need', () => {

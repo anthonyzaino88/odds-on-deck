@@ -16,6 +16,7 @@ import { paginateSupabaseSelect } from '../lib/unplayed-game-grades.js'
 import {
   PUBLISHED_STATS_PREFILTER,
   PUBLISHED_STATS_SELECT,
+  applyShadowPublishedNotesExclusion,
   filterPublishedPicks,
 } from '../lib/published-picks.js'
 import { isMissingColumnError } from '../lib/grade-audit.js'
@@ -49,16 +50,17 @@ export async function runReportPublishedClv({
   const supabase = createClient()
 
   async function load(select) {
-    return paginateSupabaseSelect(() => supabase
-      .from('PropValidation')
-      .select(select)
-      .eq('status', 'completed')
-      .in('sport', PUBLISHED_STATS_PREFILTER.sports)
-      .eq('source', PUBLISHED_STATS_PREFILTER.source)
-      .gt('edge', PUBLISHED_STATS_PREFILTER.edgeGreaterThan)
-      .gte('qualityScore', PUBLISHED_STATS_PREFILTER.minQuality)
-      .not('propType', 'in', '(moneyline,total,totals,h2h,ml)')
-      .order('id', { ascending: true }))
+    return paginateSupabaseSelect(() => applyShadowPublishedNotesExclusion(
+      supabase
+        .from('PropValidation')
+        .select(select)
+        .eq('status', 'completed')
+        .in('sport', PUBLISHED_STATS_PREFILTER.sports)
+        .eq('source', PUBLISHED_STATS_PREFILTER.source)
+        .gt('edge', PUBLISHED_STATS_PREFILTER.edgeGreaterThan)
+        .gte('qualityScore', PUBLISHED_STATS_PREFILTER.minQuality)
+        .not('propType', 'in', '(moneyline,total,totals,h2h,ml)'),
+    ).order('id', { ascending: true }))
   }
 
   let page = await load(CLOSE_SELECT)

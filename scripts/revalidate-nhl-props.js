@@ -1,5 +1,6 @@
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
+import { withPreservedCohortNotes } from '../lib/published-picks.js'
 import { getPlayerGameStat } from '../lib/vendors/nhl-game-stats.js'
 
 config({ path: '.env.local' })
@@ -84,7 +85,10 @@ async function revalidateNHLProps() {
           result,
           status: 'completed',
           completedAt: new Date().toISOString(),
-          notes: `Revalidated: ${validation.prediction.toUpperCase()} ${validation.threshold} → Actual: ${actualValue}`
+          notes: withPreservedCohortNotes(
+            validation.notes,
+            `Revalidated: ${validation.prediction.toUpperCase()} ${validation.threshold} → Actual: ${actualValue}`,
+          ),
         })
         .eq('id', validation.id)
       

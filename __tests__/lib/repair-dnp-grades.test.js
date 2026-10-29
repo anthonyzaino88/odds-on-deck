@@ -92,6 +92,16 @@ describe('DNP repair candidates and previews', () => {
       gradeSource: REPAIR_GRADE_SOURCE,
     })
     expect(payload.notes).toMatch(/DNP: no_plate_appearances/)
+    expect(payload.notes).not.toMatch(/cohort:shadow-published/)
+
+    const tagged = dnpRepairApplyPayload(
+      dnpRow({ notes: 'cohort:shadow-published | tier:elite,auto-saved' }),
+      preview,
+      { status: 'final' },
+      new Date('2026-10-10T12:00:00Z'),
+    )
+    expect(tagged.notes).toMatch(/cohort:shadow-published/)
+    expect(tagged.notes).toMatch(/DNP: no_plate_appearances/)
 
     const already = buildDnpRepairPreview(dnpRow({ result: 'void', status: 'manual_closed' }), {
       didNotPlay: true,
