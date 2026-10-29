@@ -201,6 +201,46 @@ describe('NFL eligibility and moneyline safeguards', () => {
     expect(toPublicNflGameLines(selection)).toEqual([])
   })
 
+  test('CAR@GB moneyline is not skipped for missing_season when Game.season is present', () => {
+    // calculate-game-edges used to omit Game.season from its select, so
+    // game.season was always undefined even when Team.season and a quote
+    // existed. ESPN stores the end-year label ('2026' NFL / '2027' NHL).
+    const kickoff = new Date('2026-10-29T17:00:00.000Z')
+    const quote = evenH2h({
+      gameId: 'CAR_at_GB_2026-10-29',
+      ts: '2026-10-29T16:30:00.000Z',
+    })
+    const teamRow = (abbr, record) => eligibleTeam(abbr, record, {
+      season: '2026',
+      statsCapturedAt: '2026-10-27T00:00:00.000Z',
+      dataThrough: '2026-10-26T20:00:00.000Z',
+    })
+    const selectedWithoutSeason = {
+      id: 'CAR_at_GB_2026-10-29',
+      sport: 'nfl',
+      date: '2026-10-29T17:00:00.000Z',
+      status: 'scheduled',
+      home: teamRow('GB', '4-2'),
+      away: teamRow('CAR', '3-4'),
+    }
+
+    const dropped = calculateNFLSelection(selectedWithoutSeason, [quote], { now: kickoff })
+    expect(dropped.moneyline.reason).toBe('missing_season')
+    expect(dropped.moneyline.model).toBeNull()
+    expect(calculateNFLEdges(selectedWithoutSeason, [quote], { now: kickoff }).edgeMlHome).toBeNull()
+
+    const selectedWithSeason = { ...selectedWithoutSeason, season: '2026' }
+    const kept = calculateNFLSelection(selectedWithSeason, [quote], { now: kickoff })
+    expect(kept.inputSnapshot.season).toBe('2026')
+    expect(kept.moneyline.reason).not.toBe('missing_season')
+    expect(kept.moneyline.eligibility.dataEligible).toBe(true)
+    expect(kept.moneyline.model).not.toBeNull()
+    expect(kept.moneyline.quote).toEqual(expect.objectContaining({
+      market: 'h2h',
+      oddsSnapshotId: 'odd-h2h-1',
+    }))
+  })
+
   test('stale or mismatched snapshots are rejected', () => {
     const stale = evaluateNflDataEligibility({
       home: interpretEligible('KC', '12-4', { capturedAt: '2025-01-01T00:00:00.000Z' }),

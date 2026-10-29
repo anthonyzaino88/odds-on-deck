@@ -37,6 +37,7 @@ async function calculateEdgesForToday() {
       .select(`
         id,
         sport,
+        season,
         date,
         status,
         homeId,
