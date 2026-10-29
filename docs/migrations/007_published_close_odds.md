@@ -38,9 +38,10 @@ node scripts/record-mlb-window-props.js --postseason
 node scripts/capture-published-closes.js --apply
 ```
 
-PowerShell: `npm.ps1` swallows the first `--`. Use
-`npm run capture:published-closes:apply` or `CLV_APPLY=1`, not
-flags passed through `npm run capture:published-closes`.
+PowerShell: prefer `npm run capture:published-closes:apply`.
+`$env:CLV_APPLY=1; node scripts/capture-published-closes.js` also
+works, but a leftover `CLV_APPLY` in the session makes later plain
+runs apply. Do not pass flags through `npm run capture:published-closes`.
 
 Kill switch: `CLOSING_CAPTURE=0`. Caps: `--max-calls N` and
 `--min-remaining N` (default 50 remaining credits).

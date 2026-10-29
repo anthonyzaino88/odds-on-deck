@@ -182,14 +182,18 @@ node scripts/capture-published-closes.js --apply
 
 PowerShell: `npm.ps1` swallows the first `--`, so `--apply` is lost
 and `--max-calls 3` leaves a stray `3`. Do not pass flags through
-`npm run capture:published-closes`. Use one of:
+`npm run capture:published-closes`. Prefer the dedicated apply script:
 
 ```bash
 npm run capture:published-closes:apply
-# or
-CLV_APPLY=1 node scripts/capture-published-closes.js
-# or
 node scripts/capture-published-closes.js --apply
+```
+
+PowerShell env form (a leftover `CLV_APPLY` in the session makes later
+plain runs apply — clear it after, or prefer the npm apply script):
+
+```powershell
+$env:CLV_APPLY=1; node scripts/capture-published-closes.js
 ```
 
 Kill switch: `CLOSING_CAPTURE=0`. Caps: `--max-calls N` (includes the

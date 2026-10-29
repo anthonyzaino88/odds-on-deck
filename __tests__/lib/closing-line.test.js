@@ -280,6 +280,12 @@ describe('CLV math', () => {
 })
 
 describe('close write payload and missing-column retry', () => {
+  test('closeCapturePayload skips unconvertible prices so a later run can retry', () => {
+    expect(closeCapturePayload({ odds: 'n/a', threshold: 0.5, book: 'DK', numBooks: 1 })).toBeNull()
+    expect(closeCapturePayload({ odds: null, threshold: 0.5, book: 'DK' })).toBeNull()
+    expect(closeCapturePayload({ odds: 0, threshold: 0.5, book: 'DK' })).toBeNull()
+  })
+
   test('closeCapturePayload stores American close + book + captured-at', () => {
     const now = new Date('2026-07-15T22:50:00.000Z')
     expect(closeCapturePayload({

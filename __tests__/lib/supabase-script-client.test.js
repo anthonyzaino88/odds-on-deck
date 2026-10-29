@@ -1,4 +1,4 @@
-import { isPublishableSupabaseKey } from '../../lib/supabase-admin-key.js'
+import { isPublishableSupabaseKey, supabaseJwtRole } from '../../lib/supabase-admin-key.js'
 import {
   createScriptSupabaseClient,
   resolveScriptSupabaseKey,
@@ -91,5 +91,20 @@ describe('createScriptSupabaseClient key selection', () => {
     expect(isPublishableSupabaseKey('sb_secret_abc')).toBe(false)
     expect(isPublishableSupabaseKey('secret-key')).toBe(false)
     expect(isPublishableSupabaseKey('')).toBe(false)
+  })
+
+  test('legacy JWT role=anon is refused; service_role and sb_secret are accepted', () => {
+    const unsigned = (role) => {
+      const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url')
+      const body = Buffer.from(JSON.stringify({ role, ref: 'x' })).toString('base64url')
+      return `${header}.${body}.sig`
+    }
+    const anon = unsigned('anon')
+    const service = unsigned('service_role')
+    expect(supabaseJwtRole(anon)).toBe('anon')
+    expect(supabaseJwtRole(service)).toBe('service_role')
+    expect(isPublishableSupabaseKey(anon)).toBe(true)
+    expect(isPublishableSupabaseKey(service)).toBe(false)
+    expect(isPublishableSupabaseKey('sb_secret_ok')).toBe(false)
   })
 })

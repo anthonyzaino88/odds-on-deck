@@ -41,6 +41,8 @@ describe('S1 closing-price capture contract', () => {
     expect(pkg).toMatch(/"report:published-clv": "node scripts\/report-published-clv\.js"/)
     expect(ops).toMatch(/capture-published-closes\.js --dry-run/)
     expect(ops).toMatch(/capture:published-closes:apply/)
+    expect(ops).toMatch(/\$env:CLV_APPLY=1/)
+    expect(ops).toMatch(/leftover/)
     expect(ops).toMatch(/CLV_APPLY=1/)
     expect(ops).toMatch(/record-mlb-window-props\.js/)
     expect(ops).toMatch(/record-mlb-window-props\.js --postseason/)

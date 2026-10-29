@@ -126,8 +126,19 @@ describe('parseCaptureClosesArgs', () => {
     expect(parseCaptureClosesArgs(['--apply'])).toMatchObject({ apply: true, dryRun: false })
     expect(parseCaptureClosesArgs(['--apply', '--dry-run'])).toMatchObject({ apply: false, dryRun: true })
     expect(parseCaptureClosesArgs(['--max-calls', '3']).maxCalls).toBe(3)
+    expect(parseCaptureClosesArgs(['--max-calls', '3']).invalidFlags).toEqual([])
     expect(isClosingCaptureDisabled({ CLOSING_CAPTURE: '0' })).toBe(true)
     expect(isClosingCaptureDisabled({ CLOSING_CAPTURE: '1' })).toBe(false)
+  })
+
+  test('invalid or missing --max-calls / --min-remaining fail closed', () => {
+    expect(parseCaptureClosesArgs(['--max-calls', 'abc']).invalidFlags).toEqual(['--max-calls'])
+    expect(parseCaptureClosesArgs(['--max-calls', '-1']).invalidFlags).toEqual(['--max-calls'])
+    expect(parseCaptureClosesArgs(['--max-calls']).invalidFlags).toEqual(['--max-calls'])
+    expect(parseCaptureClosesArgs(['--max-calls', '--apply']).invalidFlags).toEqual(['--max-calls'])
+    expect(parseCaptureClosesArgs(['--min-remaining', 'nope']).invalidFlags).toEqual(['--min-remaining'])
+    expect(parseCaptureClosesArgs(['--min-remaining']).invalidFlags).toEqual(['--min-remaining'])
+    expect(parseCaptureClosesArgs(['--max-calls', '0']).invalidFlags).toEqual([])
   })
 
   test('CLV_APPLY=1 is an apply switch; --dry-run still wins', () => {
@@ -565,6 +576,26 @@ describe('runCapturePublishedCloses', () => {
     expect(log.lines[0]).toBe('MODE: APPLY')
   })
 
+  test('invalid --max-calls or --min-remaining exits 1 before any work', async () => {
+    const createClient = jest.fn()
+    const fetchEventOdds = jest.fn()
+    for (const argv of [['--max-calls', 'abc'], ['--max-calls'], ['--min-remaining', '-1']]) {
+      const log = memoryLog()
+      const result = await runCapturePublishedCloses({
+        argv,
+        now: IN_WINDOW,
+        createClient,
+        fetchEventOdds,
+        log,
+      })
+      expect(result.exitCode).toBe(1)
+      expect(result.invalidFlags?.length).toBeGreaterThan(0)
+      expect(log.lines.join('\n')).toMatch(/Invalid or missing value/)
+    }
+    expect(createClient).not.toHaveBeenCalled()
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+
   test('unknown flags and stray positionals exit 1', async () => {
     const log = memoryLog()
     const result = await runCapturePublishedCloses({
@@ -675,6 +706,63 @@ describe('runCapturePublishedCloses', () => {
     expect(printed).toMatch(/publishable/)
     expect(printed).not.toMatch(/sb_publishable_should-never-print/)
     expect(printed).not.toMatch(/odds-api-key-should-never-print/)
+  })
+
+  test('legacy anon JWT in SUPABASE_SECRET_KEY fails closed without printing the value', async () => {
+    const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url')
+    const body = Buffer.from(JSON.stringify({ role: 'anon', ref: 'x' })).toString('base64url')
+    const anonJwt = `${header}.${body}.sig`
+    const factory = jest.fn()
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      env: {
+        NEXT_PUBLIC_SUPABASE_URL: 'https://example.supabase.co',
+        SUPABASE_SECRET_KEY: anonJwt,
+      },
+      createClient: (passedEnv) => createScriptSupabaseClient(passedEnv, {
+        clientFactory: factory,
+        logger: log,
+      }),
+      fetchEventOdds: jest.fn(),
+      log,
+    })
+    expect(result.exitCode).toBe(1)
+    expect(factory).not.toHaveBeenCalled()
+    expect(log.lines.join('\n')).toMatch(/publishable|anon|service_role/)
+    expect(log.lines.join('\n')).not.toMatch(anonJwt)
+  })
+
+  test('unconvertible close price skips the write so a later run can retry', async () => {
+    const updates = []
+    const fetchEventOdds = jest.fn(async () => ({
+      data: {
+        bookmakers: [{
+          title: 'FanDuel',
+          markets: [{
+            key: 'batter_hits',
+            outcomes: [
+              { name: 'Over', description: 'Vinnie Pasquantino', point: 0.5, price: 1 },
+            ],
+          }],
+        }],
+      },
+      quota: { remaining: 18000, used: 2000 },
+    }))
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({ updates }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(result.updates).toHaveLength(0)
+    expect(updates).toHaveLength(0)
+    expect(result.exitCode).toBe(0)
+    expect(result.calls).toBeGreaterThan(0)
   })
 
   test('--apply without ODDS_API_KEY fails before any HTTP call', async () => {

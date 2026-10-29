@@ -71,11 +71,23 @@ const KNOWN_FLAGS = new Set([
 ])
 const FLAGS_WITH_VALUE = new Set(['--max-calls', '--min-remaining'])
 
-function takeIntFlag(args, flag) {
+/** Non-negative integer flag. Missing or invalid values fail closed. */
+export function parseNonNegIntFlag(args, flag) {
   const i = args.indexOf(flag)
-  if (i < 0 || !args[i + 1] || String(args[i + 1]).startsWith('--')) return null
-  const n = Number(args[i + 1])
-  return Number.isFinite(n) && n >= 0 ? n : null
+  if (i < 0) return { present: false, value: null, invalid: false }
+  const raw = args[i + 1]
+  if (raw == null || String(raw).startsWith('--')) {
+    return { present: true, value: null, invalid: true }
+  }
+  const text = String(raw).trim()
+  if (!/^\d+$/.test(text)) {
+    return { present: true, value: null, invalid: true }
+  }
+  const n = Number(text)
+  if (!Number.isFinite(n) || n < 0) {
+    return { present: true, value: null, invalid: true }
+  }
+  return { present: true, value: n, invalid: false }
 }
 
 export function isClosingCaptureDisabled(env = process.env) {
@@ -126,20 +138,28 @@ export function parseCaptureClosesArgs(argv = [], env = process.env) {
   const args = Array.isArray(argv) ? argv : []
   const dryRunFlag = args.includes('--dry-run')
   const applyFlag = args.includes('--apply') || envFlagEnabled(env.CLV_APPLY)
-  const maxCalls = takeIntFlag(args, '--max-calls')
-  const minRemaining = takeIntFlag(args, '--min-remaining')
-    ?? Number(env.CLOSING_CAPTURE_MIN_REMAINING)
+  const maxCalls = parseNonNegIntFlag(args, '--max-calls')
+  const minRemainingFlag = parseNonNegIntFlag(args, '--min-remaining')
+  const envMinRemaining = Number(env.CLOSING_CAPTURE_MIN_REMAINING)
   const unknown = unknownCaptureArgs(args)
+  const invalidFlags = [
+    maxCalls.invalid ? '--max-calls' : null,
+    minRemainingFlag.invalid ? '--min-remaining' : null,
+  ].filter(Boolean)
+  const minRemaining = minRemainingFlag.present
+    ? minRemainingFlag.value
+    : (Number.isFinite(envMinRemaining) && envMinRemaining >= 0
+      ? envMinRemaining
+      : CLOSE_CAPTURE_DEFAULT_MIN_REMAINING)
   return {
     apply: applyFlag && !dryRunFlag,
     dryRun: !applyFlag || dryRunFlag,
     help: args.includes('--help') || args.includes('-h'),
-    maxCalls,
-    minRemaining: Number.isFinite(minRemaining) && minRemaining >= 0
-      ? minRemaining
-      : CLOSE_CAPTURE_DEFAULT_MIN_REMAINING,
+    maxCalls: maxCalls.present ? maxCalls.value : null,
+    minRemaining,
     disabled: isClosingCaptureDisabled(env),
     unknown,
+    invalidFlags,
   }
 }
 
@@ -176,10 +196,11 @@ Dry-run (default): list in-window Published picks missing a close.
          closeOdds only where closeOdds IS NULL. Requires ODDS_API_KEY +
          SUPABASE_SECRET_KEY (SUPABASE_REQUIRE_SECRET_KEY=1).
          Do not run from CI. Anon/public keys are refused.
-PowerShell: npm run capture:published-closes:apply
-            (npm.ps1 swallows the first -- so --apply is lost).
+PowerShell: prefer npm run capture:published-closes:apply.
+            $env:CLV_APPLY=1 stays set for later plain runs.
 CLOSING_CAPTURE=0 disables the job. --max-calls caps HTTP calls
-(including the /v4/sports quota probe). Unknown flags fail closed.
+(including the /v4/sports quota probe). Unknown flags and
+invalid/missing --max-calls / --min-remaining values fail closed.
 --min-remaining (default ${CLOSE_CAPTURE_DEFAULT_MIN_REMAINING}) stops when
 Odds API remaining credits fall below the floor.
 Window is T−${CLOSE_CAPTURE_WINDOW_MINUTES}..T−1 (pre-start games only).
@@ -192,6 +213,10 @@ if this job only runs in the 11–22 ET MLB window.`)
   if (args.unknown.length) {
     log.error(`❌ Unknown argument(s): ${args.unknown.join(' ')}`)
     return { exitCode: 1, updates: [], calls: 0, unknown: args.unknown }
+  }
+  if (args.invalidFlags.length) {
+    log.error(`❌ Invalid or missing value for ${args.invalidFlags.join(', ')}`)
+    return { exitCode: 1, updates: [], calls: 0, invalidFlags: args.invalidFlags }
   }
 
   log.log(formatCaptureModeBanner(args.apply))
@@ -384,6 +409,10 @@ if this job only runs in the 11–22 ET MLB window.`)
         continue
       }
       const patch = closeCapturePayload(quote, now)
+      if (!patch || patch.closeOdds == null) {
+        log.log(`  skipped ${pick.id} unconvertible close price`)
+        continue
+      }
       const write = await updateWithOptionalCloseOdds(
         (body) => applyPublishedCloseUpdate(
           supabase.from('PropValidation'),
