@@ -34,8 +34,18 @@ jest.mock('../../lib/supabase-admin.js', () => ({
   },
 }))
 
-import { recordPropPrediction, recordGameLinePrediction, getPublishedPicksStats } from '../../lib/validation.js'
-import { PUBLISHED_SOURCE, SHADOW_PUBLISHED_NOTES_OR_FILTER } from '../../lib/published-picks.js'
+import {
+  recordPropPrediction,
+  recordGameLinePrediction,
+  getPublishedPicksStats,
+  getValidationStats,
+  getAccuracyByEdge,
+} from '../../lib/validation.js'
+import {
+  PUBLISHED_SOURCE,
+  SHADOW_PUBLISHED_NOTES_OR_FILTER,
+  PRIVATE_SHADOW_PUBLISHED_NOTES_OR_FILTER,
+} from '../../lib/published-picks.js'
 
 describe('recordPropPrediction refuses without a DB call', () => {
   beforeEach(() => {
@@ -154,5 +164,24 @@ describe('getPublishedPicksStats query applies the source filter', () => {
     ])
     expect(stats.sample).toBe(0)
     expect(orCalls).toEqual([[SHADOW_PUBLISHED_NOTES_OR_FILTER]])
+  })
+})
+
+describe('public archive queries drop shadow-only rows and keep auto-saved', () => {
+  beforeEach(() => {
+    eqCalls.length = 0
+    orCalls.length = 0
+    from.mockReset()
+    from.mockImplementation(() => createChain())
+  })
+
+  test('getValidationStats and getAccuracyByEdge use the private-shadow or-filter', async () => {
+    await getValidationStats()
+    expect(orCalls).toEqual(expect.arrayContaining([[PRIVATE_SHADOW_PUBLISHED_NOTES_OR_FILTER]]))
+    expect(orCalls).not.toEqual(expect.arrayContaining([[SHADOW_PUBLISHED_NOTES_OR_FILTER]]))
+
+    orCalls.length = 0
+    await getAccuracyByEdge()
+    expect(orCalls).toEqual([[PRIVATE_SHADOW_PUBLISHED_NOTES_OR_FILTER]])
   })
 })

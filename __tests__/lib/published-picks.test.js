@@ -42,8 +42,14 @@ import {
   publishedValidationUpdateFields,
   shouldLockPublishedRecordedPrice,
   withoutShadowPublished,
+  withoutPrivateShadowPublished,
+  isPrivateShadowPublished,
   applyShadowPublishedNotesExclusion,
+  applyPrivateShadowPublishedNotesExclusion,
+  toPublicValidationRecord,
   SHADOW_PUBLISHED_NOTES_OR_FILTER,
+  PRIVATE_SHADOW_PUBLISHED_NOTES_OR_FILTER,
+  AUTO_SAVED_NOTES_TOKEN,
   TODAYS_BOARD_CAP,
   TODAYS_BOARD_MIN_PUBLISHED,
   isLegacyNflPublishedRow,
@@ -841,11 +847,12 @@ describe('toPublishedValidationFields', () => {
 })
 
 describe('publishedValidationWritePlan', () => {
-  test('inserts new, updates pending system rows, skips completed and needs_review', () => {
+  test('inserts new, updates pending system rows, skips completed, needs_review, and manual_closed', () => {
     expect(publishedValidationWritePlan(null)).toBe('insert')
     expect(publishedValidationWritePlan({ status: 'pending', source: PUBLISHED_SOURCE })).toBe('update')
     expect(publishedValidationWritePlan({ status: 'completed', result: 'correct', source: PUBLISHED_SOURCE })).toBe('skip')
     expect(publishedValidationWritePlan({ status: 'needs_review', source: PUBLISHED_SOURCE })).toBe('skip')
+    expect(publishedValidationWritePlan({ status: 'manual_closed', source: PUBLISHED_SOURCE })).toBe('skip')
   })
 
   test('never adopts a pending row whose source is not system_generated', () => {
@@ -1000,6 +1007,16 @@ describe('shadow published NHL cohort', () => {
     expect(shouldLockPublishedRecordedPrice({ odds: -110 }, { status: 'in_progress' })).toBe(true)
     expect(shouldLockPublishedRecordedPrice({ odds: -110 }, { status: 'scheduled' })).toBe(false)
     expect(shouldLockPublishedRecordedPrice({ odds: -110 }, {})).toBe(false)
+    expect(shouldLockPublishedRecordedPrice(
+      { odds: -110 },
+      { status: 'scheduled', date: '2026-10-01T00:00:00Z' },
+      new Date('2026-10-29T18:00:00Z'),
+    )).toBe(true)
+    expect(shouldLockPublishedRecordedPrice(
+      { odds: -110 },
+      { status: 'scheduled', date: '2026-11-01T00:00:00Z' },
+      new Date('2026-10-29T18:00:00Z'),
+    )).toBe(false)
 
     const existing = {
       ...nhlKeep,
@@ -1031,19 +1048,34 @@ describe('shadow published NHL cohort', () => {
     expect(unlocked.notes).toBe('tier:elite,auto-saved | cohort:shadow-published')
   })
 
-  test('tagged NHL stays in the general archive set; only Published helpers drop it', () => {
+  test('auto-saved+tagged NHL stays in the archive; shadow-only rows do not', () => {
     const tagged = {
       ...nhlKeep,
       notes: 'tier:elite,auto-saved | cohort:shadow-published',
     }
     const untagged = { ...nhlKeep, notes: 'tier:elite,auto-saved' }
-    const archive = [untagged, tagged]
-    expect(archive).toHaveLength(2)
+    const shadowOnly = { ...nhlKeep, notes: SHADOW_PUBLISHED_COHORT_TAG }
+    const archive = [untagged, tagged, shadowOnly]
     expect(withoutShadowPublished(archive)).toEqual([untagged])
+    expect(withoutPrivateShadowPublished(archive)).toEqual([untagged, tagged])
+    expect(isPrivateShadowPublished(shadowOnly)).toBe(true)
+    expect(isPrivateShadowPublished(tagged)).toBe(false)
     expect(isPublishedPick(tagged)).toBe(false)
     expect(isPublishedPick(untagged)).toBe(false)
     expect(isShadowPublishedPick(tagged)).toBe(true)
     expect(isShadowPublishedPick(untagged)).toBe(false)
+  })
+
+  test('public validation records omit notes so the cohort tag cannot leak', () => {
+    const publicRow = toPublicValidationRecord({
+      ...nhlKeep,
+      notes: 'tier:elite,auto-saved | cohort:shadow-published',
+      id: 'pv-1',
+    })
+    expect(publicRow.notes).toBeUndefined()
+    expect(publicRow).not.toHaveProperty('notes')
+    expect(publicRow.playerName).toBe('Auston Matthews')
+    expect(JSON.stringify(publicRow)).not.toMatch(/shadow-published/)
   })
 
   test('public query helper uses a NULL-safe notes exclusion', () => {
@@ -1053,6 +1085,16 @@ describe('shadow published NHL cohort', () => {
     expect(SHADOW_PUBLISHED_NOTES_OR_FILTER).toMatch(/notes\.is\.null/)
     expect(SHADOW_PUBLISHED_NOTES_OR_FILTER).toMatch(/shadow-published/)
     expect(result.filter).toBe(SHADOW_PUBLISHED_NOTES_OR_FILTER)
+  })
+
+  test('archive/insights SQL keeps auto-saved rows and drops shadow-only', () => {
+    const or = jest.fn((filter) => ({ or, filter }))
+    const result = applyPrivateShadowPublishedNotesExclusion({ or })
+    expect(or).toHaveBeenCalledWith(PRIVATE_SHADOW_PUBLISHED_NOTES_OR_FILTER)
+    expect(PRIVATE_SHADOW_PUBLISHED_NOTES_OR_FILTER).toMatch(/notes\.is\.null/)
+    expect(PRIVATE_SHADOW_PUBLISHED_NOTES_OR_FILTER).toMatch(/shadow-published/)
+    expect(PRIVATE_SHADOW_PUBLISHED_NOTES_OR_FILTER).toMatch(AUTO_SAVED_NOTES_TOKEN)
+    expect(result.filter).toBe(PRIVATE_SHADOW_PUBLISHED_NOTES_OR_FILTER)
   })
 
   test('shadow ROI uses the same units math and ignores untagged NHL archive', () => {

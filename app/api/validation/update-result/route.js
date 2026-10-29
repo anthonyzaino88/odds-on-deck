@@ -79,6 +79,7 @@ export async function GET(request) {
     const props = await getValidationRecords({
       gameId,
       status: 'pending',
+      excludePrivateShadowPublished: false,
     })
     
     return NextResponse.json({

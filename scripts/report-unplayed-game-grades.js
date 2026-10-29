@@ -28,6 +28,7 @@ import {
   applyGameDateScope,
   applyUnplayedGradeRepairs,
   chunkIds,
+  loadUnplayedValidations,
   paginateSupabaseSelect,
   parseUnplayedGradeArgs,
   planUnplayedGameGradeRepair,
@@ -117,17 +118,7 @@ async function loadGames(supabase, scope) {
 }
 
 async function loadValidations(supabase, gameIds) {
-  let validations = []
-  for (const chunk of chunkIds(gameIds, UNPLAYED_IN_CHUNK)) {
-    const page = await paginateSupabaseSelect(() => supabase
-      .from('PropValidation')
-      .select('id, propId, playerName, propType, result, status, actualValue, gameIdRef, sport')
-      .in('gameIdRef', chunk)
-      .order('id', { ascending: true }))
-    if (page.error) throw new Error(`PropValidation lookup failed: ${page.error.message}`)
-    validations = validations.concat(page.rows)
-  }
-  return validations
+  return loadUnplayedValidations(supabase, gameIds)
 }
 
 const PARLAY_LEG_SELECT = 'id, parlayId, playerName, selection, betType, propType, outcome, odds, gameIdRef'

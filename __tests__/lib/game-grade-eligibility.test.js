@@ -22,9 +22,11 @@ import {
   describePropRepairWrite,
   etDayStartUtc,
   gameMatchesScope,
+  loadUnplayedValidations,
   parseUnplayedGradeArgs,
   planUnplayedGameGradeRepair,
   requireUnplayedGradeApplyKey,
+  UNPLAYED_PROP_SELECT,
 } from '../../lib/unplayed-game-grades.js'
 import {
   aggregateFeaturedParlayOutcome,
@@ -652,5 +654,60 @@ describe('unplayed-game grade report planner', () => {
       'cohort:shadow-published | Requeued — game postponed is not a true final',
     )
     expect(requeueWrite.status).toBe('pending')
+  })
+
+  test('unplayed loader selects notes so --apply preserves the shadow tag end to end', async () => {
+    expect(UNPLAYED_PROP_SELECT).toMatch(/\bnotes\b/)
+    const postponed = mlbGame({
+      id: 'CHW_at_HOU_2026-09-29',
+      status: 'postponed',
+      homeScore: 0,
+      awayScore: 0,
+    })
+    const row = {
+      id: 'pv-shadow',
+      propId: 'p1',
+      playerName: 'Auston Matthews',
+      propType: 'player_shots_on_goal',
+      result: 'incorrect',
+      status: 'completed',
+      actualValue: 0,
+      gameIdRef: postponed.id,
+      sport: 'nhl',
+      notes: 'cohort:shadow-published',
+    }
+    const captured = []
+    const supabase = {
+      from: (table) => {
+        expect(table).toBe('PropValidation')
+        const chain = {
+          select: (cols) => {
+            captured.push(cols)
+            return chain
+          },
+          in: () => chain,
+          order: () => chain,
+          range: async () => ({ data: [row], error: null }),
+        }
+        return chain
+      },
+    }
+
+    const validations = await loadUnplayedValidations(supabase, [postponed.id])
+    expect(captured[0]).toBe(UNPLAYED_PROP_SELECT)
+    expect(validations[0].notes).toBe('cohort:shadow-published')
+
+    const plan = planUnplayedGameGradeRepair({
+      games: [postponed],
+      validations,
+      parlays: [],
+    })
+    expect(plan.props).toHaveLength(1)
+    expect(plan.props[0].notes).toBe('cohort:shadow-published')
+    const payload = describePropRepairWrite(plan.props[0])
+    expect(payload.status).toBe('pending')
+    expect(payload.notes).toBe(
+      'cohort:shadow-published | Requeued — game postponed is not a true final',
+    )
   })
 })

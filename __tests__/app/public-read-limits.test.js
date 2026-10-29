@@ -151,7 +151,7 @@ describe('public read-path contracts', () => {
     expect(api).toMatch(/parsePublicValidationStatus/)
     expect(api).toMatch(/clampValidationLimit/)
     expect(admin).toMatch(/status: 'pending'/)
-    expect(admin).not.toMatch(/excludeShadowPublished/)
+    expect(admin).toMatch(/excludePrivateShadowPublished: false/)
     expect(admin).not.toMatch(/excludePending/)
     expect(lib).toMatch(/else if \(options\.excludePending\)/)
     expect(lib).toMatch(/\.in\('status', PUBLIC_VALIDATION_STATUSES\)/)

@@ -26,13 +26,15 @@ describe('private NHL shadow-published track stays off Published surfaces', () =
     expect(pkg).toMatch(/"report:shadow-nhl": "node scripts\/report-shadow-nhl\.js"/)
   })
 
-  test('Published surfaces exclude the shadow tag; NHL archive and insights keep it', () => {
+  test('Published surfaces drop every shadow tag; archive/insights drop shadow-only only', () => {
     const hook = read('lib/homepage-hook.js')
     const picks = read('lib/picks.js')
     const generator = read('lib/simple-parlay-generator.js')
     const validation = read('lib/validation.js')
     const report = read('scripts/report-published-clv.js')
     const insights = read('lib/performance-analyzer.js')
+    const api = read('app/api/validation/route.js')
+    const page = read('app/validation/page.js')
 
     expect(hook).toMatch(/applyShadowPublishedNotesExclusion/)
     expect(hook).toMatch(/\.in\('sport', PUBLISHED_SPORTS\)/)
@@ -57,20 +59,35 @@ describe('private NHL shadow-published track stays off Published surfaces', () =
       validation.indexOf('async function fetchCompletedValidations'),
       validation.indexOf('async function fetchPublishedStatsRecords'),
     )
-    expect(archiveFetch).not.toMatch(/applyShadowPublishedNotesExclusion/)
-    expect(archiveFetch).not.toMatch(/withoutShadowPublished/)
+    expect(archiveFetch).toMatch(/applyPublicArchiveNotesFilter/)
+    expect(archiveFetch).toMatch(/filterPublicArchiveRows/)
 
     const recordsFetch = validation.slice(
       validation.indexOf('export async function getValidationRecords'),
       validation.indexOf('export async function getValidationCounts'),
     )
-    expect(recordsFetch).not.toMatch(/applyShadowPublishedNotesExclusion/)
-    expect(recordsFetch).not.toMatch(/withoutShadowPublished/)
-    expect(recordsFetch).not.toMatch(/excludeShadowPublished/)
+    expect(recordsFetch).toMatch(/applyPublicArchiveNotesFilter/)
+    expect(recordsFetch).toMatch(/filterPublicArchiveRows/)
 
-    expect(insights).not.toMatch(/applyShadowPublishedNotesExclusion/)
-    expect(insights).not.toMatch(/withoutShadowPublished/)
-    expect(insights).toMatch(/Keep tagged NHL shadow rows/)
+    const countsFetch = validation.slice(
+      validation.indexOf('export async function getValidationCounts'),
+      validation.indexOf('export async function getAccuracyByEdge'),
+    )
+    expect(countsFetch).toMatch(/applyPublicArchiveNotesFilter/)
+
+    const edgeFetch = validation.slice(
+      validation.indexOf('export async function getAccuracyByEdge'),
+      validation.indexOf('export async function getMostAccuratePropTypes'),
+    )
+    expect(edgeFetch).toMatch(/applyPublicArchiveNotesFilter/)
+    expect(edgeFetch).toMatch(/filterPublicArchiveRows/)
+
+    expect(insights).toMatch(/applyPrivateShadowPublishedNotesExclusion/)
+    expect(insights).toMatch(/withoutPrivateShadowPublished/)
+    expect(page).toMatch(/getValidationRecords\(\{ limit: 50, excludePending: true \}\)/)
+    expect(page).toMatch(/getValidationCounts/)
+    expect(api).toMatch(/toPublicValidationRecord/)
+    expect(api).toMatch(/getAccuracyByEdge/)
   })
 
   test('repair and NHL grade writers preserve cohort tags instead of overwriting notes', () => {
@@ -81,6 +98,11 @@ describe('private NHL shadow-published track stays off Published surfaces', () =
     const revalidate = read('scripts/revalidate-nhl-props.js')
     const forceOld = read('scripts/force-validate-old-props.js')
     const validation = read('lib/validation.js')
+    expect(unplayed).toMatch(/UNPLAYED_PROP_SELECT/)
+    expect(unplayed).toMatch(/notes/)
+    expect(read('scripts/report-unplayed-game-grades.js')).toMatch(/loadUnplayedValidations/)
+    expect(read('scripts/repair-nhl-sog-grades.js')).toMatch(/\.select\('\*'\)/)
+    expect(read('scripts/repair-dnp-grades.js')).toMatch(/\.select\('\*'\)/)
     expect(unplayed).toMatch(/withPreservedCohortNotes\(item\.notes/)
     expect(sog).toMatch(/withPreservedCohortNotes\(\s*row\.notes/)
     expect(dnp).toMatch(/withPreservedCohortNotes\(row\?\.notes/)
