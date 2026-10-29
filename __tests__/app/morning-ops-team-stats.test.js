@@ -56,6 +56,12 @@ describe('morning ops team-stats refresh', () => {
     expect(script).not.toMatch(/\bsupabaseUrl\b|\bsupabaseSecretKey\b/)
   })
 
+  test('calculate-game-edges Game select includes season for the NFL selection model', () => {
+    const script = read('scripts/calculate-game-edges.js')
+    expect(script).toMatch(/\.from\('Game'\)[\s\S]*?\.select\(`[^`]*\bseason\b[^`]*`\)/)
+    expect(script).toMatch(/calculateNFLEdges\(game, odds\)/)
+  })
+
   test('calculate-game-edges skips MLB when team stats are ineligible', () => {
     const script = read('scripts/calculate-game-edges.js')
     expect(script).toMatch(/evaluateMatchupTeamStatsForEdge/)
