@@ -1,5 +1,10 @@
+import { createScriptSupabaseClient } from '../../lib/supabase-script-client.js'
+import { isPublishableSupabaseKey } from '../../lib/supabase-admin-key.js'
 import { PUBLISHED_SOURCE } from '../../lib/published-picks.js'
 import {
+  assertCaptureSecretIsNotPublishable,
+  captureSupabaseEnv,
+  formatCaptureModeBanner,
   isClosingCaptureDisabled,
   parseCaptureClosesArgs,
   runCapturePublishedCloses,
@@ -80,13 +85,31 @@ function mockClient({
           const query = chainable(terminal)
           query.update = (body) => {
             updates.push(body)
-            return { eq: async () => ({ error: null }) }
+            const chain = {
+              eq() { return chain },
+              is() { return chain },
+              select() { return chain },
+              then(resolve, reject) {
+                return Promise.resolve({ data: [{ id: 'pv-vinnie' }], error: null })
+                  .then(resolve, reject)
+              },
+            }
+            return chain
           }
           return query
         },
         update(body) {
           updates.push(body)
-          return { eq: async () => ({ error: null }) }
+          const chain = {
+            eq() { return chain },
+            is() { return chain },
+            select() { return chain },
+            then(resolve, reject) {
+              return Promise.resolve({ data: [{ id: 'pv-vinnie' }], error: null })
+                .then(resolve, reject)
+            },
+          }
+          return chain
         },
       }
     },
@@ -98,13 +121,45 @@ const QUIET = new Date('2026-07-15T16:09:00.000Z')
 
 describe('parseCaptureClosesArgs', () => {
   test('defaults to dry-run; --apply is required to write', () => {
-    expect(parseCaptureClosesArgs([])).toMatchObject({ apply: false, dryRun: true })
+    expect(parseCaptureClosesArgs([])).toMatchObject({ apply: false, dryRun: true, unknown: [] })
     expect(parseCaptureClosesArgs(['--dry-run'])).toMatchObject({ apply: false, dryRun: true })
     expect(parseCaptureClosesArgs(['--apply'])).toMatchObject({ apply: true, dryRun: false })
     expect(parseCaptureClosesArgs(['--apply', '--dry-run'])).toMatchObject({ apply: false, dryRun: true })
     expect(parseCaptureClosesArgs(['--max-calls', '3']).maxCalls).toBe(3)
+    expect(parseCaptureClosesArgs(['--max-calls', '3']).invalidFlags).toEqual([])
     expect(isClosingCaptureDisabled({ CLOSING_CAPTURE: '0' })).toBe(true)
     expect(isClosingCaptureDisabled({ CLOSING_CAPTURE: '1' })).toBe(false)
+  })
+
+  test('invalid or missing --max-calls / --min-remaining fail closed', () => {
+    expect(parseCaptureClosesArgs(['--max-calls', 'abc']).invalidFlags).toEqual(['--max-calls'])
+    expect(parseCaptureClosesArgs(['--max-calls', '-1']).invalidFlags).toEqual(['--max-calls'])
+    expect(parseCaptureClosesArgs(['--max-calls']).invalidFlags).toEqual(['--max-calls'])
+    expect(parseCaptureClosesArgs(['--max-calls', '--apply']).invalidFlags).toEqual(['--max-calls'])
+    expect(parseCaptureClosesArgs(['--min-remaining', 'nope']).invalidFlags).toEqual(['--min-remaining'])
+    expect(parseCaptureClosesArgs(['--min-remaining']).invalidFlags).toEqual(['--min-remaining'])
+    expect(parseCaptureClosesArgs(['--max-calls', '0']).invalidFlags).toEqual([])
+  })
+
+  test('CLV_APPLY=1 is an apply switch; --dry-run still wins', () => {
+    expect(parseCaptureClosesArgs([], { CLV_APPLY: '1' })).toMatchObject({
+      apply: true,
+      dryRun: false,
+    })
+    expect(parseCaptureClosesArgs(['--dry-run'], { CLV_APPLY: '1' })).toMatchObject({
+      apply: false,
+      dryRun: true,
+    })
+    expect(parseCaptureClosesArgs([], { CLV_APPLY: '0' })).toMatchObject({
+      apply: false,
+      dryRun: true,
+    })
+  })
+
+  test('unknown flags and stray positionals fail closed', () => {
+    expect(parseCaptureClosesArgs(['--apply', '3']).unknown).toEqual(['3'])
+    expect(parseCaptureClosesArgs(['--max-calls', '3']).unknown).toEqual([])
+    expect(parseCaptureClosesArgs(['--oops']).unknown).toEqual(['--oops'])
   })
 })
 
@@ -124,6 +179,7 @@ describe('runCapturePublishedCloses', () => {
     expect(result).toMatchObject({ exitCode: 0, calls: 0, skippedQuiet: true })
     expect(fetchEventOdds).not.toHaveBeenCalled()
     expect(createClient).not.toHaveBeenCalled()
+    expect(log.lines[0]).toBe('MODE: APPLY')
     expect(log.lines.join('\n')).toMatch(/quiet period/)
   })
 
@@ -144,6 +200,7 @@ describe('runCapturePublishedCloses', () => {
     expect(result.openPicks).toHaveLength(1)
     expect(fetchEventOdds).not.toHaveBeenCalled()
     expect(updates).toHaveLength(0)
+    expect(log.lines[0]).toBe('MODE: DRY-RUN')
     expect(log.lines.join('\n')).toMatch(/DRY-RUN/)
     expect(log.lines.join('\n')).toMatch(/evt-kc-hou/)
     expect(log.lines.join('\n')).toMatch(/batter_hits/)
@@ -198,7 +255,7 @@ describe('runCapturePublishedCloses', () => {
       log: memoryLog(),
     })
     expect(result.exitCode).toBe(0)
-    expect(result.calls).toBe(1)
+    expect(result.calls).toBe(2)
     expect(result.updates).toHaveLength(1)
     expect(updates[0]).toMatchObject({
       closeOdds: -118,
@@ -237,6 +294,7 @@ describe('runCapturePublishedCloses', () => {
 
   test('CLOSING_CAPTURE=0 is a no-op', async () => {
     const fetchEventOdds = jest.fn()
+    const log = memoryLog()
     const result = await runCapturePublishedCloses({
       argv: ['--apply'],
       now: IN_WINDOW,
@@ -244,26 +302,30 @@ describe('runCapturePublishedCloses', () => {
       createClient: () => { throw new Error('should not connect') },
       fetchEventOdds,
       apiKey: 'test-key',
-      log: memoryLog(),
+      log,
     })
     expect(result).toMatchObject({ exitCode: 0, calls: 0, skippedDisabled: true })
     expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(log.lines[0]).toBe('MODE: APPLY')
   })
 
-  test('--max-calls 0 does not fetch', async () => {
+  test('--max-calls 0 does not fetch and does not probe', async () => {
     const fetchEventOdds = jest.fn()
+    const probeQuota = jest.fn()
     const result = await runCapturePublishedCloses({
       argv: ['--apply', '--max-calls', '0'],
       now: IN_WINDOW,
       createClient: () => mockClient(),
       fetchEventOdds,
-      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      probeQuota,
       apiKey: 'test-key',
       log: memoryLog(),
     })
     expect(result.exitCode).toBe(0)
     expect(result.calls).toBe(0)
+    expect(result.skippedMaxCalls).toBe(true)
     expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(probeQuota).not.toHaveBeenCalled()
   })
 
   test('--min-remaining stops before the first event call after the sports probe', async () => {
@@ -279,12 +341,12 @@ describe('runCapturePublishedCloses', () => {
       log: memoryLog(),
     })
     expect(result.skippedQuota).toBe(true)
-    expect(result.calls).toBe(0)
+    expect(result.calls).toBe(1)
     expect(fetchEventOdds).not.toHaveBeenCalled()
     expect(probeQuota).toHaveBeenCalledTimes(1)
   })
 
-  test('skips games that start within 2 minutes', async () => {
+  test('skips games that start within the final minute', async () => {
     const result = await runCapturePublishedCloses({
       argv: [],
       now: new Date('2026-07-15T23:09:00.000Z'),
@@ -293,6 +355,414 @@ describe('runCapturePublishedCloses', () => {
     })
     expect(result).toMatchObject({ exitCode: 0, calls: 0 })
     expect(result.openPicks || []).toHaveLength(0)
+  })
+
+  test('skips live, final, and postponed games even when the start is in-window', async () => {
+    const fetchEventOdds = jest.fn()
+    const games = [
+      windowGame({ id: 'live', status: 'in_progress' }),
+      windowGame({ id: 'done', status: 'final' }),
+      windowGame({ id: 'ppd', status: 'postponed' }),
+      windowGame({ id: 'rain', status: 'delayed' }),
+      windowGame({ id: 'ok', status: 'scheduled' }),
+    ]
+    const picks = games.map((game, i) => publishedPick({
+      id: `pv-${game.id}`,
+      gameIdRef: game.id,
+    }))
+    const result = await runCapturePublishedCloses({
+      argv: [],
+      now: IN_WINDOW,
+      createClient: () => mockClient({ games, picks }),
+      fetchEventOdds,
+      log: memoryLog(),
+    })
+    expect(result.openPicks.map((pick) => pick.gameIdRef).sort()).toEqual(['ok', 'rain'])
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+
+  test('dedupes Odds API lookups by oddsApiEventId', async () => {
+    const fetchEventOdds = jest.fn(async () => ({
+      data: {
+        bookmakers: [{
+          title: 'FanDuel',
+          markets: [{
+            key: 'batter_hits',
+            outcomes: [
+              { name: 'Over', description: 'Vinnie Pasquantino', point: 0.5, price: -118 },
+            ],
+          }],
+        }],
+      },
+      quota: { remaining: 18000, used: 2000 },
+    }))
+    const games = [
+      windowGame({ id: 'row-a', oddsApiEventId: 'evt-shared' }),
+      windowGame({ id: 'row-b', oddsApiEventId: 'evt-shared' }),
+    ]
+    const picks = [
+      publishedPick({ id: 'pv-a', gameIdRef: 'row-a' }),
+      publishedPick({ id: 'pv-b', gameIdRef: 'row-b' }),
+    ]
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({ games, picks }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(result.calls).toBe(2)
+    expect(result.updates).toHaveLength(2)
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(fetchEventOdds.mock.calls[0][0].url).toContain('/events/evt-shared/odds')
+  })
+
+  test('apply write is closeOdds IS NULL so re-runs stay idempotent', async () => {
+    const writeFilters = []
+    const fetchEventOdds = jest.fn(async () => ({
+      data: {
+        bookmakers: [{
+          title: 'FanDuel',
+          markets: [{
+            key: 'batter_hits',
+            outcomes: [
+              { name: 'Over', description: 'Vinnie Pasquantino', point: 0.5, price: -118 },
+            ],
+          }],
+        }],
+      },
+      quota: { remaining: 18000, used: 2000 },
+    }))
+    const client = {
+      from(table) {
+        if (table === 'Game') {
+          return chainable(Promise.resolve({ data: [windowGame()], error: null }))
+        }
+        return {
+          select() {
+            const terminal = Promise.resolve({ data: [publishedPick()], error: null })
+            const query = chainable(terminal)
+            query.update = (body) => {
+              const filters = []
+              const chain = {
+                eq(col, val) { filters.push(['eq', col, val]); return chain },
+                is(col, val) { filters.push(['is', col, val]); return chain },
+                select(cols) { filters.push(['select', cols]); return chain },
+                then(resolve, reject) {
+                  writeFilters.push({ body, filters: [...filters] })
+                  return Promise.resolve({ data: [{ id: 'pv-vinnie' }], error: null })
+                    .then(resolve, reject)
+                },
+              }
+              return chain
+            }
+            return query
+          },
+          update(body) {
+            const filters = []
+            const chain = {
+              eq(col, val) { filters.push(['eq', col, val]); return chain },
+              is(col, val) { filters.push(['is', col, val]); return chain },
+              select(cols) { filters.push(['select', cols]); return chain },
+              then(resolve, reject) {
+                writeFilters.push({ body, filters: [...filters] })
+                return Promise.resolve({ data: [{ id: 'pv-vinnie' }], error: null })
+                  .then(resolve, reject)
+              },
+            }
+            return chain
+          },
+        }
+      },
+    }
+    await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      createClient: () => client,
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(writeFilters).toHaveLength(1)
+    expect(writeFilters[0].filters).toEqual([
+      ['eq', 'id', 'pv-vinnie'],
+      ['is', 'closeOdds', null],
+      ['select', 'id'],
+    ])
+  })
+
+  test('requires the secret key and never falls back to anon', async () => {
+    const factory = jest.fn()
+    const log = memoryLog()
+    const env = {
+      NEXT_PUBLIC_SUPABASE_URL: 'https://example.supabase.co',
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon-public-key-should-never-print',
+    }
+    expect(captureSupabaseEnv(env).SUPABASE_REQUIRE_SECRET_KEY).toBe('1')
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      env,
+      createClient: (passedEnv) => createScriptSupabaseClient(passedEnv, {
+        clientFactory: factory,
+        logger: log,
+      }),
+      fetchEventOdds: jest.fn(),
+      apiKey: 'odds-api-key-should-never-print',
+      log,
+    })
+    expect(result.exitCode).toBe(1)
+    expect(result.missingSecret).toBe(true)
+    expect(factory).not.toHaveBeenCalled()
+    const printed = log.lines.join('\n')
+    expect(printed).toMatch(/SUPABASE_REQUIRE_SECRET_KEY|SUPABASE_SECRET_KEY/)
+    expect(printed).not.toMatch(/anon-public-key-should-never-print/)
+    expect(printed).not.toMatch(/odds-api-key-should-never-print/)
+  })
+
+  test('MODE banner is the first line on quiet, missing-secret, and no-window returns', async () => {
+    expect(formatCaptureModeBanner(false)).toBe('MODE: DRY-RUN')
+    expect(formatCaptureModeBanner(true)).toBe('MODE: APPLY')
+
+    const quietLog = memoryLog()
+    await runCapturePublishedCloses({
+      argv: [],
+      now: QUIET,
+      createClient: jest.fn(),
+      log: quietLog,
+    })
+    expect(quietLog.lines[0]).toBe('MODE: DRY-RUN')
+
+    const secretLog = memoryLog()
+    await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      env: {
+        NEXT_PUBLIC_SUPABASE_URL: 'https://example.supabase.co',
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon-public-key-should-never-print',
+      },
+      createClient: (passedEnv) => createScriptSupabaseClient(passedEnv, {
+        clientFactory: jest.fn(),
+        logger: secretLog,
+      }),
+      log: secretLog,
+    })
+    expect(secretLog.lines[0]).toBe('MODE: APPLY')
+
+    const emptyLog = memoryLog()
+    await runCapturePublishedCloses({
+      argv: [],
+      now: new Date('2026-07-15T23:09:00.000Z'),
+      createClient: () => mockClient(),
+      log: emptyLog,
+    })
+    expect(emptyLog.lines[0]).toBe('MODE: DRY-RUN')
+  })
+
+  test('CLV_APPLY=1 apply without --apply prints MODE: APPLY', async () => {
+    const log = memoryLog()
+    await runCapturePublishedCloses({
+      argv: [],
+      now: IN_WINDOW,
+      env: { CLV_APPLY: '1' },
+      createClient: () => mockClient(),
+      fetchEventOdds: jest.fn(),
+      apiKey: '',
+      log,
+    })
+    expect(log.lines[0]).toBe('MODE: APPLY')
+  })
+
+  test('invalid --max-calls or --min-remaining exits 1 before any work', async () => {
+    const createClient = jest.fn()
+    const fetchEventOdds = jest.fn()
+    for (const argv of [['--max-calls', 'abc'], ['--max-calls'], ['--min-remaining', '-1']]) {
+      const log = memoryLog()
+      const result = await runCapturePublishedCloses({
+        argv,
+        now: IN_WINDOW,
+        createClient,
+        fetchEventOdds,
+        log,
+      })
+      expect(result.exitCode).toBe(1)
+      expect(result.invalidFlags?.length).toBeGreaterThan(0)
+      expect(log.lines.join('\n')).toMatch(/Invalid or missing value/)
+    }
+    expect(createClient).not.toHaveBeenCalled()
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+
+  test('unknown flags and stray positionals exit 1', async () => {
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '3'],
+      now: IN_WINDOW,
+      createClient: jest.fn(),
+      fetchEventOdds: jest.fn(),
+      log,
+    })
+    expect(result.exitCode).toBe(1)
+    expect(result.unknown).toEqual(['3'])
+    expect(log.lines.join('\n')).toMatch(/Unknown argument/)
+  })
+
+  test('0-row closeOdds update logs skipped instead of success', async () => {
+    const fetchEventOdds = jest.fn(async () => ({
+      data: {
+        bookmakers: [{
+          title: 'FanDuel',
+          markets: [{
+            key: 'batter_hits',
+            outcomes: [
+              { name: 'Over', description: 'Vinnie Pasquantino', point: 0.5, price: -118 },
+            ],
+          }],
+        }],
+      },
+      quota: { remaining: 18000, used: 2000 },
+    }))
+    const client = {
+      from(table) {
+        if (table === 'Game') {
+          return chainable(Promise.resolve({ data: [windowGame()], error: null }))
+        }
+        return {
+          select() {
+            const terminal = Promise.resolve({ data: [publishedPick()], error: null })
+            const query = chainable(terminal)
+            query.update = () => {
+              const chain = {
+                eq() { return chain },
+                is() { return chain },
+                select() { return chain },
+                then(resolve, reject) {
+                  return Promise.resolve({ data: [], error: null }).then(resolve, reject)
+                },
+              }
+              return chain
+            }
+            return query
+          },
+          update() {
+            const chain = {
+              eq() { return chain },
+              is() { return chain },
+              select() { return chain },
+              then(resolve, reject) {
+                return Promise.resolve({ data: [], error: null }).then(resolve, reject)
+              },
+            }
+            return chain
+          },
+        }
+      },
+    }
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      createClient: () => client,
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.updates).toHaveLength(0)
+    expect(log.lines.join('\n')).toMatch(/skipped pv-vinnie already captured/)
+  })
+
+  test('publishable SUPABASE_SECRET_KEY fails closed without printing the value', async () => {
+    const publishable = 'sb_publishable_should-never-print'
+    expect(isPublishableSupabaseKey(publishable)).toBe(true)
+    expect(isPublishableSupabaseKey('sb_secret_ok')).toBe(false)
+    expect(() => assertCaptureSecretIsNotPublishable({
+      SUPABASE_SECRET_KEY: publishable,
+    })).toThrow(/publishable/)
+
+    const factory = jest.fn()
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      env: {
+        NEXT_PUBLIC_SUPABASE_URL: 'https://example.supabase.co',
+        SUPABASE_SECRET_KEY: publishable,
+      },
+      createClient: (passedEnv) => createScriptSupabaseClient(passedEnv, {
+        clientFactory: factory,
+        logger: log,
+      }),
+      fetchEventOdds: jest.fn(),
+      apiKey: 'odds-api-key-should-never-print',
+      log,
+    })
+    expect(result.exitCode).toBe(1)
+    expect(factory).not.toHaveBeenCalled()
+    const printed = log.lines.join('\n')
+    expect(printed).toMatch(/publishable/)
+    expect(printed).not.toMatch(/sb_publishable_should-never-print/)
+    expect(printed).not.toMatch(/odds-api-key-should-never-print/)
+  })
+
+  test('legacy anon JWT in SUPABASE_SECRET_KEY fails closed without printing the value', async () => {
+    const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url')
+    const body = Buffer.from(JSON.stringify({ role: 'anon', ref: 'x' })).toString('base64url')
+    const anonJwt = `${header}.${body}.sig`
+    const factory = jest.fn()
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      env: {
+        NEXT_PUBLIC_SUPABASE_URL: 'https://example.supabase.co',
+        SUPABASE_SECRET_KEY: anonJwt,
+      },
+      createClient: (passedEnv) => createScriptSupabaseClient(passedEnv, {
+        clientFactory: factory,
+        logger: log,
+      }),
+      fetchEventOdds: jest.fn(),
+      log,
+    })
+    expect(result.exitCode).toBe(1)
+    expect(factory).not.toHaveBeenCalled()
+    expect(log.lines.join('\n')).toMatch(/publishable|anon|service_role/)
+    expect(log.lines.join('\n')).not.toMatch(anonJwt)
+  })
+
+  test('unconvertible close price skips the write so a later run can retry', async () => {
+    const updates = []
+    const fetchEventOdds = jest.fn(async () => ({
+      data: {
+        bookmakers: [{
+          title: 'FanDuel',
+          markets: [{
+            key: 'batter_hits',
+            outcomes: [
+              { name: 'Over', description: 'Vinnie Pasquantino', point: 0.5, price: 1 },
+            ],
+          }],
+        }],
+      },
+      quota: { remaining: 18000, used: 2000 },
+    }))
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({ updates }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(result.updates).toHaveLength(0)
+    expect(updates).toHaveLength(0)
+    expect(result.exitCode).toBe(0)
+    expect(result.calls).toBeGreaterThan(0)
   })
 
   test('--apply without ODDS_API_KEY fails before any HTTP call', async () => {

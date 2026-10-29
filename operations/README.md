@@ -180,14 +180,29 @@ node scripts/record-mlb-window-props.js --postseason
 node scripts/capture-published-closes.js --apply
 ```
 
-PowerShell: use the `node scripts/...` form. `npm run … -- --apply`
-silently dry-runs.
+PowerShell: `npm.ps1` swallows the first `--`, so `--apply` is lost
+and `--max-calls 3` leaves a stray `3`. Do not pass flags through
+`npm run capture:published-closes`. Prefer the dedicated apply script:
 
-Kill switch: `CLOSING_CAPTURE=0`. Caps: `--max-calls N`,
-`--min-remaining N` (default 50; a free `/v4/sports` probe checks
-quota before the first event call). Close window is **30 minutes**
-(T−30..T−2). London NFL 9:30 AM ET games are missed on this 11–22
-clock.
+```bash
+npm run capture:published-closes:apply
+node scripts/capture-published-closes.js --apply
+```
+
+PowerShell env form (a leftover `CLV_APPLY` in the session makes later
+plain runs apply — clear it after, or prefer the npm apply script):
+
+```powershell
+$env:CLV_APPLY=1; node scripts/capture-published-closes.js
+```
+
+Kill switch: `CLOSING_CAPTURE=0`. Caps: `--max-calls N` (includes the
+`/v4/sports` quota probe; `--max-calls 0` skips it),
+`--min-remaining N` (default 50). Close window is **35 minutes**
+(T−35..T−1, pre-start games only). One Odds API call per
+`oddsApiEventId`. Writes only where `closeOdds IS NULL`. Requires
+`SUPABASE_SECRET_KEY` (`SUPABASE_REQUIRE_SECRET_KEY=1`; anon refused).
+London NFL 9:30 AM ET games are missed on this 11–22 clock.
 
 Same-day doubleheaders are skipped when StatsAPI `doubleHeader` is
 `Y` or `S` (fetch-fresh-games keeps one row / first gamePk). Safe to
