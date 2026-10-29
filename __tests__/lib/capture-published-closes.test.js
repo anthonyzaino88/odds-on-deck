@@ -1,5 +1,7 @@
+import { createScriptSupabaseClient } from '../../lib/supabase-script-client.js'
 import { PUBLISHED_SOURCE } from '../../lib/published-picks.js'
 import {
+  captureSupabaseEnv,
   isClosingCaptureDisabled,
   parseCaptureClosesArgs,
   runCapturePublishedCloses,
@@ -80,13 +82,27 @@ function mockClient({
           const query = chainable(terminal)
           query.update = (body) => {
             updates.push(body)
-            return { eq: async () => ({ error: null }) }
+            const chain = {
+              eq() { return chain },
+              is() { return chain },
+              then(resolve, reject) {
+                return Promise.resolve({ error: null }).then(resolve, reject)
+              },
+            }
+            return chain
           }
           return query
         },
         update(body) {
           updates.push(body)
-          return { eq: async () => ({ error: null }) }
+          const chain = {
+            eq() { return chain },
+            is() { return chain },
+            then(resolve, reject) {
+              return Promise.resolve({ error: null }).then(resolve, reject)
+            },
+          }
+          return chain
         },
       }
     },
@@ -284,7 +300,7 @@ describe('runCapturePublishedCloses', () => {
     expect(probeQuota).toHaveBeenCalledTimes(1)
   })
 
-  test('skips games that start within 2 minutes', async () => {
+  test('skips games that start within the final minute', async () => {
     const result = await runCapturePublishedCloses({
       argv: [],
       now: new Date('2026-07-15T23:09:00.000Z'),
@@ -293,6 +309,166 @@ describe('runCapturePublishedCloses', () => {
     })
     expect(result).toMatchObject({ exitCode: 0, calls: 0 })
     expect(result.openPicks || []).toHaveLength(0)
+  })
+
+  test('skips live, final, and postponed games even when the start is in-window', async () => {
+    const fetchEventOdds = jest.fn()
+    const games = [
+      windowGame({ id: 'live', status: 'in_progress' }),
+      windowGame({ id: 'done', status: 'final' }),
+      windowGame({ id: 'ppd', status: 'postponed' }),
+      windowGame({ id: 'ok', status: 'scheduled' }),
+    ]
+    const picks = games.map((game, i) => publishedPick({
+      id: `pv-${game.id}`,
+      gameIdRef: game.id,
+    }))
+    const result = await runCapturePublishedCloses({
+      argv: [],
+      now: IN_WINDOW,
+      createClient: () => mockClient({ games, picks }),
+      fetchEventOdds,
+      log: memoryLog(),
+    })
+    expect(result.openPicks.map((pick) => pick.gameIdRef)).toEqual(['ok'])
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+
+  test('dedupes Odds API lookups by oddsApiEventId', async () => {
+    const fetchEventOdds = jest.fn(async () => ({
+      data: {
+        bookmakers: [{
+          title: 'FanDuel',
+          markets: [{
+            key: 'batter_hits',
+            outcomes: [
+              { name: 'Over', description: 'Vinnie Pasquantino', point: 0.5, price: -118 },
+            ],
+          }],
+        }],
+      },
+      quota: { remaining: 18000, used: 2000 },
+    }))
+    const games = [
+      windowGame({ id: 'row-a', oddsApiEventId: 'evt-shared' }),
+      windowGame({ id: 'row-b', oddsApiEventId: 'evt-shared' }),
+    ]
+    const picks = [
+      publishedPick({ id: 'pv-a', gameIdRef: 'row-a' }),
+      publishedPick({ id: 'pv-b', gameIdRef: 'row-b' }),
+    ]
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({ games, picks }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(result.calls).toBe(1)
+    expect(result.updates).toHaveLength(2)
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(fetchEventOdds.mock.calls[0][0].url).toContain('/events/evt-shared/odds')
+  })
+
+  test('apply write is closeOdds IS NULL so re-runs stay idempotent', async () => {
+    const writeFilters = []
+    const fetchEventOdds = jest.fn(async () => ({
+      data: {
+        bookmakers: [{
+          title: 'FanDuel',
+          markets: [{
+            key: 'batter_hits',
+            outcomes: [
+              { name: 'Over', description: 'Vinnie Pasquantino', point: 0.5, price: -118 },
+            ],
+          }],
+        }],
+      },
+      quota: { remaining: 18000, used: 2000 },
+    }))
+    const client = {
+      from(table) {
+        if (table === 'Game') {
+          return chainable(Promise.resolve({ data: [windowGame()], error: null }))
+        }
+        return {
+          select() {
+            const terminal = Promise.resolve({ data: [publishedPick()], error: null })
+            const query = chainable(terminal)
+            query.update = (body) => {
+              const filters = []
+              const chain = {
+                eq(col, val) { filters.push(['eq', col, val]); return chain },
+                is(col, val) { filters.push(['is', col, val]); return chain },
+                then(resolve, reject) {
+                  writeFilters.push({ body, filters: [...filters] })
+                  return Promise.resolve({ error: null }).then(resolve, reject)
+                },
+              }
+              return chain
+            }
+            return query
+          },
+          update(body) {
+            const filters = []
+            const chain = {
+              eq(col, val) { filters.push(['eq', col, val]); return chain },
+              is(col, val) { filters.push(['is', col, val]); return chain },
+              then(resolve, reject) {
+                writeFilters.push({ body, filters: [...filters] })
+                return Promise.resolve({ error: null }).then(resolve, reject)
+              },
+            }
+            return chain
+          },
+        }
+      },
+    }
+    await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      createClient: () => client,
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(writeFilters).toHaveLength(1)
+    expect(writeFilters[0].filters).toEqual([
+      ['eq', 'id', 'pv-vinnie'],
+      ['is', 'closeOdds', null],
+    ])
+  })
+
+  test('requires the secret key and never falls back to anon', async () => {
+    const factory = jest.fn()
+    const log = memoryLog()
+    const env = {
+      NEXT_PUBLIC_SUPABASE_URL: 'https://example.supabase.co',
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon-public-key-should-never-print',
+    }
+    expect(captureSupabaseEnv(env).SUPABASE_REQUIRE_SECRET_KEY).toBe('1')
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      env,
+      createClient: (passedEnv) => createScriptSupabaseClient(passedEnv, {
+        clientFactory: factory,
+        logger: log,
+      }),
+      fetchEventOdds: jest.fn(),
+      apiKey: 'odds-api-key-should-never-print',
+      log,
+    })
+    expect(result.exitCode).toBe(1)
+    expect(result.missingSecret).toBe(true)
+    expect(factory).not.toHaveBeenCalled()
+    const printed = log.lines.join('\n')
+    expect(printed).toMatch(/SUPABASE_REQUIRE_SECRET_KEY|SUPABASE_SECRET_KEY/)
+    expect(printed).not.toMatch(/anon-public-key-should-never-print/)
+    expect(printed).not.toMatch(/odds-api-key-should-never-print/)
   })
 
   test('--apply without ODDS_API_KEY fails before any HTTP call', async () => {

@@ -1,6 +1,8 @@
 import {
+  CLOSE_CAPTURE_MIN_LEAD_MINUTES,
   CLOSE_CAPTURE_WINDOW_MINUTES,
   CLOSE_ODDS_FIELDS,
+  applyPublishedCloseUpdate,
   buildEventOddsUrl,
   closeCapturePayload,
   clvFromOdds,
@@ -8,7 +10,9 @@ import {
   estimateCloseCaptureCost,
   flattenEventOddsQuotes,
   gameIsInCloseWindow,
+  groupCaptureJobsByOddsApiEventId,
   hasCloseAlready,
+  isCloseCaptureCandidate,
   isOpsWriteQuietPeriod,
   marketsForPublishedPicks,
   matchClosingQuote,
@@ -72,15 +76,82 @@ describe('quiet period and close window', () => {
     expect(isOpsWriteQuietPeriod(new Date('2026-07-15T16:04:00.000Z'))).toBe(false)
   })
 
-  test('gameIsInCloseWindow is T−30..T−2 so :16/:46 gets one look', () => {
+  test('gameIsInCloseWindow is T−35 inclusive through T−1 exclusive', () => {
     const now = new Date('2026-07-15T22:00:00.000Z')
+    expect(gameIsInCloseWindow({ date: '2026-07-15T22:35:00.000Z' }, now)).toBe(true)
     expect(gameIsInCloseWindow({ date: '2026-07-15T22:30:00.000Z' }, now)).toBe(true)
-    expect(gameIsInCloseWindow({ date: '2026-07-15T22:03:00.000Z' }, now)).toBe(true)
-    expect(gameIsInCloseWindow({ date: '2026-07-15T22:02:00.000Z' }, now)).toBe(false)
-    expect(gameIsInCloseWindow({ date: '2026-07-15T22:31:00.000Z' }, now)).toBe(false)
+    expect(gameIsInCloseWindow({ date: '2026-07-15T22:01:00.001Z' }, now)).toBe(true)
+    expect(gameIsInCloseWindow({ date: '2026-07-15T22:01:00.000Z' }, now)).toBe(false)
+    expect(gameIsInCloseWindow({ date: '2026-07-15T22:00:30.000Z' }, now)).toBe(false)
+    expect(gameIsInCloseWindow({ date: '2026-07-15T22:36:00.000Z' }, now)).toBe(false)
     expect(gameIsInCloseWindow({ date: '2026-07-15T21:59:00.000Z' }, now)).toBe(false)
     expect(gameIsInCloseWindow({ date: now.toISOString() }, now)).toBe(false)
-    expect(CLOSE_CAPTURE_WINDOW_MINUTES).toBe(30)
+    expect(CLOSE_CAPTURE_WINDOW_MINUTES).toBe(35)
+    expect(CLOSE_CAPTURE_MIN_LEAD_MINUTES).toBe(1)
+  })
+
+  test('isCloseCaptureCandidate requires a pre-start status and the window', () => {
+    const now = new Date('2026-07-15T22:00:00.000Z')
+    const inWindow = { date: '2026-07-15T22:20:00.000Z' }
+    expect(isCloseCaptureCandidate({ ...inWindow, status: 'scheduled' }, now)).toBe(true)
+    expect(isCloseCaptureCandidate({ ...inWindow, status: 'pre-game' }, now)).toBe(true)
+    expect(isCloseCaptureCandidate({ ...inWindow, status: 'delayed_start' }, now)).toBe(true)
+    expect(isCloseCaptureCandidate({ ...inWindow, status: 'in_progress' }, now)).toBe(false)
+    expect(isCloseCaptureCandidate({ ...inWindow, status: 'final' }, now)).toBe(false)
+    expect(isCloseCaptureCandidate({ ...inWindow, status: 'postponed' }, now)).toBe(false)
+    expect(isCloseCaptureCandidate({ ...inWindow, status: 'cancelled' }, now)).toBe(false)
+    expect(isCloseCaptureCandidate({ date: '2026-07-15T22:36:00.000Z', status: 'scheduled' }, now)).toBe(false)
+  })
+})
+
+describe('event-id dedupe and conditional close write', () => {
+  test('groupCaptureJobsByOddsApiEventId fetches each event once', () => {
+    const gamesById = new Map([
+      ['g1', { id: 'g1', oddsApiEventId: 'evt-shared', sport: 'mlb' }],
+      ['g2', { id: 'g2', oddsApiEventId: 'evt-shared', sport: 'mlb' }],
+      ['g3', { id: 'g3', oddsApiEventId: 'evt-other', sport: 'mlb' }],
+      ['g4', { id: 'g4', oddsApiEventId: null, sport: 'mlb' }],
+    ])
+    const byGame = new Map([
+      ['g1', [{ id: 'p1' }]],
+      ['g2', [{ id: 'p2' }]],
+      ['g3', [{ id: 'p3' }]],
+      ['g4', [{ id: 'p4' }]],
+    ])
+    const jobs = groupCaptureJobsByOddsApiEventId(byGame, gamesById)
+    expect(jobs).toHaveLength(3)
+    const shared = jobs.find((job) => job.eventId === 'evt-shared')
+    expect(shared.gameIds).toEqual(['g1', 'g2'])
+    expect(shared.picks.map((pick) => pick.id)).toEqual(['p1', 'p2'])
+    expect(jobs.filter((job) => job.eventId === 'evt-shared')).toHaveLength(1)
+    expect(jobs.find((job) => job.eventId === 'evt-other').picks).toEqual([{ id: 'p3' }])
+    expect(jobs.find((job) => job.gameId === 'g4').eventId).toBeNull()
+  })
+
+  test('applyPublishedCloseUpdate only patches rows where closeOdds IS NULL', () => {
+    const calls = []
+    const table = {
+      update(body) {
+        calls.push(['update', body])
+        return {
+          eq(col, val) {
+            calls.push(['eq', col, val])
+            return {
+              is(col2, val2) {
+                calls.push(['is', col2, val2])
+                return { error: null }
+              },
+            }
+          },
+        }
+      },
+    }
+    applyPublishedCloseUpdate(table, 'pv-1', { closeOdds: -110 })
+    expect(calls).toEqual([
+      ['update', { closeOdds: -110 }],
+      ['eq', 'id', 'pv-1'],
+      ['is', 'closeOdds', null],
+    ])
   })
 })
 

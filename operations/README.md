@@ -185,9 +185,11 @@ silently dry-runs.
 
 Kill switch: `CLOSING_CAPTURE=0`. Caps: `--max-calls N`,
 `--min-remaining N` (default 50; a free `/v4/sports` probe checks
-quota before the first event call). Close window is **30 minutes**
-(T−30..T−2). London NFL 9:30 AM ET games are missed on this 11–22
-clock.
+quota before the first event call). Close window is **35 minutes**
+(T−35..T−1, pre-start games only). One Odds API call per
+`oddsApiEventId`. Writes only where `closeOdds IS NULL`. Requires
+`SUPABASE_SECRET_KEY` (`SUPABASE_REQUIRE_SECRET_KEY=1`; anon refused).
+London NFL 9:30 AM ET games are missed on this 11–22 clock.
 
 Same-day doubleheaders are skipped when StatsAPI `doubleHeader` is
 `Y` or `S` (fetch-fresh-games keeps one row / first gamePk). Safe to

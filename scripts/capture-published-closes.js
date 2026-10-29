@@ -2,9 +2,10 @@
 /**
  * Capture the last available Published-pick price before first pitch.
  *
- * Quota-aware: one Odds API event-odds call per game that still has
- * Published picks without closeOdds, markets restricted to those picks.
- * Never re-runs morning fetch-live-odds.
+ * Quota-aware: one Odds API event-odds call per oddsApiEventId that
+ * still has Published picks without closeOdds, markets restricted to
+ * those picks. Never re-runs morning fetch-live-odds.
+ * Writes only where closeOdds IS NULL. Requires the secret key.
  *
  *   node scripts/capture-published-closes.js            # dry-run (default)
  *   node scripts/capture-published-closes.js --dry-run
@@ -12,13 +13,15 @@
  *
  * Schedule at :16 and :46 ET after record-mlb-window-props.
  * No-ops during :05–:15 ET. CLOSING_CAPTURE=0 disables.
- * Uses createScriptSupabaseClient. Do not run --apply from CI.
+ * Uses createScriptSupabaseClient with SUPABASE_REQUIRE_SECRET_KEY=1.
+ * Do not run --apply from CI.
  */
 
 import { config } from 'dotenv'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
+import { SUPABASE_REQUIRE_SECRET_ENV } from '../lib/supabase-admin-key.js'
 import { paginateSupabaseSelect } from '../lib/unplayed-game-grades.js'
 import {
   PUBLISHED_STATS_PREFILTER,
@@ -28,13 +31,15 @@ import {
 import { isMissingColumnError } from '../lib/grade-audit.js'
 import {
   CLOSE_CAPTURE_WINDOW_MINUTES,
+  applyPublishedCloseUpdate,
   buildEventOddsUrl,
   closeCapturePayload,
   CLOSE_CAPTURE_DEFAULT_MIN_REMAINING,
   estimateCloseCaptureCost,
   flattenEventOddsQuotes,
-  gameIsInCloseWindow,
+  groupCaptureJobsByOddsApiEventId,
   hasCloseAlready,
+  isCloseCaptureCandidate,
   isOpsWriteQuietPeriod,
   marketsForPublishedPicks,
   matchClosingQuote,
@@ -64,6 +69,14 @@ function takeIntFlag(args, flag) {
 export function isClosingCaptureDisabled(env = process.env) {
   const raw = String(env.CLOSING_CAPTURE ?? '').trim().toLowerCase()
   return raw === '0' || raw === 'false' || raw === 'off'
+}
+
+/** Write scripts fail closed: never fall back to the public/anon key. */
+export function captureSupabaseEnv(env = process.env) {
+  return {
+    ...env,
+    [SUPABASE_REQUIRE_SECRET_ENV]: '1',
+  }
 }
 
 export function parseCaptureClosesArgs(argv = [], env = process.env) {
@@ -114,11 +127,14 @@ export async function runCapturePublishedCloses({
     log.log(`Usage: node scripts/capture-published-closes.js [--dry-run|--apply] [--max-calls N] [--min-remaining N]
 
 Dry-run (default): list in-window Published picks missing a close.
---apply: one Odds API call per game, write closeOdds. Requires
-         ODDS_API_KEY + SUPABASE_SECRET_KEY. Do not run from CI.
+--apply: one Odds API call per oddsApiEventId, write closeOdds only
+         where closeOdds IS NULL. Requires ODDS_API_KEY +
+         SUPABASE_SECRET_KEY (SUPABASE_REQUIRE_SECRET_KEY=1).
+         Do not run from CI. Anon/public keys are refused.
 CLOSING_CAPTURE=0 disables the job. --max-calls caps HTTP calls.
 --min-remaining (default ${CLOSE_CAPTURE_DEFAULT_MIN_REMAINING}) stops when
 Odds API remaining credits fall below the floor.
+Window is T−${CLOSE_CAPTURE_WINDOW_MINUTES}..T−1 (pre-start games only).
 No-ops during :05–:15 ET. Schedule at :16 and :46 ET, after
 record-mlb-window-props. London NFL 9:30 AM ET games are missed
 if this job only runs in the 11–22 ET MLB window.`)
@@ -135,7 +151,13 @@ if this job only runs in the 11–22 ET MLB window.`)
     return { exitCode: 0, updates: [], calls: 0, skippedQuiet: true }
   }
 
-  const supabase = createClient()
+  let supabase
+  try {
+    supabase = createClient(captureSupabaseEnv(env))
+  } catch (error) {
+    log.error(`❌ ${error.message}`)
+    return { exitCode: 1, updates: [], calls: 0, missingSecret: true }
+  }
   const horizon = new Date(now.getTime() + CLOSE_CAPTURE_WINDOW_MINUTES * 60 * 1000)
 
   const { data: games, error: gameError } = await supabase
@@ -150,7 +172,7 @@ if this job only runs in the 11–22 ET MLB window.`)
     return { exitCode: 1, updates: [], calls: 0 }
   }
 
-  const windowGames = (games || []).filter((game) => gameIsInCloseWindow(game, now))
+  const windowGames = (games || []).filter((game) => isCloseCaptureCandidate(game, now))
   const gamesById = new Map(windowGames.map((game) => [game.id, game]))
   if (windowGames.length === 0) {
     log.log('✅ No games in the close-capture window.')
@@ -201,35 +223,35 @@ if this job only runs in the 11–22 ET MLB window.`)
     byGame.set(pick.gameIdRef, list)
   }
 
-  const marketCounts = [...byGame.values()].map((picks) => marketsForPublishedPicks(picks).length)
-  const cost = estimateCloseCaptureCost({ gameCount: byGame.size, marketCounts })
+  const captureJobs = groupCaptureJobsByOddsApiEventId(byGame, gamesById)
+  const marketCounts = captureJobs.map((job) => marketsForPublishedPicks(job.picks).length)
+  const cost = estimateCloseCaptureCost({ gameCount: captureJobs.length, marketCounts })
 
   log.log('\n📸 PUBLISHED CLOSE CAPTURE')
   log.log('='.repeat(60))
   log.log(`Mode: ${args.apply ? 'APPLY' : 'DRY-RUN (default)'}`)
-  log.log(`Window: ${CLOSE_CAPTURE_WINDOW_MINUTES} minutes before first pitch`)
+  log.log(`Window: ${CLOSE_CAPTURE_WINDOW_MINUTES} minutes before first pitch (T−1 floor, pre-start only)`)
   log.log(`Games in window: ${windowGames.length}`)
   log.log(`Published picks missing close: ${openPicks.length}`)
   log.log(`Odds API HTTP calls this run: ${cost.httpCalls}`)
   log.log(`Odds API credits this run: ${cost.credits} (markets × regions=${cost.regions})`)
   log.log(cost.note)
 
-  if (byGame.size === 0) {
+  if (captureJobs.length === 0) {
     log.log('✅ Nothing to capture.')
-    return { exitCode: 0, updates: [], calls: 0, openPicks }
+    return { exitCode: 0, updates: [], calls: 0, openPicks, captureJobs }
   }
 
   if (args.dryRun) {
-    for (const [gameId, picks] of byGame) {
-      const game = gamesById.get(gameId)
+    for (const job of captureJobs) {
       log.log(
-        `  would fetch ${gameId}  event=${game?.oddsApiEventId || 'UNMAPPED'}  `
-        + `markets=${marketsForPublishedPicks(picks).join(',') || '—'}  `
-        + `picks=${picks.length}`,
+        `  would fetch ${job.gameIds.join(',')}  event=${job.eventId || 'UNMAPPED'}  `
+        + `markets=${marketsForPublishedPicks(job.picks).join(',') || '—'}  `
+        + `picks=${job.picks.length}`,
       )
     }
     log.log('\n💡 Dry-run only. Pass --apply after 007 SQL to write closes.')
-    return { exitCode: 0, updates: [], calls: 0, openPicks, byGame }
+    return { exitCode: 0, updates: [], calls: 0, openPicks, byGame, captureJobs }
   }
 
   if (!apiKey) {
@@ -253,16 +275,17 @@ if this job only runs in the 11–22 ET MLB window.`)
     return { exitCode: 0, updates: [], calls: 0, lastQuota, skippedQuota: true }
   }
 
-  for (const [gameId, picks] of byGame) {
-    const game = gamesById.get(gameId)
+  for (const job of captureJobs) {
+    const game = job.game
     const sportKey = oddsApiSportKey(game?.sport)
-    if (!game?.oddsApiEventId || !sportKey) {
-      log.log(`  skip ${gameId}: no Odds API event id`)
+    const label = job.gameIds.join(',')
+    if (!job.eventId || !sportKey) {
+      log.log(`  skip ${label}: no Odds API event id`)
       continue
     }
-    const markets = marketsForPublishedPicks(picks)
+    const markets = marketsForPublishedPicks(job.picks)
     if (markets.length === 0) {
-      log.log(`  skip ${gameId}: no mapped markets`)
+      log.log(`  skip ${label}: no mapped markets`)
       continue
     }
     if (args.maxCalls != null && calls >= args.maxCalls) {
@@ -278,7 +301,7 @@ if this job only runs in the 11–22 ET MLB window.`)
 
     const url = buildEventOddsUrl({
       sportKey,
-      eventId: game.oddsApiEventId,
+      eventId: job.eventId,
       markets,
       apiKey,
     })
@@ -288,12 +311,12 @@ if this job only runs in the 11–22 ET MLB window.`)
       payload = await fetchEventOdds({ url })
       if (payload.quota) lastQuota = payload.quota
     } catch (error) {
-      log.error(`  ❌ ${gameId}: ${error.message}`)
+      log.error(`  ❌ ${label}: ${error.message}`)
       continue
     }
 
     const quotes = flattenEventOddsQuotes(payload.data)
-    for (const pick of picks) {
+    for (const pick of job.picks) {
       const quote = matchClosingQuote(pick, quotes)
       if (!quote) {
         log.log(`  no quote ${pick.id} ${pick.playerName} ${pick.propType}`)
@@ -301,7 +324,11 @@ if this job only runs in the 11–22 ET MLB window.`)
       }
       const patch = closeCapturePayload(quote, now)
       const write = await updateWithOptionalCloseOdds(
-        (body) => supabase.from('PropValidation').update(body).eq('id', pick.id),
+        (body) => applyPublishedCloseUpdate(
+          supabase.from('PropValidation'),
+          pick.id,
+          body,
+        ),
         patch,
       )
       if (write?.error) {
