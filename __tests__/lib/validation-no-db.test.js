@@ -1,10 +1,12 @@
 const eqCalls = []
+const orCalls = []
 const from = jest.fn()
 
 function createChain() {
   const chain = {}
   const passthrough = (name) => jest.fn((...args) => {
     if (name === 'eq') eqCalls.push(args)
+    if (name === 'or') orCalls.push(args)
     return chain
   })
   chain.select = passthrough('select')
@@ -13,6 +15,7 @@ function createChain() {
   chain.gt = passthrough('gt')
   chain.gte = passthrough('gte')
   chain.not = passthrough('not')
+  chain.or = passthrough('or')
   chain.order = passthrough('order')
   chain.range = passthrough('range')
   chain.maybeSingle = jest.fn(async () => ({ data: null, error: null }))
@@ -32,7 +35,7 @@ jest.mock('../../lib/supabase-admin.js', () => ({
 }))
 
 import { recordPropPrediction, recordGameLinePrediction, getPublishedPicksStats } from '../../lib/validation.js'
-import { PUBLISHED_SOURCE } from '../../lib/published-picks.js'
+import { PUBLISHED_SOURCE, SHADOW_PUBLISHED_NOTES_OR_FILTER } from '../../lib/published-picks.js'
 
 describe('recordPropPrediction refuses without a DB call', () => {
   beforeEach(() => {
@@ -134,6 +137,7 @@ describe('recordGameLinePrediction respects the public kill switch', () => {
 describe('getPublishedPicksStats query applies the source filter', () => {
   beforeEach(() => {
     eqCalls.length = 0
+    orCalls.length = 0
     from.mockReset()
     from.mockImplementation(() => createChain())
   })
@@ -149,5 +153,6 @@ describe('getPublishedPicksStats query applies the source filter', () => {
       ['source', PUBLISHED_SOURCE],
     ])
     expect(stats.sample).toBe(0)
+    expect(orCalls).toEqual([[SHADOW_PUBLISHED_NOTES_OR_FILTER]])
   })
 })

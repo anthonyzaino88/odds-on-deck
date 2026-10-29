@@ -39,6 +39,7 @@ describe('S1 closing-price capture contract', () => {
     expect(pkg).toMatch(/"capture:published-closes": "node scripts\/capture-published-closes\.js"/)
     expect(pkg).toMatch(/"capture:published-closes:apply": "node scripts\/capture-published-closes\.js --apply"/)
     expect(pkg).toMatch(/"report:published-clv": "node scripts\/report-published-clv\.js"/)
+    expect(pkg).toMatch(/"report:shadow-nhl": "node scripts\/report-shadow-nhl\.js"/)
     expect(ops).toMatch(/capture-published-closes\.js --dry-run/)
     expect(ops).toMatch(/capture:published-closes:apply/)
     expect(ops).toMatch(/\$env:CLV_APPLY=1/)

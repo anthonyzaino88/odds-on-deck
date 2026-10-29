@@ -38,6 +38,7 @@
     "capture:published-closes": "node scripts/capture-published-closes.js",
     "capture:published-closes:apply": "node scripts/capture-published-closes.js --apply",
     "report:published-clv": "node scripts/report-published-clv.js",
+    "report:shadow-nhl": "node scripts/report-shadow-nhl.js",
     "repair:dnp": "node scripts/repair-dnp-grades.js",
     "restore:dnp": "node scripts/restore-dnp-grades.js",
     "check-validations": "node scripts/check-pending-validations.js",

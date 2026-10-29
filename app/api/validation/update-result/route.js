@@ -76,7 +76,11 @@ export async function GET(request) {
     }
     
     const { getValidationRecords } = await import('../../../../lib/validation.js')
-    const props = await getValidationRecords({ gameId, status: 'pending' })
+    const props = await getValidationRecords({
+      gameId,
+      status: 'pending',
+      excludeShadowPublished: false,
+    })
     
     return NextResponse.json({
       success: true,

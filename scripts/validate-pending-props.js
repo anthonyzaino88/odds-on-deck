@@ -25,6 +25,7 @@ import { propValidationGradeAudit, updateWithOptionalAudit } from '../lib/grade-
 import { planPlayerStatValidation } from '../lib/pending-props.js'
 import { voidPropValidationPatch } from '../lib/game-grade-eligibility.js'
 import { planPlayerAppearanceGrade, gradePropFromActual } from '../lib/player-stat-grade.js'
+import { withPreservedCohortNotes } from '../lib/published-picks.js'
 
 config({ path: '.env.local' })
 
@@ -151,10 +152,12 @@ async function main() {
 
   async function writeVoid(v, game, extraNotes = '') {
     const reviewedAt = new Date()
+    const voidPatch = voidPropValidationPatch(reviewedAt, game, extraNotes)
     return updateWithOptionalAudit(
       (payload) => supabase.from('PropValidation').update(payload).eq('id', v.id),
       {
-        ...voidPropValidationPatch(reviewedAt, game, extraNotes),
+        ...voidPatch,
+        notes: withPreservedCohortNotes(v.notes, voidPatch.notes),
         ...propValidationGradeAudit(reviewedAt, {
           gradedBy: 'system',
           gradeSource: 'validate_pending_props',
@@ -180,7 +183,10 @@ async function main() {
       (payload) => supabase.from('PropValidation').update(payload).eq('id', v.id),
       {
         status: 'needs_review',
-        notes: `Hold timeout — game still ${game?.status || 'postponed'} after 7 days`,
+        notes: withPreservedCohortNotes(
+          v.notes,
+          `Hold timeout — game still ${game?.status || 'postponed'} after 7 days`,
+        ),
         completedAt: reviewedAt.toISOString(),
         ...propValidationGradeAudit(reviewedAt, {
           gradedBy: 'system',
@@ -208,7 +214,7 @@ async function main() {
           (payload) => supabase.from('PropValidation').update(payload).eq('id', v.id),
           {
             status: 'needs_review',
-            notes: 'Game not found in database',
+            notes: withPreservedCohortNotes(v.notes, 'Game not found in database'),
             completedAt: reviewedAt.toISOString(),
             ...propValidationGradeAudit(reviewedAt, {
               gradedBy: 'system',
@@ -297,7 +303,7 @@ async function main() {
           (payload) => supabase.from('PropValidation').update(payload).eq('id', v.id),
           {
             status: 'needs_review',
-            notes: reason,
+            notes: withPreservedCohortNotes(v.notes, reason),
             completedAt: reviewedAt.toISOString(),
             ...propValidationGradeAudit(reviewedAt, {
               gradedBy: 'system',
@@ -320,7 +326,10 @@ async function main() {
           result,
           status: 'completed',
           completedAt: completedAt.toISOString(),
-          notes: `Validated: ${v.prediction.toUpperCase()} ${v.threshold} → Actual: ${actualValue}`,
+          notes: withPreservedCohortNotes(
+            v.notes,
+            `Validated: ${v.prediction.toUpperCase()} ${v.threshold} → Actual: ${actualValue}`,
+          ),
           ...propValidationGradeAudit(completedAt, {
             gradedBy: 'system',
             gradeSource: sport === 'nhl'

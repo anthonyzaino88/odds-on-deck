@@ -3,9 +3,10 @@
  * Capture the last available Published-pick price before first pitch.
  *
  * Quota-aware: one Odds API event-odds call per oddsApiEventId that
- * still has Published picks without closeOdds, markets restricted to
- * those picks. Never re-runs morning fetch-live-odds.
+ * still has Published or shadow-published picks without closeOdds,
+ * markets restricted to those picks. Never re-runs morning fetch-live-odds.
  * Writes only where closeOdds IS NULL. Requires the secret key.
+ * Shadow NHL shares this job's window, guards, and --max-calls budget.
  *
  *   node scripts/capture-published-closes.js            # dry-run (default)
  *   node scripts/capture-published-closes.js --dry-run
@@ -30,9 +31,11 @@ import {
 } from '../lib/supabase-admin-key.js'
 import { paginateSupabaseSelect } from '../lib/unplayed-game-grades.js'
 import {
+  CLOSE_CAPTURE_SPORTS,
+  PUBLISHED_SPORTS,
   PUBLISHED_STATS_PREFILTER,
-  isPublishedEligibleProp,
-  isPublishedTrackSource,
+  SHADOW_PUBLISHED_SPORTS,
+  isCloseCaptureEligiblePick,
 } from '../lib/published-picks.js'
 import { isMissingColumnError } from '../lib/grade-audit.js'
 import {
@@ -62,7 +65,7 @@ const GAME_SELECT = 'id, sport, date, status, oddsApiEventId'
 export const PICK_SELECT_BASE = [
   'id', 'propId', 'gameIdRef', 'playerName', 'propType', 'threshold',
   'prediction', 'odds', 'edge', 'qualityScore', 'sport', 'source',
-  'status',
+  'status', 'notes',
 ].join(', ')
 export const PICK_SELECT = `${PICK_SELECT_BASE}, closeOdds, closeCapturedAt`
 
@@ -116,6 +119,13 @@ export function assertCaptureSecretIsNotPublishable(env = process.env) {
     )
   }
   return preferred
+}
+
+function closeCaptureJobPriority(job) {
+  const sport = String(job?.game?.sport || '').toLowerCase().trim()
+  if (PUBLISHED_SPORTS.includes(sport)) return 0
+  if (SHADOW_PUBLISHED_SPORTS.includes(sport)) return 1
+  return 2
 }
 
 export function unknownCaptureArgs(argv = []) {
@@ -191,10 +201,11 @@ export async function runCapturePublishedCloses({
   if (args.help) {
     log.log(`Usage: node scripts/capture-published-closes.js [--dry-run|--apply] [--max-calls N] [--min-remaining N]
 
-Dry-run (default): list in-window Published picks missing a close.
---apply or CLV_APPLY=1: one Odds API call per oddsApiEventId, write
-         closeOdds only where closeOdds IS NULL. Requires ODDS_API_KEY +
-         SUPABASE_SECRET_KEY (SUPABASE_REQUIRE_SECRET_KEY=1).
+Dry-run (default): list in-window Published and shadow-published picks
+missing a close. Shadow NHL shares this --max-calls budget (Published
+jobs run first). --apply or CLV_APPLY=1: one Odds API call per
+oddsApiEventId, write closeOdds only where closeOdds IS NULL. Requires
+ODDS_API_KEY + SUPABASE_SECRET_KEY (SUPABASE_REQUIRE_SECRET_KEY=1).
          Do not run from CI. Anon/public keys are refused.
 PowerShell: prefer npm run capture:published-closes:apply.
             $env:CLV_APPLY=1 stays set for later plain runs.
@@ -244,7 +255,7 @@ if this job only runs in the 11–22 ET MLB window.`)
   const { data: games, error: gameError } = await supabase
     .from('Game')
     .select(GAME_SELECT)
-    .in('sport', PUBLISHED_STATS_PREFILTER.sports)
+    .in('sport', CLOSE_CAPTURE_SPORTS)
     .gte('date', now.toISOString())
     .lte('date', horizon.toISOString())
 
@@ -265,7 +276,7 @@ if this job only runs in the 11–22 ET MLB window.`)
       .from('PropValidation')
       .select(select)
       .eq('source', PUBLISHED_STATS_PREFILTER.source)
-      .in('sport', PUBLISHED_STATS_PREFILTER.sports)
+      .in('sport', CLOSE_CAPTURE_SPORTS)
       .in('gameIdRef', windowGames.map((game) => game.id).concat(['__none__']))
       .gt('edge', PUBLISHED_STATS_PREFILTER.edgeGreaterThan)
       .gte('qualityScore', PUBLISHED_STATS_PREFILTER.minQuality)
@@ -291,8 +302,7 @@ if this job only runs in the 11–22 ET MLB window.`)
   }
 
   const openPicks = (pickPage.rows || []).filter((row) => (
-    isPublishedTrackSource(row)
-    && isPublishedEligibleProp(row)
+    isCloseCaptureEligiblePick(row)
     && !hasCloseAlready(row)
     && gamesById.has(row.gameIdRef)
   ))
@@ -305,6 +315,7 @@ if this job only runs in the 11–22 ET MLB window.`)
   }
 
   const captureJobs = groupCaptureJobsByOddsApiEventId(byGame, gamesById)
+    .sort((a, b) => closeCaptureJobPriority(a) - closeCaptureJobPriority(b))
   const marketCounts = captureJobs.map((job) => marketsForPublishedPicks(job.picks).length)
   const cost = estimateCloseCaptureCost({ gameCount: captureJobs.length, marketCounts })
 
@@ -312,7 +323,7 @@ if this job only runs in the 11–22 ET MLB window.`)
   log.log('='.repeat(60))
   log.log(`Window: ${CLOSE_CAPTURE_WINDOW_MINUTES} minutes before first pitch (T−1 floor, pre-start only)`)
   log.log(`Games in window: ${windowGames.length}`)
-  log.log(`Published picks missing close: ${openPicks.length}`)
+  log.log(`Published + shadow picks missing close: ${openPicks.length}`)
   log.log(`Odds API HTTP calls this run: ${cost.httpCalls}`)
   log.log(`Odds API credits this run: ${cost.credits} (markets × regions=${cost.regions})`)
   log.log(cost.note)

@@ -1,6 +1,6 @@
 import { createScriptSupabaseClient } from '../../lib/supabase-script-client.js'
 import { isPublishableSupabaseKey } from '../../lib/supabase-admin-key.js'
-import { PUBLISHED_SOURCE } from '../../lib/published-picks.js'
+import { PUBLISHED_SOURCE, SHADOW_PUBLISHED_COHORT_TAG } from '../../lib/published-picks.js'
 import {
   assertCaptureSecretIsNotPublishable,
   captureSupabaseEnv,
@@ -777,5 +777,84 @@ describe('runCapturePublishedCloses', () => {
     })
     expect(result.exitCode).toBe(1)
     expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+
+  test('captures tagged shadow NHL in the same window and ignores untagged NHL archive', async () => {
+    const fetchEventOdds = jest.fn()
+    const nhlGame = windowGame({
+      id: 'TOR_at_BOS_2026-10-29',
+      sport: 'nhl',
+      oddsApiEventId: 'evt-tor-bos',
+    })
+    const shadow = publishedPick({
+      id: 'pv-matthews',
+      gameIdRef: nhlGame.id,
+      playerName: 'Auston Matthews',
+      propType: 'player_shots_on_goal',
+      threshold: 2.5,
+      sport: 'nhl',
+      notes: SHADOW_PUBLISHED_COHORT_TAG,
+    })
+    const archive = publishedPick({
+      id: 'pv-archive',
+      gameIdRef: nhlGame.id,
+      playerName: 'Brad Marchand',
+      propType: 'player_shots_on_goal',
+      threshold: 1.5,
+      sport: 'nhl',
+      notes: 'tier:elite',
+    })
+    const result = await runCapturePublishedCloses({
+      argv: [],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [nhlGame],
+        picks: [shadow, archive],
+      }),
+      fetchEventOdds,
+      log: memoryLog(),
+    })
+    expect(result.openPicks.map((pick) => pick.id)).toEqual(['pv-matthews'])
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+
+  test('shares --max-calls across Published and shadow; Published jobs go first', async () => {
+    const fetchEventOdds = jest.fn(async ({ url }) => ({
+      data: { bookmakers: [] },
+      quota: { remaining: 9000, used: 1 },
+    }))
+    const mlbGame = windowGame()
+    const nhlGame = windowGame({
+      id: 'TOR_at_BOS_2026-10-29',
+      sport: 'nhl',
+      oddsApiEventId: 'evt-tor-bos',
+    })
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--max-calls', '2'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [nhlGame, mlbGame],
+        picks: [
+          publishedPick({ notes: 'cohort:published' }),
+          publishedPick({
+            id: 'pv-matthews',
+            gameIdRef: nhlGame.id,
+            playerName: 'Auston Matthews',
+            propType: 'player_shots_on_goal',
+            threshold: 2.5,
+            sport: 'nhl',
+            notes: SHADOW_PUBLISHED_COHORT_TAG,
+          }),
+        ],
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(result.calls).toBe(2)
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(fetchEventOdds.mock.calls[0][0].url).toContain('/sports/baseball_mlb/events/evt-kc-hou/odds')
+    expect(fetchEventOdds.mock.calls[0][0].url).not.toContain('icehockey_nhl')
   })
 })

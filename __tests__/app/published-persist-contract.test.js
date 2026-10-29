@@ -13,6 +13,8 @@ describe('Published props are recorded when they clear the bar', () => {
     expect(validationSrc).toMatch(/export async function recordPublishedEligibleProp/)
     expect(validationSrc).toMatch(/export async function persistPublishedEligibleProps/)
     expect(validationSrc).toMatch(/export async function persistPublishedEligibleFromCache/)
+    expect(validationSrc).toMatch(/export async function persistShadowPublishedEligibleFromCache/)
+    expect(validationSrc).toMatch(/persistShadowPublishedEligibleFromCache\(\)/)
     expect(validationSrc).toMatch(/mlbGate/)
     expect(validationSrc).toMatch(/skipped \$\{skippedMlb\} MLB prop/)
     expect(validationSrc).toMatch(/toPublishedValidationFields/)

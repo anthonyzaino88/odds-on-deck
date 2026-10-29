@@ -15,15 +15,31 @@ import {
   boardRowKey,
   matchesPublishedStatsPrefilter,
   toPublishedValidationFields,
+  toShadowPublishedValidationFields,
   publishedPropId,
   publishedSlateInstant,
   publishedValidationWritePlan,
   PUBLISHED_COHORT_TAG,
+  PUBLISHED_SPORTS,
   PUBLISHED_SOURCE,
   PUBLISHED_MIN_QUALITY,
   PUBLISHED_STATS_PREFILTER,
   PUBLISHED_STATS_SELECT_FIELDS,
   PUBLISHED_PIPELINE_START,
+  SHADOW_PUBLISHED_COHORT_TAG,
+  SHADOW_PUBLISHED_SPORTS,
+  SHADOW_PUBLISHED_STATS_PREFILTER,
+  CLOSE_CAPTURE_SPORTS,
+  isShadowPublishedEligibleProp,
+  isShadowPublishedCohort,
+  isShadowPublishedPick,
+  isCloseCaptureEligiblePick,
+  filterShadowPublishedPicks,
+  summarizeShadowPublishedPicks,
+  withPreservedCohortNotes,
+  withoutShadowPublished,
+  applyShadowPublishedNotesExclusion,
+  SHADOW_PUBLISHED_NOTES_OR_FILTER,
   TODAYS_BOARD_CAP,
   TODAYS_BOARD_MIN_PUBLISHED,
   isLegacyNflPublishedRow,
@@ -848,5 +864,120 @@ describe('pickWhyChip', () => {
     expect(pickWhyChip({ qualityScore: 52 })).toBe('QS 52')
     expect(pickWhyChip({ edge: 0.04 })).toBe('+4.0% edge')
     expect(pickWhyChip({})).toBeNull()
+  })
+})
+
+describe('shadow published NHL cohort', () => {
+  const nhlKeep = {
+    status: 'completed',
+    result: 'correct',
+    prediction: 'over',
+    propType: 'player_shots_on_goal',
+    threshold: 2.5,
+    odds: -110,
+    edge: 0.05,
+    qualityScore: 44,
+    sport: 'nhl',
+    source: PUBLISHED_SOURCE,
+    notes: SHADOW_PUBLISHED_COHORT_TAG,
+    playerName: 'Auston Matthews',
+    gameId: 'TOR_at_BOS_2026-10-29',
+    propId: 'matthews-sog-25',
+  }
+
+  test('keeps the public sport list locked and adds a distinct NHL shadow list', () => {
+    expect(PUBLISHED_SPORTS).toEqual(['mlb', 'nfl'])
+    expect(SHADOW_PUBLISHED_SPORTS).toEqual(['nhl'])
+    expect(CLOSE_CAPTURE_SPORTS).toEqual(['mlb', 'nfl', 'nhl'])
+    expect(SHADOW_PUBLISHED_COHORT_TAG).toBe('cohort:shadow-published')
+    expect(SHADOW_PUBLISHED_COHORT_TAG).not.toBe(PUBLISHED_COHORT_TAG)
+    expect(SHADOW_PUBLISHED_STATS_PREFILTER.sports).toEqual(['nhl'])
+    expect(SHADOW_PUBLISHED_STATS_PREFILTER.source).toBe(PUBLISHED_SOURCE)
+    expect(SHADOW_PUBLISHED_STATS_PREFILTER.minQuality).toBe(PUBLISHED_MIN_QUALITY)
+  })
+
+  test('applies the identical Published bar to NHL, only swapping the sport list', () => {
+    expect(isPublishedEligibleProp(nhlKeep)).toBe(false)
+    expect(isPublishedPick(nhlKeep)).toBe(false)
+    expect(isShadowPublishedEligibleProp(nhlKeep)).toBe(true)
+    expect(isShadowPublishedPick(nhlKeep)).toBe(true)
+    expect(isShadowPublishedEligibleProp({ ...nhlKeep, edge: 0 })).toBe(false)
+    expect(isShadowPublishedEligibleProp({ ...nhlKeep, qualityScore: 39 })).toBe(false)
+    expect(isShadowPublishedEligibleProp({ ...nhlKeep, odds: -250 })).toBe(false)
+    expect(isShadowPublishedEligibleProp({
+      ...nhlKeep,
+      prediction: 'under',
+      threshold: 0.5,
+    })).toBe(false)
+    expect(isShadowPublishedEligibleProp({ ...nhlKeep, sport: 'mlb' })).toBe(false)
+  })
+
+  test('public Published helpers never admit a shadow-tagged row', () => {
+    const taggedMlb = publishedBase({ notes: SHADOW_PUBLISHED_COHORT_TAG })
+    expect(isPublishedPick(taggedMlb)).toBe(false)
+    expect(filterPublishedPicks([taggedMlb, publishedBase()])).toHaveLength(1)
+    expect(withoutShadowPublished([taggedMlb, publishedBase()])).toHaveLength(1)
+    expect(isShadowPublishedCohort(nhlKeep)).toBe(true)
+    expect(isShadowPublishedCohort(publishedBase({ notes: PUBLISHED_COHORT_TAG }))).toBe(false)
+  })
+
+  test('persist payload tags shadow NHL and still rejects the public persist path', () => {
+    expect(toPublishedValidationFields(nhlKeep)).toBeNull()
+    const fields = toShadowPublishedValidationFields(nhlKeep)
+    expect(fields).toMatchObject({
+      sport: 'nhl',
+      source: PUBLISHED_SOURCE,
+      notes: SHADOW_PUBLISHED_COHORT_TAG,
+      qualityScore: 44,
+      edge: 0.05,
+      status: 'pending',
+    })
+  })
+
+  test('close capture includes Published plus tagged shadow, not untagged NHL archive', () => {
+    expect(isCloseCaptureEligiblePick(publishedBase({ status: 'pending' }))).toBe(true)
+    expect(isCloseCaptureEligiblePick(nhlKeep)).toBe(true)
+    expect(isCloseCaptureEligiblePick({
+      ...nhlKeep,
+      notes: 'tier:elite',
+    })).toBe(false)
+    expect(isCloseCaptureEligiblePick({ ...nhlKeep, source: 'user_saved' })).toBe(false)
+  })
+
+  test('grading preserves the shadow tag so public SQL can keep excluding it', () => {
+    expect(withPreservedCohortNotes(
+      SHADOW_PUBLISHED_COHORT_TAG,
+      'Validated: OVER 2.5 → Actual: 3',
+    )).toBe('cohort:shadow-published | Validated: OVER 2.5 → Actual: 3')
+    expect(withPreservedCohortNotes(
+      'cohort:shadow-published | Validated: OVER 2.5 → Actual: 3',
+      'Validated: OVER 2.5 → Actual: 4',
+    )).toBe('cohort:shadow-published | Validated: OVER 2.5 → Actual: 4')
+    expect(withPreservedCohortNotes(null, 'Validated: OVER 2.5 → Actual: 3'))
+      .toBe('Validated: OVER 2.5 → Actual: 3')
+  })
+
+  test('public query helper uses a NULL-safe notes exclusion', () => {
+    const or = jest.fn((filter) => ({ or, filter }))
+    const result = applyShadowPublishedNotesExclusion({ or })
+    expect(or).toHaveBeenCalledWith(SHADOW_PUBLISHED_NOTES_OR_FILTER)
+    expect(SHADOW_PUBLISHED_NOTES_OR_FILTER).toMatch(/notes\.is\.null/)
+    expect(SHADOW_PUBLISHED_NOTES_OR_FILTER).toMatch(/shadow-published/)
+    expect(result.filter).toBe(SHADOW_PUBLISHED_NOTES_OR_FILTER)
+  })
+
+  test('shadow ROI uses the same units math and ignores untagged NHL archive', () => {
+    const win = nhlKeep
+    const loss = {
+      ...nhlKeep,
+      id: '2',
+      result: 'incorrect',
+      odds: -110,
+    }
+    const archive = { ...nhlKeep, notes: 'tier:elite' }
+    const summary = summarizeShadowPublishedPicks([win, loss, archive])
+    expect(filterShadowPublishedPicks([win, loss, archive])).toHaveLength(2)
+    expect(summary.record).toBe('1–1')
+    expect(summary.decided).toBe(2)
   })
 })
