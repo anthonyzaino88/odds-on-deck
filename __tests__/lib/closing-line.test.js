@@ -97,6 +97,8 @@ describe('quiet period and close window', () => {
     expect(isCloseCaptureCandidate({ ...inWindow, status: 'scheduled' }, now)).toBe(true)
     expect(isCloseCaptureCandidate({ ...inWindow, status: 'pre-game' }, now)).toBe(true)
     expect(isCloseCaptureCandidate({ ...inWindow, status: 'delayed_start' }, now)).toBe(true)
+    expect(isCloseCaptureCandidate({ ...inWindow, status: 'delayed' }, now)).toBe(true)
+    expect(isCloseCaptureCandidate({ ...inWindow, status: 'STATUS_RAIN_DELAY' }, now)).toBe(true)
     expect(isCloseCaptureCandidate({ ...inWindow, status: 'in_progress' }, now)).toBe(false)
     expect(isCloseCaptureCandidate({ ...inWindow, status: 'final' }, now)).toBe(false)
     expect(isCloseCaptureCandidate({ ...inWindow, status: 'postponed' }, now)).toBe(false)

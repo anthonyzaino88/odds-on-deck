@@ -352,6 +352,7 @@ describe('runCapturePublishedCloses', () => {
       windowGame({ id: 'live', status: 'in_progress' }),
       windowGame({ id: 'done', status: 'final' }),
       windowGame({ id: 'ppd', status: 'postponed' }),
+      windowGame({ id: 'rain', status: 'delayed' }),
       windowGame({ id: 'ok', status: 'scheduled' }),
     ]
     const picks = games.map((game, i) => publishedPick({
@@ -365,7 +366,7 @@ describe('runCapturePublishedCloses', () => {
       fetchEventOdds,
       log: memoryLog(),
     })
-    expect(result.openPicks.map((pick) => pick.gameIdRef)).toEqual(['ok'])
+    expect(result.openPicks.map((pick) => pick.gameIdRef).sort()).toEqual(['ok', 'rain'])
     expect(fetchEventOdds).not.toHaveBeenCalled()
   })
 
