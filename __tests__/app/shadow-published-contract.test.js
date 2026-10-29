@@ -90,6 +90,63 @@ describe('private NHL shadow-published track stays off Published surfaces', () =
     expect(api).toMatch(/getAccuracyByEdge/)
   })
 
+  test('server pages strip notes before passing PropValidation rows to client components', () => {
+    const page = read('app/validation/page.js')
+    expect(page).toMatch(/toPublicValidationRecord/)
+    expect(page).toMatch(/const recentRecords = \(fetchedRecords \|\| \[\]\)\.map\(toPublicValidationRecord\)/)
+    expect(page).toMatch(/const completedRecords = recentRecords\.filter/)
+    const mapIdx = page.indexOf('.map(toPublicValidationRecord)')
+    const tableIdx = page.indexOf('<CompletedPropsTable')
+    expect(mapIdx).toBeGreaterThan(-1)
+    expect(tableIdx).toBeGreaterThan(mapIdx)
+    expect(page).toMatch(/CompletedPropsTable records=\{completedRecords\}/)
+    expect(page).not.toMatch(/CompletedPropsTable records=\{fetchedRecords\}/)
+
+    const { toPublicValidationRecord } = require('../../lib/published-picks.js')
+    const payload = JSON.stringify(
+      [{
+        id: 'pv-1',
+        status: 'completed',
+        notes: 'tier:elite,auto-saved | cohort:shadow-published',
+        playerName: 'Auston Matthews',
+        sport: 'nhl',
+      }]
+        .map(toPublicValidationRecord)
+        .filter((r) => r.status === 'completed'),
+    )
+    expect(payload).not.toMatch(/notes/)
+    expect(payload).not.toMatch(/shadow-published/)
+
+    const { readdirSync, readFileSync, statSync } = require('fs')
+    const { join } = require('path')
+    const walk = (dir) => {
+      const files = []
+      for (const name of readdirSync(dir)) {
+        if (name === 'api') continue
+        const full = join(dir, name)
+        if (statSync(full).isDirectory()) files.push(...walk(full))
+        else if (name.endsWith('.js')) files.push(full)
+      }
+      return files
+    }
+    const root = path.join(__dirname, '../..')
+    const serverPagesUsingRecords = []
+    for (const file of walk(join(root, 'app'))) {
+      const src = readFileSync(file, 'utf8')
+      if (src.includes("'use client'") || src.includes('"use client"')) continue
+      if (!src.includes('getValidationRecords')) continue
+      serverPagesUsingRecords.push(file)
+      expect(src).toMatch(/toPublicValidationRecord/)
+      expect(src).toMatch(/\.map\(toPublicValidationRecord\)/)
+    }
+    expect(serverPagesUsingRecords).toHaveLength(1)
+
+    const insights = read('app/insights/page.js')
+    expect(insights).not.toMatch(/getValidationRecords/)
+    expect(insights).toMatch(/InsightsBreakdown/)
+    expect(insights).not.toMatch(/records=\{/)
+  })
+
   test('repair and NHL grade writers preserve cohort tags instead of overwriting notes', () => {
     const unplayed = read('lib/unplayed-game-grades.js')
     const sog = read('lib/repair-nhl-sog-grades.js')

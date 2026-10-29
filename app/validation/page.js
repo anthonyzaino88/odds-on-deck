@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Suspense } from 'react'
 import { getValidationStats, getValidationRecords, getValidationCounts, getPublishedPicksStats, getSidesTotalsStats } from '../../lib/validation.js'
+import { toPublicValidationRecord } from '../../lib/published-picks.js'
 import CompletedPropsTable from '../../components/CompletedPropsTable.js'
 import TimeWindowFilter from '../../components/TimeWindowFilter.js'
 import MethodologyPanel from '../../components/MethodologyPanel.js'
@@ -76,7 +77,7 @@ export default async function ValidationDashboard({ searchParams }) {
   if (sourceFilter === 'user') statsOpts.sourceGroup = 'user'
   else if (sourceFilter === 'system') statsOpts.sourceGroup = 'system'
 
-  const [stats, publishedStats, sidesTotalsStats, recentRecords, validationCounts, nflStats, nhlStats, mlbStats] = await Promise.all([
+  const [stats, publishedStats, sidesTotalsStats, fetchedRecords, validationCounts, nflStats, nhlStats, mlbStats] = await Promise.all([
     getValidationStats(statsOpts),
     getPublishedPicksStats({ days }),
     getSidesTotalsStats({ days }),
@@ -88,6 +89,7 @@ export default async function ValidationDashboard({ searchParams }) {
   ])
 
   const { counts, pendingBySport, sourceCounts } = validationCounts
+  const recentRecords = (fetchedRecords || []).map(toPublicValidationRecord)
   const completedRecords = recentRecords.filter(r => r.status === 'completed')
 
   const propTypeEntries = Object.entries(stats.byPropType)
