@@ -3,10 +3,18 @@ import {
   calculateNHLEdges,
   deriveNhlSeasonRecord,
   shrunkGoalDifferential,
+  toNhlEdgeSnapshotInsert,
+  isLegacyNhlHeuristicVersion,
+  isLegacyNhlModelRecord,
+  isLegacyNhlHeuristicSnapshot,
   NHL_HOME_ICE,
+  NHL_HOME_ICE_PROB,
   NHL_MARKET_BLEND,
+  NHL_MIN_GAMES_PLAYED,
   NHL_MODEL_VERSION,
   NHL_SKIP_REASONS,
+  NHL_GD_MODEL_CUTOVER,
+  LEGACY_NHL_HEURISTIC_VERSIONS,
 } from '../../lib/edge-nfl-nhl.js'
 import { removeMlVig } from '../../lib/implied.js'
 import { NFL_SELECTION_MODEL_VERSION } from '../../lib/nfl-selection-model.js'
@@ -152,6 +160,7 @@ describe('NHL heuristic is isolated from the NFL rewrite', () => {
       home: {
         abbr: 'BOS',
         last10Record: '8-4',
+        gamesPlayed: 20,
         avgPointsLast10: 2.5,
         avgPointsAllowedLast10: 3.0,
         statsCapturedAt: '2025-12-14T22:00:00.000Z',
@@ -159,6 +168,7 @@ describe('NHL heuristic is isolated from the NFL rewrite', () => {
       away: {
         abbr: 'NYR',
         last10Record: '7-5',
+        gamesPlayed: 10,
         avgPointsLast10: 2.5,
         avgPointsAllowedLast10: 3.0,
         statsCapturedAt: '2025-12-14T22:00:00.000Z',
@@ -338,5 +348,207 @@ describe('NHL heuristic is isolated from the NFL rewrite', () => {
     expect(result.edgeTotalO).toBeNull()
     expect(result.edgeTotalU).toBeNull()
     expect(result.modelRun).toBe(NHL_MODEL_VERSION)
+  })
+})
+
+describe('NHL equal-strength and minimum-GP guards', () => {
+  test('skips degenerate_equal_strength when shrunk GD* values are equal', () => {
+    const result = calculateNHLEdges({
+      sport: 'nhl',
+      home: freshTeam({
+        abbr: 'ANA',
+        gamesPlayed: 12,
+        avgPointsLast10: 3.2,
+        avgPointsAllowedLast10: 2.6,
+      }),
+      away: freshTeam({
+        abbr: 'EDM',
+        last10Record: '8-4',
+        gamesPlayed: 12,
+        avgPointsLast10: 3.2,
+        avgPointsAllowedLast10: 2.6,
+      }),
+    }, evenOdds, { now: NOW })
+
+    expect(NHL_SKIP_REASONS.DEGENERATE_EQUAL_STRENGTH).toBe('degenerate_equal_strength')
+    expect(result.skipped).toBe(true)
+    expect(result.skipReason).toBe(NHL_SKIP_REASONS.DEGENERATE_EQUAL_STRENGTH)
+    expect(result.edgeMlHome).toBeNull()
+    expect(result.edgeMlAway).toBeNull()
+    expect(result.edgeTotalO).toBeNull()
+    expect(result.edgeTotalU).toBeNull()
+    expect(result.modelRun).toBe(NHL_MODEL_VERSION)
+    expect(result.modelRun).not.toBe('nfl-nhl-v0.1.0')
+  })
+
+  test('skips when raw model p_home is within 0.5pt of pure home ice', () => {
+    const home = freshTeam({
+      abbr: 'ANA',
+      gamesPlayed: 12,
+      avgPointsLast10: 3.20,
+      avgPointsAllowedLast10: 2.80,
+    })
+    const away = freshTeam({
+      abbr: 'EDM',
+      last10Record: '8-4',
+      gamesPlayed: 12,
+      avgPointsLast10: 3.20,
+      avgPointsAllowedLast10: 2.82,
+    })
+    const modelHome = rawNhlHomeWin(home, away)
+    expect(Math.abs(modelHome - NHL_HOME_ICE_PROB)).toBeLessThanOrEqual(0.005)
+    expect(Math.abs(modelHome - NHL_HOME_ICE_PROB)).toBeGreaterThan(0)
+
+    const result = calculateNHLEdges({
+      sport: 'nhl',
+      home,
+      away,
+    }, evenOdds, { now: NOW })
+
+    expect(result.skipped).toBe(true)
+    expect(result.skipReason).toBe(NHL_SKIP_REASONS.DEGENERATE_EQUAL_STRENGTH)
+    expect(result.edgeMlHome).toBeNull()
+    expect(result.edgeMlAway).toBeNull()
+  })
+
+  test('skips insufficient_games_played when either side has fewer than the named floor', () => {
+    expect(NHL_MIN_GAMES_PLAYED).toBe(5)
+
+    const result = calculateNHLEdges({
+      sport: 'nhl',
+      home: freshTeam({
+        abbr: 'UTA',
+        last10Record: '2-2',
+        gamesPlayed: 4,
+        avgPointsLast10: 3.1,
+        avgPointsAllowedLast10: 2.8,
+      }),
+      away: freshTeam({
+        abbr: 'COL',
+        last10Record: '8-4',
+        gamesPlayed: 12,
+        avgPointsLast10: 3.4,
+        avgPointsAllowedLast10: 2.5,
+      }),
+    }, evenOdds, { now: NOW })
+
+    expect(NHL_SKIP_REASONS.INSUFFICIENT_GAMES_PLAYED).toBe('insufficient_games_played')
+    expect(result.skipped).toBe(true)
+    expect(result.skipReason).toBe(NHL_SKIP_REASONS.INSUFFICIENT_GAMES_PLAYED)
+    expect(result.edgeMlHome).toBeNull()
+    expect(result.edgeMlAway).toBeNull()
+    expect(result.modelRun).toBe(NHL_MODEL_VERSION)
+  })
+})
+
+describe('NHL edge snapshot payload', () => {
+  test('stores GF/GA, GP, shrunk GD, raw and blended probs on the existing payload field', () => {
+    const result = calculateNHLEdges({
+      sport: 'nhl',
+      home: freshTeam({
+        abbr: 'BOS',
+        gamesPlayed: 12,
+        avgPointsLast10: 3.2,
+        avgPointsAllowedLast10: 2.7,
+      }),
+      away: freshTeam({
+        abbr: 'NYR',
+        last10Record: '4-8',
+        gamesPlayed: 12,
+        avgPointsLast10: 3.0,
+        avgPointsAllowedLast10: 2.9,
+      }),
+    }, evenOdds, { now: NOW })
+
+    expect(result.skipped).toBeFalsy()
+    expect(result.payload).toEqual(expect.objectContaining({
+      sport: 'nhl',
+      modelVersion: NHL_MODEL_VERSION,
+      home: expect.objectContaining({
+        gfPerGame: 3.2,
+        gaPerGame: 2.7,
+        gamesPlayed: 12,
+      }),
+      away: expect.objectContaining({
+        gfPerGame: 3.0,
+        gaPerGame: 2.9,
+        gamesPlayed: 12,
+      }),
+    }))
+    expect(result.payload.home.shrunkGd).toBeCloseTo(shrunkGoalDifferential({
+      gamesPlayed: 12,
+      last10Record: '8-4',
+      avgPointsLast10: 3.2,
+      avgPointsAllowedLast10: 2.7,
+    }), 8)
+    expect(result.payload.rawModelProb).toBeCloseTo(rawNhlHomeWin(
+      freshTeam({ gamesPlayed: 12, avgPointsLast10: 3.2, avgPointsAllowedLast10: 2.7 }),
+      freshTeam({ last10Record: '4-8', gamesPlayed: 12, avgPointsLast10: 3.0, avgPointsAllowedLast10: 2.9 }),
+    ), 8)
+    expect(result.payload.blendedProb).toBeCloseTo(
+      0.5 + NHL_MARKET_BLEND * (result.payload.rawModelProb - 0.5),
+      8,
+    )
+
+    const insert = toNhlEdgeSnapshotInsert(result, { id: 'edge-1', gameId: 'g-nhl-1' })
+    expect(insert.modelRun).toBe(NHL_MODEL_VERSION)
+    expect(insert.modelRun).not.toBe('nfl-nhl-v0.1.0')
+    expect(insert.payload).toBe(result.payload)
+    expect(insert.gameId).toBe('g-nhl-1')
+  })
+})
+
+describe('legacy NHL heuristic filter', () => {
+  test('identifies nfl-nhl-v0.1.0 NHL rows and leaves NFL rows alone', () => {
+    expect(LEGACY_NHL_HEURISTIC_VERSIONS).toEqual(['nfl-nhl-v0.1.0'])
+    expect(NHL_GD_MODEL_CUTOVER).toBe('2026-10-27T15:02:00.000Z')
+    expect(isLegacyNhlHeuristicVersion('nfl-nhl-v0.1.0')).toBe(true)
+    expect(isLegacyNhlHeuristicVersion(NHL_MODEL_VERSION)).toBe(false)
+    expect(isLegacyNhlHeuristicVersion('nfl-selection-v1.0.1')).toBe(false)
+
+    expect(isLegacyNhlModelRecord({
+      sport: 'nhl',
+      modelRun: 'nfl-nhl-v0.1.0',
+    })).toBe(true)
+    expect(isLegacyNhlHeuristicSnapshot({
+      modelRun: 'nfl-nhl-v0.1.0',
+      edgeMlHome: 0.10,
+    }, 'nhl')).toBe(true)
+
+    expect(isLegacyNhlModelRecord({
+      sport: 'nfl',
+      modelRun: 'nfl-nhl-v0.1.0',
+    })).toBe(false)
+    expect(isLegacyNhlHeuristicSnapshot({
+      modelRun: 'nfl-nhl-v0.1.0',
+      edgeMlHome: 0.10,
+    }, 'nfl')).toBe(false)
+
+    expect(isLegacyNhlModelRecord({
+      sport: 'nhl',
+      modelRun: NHL_MODEL_VERSION,
+    })).toBe(false)
+  })
+
+  test('date-filters NHL game-line picks without a model version, not player props', () => {
+    expect(isLegacyNhlModelRecord({
+      sport: 'nhl',
+      source: 'game_line',
+      propType: 'moneyline',
+      timestamp: '2026-10-26T12:00:00.000Z',
+    })).toBe(true)
+    expect(isLegacyNhlModelRecord({
+      sport: 'nhl',
+      source: 'game_line',
+      propType: 'moneyline',
+      timestamp: '2026-10-27T15:03:00.000Z',
+    })).toBe(false)
+    expect(isLegacyNhlModelRecord({
+      sport: 'nhl',
+      source: 'system_generated',
+      propType: 'player_shots_on_goal',
+      notes: 'cohort:shadow-published',
+      timestamp: '2026-10-20T12:00:00.000Z',
+    })).toBe(false)
   })
 })

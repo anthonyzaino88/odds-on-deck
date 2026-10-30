@@ -69,6 +69,7 @@ describe('validate:all grades props before parlays', () => {
 
   test('gradePendingGameLines pages in id order instead of a 200-row cap', () => {
     const src = read('lib/validation.js')
+    expect(src).toMatch(/isLegacyNhlModelRecord/)
     expect(src).toMatch(/fetchPendingGameLines/)
     expect(src).toMatch(/paginateSupabaseSelect/)
     expect(src).toMatch(/GAME_LINE_PENDING_PAGE_SIZE/)

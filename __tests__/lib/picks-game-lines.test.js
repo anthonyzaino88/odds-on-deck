@@ -74,6 +74,24 @@ describe('buildGameLinePicksFromSnapshots', () => {
     expect(home.edgeIsDisplayCap).toBe(false)
   })
 
+  test('legacy NHL heuristic snapshots are not reconstructed into picks', () => {
+    const picks = buildGameLinePicksFromSnapshots({
+      game: {
+        id: 'g-nhl-1',
+        sport: 'nhl',
+        home: { abbr: 'ANA' },
+        away: { abbr: 'EDM' },
+      },
+      edge: {
+        modelRun: 'nfl-nhl-v0.1.0',
+        edgeMlHome: 0.10,
+        edgeMlAway: -0.10,
+      },
+      oddsRows: [quote],
+    })
+    expect(picks).toEqual([])
+  })
+
   test('legacy NFL heuristic snapshots are not presented as new-model output', () => {
     const picks = buildGameLinePicksFromSnapshots({
       game: {
