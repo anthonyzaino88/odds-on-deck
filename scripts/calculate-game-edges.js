@@ -3,7 +3,7 @@
 
 import { config } from 'dotenv'
 import { calculateGameEdges, MODEL_VERSION } from '../lib/edge.js'
-import { calculateNHLEdges } from '../lib/edge-nfl-nhl.js' // NHL heuristic + team-stats skip
+import { calculateNHLEdges, toNhlEdgeSnapshotInsert } from '../lib/edge-nfl-nhl.js' // NHL heuristic + team-stats skip
 import { calculateNFLEdges, toNflEdgeSnapshotInsert } from '../lib/edge-nfl.js' // isolated NFL model
 import { evaluateMatchupTeamStatsForEdge } from '../lib/team-performance-stats.js'
 import { ensurePrismaClient } from '../lib/prisma-preflight.js'
@@ -146,19 +146,22 @@ async function calculateEdgesForToday() {
           continue
         }
         
-        // NFL writes pairing columns from the 004 schema. MLB/NHL keep the
-        // original float + modelRun shape so their heuristic rows stay unchanged.
+        // NFL writes pairing columns from the 004 schema. NHL reuses the
+        // existing payload JSON for GD* inputs (no migration). MLB keeps
+        // the original float + modelRun shape.
         const edgeSnapshot = game.sport === 'nfl'
           ? toNflEdgeSnapshotInsert(edges.selection, { id: generateId() })
-          : {
-            id: generateId(),
-            gameId: game.id,
-            edgeMlHome: edges.edgeMlHome,
-            edgeMlAway: edges.edgeMlAway,
-            edgeTotalO: edges.edgeTotalO,
-            edgeTotalU: edges.edgeTotalU,
-            modelRun: edges.modelRun || MODEL_VERSION,
-          }
+          : game.sport === 'nhl'
+            ? toNhlEdgeSnapshotInsert(edges, { id: generateId(), gameId: game.id })
+            : {
+              id: generateId(),
+              gameId: game.id,
+              edgeMlHome: edges.edgeMlHome,
+              edgeMlAway: edges.edgeMlAway,
+              edgeTotalO: edges.edgeTotalO,
+              edgeTotalU: edges.edgeTotalU,
+              modelRun: edges.modelRun || MODEL_VERSION,
+            }
         
         const { error: insertError } = await supabase
           .from('EdgeSnapshot')
