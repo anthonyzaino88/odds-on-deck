@@ -375,6 +375,7 @@ describe('NHL equal-strength and minimum-GP guards', () => {
     expect(result.skipReason).toBe(NHL_SKIP_REASONS.DEGENERATE_EQUAL_STRENGTH)
     expect(result.edgeMlHome).toBeNull()
     expect(result.edgeMlAway).toBeNull()
+    // Intended: moneyline skip returns before totals and nulls those edges too.
     expect(result.edgeTotalO).toBeNull()
     expect(result.edgeTotalU).toBeNull()
     expect(result.modelRun).toBe(NHL_MODEL_VERSION)
@@ -530,7 +531,7 @@ describe('legacy NHL heuristic filter', () => {
     })).toBe(false)
   })
 
-  test('date-filters NHL game-line picks without a model version, not player props', () => {
+  test('date-filters only source=game_line NHL rows without a model version', () => {
     expect(isLegacyNhlModelRecord({
       sport: 'nhl',
       source: 'game_line',
@@ -542,6 +543,12 @@ describe('legacy NHL heuristic filter', () => {
       source: 'game_line',
       propType: 'moneyline',
       timestamp: '2026-10-27T15:03:00.000Z',
+    })).toBe(false)
+    expect(isLegacyNhlModelRecord({
+      sport: 'nhl',
+      source: 'system_generated',
+      propType: 'moneyline',
+      timestamp: '2026-10-26T12:00:00.000Z',
     })).toBe(false)
     expect(isLegacyNhlModelRecord({
       sport: 'nhl',
