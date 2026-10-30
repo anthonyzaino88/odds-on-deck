@@ -16,7 +16,14 @@
  *
  * After each sport upsert, scheduled games missing from a fully covered
  * source date are marked not_needed (never deleted). Failed / malformed
- * fetches never retire; an explicit ESPN events:[] slate may.
+ * fetches never retire. An ESPN events:[] slate is trusted only for a
+ * strictly past ET date (or a date with no pre-start rows).
+ *
+ * ignoreQuietPeriod is true for this write: fetch-fresh-games already
+ * upserts Game rows during :05–:15 ET (including the 8:09 morning job).
+ * Vanish-retire is the same class of Game.status write, so the recording
+ * quiet window does not apply. --reconcile --apply still refuses that
+ * window. oddsApiEventId is left in place so a false retire is reversible.
  */
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
@@ -964,6 +971,7 @@ async function retireVanishedAfterFetch(sport, games) {
     supabase,
     logger: console,
     apply: true,
+    // Same write class as the Game upserts this script already does at 8:09 ET.
     ignoreQuietPeriod: true,
   })
 }

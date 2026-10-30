@@ -116,10 +116,19 @@ Do **not** treat a drop in expired counts as explained by elapsed time alone. A 
 
 `fetch-fresh-games.js` upserts what ESPN still lists, then retires scheduled
 games that vanished from a fully covered source date (`status=not_needed`).
-Failed or malformed fetches never retire; an explicit ESPN `events:[]` slate
-may. If-necessary postseason ghosts (for example TB @ MIL after the World
-Series) are the main target. Dual-source MLB flip/ghost reconcile remains
-available as an extra dry-run.
+Failed or malformed fetches never retire. A single ESPN `events:[]` is
+trusted only when that ET date is already in the past (or has no pre-start
+rows), so a transient empty scoreboard on today cannot wipe a small slate.
+If-necessary postseason ghosts (for example TB @ MIL after the World Series)
+are the main target. Dual-source MLB flip/ghost reconcile remains available
+as an extra dry-run.
+
+Vanish-retire applies during `:05–:15` ET (`ignoreQuietPeriod: true`) because
+this script already upserts Game rows in that window; `--reconcile --apply`
+still refuses it. `oddsApiEventId` is not cleared. Caps: 5 retires per plan,
+5 per ET day across sports (counted via `Game.lastUpdate` on `not_needed`
+rows), 30% when a date has 5+ candidates, and on smaller dates more than
+1 retire or more than 50%.
 
 ```bash
 # Dry-run (default, no writes)
@@ -127,7 +136,7 @@ node scripts/reconcile-games.js --sport mlb
 node scripts/reconcile-games.js --sport mlb --date 2026-10-20 --days 3 --json
 # Past dates are reports only unless --include-past.
 
-# Write status=not_needed + clear oddsApiEventId. Refused during :05–:15 ET.
+# Write status=not_needed (oddsApiEventId kept). Refused during :05–:15 ET.
 # Never deletes. Both ESPN and StatsAPI must agree the matchup is gone.
 node scripts/reconcile-games.js --sport mlb --apply
 ```
