@@ -114,8 +114,12 @@ Do **not** treat a drop in expired counts as explained by elapsed time alone. A 
 
 ### Reconcile ghost / flipped scheduled games (MLB)
 
-`fetch-fresh-games.js` only upserts what ESPN still lists. If-necessary postseason
-games and home/away flips stay `scheduled` forever unless reconciled.
+`fetch-fresh-games.js` upserts what ESPN still lists, then retires scheduled
+games that vanished from a fully covered source date (`status=not_needed`).
+Failed or malformed fetches never retire; an explicit ESPN `events:[]` slate
+may. If-necessary postseason ghosts (for example TB @ MIL after the World
+Series) are the main target. Dual-source MLB flip/ghost reconcile remains
+available as an extra dry-run.
 
 ```bash
 # Dry-run (default, no writes)

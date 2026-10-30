@@ -35,6 +35,7 @@ import {
   isOpsWriteQuietPeriod,
   mlbPublishedRecordDecision,
 } from '../lib/mlb-recording-window.js'
+import { isDeadStatus } from '../lib/game-status.js'
 import { fetchMlbConfirmedLineup, isMlbStatsDoubleheader } from '../lib/mlb-confirmed-lineup.js'
 
 config({ path: '.env.local' })
@@ -117,6 +118,7 @@ Schedule at :16 and :46 ET, hours ${MLB_RECORD_HOUR_START}–${MLB_RECORD_HOUR_E
 
   const windowGames = (games || []).filter((game) => (
     !doubleheaderIds.has(game.id)
+    && !isDeadStatus(game.status)
     && !hasMlbGameStarted(game, now)
     && isInMlbRecordWindow(game, now)
   ))

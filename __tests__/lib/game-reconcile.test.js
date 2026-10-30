@@ -39,6 +39,8 @@ function row(id, overrides = {}) {
     dependents: {
       propValidation: 0,
       propValidationPending: 0,
+      propValidationGraded: 0,
+      propValidationPublished: 0,
       parlayLeg: 0,
       parlayLegPending: 0,
       playerPropCache: 0,
@@ -679,6 +681,45 @@ describe('planReconcile protection and dependents', () => {
     expect(withParlay.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20').reason).toBe('protected_has_picks')
   })
 
+  test('graded or Published PropValidation is protected_has_picks', () => {
+    const graded = planWithSlate({
+      extraRows: [row('CLE_at_TB_2026-10-20', {
+        dependents: {
+          propValidation: 1,
+          propValidationPending: 0,
+          propValidationGraded: 1,
+          propValidationPublished: 0,
+          parlayLeg: 0,
+          parlayLegPending: 0,
+          playerPropCache: 0,
+          odds: 0,
+          edgeSnapshot: 0,
+        },
+      })],
+    })
+    expect(graded.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20')).toMatchObject({
+      action: 'report',
+      reason: 'protected_has_picks',
+    })
+
+    const published = planWithSlate({
+      extraRows: [row('CLE_at_TB_2026-10-20', {
+        dependents: {
+          propValidation: 1,
+          propValidationPending: 0,
+          propValidationGraded: 0,
+          propValidationPublished: 1,
+          parlayLeg: 0,
+          parlayLegPending: 0,
+          playerPropCache: 0,
+          odds: 0,
+          edgeSnapshot: 0,
+        },
+      })],
+    })
+    expect(published.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20').reason).toBe('protected_has_picks')
+  })
+
   test('CLE_TB_DRIFT with a pending ParlayLeg is protected_has_picks', () => {
     const plan = planCleTbDrift({
       rowOverride: {
@@ -1121,6 +1162,13 @@ describe('fetch-fresh-games reconcile hook', () => {
     expect(src).toMatch(/maybeReconcileAfterFetch/)
     expect(src).toMatch(/runReconcile/)
     expect(src).toMatch(/TOTAL SAVED[\s\S]*maybeReconcileAfterFetch/)
+  })
+
+  test('vanish-retire runs after each sport save using the just-fetched source', () => {
+    expect(src).toMatch(/retireVanishedAfterFetch/)
+    expect(src).toMatch(/runRetireVanishedFromFetch/)
+    expect(src).toMatch(/classifyEspnScoreboardPayload/)
+    expect(src).toMatch(/coverageByDate/)
   })
 
   test('writes Game.season from the ESPN event at ingest (no schema change)', () => {

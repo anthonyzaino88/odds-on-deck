@@ -13,6 +13,7 @@ import {
   isGameLineRecord,
   isPublicGameLine,
   isPublishedGameLineSport,
+  isUpcomingGameLine,
   partitionGameLines,
   publicEligibilityAllows,
   selectGameLines,
@@ -172,6 +173,14 @@ describe('selectGameLines', () => {
     expect(selected.every((row) => row.pick !== 'Final' && row.pick !== 'Live')).toBe(true)
     expect(selected[0].pick).toBe('High')
     expect(selected.length).toBeLessThanOrEqual(GAME_LINE_CAP)
+  })
+
+  test('retired not_needed and cancelled games are not upcoming', () => {
+    const future = futureTime(4)
+    expect(isUpcomingGameLine(line({ status: 'not_needed', gameTime: future }))).toBe(false)
+    expect(isUpcomingGameLine(line({ status: 'cancelled', gameTime: future }))).toBe(false)
+    expect(isUpcomingGameLine(publicNflLine({ status: 'not_needed', edge: 0.20, gameTime: future }))).toBe(false)
+    expect(isPublicGameLine(publicNflLine({ status: 'not_needed', edge: 0.20, gameTime: future }))).toBe(false)
   })
 
   test('requires the generatePicksFromSupabase min edge floor', () => {
