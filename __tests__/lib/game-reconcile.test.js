@@ -4,8 +4,10 @@ import {
   applyReconcilePlan,
   canApplyReconcile,
   classifyReconcileCandidate,
+  dateRetireCapHit,
   DEFAULT_MAX_RETIRES,
   ENABLE_DRIFT_DUPLICATE_RETIRE,
+  etDayStartIso,
   formatReconcilePlanTable,
   mapEspnScoreboardEvents,
   mapStatsApiSchedule,
@@ -39,6 +41,8 @@ function row(id, overrides = {}) {
     dependents: {
       propValidation: 0,
       propValidationPending: 0,
+      propValidationGraded: 0,
+      propValidationPublished: 0,
       parlayLeg: 0,
       parlayLegPending: 0,
       playerPropCache: 0,
@@ -216,7 +220,7 @@ describe('planReconcile ghosts', () => {
     expect(ghost).toMatchObject({
       action: 'retire_not_needed',
       reason: 'ghost',
-      clearOddsApiEventId: true,
+      clearOddsApiEventId: false,
     })
     expect(plan.aborts).toEqual([])
     expect(plan.summary.ghosts).toBe(1)
@@ -679,6 +683,45 @@ describe('planReconcile protection and dependents', () => {
     expect(withParlay.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20').reason).toBe('protected_has_picks')
   })
 
+  test('graded or Published PropValidation is protected_has_picks', () => {
+    const graded = planWithSlate({
+      extraRows: [row('CLE_at_TB_2026-10-20', {
+        dependents: {
+          propValidation: 1,
+          propValidationPending: 0,
+          propValidationGraded: 1,
+          propValidationPublished: 0,
+          parlayLeg: 0,
+          parlayLegPending: 0,
+          playerPropCache: 0,
+          odds: 0,
+          edgeSnapshot: 0,
+        },
+      })],
+    })
+    expect(graded.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20')).toMatchObject({
+      action: 'report',
+      reason: 'protected_has_picks',
+    })
+
+    const published = planWithSlate({
+      extraRows: [row('CLE_at_TB_2026-10-20', {
+        dependents: {
+          propValidation: 1,
+          propValidationPending: 0,
+          propValidationGraded: 0,
+          propValidationPublished: 1,
+          parlayLeg: 0,
+          parlayLegPending: 0,
+          playerPropCache: 0,
+          odds: 0,
+          edgeSnapshot: 0,
+        },
+      })],
+    })
+    expect(published.actions.find((action) => action.id === 'CLE_at_TB_2026-10-20').reason).toBe('protected_has_picks')
+  })
+
   test('CLE_TB_DRIFT with a pending ParlayLeg is protected_has_picks', () => {
     const plan = planCleTbDrift({
       rowOverride: {
@@ -701,7 +744,7 @@ describe('planReconcile protection and dependents', () => {
     expect(plan.summary.ghostIdsUnknown).toBe(0)
   })
 
-  test('odds / props / edges only → retire and clear oddsApiEventId', () => {
+  test('odds / props / edges only → retire and keep oddsApiEventId', () => {
     const plan = planWithSlate({
       extraRows: [row('CLE_at_TB_2026-10-20', {
         oddsApiEventId: 'odds-ghost',
@@ -720,7 +763,7 @@ describe('planReconcile protection and dependents', () => {
     expect(action).toMatchObject({
       action: 'retire_not_needed',
       reason: 'ghost',
-      clearOddsApiEventId: true,
+      clearOddsApiEventId: false,
     })
     expect(action.dependents).toMatchObject({
       odds: 3,
@@ -731,6 +774,27 @@ describe('planReconcile protection and dependents', () => {
 })
 
 describe('planReconcile caps', () => {
+  test('small dates abort at more than 1 retire or 50% or more', () => {
+    expect(dateRetireCapHit(1, 1)).toBeNull()
+    expect(dateRetireCapHit(1, 2)).toMatchObject({
+      reason: 'cap_exceeded',
+      smallDate: true,
+      retires: 1,
+      candidates: 2,
+    })
+    expect(dateRetireCapHit(1, 3)).toBeNull()
+    expect(dateRetireCapHit(1, 4)).toBeNull()
+    expect(dateRetireCapHit(2, 4)).toMatchObject({ smallDate: true, retires: 2 })
+    expect(dateRetireCapHit(3, 4)).toMatchObject({
+      reason: 'cap_exceeded',
+      smallDate: true,
+      retires: 3,
+      candidates: 4,
+    })
+    expect(dateRetireCapHit(2, 3)).toMatchObject({ smallDate: true })
+    expect(etDayStartIso('2026-10-30')).toBe('2026-10-30T04:00:00.000Z')
+  })
+
   test('6 retires abort with no retire actions', () => {
     const extraRows = [1, 2, 3, 4, 5, 6].map((n) => row(`AAA_at_BB${n}_${TODAY}`))
     const plan = planWithSlate({ extraRows })
@@ -791,7 +855,7 @@ describe('planReconcile caps', () => {
     expect(plan.summary.ghostIdsUnknown).toBe(0)
   })
 
-  test('1 ghost out of 3 candidates is allowed (pct cap needs 5+ candidates)', () => {
+  test('1 ghost out of 3 candidates is allowed (small-date cap allows 1 retire under 50%)', () => {
     const slate = slateFillers()
     const plan = planReconcile({
       dbRows: [slate.rows[0], slate.rows[1], row('CLE_at_TB_2026-10-20')],
@@ -809,6 +873,29 @@ describe('planReconcile caps', () => {
       action: 'retire_not_needed',
       reason: 'ghost',
     })
+  })
+
+  test('4 candidates retiring 3 aborts on the small-date cap', () => {
+    const slate = slateFillers()
+    const extras = [1, 2, 3].map((n) => row(`AAA_at_BB${n}_${TODAY}`))
+    const plan = planReconcile({
+      dbRows: [slate.rows[0], ...extras],
+      espnEvents: slate.espnEvents.slice(0, 1),
+      statsApiGames: slate.statsApiGames.slice(0, 1),
+      espnStatusByDate: { [TODAY]: 'ok' },
+      statsStatusByDate: { [TODAY]: 'ok' },
+      nowEt: TODAY,
+      lastFetchedDate: TODAY,
+      fetchedDates: [TODAY],
+    })
+    expect(plan.summary.candidates).toBe(4)
+    expect(plan.aborts[0]).toMatchObject({
+      reason: 'cap_exceeded',
+      smallDate: true,
+      retires: 3,
+      candidates: 4,
+    })
+    expect(plan.actions.filter((action) => action.action === 'retire_not_needed')).toEqual([])
   })
 
   test('>30% aborts only when the date has 5 or more candidates', () => {
@@ -969,7 +1056,11 @@ describe('apply path', () => {
       reason: 'skipped_changed_concurrently',
     })
     expect(supabase.ops.every((op) => op.type === 'update')).toBe(true)
-    expect(supabase.ops[0].payload).toEqual({ status: 'not_needed', oddsApiEventId: null })
+    expect(supabase.ops[0].payload).toEqual({
+      status: 'not_needed',
+      lastUpdate: NOW_ET_APPLY.toISOString(),
+    })
+    expect(supabase.ops[0].payload).not.toHaveProperty('oddsApiEventId')
     expect(supabase.ops[0].filters).toEqual([
       ['id', 'CLE_at_TB_2026-10-20'],
       ['status', 'scheduled'],
@@ -1121,6 +1212,13 @@ describe('fetch-fresh-games reconcile hook', () => {
     expect(src).toMatch(/maybeReconcileAfterFetch/)
     expect(src).toMatch(/runReconcile/)
     expect(src).toMatch(/TOTAL SAVED[\s\S]*maybeReconcileAfterFetch/)
+  })
+
+  test('vanish-retire runs after each sport save using the just-fetched source', () => {
+    expect(src).toMatch(/retireVanishedAfterFetch/)
+    expect(src).toMatch(/runRetireVanishedFromFetch/)
+    expect(src).toMatch(/classifyEspnScoreboardPayload/)
+    expect(src).toMatch(/coverageByDate/)
   })
 
   test('writes Game.season from the ESPN event at ingest (no schema change)', () => {

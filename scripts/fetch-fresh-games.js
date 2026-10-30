@@ -10,9 +10,20 @@
  *   node scripts/fetch-fresh-games.js           # Fetch all sports for today
  *   node scripts/fetch-fresh-games.js mlb       # MLB only
  *   node scripts/fetch-fresh-games.js nfl 2025-11-02   # NFL for specific date
- *   node scripts/fetch-fresh-games.js mlb --reconcile          # dry-run ghost/flip plan after upsert
+ *   node scripts/fetch-fresh-games.js mlb --reconcile          # extra dual-source MLB ghost/flip dry-run
  *   node scripts/fetch-fresh-games.js mlb --reconcile --apply  # write not_needed (outside :05–:15 ET)
  *   --max-pct N   Percentage 0-100 (same as reconcile-games.js; default 30)
+ *
+ * After each sport upsert, scheduled games missing from a fully covered
+ * source date are marked not_needed (never deleted). Failed / malformed
+ * fetches never retire. An ESPN events:[] slate is trusted only for a
+ * strictly past ET date (or a date with no pre-start rows).
+ *
+ * ignoreQuietPeriod is true for this write: fetch-fresh-games already
+ * upserts Game rows during :05–:15 ET (including the 8:09 morning job).
+ * Vanish-retire is the same class of Game.status write, so the recording
+ * quiet window does not apply. --reconcile --apply still refuses that
+ * window. oddsApiEventId is left in place so a false retire is reversible.
  */
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
@@ -24,6 +35,14 @@ import {
   runReconcile,
   shiftEtDate,
 } from '../lib/game-reconcile.js'
+import {
+  attachFetchMeta,
+  classifyEspnScoreboardPayload,
+  espnDateParamToKey,
+  markCoverageUnavailable,
+  overallFetchState,
+  runRetireVanishedFromFetch,
+} from '../lib/retire-vanished-games.js'
 
 config({ path: '.env.local' })
 
@@ -41,9 +60,33 @@ const ESPN_HEADERS = {
   'User-Agent': 'OddsOnDeck/1.0'
 }
 
-function attachFetchState(games, fetchState) {
-  Object.defineProperty(games, 'fetchState', { value: fetchState, enumerable: false })
-  return games
+async function fetchScoreboardForDate(sportInfo, targetDate, coverageByDate) {
+  const dateStr = formatDateForESPN(targetDate)
+  const dateKey = espnDateParamToKey(dateStr)
+  const url = `https://site.api.espn.com/apis/site/v2/sports/${sportInfo.sportType}/${sportInfo.league}/scoreboard?dates=${dateStr}`
+  try {
+    const data = await fetchScoreboardJson(url)
+    const classified = classifyEspnScoreboardPayload(data)
+    if (dateKey) coverageByDate[dateKey] = classified.state
+    return {
+      ok: true,
+      url,
+      dateKey,
+      queriedDateStr: dateKey,
+      ...classified,
+    }
+  } catch (error) {
+    if (dateKey) coverageByDate[dateKey] = 'unavailable'
+    return {
+      ok: false,
+      url,
+      dateKey,
+      queriedDateStr: dateKey,
+      state: 'unavailable',
+      events: [],
+      error,
+    }
+  }
 }
 
 function formatDateForESPN(date) {
@@ -112,6 +155,7 @@ async function fetchScoreboardJson(url) {
 }
 
 async function fetchGamesFromESPN(sport, date) {
+  const coverageByDate = {}
   try {
     const sportInfo = SPORT_MAP[sport.toLowerCase()]
     if (!sportInfo) throw new Error(`Unknown sport: ${sport}`)
@@ -119,7 +163,6 @@ async function fetchGamesFromESPN(sport, date) {
     console.log(`\n🔄 Fetching ${sport.toUpperCase()} games from ESPN...`)
     
     let allEvents = []
-    let espnFetchOk = false
     
     if (sport === 'nhl') {
       // NHL: Fetch games for next 7 days (to match Odds API which returns games for multiple days)
@@ -130,24 +173,20 @@ async function fetchGamesFromESPN(sport, date) {
       for (let i = 0; i < 7; i++) {
         const targetDate = new Date(today)
         targetDate.setDate(today.getDate() + i)
-        const dateStr = formatDateForESPN(targetDate)
-        const queriedDateStr = targetDate.toISOString().split('T')[0]
-        const url = `https://site.api.espn.com/apis/site/v2/sports/${sportInfo.sportType}/${sportInfo.league}/scoreboard?dates=${dateStr}`
-        
-        try {
-          const data = await fetchScoreboardJson(url)
-          espnFetchOk = true
-          const events = data.events || []
-          if (events.length > 0) {
-            const eventsWithDate = events.map(event => ({
-              ...event,
-              _queriedDate: queriedDateStr
-            }))
-            allEvents = [...allEvents, ...eventsWithDate]
-            console.log(`  📅 ${targetDate.toLocaleDateString()}: ${events.length} games`)
-          }
-        } catch (error) {
-          console.warn(`  ⚠️  Error fetching ${targetDate.toLocaleDateString()}: ${error.message}`)
+        const result = await fetchScoreboardForDate(sportInfo, targetDate, coverageByDate)
+        if (!result.ok) {
+          console.warn(`  ⚠️  Error fetching ${targetDate.toLocaleDateString()}: ${result.error.message}`)
+        } else if (result.state === 'ok') {
+          const eventsWithDate = result.events.map(event => ({
+            ...event,
+            _queriedDate: result.queriedDateStr
+          }))
+          allEvents = [...allEvents, ...eventsWithDate]
+          console.log(`  📅 ${targetDate.toLocaleDateString()}: ${result.events.length} games`)
+        } else if (result.state === 'empty') {
+          console.log(`  📅 ${targetDate.toLocaleDateString()}: 0 games (empty slate)`)
+        } else {
+          console.warn(`  ⚠️  Malformed scoreboard for ${targetDate.toLocaleDateString()}`)
         }
         
         await new Promise(r => setTimeout(r, 200))
@@ -168,34 +207,31 @@ async function fetchGamesFromESPN(sport, date) {
         if (Number.isNaN(requestedDate.getTime())) {
           throw new Error(`Invalid date: ${date}`)
         }
-        const dateStr = formatDateForESPN(requestedDate)
-        const url = `https://site.api.espn.com/apis/site/v2/sports/${sportInfo.sportType}/${sportInfo.league}/scoreboard?dates=${dateStr}`
-        
-        console.log(`📡 URL: ${url}`)
-        const data = await fetchScoreboardJson(url)
-        espnFetchOk = true
-        const events = data.events || []
-        console.log(`📅 Found ${events.length} games for ${requestedDate.toLocaleDateString()}`)
-        eventsForWeek.push(...events)
+        const result = await fetchScoreboardForDate(sportInfo, requestedDate, coverageByDate)
+        console.log(`📡 URL: ${result.url}`)
+        if (!result.ok) throw result.error
+        if (result.state === 'malformed') {
+          console.warn(`  ⚠️  Malformed scoreboard for ${requestedDate.toLocaleDateString()}`)
+        } else {
+          console.log(`📅 Found ${result.events.length} games for ${requestedDate.toLocaleDateString()}${result.state === 'empty' ? ' (empty slate)' : ''}`)
+          eventsForWeek.push(...result.events)
+        }
       } else {
         const { weekStart, weekEnd } = getNFLWeekBounds(new Date())
         console.log(`📅 Fetching NFL week: ${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}`)
         const datesToFetch = getDatesBetween(weekStart, weekEnd)
 
         for (const targetDate of datesToFetch) {
-          const dateStr = formatDateForESPN(targetDate)
-          const url = `https://site.api.espn.com/apis/site/v2/sports/${sportInfo.sportType}/${sportInfo.league}/scoreboard?dates=${dateStr}`
-          
-          try {
-            const data = await fetchScoreboardJson(url)
-            espnFetchOk = true
-            const events = data.events || []
-            if (events.length > 0) {
-              eventsForWeek.push(...events)
-              console.log(`  📅 ${targetDate.toLocaleDateString()}: ${events.length} games`)
-            }
-          } catch (error) {
-            console.warn(`  ⚠️  Error fetching ${targetDate.toLocaleDateString()}: ${error.message}`)
+          const result = await fetchScoreboardForDate(sportInfo, targetDate, coverageByDate)
+          if (!result.ok) {
+            console.warn(`  ⚠️  Error fetching ${targetDate.toLocaleDateString()}: ${result.error.message}`)
+          } else if (result.state === 'ok') {
+            eventsForWeek.push(...result.events)
+            console.log(`  📅 ${targetDate.toLocaleDateString()}: ${result.events.length} games`)
+          } else if (result.state === 'empty') {
+            console.log(`  📅 ${targetDate.toLocaleDateString()}: 0 games (empty slate)`)
+          } else {
+            console.warn(`  ⚠️  Malformed scoreboard for ${targetDate.toLocaleDateString()}`)
           }
 
           await new Promise(r => setTimeout(r, 200))
@@ -216,19 +252,16 @@ async function fetchGamesFromESPN(sport, date) {
       for (let i = 0; i < 3; i++) {
         const targetDate = new Date(today)
         targetDate.setDate(today.getDate() + i)
-        const dateStr = formatDateForESPN(targetDate)
-        const url = `https://site.api.espn.com/apis/site/v2/sports/${sportInfo.sportType}/${sportInfo.league}/scoreboard?dates=${dateStr}`
-        
-        try {
-          const data = await fetchScoreboardJson(url)
-          espnFetchOk = true
-          const events = data.events || []
-          if (events.length > 0) {
-            allEvents = [...allEvents, ...events]
-            console.log(`  📅 ${targetDate.toLocaleDateString()}: ${events.length} games`)
-          }
-        } catch (error) {
-          console.warn(`  ⚠️  Error fetching ${targetDate.toLocaleDateString()}: ${error.message}`)
+        const result = await fetchScoreboardForDate(sportInfo, targetDate, coverageByDate)
+        if (!result.ok) {
+          console.warn(`  ⚠️  Error fetching ${targetDate.toLocaleDateString()}: ${result.error.message}`)
+        } else if (result.state === 'ok') {
+          allEvents = [...allEvents, ...result.events]
+          console.log(`  📅 ${targetDate.toLocaleDateString()}: ${result.events.length} games`)
+        } else if (result.state === 'empty') {
+          console.log(`  📅 ${targetDate.toLocaleDateString()}: 0 games (empty slate)`)
+        } else {
+          console.warn(`  ⚠️  Malformed scoreboard for ${targetDate.toLocaleDateString()}`)
         }
         
         await new Promise(r => setTimeout(r, 200))
@@ -245,8 +278,10 @@ async function fetchGamesFromESPN(sport, date) {
       console.log(`📡 URL: ${url}`)
       
       const data = await fetchScoreboardJson(url)
-      espnFetchOk = true
-      allEvents = data.events || []
+      const classified = classifyEspnScoreboardPayload(data)
+      const todayKey = espnDateParamToKey(formatDateForESPN(new Date()))
+      if (todayKey) coverageByDate[todayKey] = classified.state
+      allEvents = classified.events
     }
     
     console.log(`✅ Found ${allEvents.length} ${sport.toUpperCase()} games`)
@@ -392,10 +427,16 @@ async function fetchGamesFromESPN(sport, date) {
         _awayTeam: away?.team
       }
     })
-    return attachFetchState(mapped, mapped.length ? 'ok' : (espnFetchOk ? 'empty' : 'unavailable'))
+    return attachFetchMeta(mapped, {
+      fetchState: overallFetchState(coverageByDate, mapped.length),
+      coverageByDate,
+    })
   } catch (error) {
     console.error(`❌ Error fetching ${sport}:`, error.message)
-    return attachFetchState([], 'unavailable')
+    return attachFetchMeta([], {
+      fetchState: 'unavailable',
+      coverageByDate: markCoverageUnavailable(coverageByDate),
+    })
   }
 }
 
@@ -920,6 +961,21 @@ async function maybeReconcileAfterFetch(parsed, mlbFetchedSuccessfully) {
   return result.exitCode || 0
 }
 
+async function retireVanishedAfterFetch(sport, games) {
+  const coverageByDate = games?.coverageByDate || {}
+  console.log(`\n🪦 Checking ${sport.toUpperCase()} for vanished scheduled games...`)
+  return runRetireVanishedFromFetch({
+    sport,
+    fetchedGames: games || [],
+    coverageByDate,
+    supabase,
+    logger: console,
+    apply: true,
+    // Same write class as the Game upserts this script already does at 8:09 ET.
+    ignoreQuietPeriod: true,
+  })
+}
+
 async function main() {
   const parsed = parseFetchFreshArgs(process.argv.slice(2))
   const sport = parsed.sport
@@ -940,6 +996,7 @@ async function main() {
         mlbFetchedSuccessfully = games.fetchState === 'ok' || games.fetchState === 'empty'
       }
       totalSaved += await saveToSupabase(s, games, { logPossibleFlips: parsed.reconcile && s === 'mlb' })
+      await retireVanishedAfterFetch(s, games)
       await new Promise(r => setTimeout(r, 1000))
     }
   } else if (SPORT_MAP[sport]) {
@@ -951,6 +1008,7 @@ async function main() {
     totalSaved += await saveToSupabase(sport, games, {
       logPossibleFlips: parsed.reconcile && sport === 'mlb',
     })
+    await retireVanishedAfterFetch(sport, games)
   } else {
     console.error(`❌ Invalid sport: ${sport}. Use: mlb, nfl, nhl, or all`)
     process.exit(1)

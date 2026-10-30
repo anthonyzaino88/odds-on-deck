@@ -73,6 +73,43 @@ describe('record-mlb-window-props CLI', () => {
     expect(result.exitCode).toBe(0)
   })
 
+  test('skips not_needed ghost games even when the start is still in-window', async () => {
+    const persistPublished = jest.fn(async (rows) => rows)
+    const generateFeatured = jest.fn(async () => [])
+    const result = await runRecordMlbWindowProps({
+      argv: [],
+      now: new Date('2026-10-11T22:20:00.000Z'),
+      createClient: () => fakeClient({
+        games: [{
+          id: 'TB_at_MIL_2026-10-11',
+          sport: 'mlb',
+          date: FIRST_PITCH,
+          status: 'not_needed',
+          mlbGameId: '778899',
+        }],
+        props: [{
+          sport: 'mlb',
+          playerName: 'Aaron Judge',
+          type: 'batter_hits',
+          pick: 'over',
+          threshold: 0.5,
+          odds: -110,
+          edge: 0.04,
+          qualityScore: 42,
+          gameId: 'TB_at_MIL_2026-10-11',
+        }],
+      }),
+      fetchLineup: async () => ({ batters: [{ fullName: 'Aaron Judge' }], pitchers: [] }),
+      persistPublished,
+      generateFeatured,
+      persistFeatured: async () => [],
+      log: memoryLog(),
+    })
+    expect(result.windowGames).toHaveLength(0)
+    expect(persistPublished).not.toHaveBeenCalled()
+    expect(generateFeatured).not.toHaveBeenCalled()
+  })
+
   test('records only lineup-confirmed props in the window', async () => {
     const games = [{
       id: 'NYY_at_BOS_2026-10-11',
