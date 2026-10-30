@@ -7,6 +7,7 @@ import {
   attachFetchMeta,
   canRetireOnCoveredDate,
   classifyEspnScoreboardPayload,
+  countNotNeededRetiresSince,
   espnDateParamToKey,
   formatVanishedRetireLog,
   markCoverageUnavailable,
@@ -126,8 +127,8 @@ describe('planVanishedFromFetch', () => {
     })
   })
 
-  test('ghost missing from a covered non-empty slate is retired', () => {
-    const plan = planVanishedFromFetch({
+  test('1-of-2 on a partial fetch aborts; 1-of-1 and 1-of-3 still retire', () => {
+    const two = planVanishedFromFetch({
       dbRows: [
         row('LAD_at_NYY_2026-10-30'),
         row('TB_at_MIL_2026-10-30'),
@@ -135,11 +136,31 @@ describe('planVanishedFromFetch', () => {
       fetchedGames: [fetched('LAD_at_NYY_2026-10-30')],
       coverageByDate: { [TODAY]: 'ok' },
     })
-    expect(plan.actions.find((action) => action.id === 'TB_at_MIL_2026-10-30')).toMatchObject({
+    expect(two.aborts[0]).toMatchObject({
+      reason: 'cap_exceeded',
+      smallDate: true,
+      retires: 1,
+      candidates: 2,
+    })
+    expect(two.actions.filter((action) => action.action === 'retire_not_needed')).toEqual([])
+
+    const three = planVanishedFromFetch({
+      dbRows: [
+        row('LAD_at_NYY_2026-10-30'),
+        row('SEA_at_HOU_2026-10-30'),
+        row('TB_at_MIL_2026-10-30'),
+      ],
+      fetchedGames: [
+        fetched('LAD_at_NYY_2026-10-30'),
+        fetched('SEA_at_HOU_2026-10-30'),
+      ],
+      coverageByDate: { [TODAY]: 'ok' },
+    })
+    expect(three.aborts).toEqual([])
+    expect(three.actions.find((action) => action.id === 'TB_at_MIL_2026-10-30')).toMatchObject({
       action: 'retire_not_needed',
       reason: VANISH_RETIRE_REASON,
     })
-    expect(plan.actions.find((action) => action.id === 'LAD_at_NYY_2026-10-30')).toBeUndefined()
   })
 
   test('failed fetch never retires games', () => {
@@ -239,6 +260,53 @@ describe('planVanishedFromFetch', () => {
     expect(published.summary.retired).toBe(0)
   })
 
+  test('past-date rows with any props are flagged for review instead of retired', () => {
+    const cacheOnly = planVanishedFromFetch({
+      dbRows: [row('TB_at_MIL_2026-10-30', {
+        dependents: {
+          propValidation: 0,
+          propValidationPending: 0,
+          propValidationGraded: 0,
+          propValidationPublished: 0,
+          parlayLeg: 0,
+          parlayLegPending: 0,
+          playerPropCache: 2,
+          odds: 0,
+          edgeSnapshot: 0,
+        },
+      })],
+      fetchedGames: [],
+      coverageByDate: { [TODAY]: 'empty' },
+      todayEt: TOMORROW,
+    })
+    expect(cacheOnly.actions[0]).toMatchObject({
+      action: 'report',
+      reason: 'review_has_props',
+    })
+    expect(cacheOnly.summary.retired).toBe(0)
+
+    const settledParlay = planVanishedFromFetch({
+      dbRows: [row('TB_at_MIL_2026-10-30', {
+        dependents: {
+          propValidation: 0,
+          propValidationPending: 0,
+          propValidationGraded: 0,
+          propValidationPublished: 0,
+          parlayLeg: 1,
+          parlayLegPending: 0,
+          playerPropCache: 0,
+          odds: 0,
+          edgeSnapshot: 0,
+        },
+      })],
+      fetchedGames: [],
+      coverageByDate: { [TODAY]: 'empty' },
+      todayEt: TOMORROW,
+    })
+    expect(settledParlay.actions[0].reason).toBe('review_has_props')
+    expect(settledParlay.summary.retired).toBe(0)
+  })
+
   test('a failed date does not block retiring a fully covered sibling date', () => {
     const plan = planVanishedFromFetch({
       dbRows: [
@@ -295,11 +363,32 @@ describe('planVanishedFromFetch', () => {
   })
 })
 
+describe('countNotNeededRetiresSince', () => {
+  test('throws retire_count_unavailable when count is not a finite number', async () => {
+    const supabase = {
+      from() {
+        return {
+          select() {
+            const chain = {
+              eq() { return chain },
+              gte() { return Promise.resolve({ data: [], count: null, error: null }) },
+            }
+            return chain
+          },
+        }
+      },
+    }
+    await expect(countNotNeededRetiresSince(supabase, '2026-10-31T04:00:00.000Z'))
+      .rejects.toThrow(/retire_count_unavailable/)
+  })
+})
+
 describe('runRetireVanishedFromFetch apply', () => {
   function createApplySupabase({
     data = [{ id: 'TB_at_MIL_2026-10-30' }],
     alreadyToday = 0,
     countError = null,
+    countValue = alreadyToday,
   } = {}) {
     const ops = []
     return {
@@ -315,7 +404,7 @@ describe('runRetireVanishedFromFetch apply', () => {
                 if (countError) {
                   return Promise.resolve({ data: null, count: null, error: countError })
                 }
-                return Promise.resolve({ data: [], count: alreadyToday, error: null })
+                return Promise.resolve({ data: [], count: countValue, error: null })
               },
             }
             return chain
@@ -393,6 +482,25 @@ describe('runRetireVanishedFromFetch apply', () => {
     expect(supabase.ops).toEqual([])
     expect(result.aborts.some((abort) => abort.reason === 'daily_cap_exceeded')).toBe(true)
     expect(warns.some((line) => line.includes('daily_cap_exceeded'))).toBe(true)
+  })
+
+  test('daily cap count:null fails closed and does not retire', async () => {
+    const supabase = createApplySupabase({ countValue: null })
+    const result = await runRetireVanishedFromFetch({
+      sport: 'mlb',
+      fetchedGames: [],
+      coverageByDate: { [TODAY]: 'empty' },
+      dbRows: [row('TB_at_MIL_2026-10-30')],
+      supabase,
+      apply: true,
+      ignoreQuietPeriod: true,
+      now: PAST_NOW,
+      logger: { log() {}, warn() {}, error() {} },
+    })
+    expect(result.applied).toEqual([])
+    expect(supabase.ops).toEqual([])
+    expect(result.skipped).toBe('retire_count_unavailable')
+    expect(result.aborts.some((abort) => abort.reason === 'retire_count_unavailable')).toBe(true)
   })
 
   test('failed coverage dry-run writes nothing', async () => {
@@ -480,6 +588,6 @@ describe('game page not_needed labels', () => {
 
   test('status and subtitle maps include not_needed copy', () => {
     expect(src).toMatch(/'not_needed': 'Not needed'/)
-    expect(src).toMatch(/'not_needed': 'If-necessary game was not played'/)
+    expect(src).toMatch(/'not_needed': 'Removed from the schedule \(not played\)'/)
   })
 })

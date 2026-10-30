@@ -774,9 +774,15 @@ describe('planReconcile protection and dependents', () => {
 })
 
 describe('planReconcile caps', () => {
-  test('small dates abort at more than 1 retire or more than 50%', () => {
+  test('small dates abort at more than 1 retire or 50% or more', () => {
     expect(dateRetireCapHit(1, 1)).toBeNull()
-    expect(dateRetireCapHit(1, 2)).toBeNull()
+    expect(dateRetireCapHit(1, 2)).toMatchObject({
+      reason: 'cap_exceeded',
+      smallDate: true,
+      retires: 1,
+      candidates: 2,
+    })
+    expect(dateRetireCapHit(1, 3)).toBeNull()
     expect(dateRetireCapHit(1, 4)).toBeNull()
     expect(dateRetireCapHit(2, 4)).toMatchObject({ smallDate: true, retires: 2 })
     expect(dateRetireCapHit(3, 4)).toMatchObject({
@@ -849,7 +855,7 @@ describe('planReconcile caps', () => {
     expect(plan.summary.ghostIdsUnknown).toBe(0)
   })
 
-  test('1 ghost out of 3 candidates is allowed (small-date cap allows 1 retire ≤50%)', () => {
+  test('1 ghost out of 3 candidates is allowed (small-date cap allows 1 retire under 50%)', () => {
     const slate = slateFillers()
     const plan = planReconcile({
       dbRows: [slate.rows[0], slate.rows[1], row('CLE_at_TB_2026-10-20')],

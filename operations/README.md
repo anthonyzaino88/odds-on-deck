@@ -128,7 +128,9 @@ this script already upserts Game rows in that window; `--reconcile --apply`
 still refuses it. `oddsApiEventId` is not cleared. Caps: 5 retires per plan,
 5 per ET day across sports (counted via `Game.lastUpdate` on `not_needed`
 rows), 30% when a date has 5+ candidates, and on smaller dates more than
-1 retire or more than 50%.
+1 retire or 50% or more (so 1-of-2 aborts; a lone 1-of-1 is allowed).
+Past-date retires skip rows that still have PropValidation, ParlayLeg,
+or player-prop cache rows and flag them for review.
 
 ```bash
 # Dry-run (default, no writes)

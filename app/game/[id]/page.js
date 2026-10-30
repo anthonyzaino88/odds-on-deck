@@ -2010,7 +2010,7 @@ function formatGameStatusSubtitle(status) {
     'final': 'Game complete',
     'postponed': 'Game postponed',
     'cancelled': 'Game cancelled',
-    'not_needed': 'If-necessary game was not played',
+    'not_needed': 'Removed from the schedule (not played)',
     'delayed': 'Game delayed',
     'pre_game': 'Pre-game',
     'halftime': 'Halftime break',
