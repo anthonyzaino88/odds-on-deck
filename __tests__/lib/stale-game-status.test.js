@@ -19,6 +19,21 @@ const TODAY = '2026-10-31'
 const NOW_ET_APPLY = new Date('2026-10-31T16:00:00.000Z') // 12:00 PM EDT
 const NOW_ET_QUIET = new Date('2026-10-31T15:07:00.000Z') // 11:07 AM EDT
 
+function protectedDeps(overrides = {}) {
+  return {
+    propValidation: 1,
+    propValidationPending: 1,
+    propValidationGraded: 0,
+    propValidationPublished: 0,
+    parlayLeg: 0,
+    parlayLegPending: 0,
+    playerPropCache: 0,
+    odds: 0,
+    edgeSnapshot: 0,
+    ...overrides,
+  }
+}
+
 function row(id, overrides = {}) {
   return {
     id,
@@ -40,6 +55,69 @@ function row(id, overrides = {}) {
       edgeSnapshot: 0,
     },
     ...overrides,
+  }
+}
+
+function createLoadSupabase({
+  games = [],
+  dependentsError = true,
+  alreadyToday = 0,
+  updateData = [{ id: 'x' }],
+} = {}) {
+  const ops = []
+  return {
+    ops,
+    from(table) {
+      if (table !== 'Game') {
+        return {
+          select() {
+            return {
+              in() {
+                return Promise.resolve({
+                  data: null,
+                  error: dependentsError ? { message: 'dependents boom' } : null,
+                })
+              },
+            }
+          },
+        }
+      }
+      return {
+        select(cols, opts) {
+          if (opts?.count === 'exact') {
+            const chain = {
+              eq() { return chain },
+              gte() { return Promise.resolve({ data: [], count: alreadyToday, error: null }) },
+            }
+            return chain
+          }
+          const chain = {
+            in() { return chain },
+            lt() { return Promise.resolve({ data: games, error: null }) },
+          }
+          return chain
+        },
+        update(payload) {
+          const op = { table, type: 'update', payload, filters: [] }
+          ops.push(op)
+          const chain = {
+            eq(col, val) {
+              op.filters.push([col, val])
+              return chain
+            },
+            select(cols) {
+              op.select = cols
+              return Promise.resolve({ data: updateData, error: null })
+            },
+          }
+          return chain
+        },
+        delete() {
+          ops.push({ table, type: 'delete' })
+          throw new Error('delete must not be called')
+        },
+      }
+    },
   }
 }
 
@@ -211,19 +289,7 @@ describe('planStaleStatusSweep', () => {
   test('protected picks skip not_needed', () => {
     const plan = planStaleStatusSweep({
       nowEt: TODAY,
-      dbRows: [row('ATH_at_TEX_2026-10-26', {
-        dependents: {
-          propValidation: 1,
-          propValidationPending: 1,
-          propValidationGraded: 0,
-          propValidationPublished: 0,
-          parlayLeg: 0,
-          parlayLegPending: 0,
-          playerPropCache: 0,
-          odds: 0,
-          edgeSnapshot: 0,
-        },
-      })],
+      dbRows: [row('ATH_at_TEX_2026-10-26', { dependents: protectedDeps() })],
       sourceById: {
         'ATH_at_TEX_2026-10-26': { state: 'summary_404', espnGameId: 'espn-1' },
       },
@@ -233,6 +299,48 @@ describe('planStaleStatusSweep', () => {
       reason: 'protected_has_picks',
     })
     expect(plan.summary.setNotNeeded).toBe(0)
+  })
+
+  test('protected picks still allow final, postponed, and suspended', () => {
+    const deps = protectedDeps()
+    const plan = planStaleStatusSweep({
+      nowEt: TODAY,
+      dbRows: [
+        row('ATH_at_TEX_2026-10-26', { dependents: deps }),
+        row('CHW_at_HOU_2026-10-26', { dependents: deps, status: 'in_progress' }),
+        row('NYY_at_BOS_2026-10-26', { dependents: deps, status: 'delayed' }),
+      ],
+      sourceById: {
+        'ATH_at_TEX_2026-10-26': {
+          state: 'ok',
+          status: { type: { name: 'STATUS_FINAL', completed: true } },
+          homeScore: 4,
+          awayScore: 1,
+        },
+        'CHW_at_HOU_2026-10-26': {
+          state: 'ok',
+          status: { type: { name: 'STATUS_POSTPONED', detail: 'Postponed' } },
+        },
+        'NYY_at_BOS_2026-10-26': {
+          state: 'ok',
+          status: { type: { name: 'STATUS_SUSPENDED', detail: 'Suspended' } },
+        },
+      },
+    })
+    expect(plan.actions.find((a) => a.id === 'ATH_at_TEX_2026-10-26')).toMatchObject({
+      action: 'set_final',
+      nextStatus: 'final',
+    })
+    expect(plan.actions.find((a) => a.id === 'CHW_at_HOU_2026-10-26')).toMatchObject({
+      action: 'set_postponed',
+      nextStatus: 'postponed',
+    })
+    expect(plan.actions.find((a) => a.id === 'NYY_at_BOS_2026-10-26')).toMatchObject({
+      action: 'set_suspended',
+      nextStatus: 'suspended',
+    })
+    expect(plan.summary.setNotNeeded).toBe(0)
+    expect(plan.summary.protected).toBe(0)
   })
 
   test('40 stale rows produce at most 5 not_needed actions', () => {
@@ -355,6 +463,81 @@ describe('apply path', () => {
     expect(() => supabase.from('Game').delete()).toThrow(/delete must not/)
   })
 
+  test('protected picks still write final and skip not_needed', async () => {
+    const deps = protectedDeps()
+    const plan = planStaleStatusSweep({
+      nowEt: TODAY,
+      dbRows: [
+        row('ATH_at_TEX_2026-10-26', { dependents: deps }),
+        row('CHW_at_HOU_2026-10-26', { dependents: deps }),
+      ],
+      sourceById: {
+        'ATH_at_TEX_2026-10-26': {
+          state: 'ok',
+          status: { type: { name: 'STATUS_FINAL', completed: true } },
+          homeScore: 5,
+          awayScore: 2,
+        },
+        'CHW_at_HOU_2026-10-26': { state: 'summary_404', espnGameId: 'espn-CHW' },
+      },
+    })
+    expect(plan.actions.find((a) => a.id === 'ATH_at_TEX_2026-10-26').action).toBe('set_final')
+    expect(plan.actions.find((a) => a.id === 'CHW_at_HOU_2026-10-26')).toMatchObject({
+      action: 'report',
+      reason: 'protected_has_picks',
+    })
+    const leftoverNotNeeded = {
+      ...plan,
+      actions: [
+        plan.actions.find((a) => a.id === 'ATH_at_TEX_2026-10-26'),
+        {
+          id: 'CHW_at_HOU_2026-10-26',
+          sport: 'mlb',
+          status: 'scheduled',
+          priorStatus: 'scheduled',
+          date: '2026-10-26',
+          action: 'set_not_needed',
+          reason: 'source_summary_404',
+          nextStatus: 'not_needed',
+          dependents: deps,
+        },
+      ],
+    }
+    const supabase = createApplySupabase({ data: [{ id: 'x' }] })
+    const result = await applyStaleStatusPlan(supabase, leftoverNotNeeded, {
+      now: NOW_ET_APPLY,
+      alreadyToday: 0,
+      logger: { warn() {}, error() {} },
+    })
+    expect(result.applied).toEqual([{ id: 'ATH_at_TEX_2026-10-26', status: 'final' }])
+    expect(result.skipped).toEqual([{ id: 'CHW_at_HOU_2026-10-26', reason: 'protected_has_picks' }])
+    expect(supabase.ops.filter((op) => op.type === 'update')).toHaveLength(1)
+    expect(supabase.ops[0].payload.status).toBe('final')
+  })
+
+  test('dependents throw plus ESPN 404 rows give 0 not_needed writes', async () => {
+    const games = [
+      row('ATH_at_TEX_2026-10-26'),
+      row('CHW_at_HOU_2026-10-26'),
+    ]
+    const supabase = createLoadSupabase({ games })
+    const result = await runStaleStatusSweep({
+      apply: true,
+      now: NOW_ET_APPLY,
+      supabase,
+      sourceById: {
+        'ATH_at_TEX_2026-10-26': { state: 'summary_404', espnGameId: 'espn-1' },
+        'CHW_at_HOU_2026-10-26': { state: 'summary_404', espnGameId: 'espn-2' },
+      },
+      logger: { log() {}, warn() {}, error() {} },
+    })
+    expect(result.dependentsUnavailable).toBe(true)
+    expect(result.summary.setNotNeeded).toBe(0)
+    expect(result.applied).toEqual([])
+    expect(supabase.ops.filter((op) => op.type === 'update')).toHaveLength(0)
+    expect(result.actions.every((action) => action.action !== 'set_not_needed')).toBe(true)
+  })
+
   test('quiet window refuses --apply-stale', async () => {
     const supabase = createApplySupabase()
     const plan = planStaleStatusSweep({
@@ -370,6 +553,21 @@ describe('apply path', () => {
     })
     expect(result.refused).toBe(true)
     expect(result.reason).toBe('ops_quiet_period')
+    expect(supabase.ops).toEqual([])
+
+    const run = await runStaleStatusSweep({
+      apply: true,
+      now: NOW_ET_QUIET,
+      supabase,
+      dbRows: [row('ATH_at_TEX_2026-10-26')],
+      sourceById: {
+        'ATH_at_TEX_2026-10-26': { state: 'summary_404', espnGameId: 'espn-1' },
+      },
+      logger: { log() {}, warn() {}, error() {} },
+    })
+    expect(run.refused).toBe(true)
+    expect(run.reason).toBe('ops_quiet_period')
+    expect(run.exitCode).toBe(0)
     expect(supabase.ops).toEqual([])
   })
 
