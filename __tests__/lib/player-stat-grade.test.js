@@ -1,6 +1,11 @@
 import {
   appearanceGradeContext,
+  bothBoxRostersPresent,
+  boxTeamsMatchGame,
+  canonicalTeamCode,
   isVerifiedPlayerStatGameId,
+  MLB_MIN_BOX_ROSTER,
+  NHL_MIN_BOX_ROSTER,
   planPlayerAppearanceGrade,
 } from '../../lib/player-stat-grade.js'
 import { isNearMissPlayerName } from '../../lib/player-name-match.js'
@@ -79,6 +84,60 @@ describe('isVerifiedPlayerStatGameId', () => {
       usedId: '824141',
       box: { ...KC_HOU_BOX, homeRosterCount: 0 },
     })).toBe(false)
+  })
+
+  test('stub MLB/NHL boxes below the roster floor are not verified', () => {
+    const mlbStub = { ...KC_HOU_BOX, homeRosterCount: 2, awayRosterCount: 2 }
+    const nhlStub = { ...NJD_NYR_BOX, homeRosterCount: 5, awayRosterCount: 5 }
+    expect(MLB_MIN_BOX_ROSTER).toBe(9)
+    expect(NHL_MIN_BOX_ROSTER).toBe(15)
+    expect(bothBoxRostersPresent(mlbStub, 'mlb')).toBe(false)
+    expect(bothBoxRostersPresent({ ...KC_HOU_BOX, homeRosterCount: 8, awayRosterCount: 26 }, 'mlb')).toBe(false)
+    expect(bothBoxRostersPresent(KC_HOU_BOX, 'mlb')).toBe(true)
+    expect(bothBoxRostersPresent(nhlStub, 'nhl')).toBe(false)
+    expect(bothBoxRostersPresent({ ...NJD_NYR_BOX, homeRosterCount: 14, awayRosterCount: 20 }, 'nhl')).toBe(false)
+    expect(bothBoxRostersPresent(NJD_NYR_BOX, 'nhl')).toBe(true)
+    expect(isVerifiedPlayerStatGameId(FINAL_MLB, 'mlb', {
+      usedId: '824141',
+      box: mlbStub,
+    })).toBe(false)
+    expect(isVerifiedPlayerStatGameId(NHL_GAME, 'nhl', {
+      usedId: '401802001',
+      box: nhlStub,
+    })).toBe(false)
+  })
+
+  test('ATH and OAK are the same MLB team', () => {
+    expect(canonicalTeamCode('mlb', 'ATH')).toBe('ATH')
+    expect(canonicalTeamCode('mlb', 'OAK')).toBe('ATH')
+    const game = {
+      id: 'LAA_at_ATH_2026-09-23',
+      sport: 'mlb',
+      status: 'final',
+      mlbGameId: '824951',
+      home: { abbr: 'ATH' },
+      away: { abbr: 'LAA' },
+    }
+    const oakBox = {
+      homeAbbr: 'OAK',
+      awayAbbr: 'LAA',
+      homeRosterCount: 26,
+      awayRosterCount: 26,
+      playerNames: ['Brent Rooker', 'Mike Trout'],
+    }
+    expect(boxTeamsMatchGame(game, 'mlb', oakBox)).toBe(true)
+    expect(isVerifiedPlayerStatGameId(game, 'mlb', {
+      usedId: '824951',
+      box: oakBox,
+    })).toBe(true)
+    expect(boxTeamsMatchGame({
+      ...game,
+      home: { abbr: 'OAK' },
+      id: 'LAA_at_OAK_2026-09-23',
+    }, 'mlb', {
+      ...oakBox,
+      homeAbbr: 'ATH',
+    })).toBe(true)
   })
 
   test('wrong-team box is not verified', () => {
@@ -200,6 +259,22 @@ describe('planPlayerAppearanceGrade DNP voids', () => {
       }),
       playerName: 'Nobody Fake',
     })).toEqual({ action: 'needs_review', reason: 'not_in_box' })
+  })
+
+  test('a stub box with matching teams stays needs_review, not void', () => {
+    const unmatched = { reason: 'not_in_box', matchStatus: 'unmatched', value: null }
+    const mlbStub = { ...KC_HOU_BOX, homeRosterCount: 2, awayRosterCount: 2 }
+    const nhlStub = { ...NJD_NYR_BOX, homeRosterCount: 5, awayRosterCount: 5 }
+    expect(planPlayerAppearanceGrade(unmatched, appearanceGradeContext(FINAL_MLB, 'mlb', {
+      usedId: '824141',
+      box: mlbStub,
+      playerName: 'Nobody Fake',
+    }))).toEqual({ action: 'needs_review', reason: 'not_in_box' })
+    expect(planPlayerAppearanceGrade(unmatched, appearanceGradeContext(NHL_GAME, 'nhl', {
+      usedId: '401802001',
+      box: nhlStub,
+      playerName: 'Nobody Fake',
+    }))).toEqual({ action: 'needs_review', reason: 'not_in_box' })
   })
 
   test('NHL with no ESPN id stays needs_review even when a box is present', () => {
