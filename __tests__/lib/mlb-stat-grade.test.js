@@ -1,8 +1,11 @@
 import {
+  describeMlbGradeBox,
   isMlbPitcherProp,
   lookupMlbPlayerStat,
+  matchMlbBoxscorePlayer,
   mlbBatterAppeared,
   mlbPitcherAppeared,
+  normalizeMlbPlayerName,
   parseMlbBoxscorePlayers,
   planMlbPlayerStatGrade,
   toLegacyMlbPlayerStatsMap,
@@ -12,6 +15,19 @@ import { getPlayerGameStat, lookupPlayerGameStat } from '../../lib/vendors/mlb-g
 import { mlbBoxscoreFixture } from '../fixtures/mlb-boxscore.fixture.js'
 
 const players = parseMlbBoxscorePlayers(mlbBoxscoreFixture())
+
+describe('describeMlbGradeBox', () => {
+  test('records home/away abbreviations and both roster sizes', () => {
+    const box = describeMlbGradeBox(mlbBoxscoreFixture())
+    expect(box).toMatchObject({
+      homeAbbr: 'HOU',
+      awayAbbr: 'KC',
+    })
+    expect(box.homeRosterCount).toBeGreaterThan(0)
+    expect(box.awayRosterCount).toBeGreaterThan(0)
+    expect(box.playerNames).toEqual(expect.arrayContaining(['Yordan Alvarez', 'Vinnie Pasquantino']))
+  })
+})
 
 describe('MLB appearance vs empty stat line', () => {
   test('empty batting {} is not an appearance — DNP voids, not actual 0', () => {
@@ -98,6 +114,30 @@ describe('MLB appearance vs empty stat line', () => {
     })).toEqual({ action: 'needs_review', reason: 'not_in_box' })
   })
 
+  test('not on either full roster voids only when the game is final and the id is verified', () => {
+    const lookup = lookupMlbPlayerStat(players, 'Nobody Fake', 'batter_hits')
+    expect(planPlayerAppearanceGrade(lookup, {
+      sport: 'mlb',
+      gameFinal: true,
+      gameIdVerified: true,
+    })).toEqual({ action: 'void', reason: 'not_in_box' })
+    expect(planPlayerAppearanceGrade(lookup, {
+      sport: 'mlb',
+      gameFinal: false,
+      gameIdVerified: true,
+    })).toEqual({ action: 'needs_review', reason: 'not_in_box' })
+    expect(planPlayerAppearanceGrade(lookup, {
+      sport: 'mlb',
+      gameFinal: true,
+      gameIdVerified: false,
+    })).toEqual({ action: 'needs_review', reason: 'not_in_box' })
+    expect(planMlbPlayerStatGrade(players, 'Nobody Fake', 'batter_hits', {
+      sport: 'mlb',
+      gameFinal: true,
+      gameIdVerified: true,
+    })).toEqual({ action: 'void', reason: 'not_in_box' })
+  })
+
   test('accent-insensitive name match still sees a bench DNP', () => {
     expect(lookupMlbPlayerStat(players, 'Maikel Garcia', 'batter_total_bases').didNotPlay).toBe(true)
   })
@@ -135,5 +175,63 @@ describe('getPlayerGameStat does not coerce DNP to 0', () => {
     const dnp = await lookupPlayerGameStat('824141', 'Christian Walker', 'batter_runs_scored', { fetchImpl })
     expect(dnp.didNotPlay).toBe(true)
     expect(dnp.value).toBeNull()
+  })
+})
+
+describe('MLB name matching', () => {
+  function appeared(name) {
+    return {
+      name,
+      batting: { hits: 1, plateAppearances: 1 },
+      pitching: null,
+      plateAppearances: 1,
+      battersFaced: 0,
+    }
+  }
+
+  test('strips punctuation, parenthetical years, and Jr/Sr like NHL', () => {
+    expect(normalizeMlbPlayerName('J.T. Ginn')).toBe('jt ginn')
+    expect(normalizeMlbPlayerName('JT Ginn')).toBe('jt ginn')
+    expect(normalizeMlbPlayerName('Max Muncy (2002)')).toBe('max muncy')
+    expect(normalizeMlbPlayerName('Rafael Flores Jr.')).toBe('rafael flores')
+    expect(matchMlbBoxscorePlayer({ 'J.T. Ginn': appeared('J.T. Ginn') }, 'JT Ginn').name)
+      .toBe('J.T. Ginn')
+    expect(matchMlbBoxscorePlayer({ 'Max Muncy': appeared('Max Muncy') }, 'Max Muncy (2002)').name)
+      .toBe('Max Muncy')
+    expect(matchMlbBoxscorePlayer({ 'Rafael Flores': appeared('Rafael Flores') }, 'Rafael Flores Jr.').name)
+      .toBe('Rafael Flores')
+  })
+
+  test('first-name alias matches Josh/Joshua and Leo/Leonardo when unique', () => {
+    expect(matchMlbBoxscorePlayer(
+      { 'Joshua Kuroda-Grauer': appeared('Joshua Kuroda-Grauer') },
+      'Josh Kuroda-Grauer',
+    ).name).toBe('Joshua Kuroda-Grauer')
+    expect(matchMlbBoxscorePlayer(
+      { 'Leonardo Bernal': appeared('Leonardo Bernal') },
+      'Leo Bernal',
+    ).name).toBe('Leonardo Bernal')
+    expect(matchMlbBoxscorePlayer(
+      {
+        'Joshua Kuroda-Grauer': appeared('Joshua Kuroda-Grauer'),
+        'Joshua Kuroda Grauer': appeared('Joshua Kuroda Grauer'),
+      },
+      'Josh Kuroda-Grauer',
+    )).toBeNull()
+  })
+
+  test('does not last-name-only match Jung Hoo Lee to Brooks Lee', () => {
+    expect(matchMlbBoxscorePlayer(
+      { 'Brooks Lee': appeared('Brooks Lee') },
+      'Jung Hoo Lee',
+    )).toBeNull()
+    expect(lookupMlbPlayerStat(
+      { 'Brooks Lee': appeared('Brooks Lee') },
+      'Jung Hoo Lee',
+      'batter_hits',
+    )).toMatchObject({
+      matchStatus: 'unmatched',
+      reason: 'not_in_box',
+    })
   })
 })
