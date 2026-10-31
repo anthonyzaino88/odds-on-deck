@@ -427,8 +427,8 @@ async function fetchGamesFromESPN(sport, date) {
         status: gameStatus,
         homeId: homeId,
         awayId: awayId,
-        homeScore: parseEspnScore(home?.score),
-        awayScore: parseEspnScore(away?.score),
+        homeScore: parseEspnScore(home?.score, { status: gameStatus }),
+        awayScore: parseEspnScore(away?.score, { status: gameStatus }),
         espnGameId: event.id, // Store original ESPN ID separately
         season: espnEventSeasonYear(event),
         _homeTeam: home?.team,

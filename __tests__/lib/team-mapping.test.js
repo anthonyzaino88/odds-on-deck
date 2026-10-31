@@ -1,4 +1,5 @@
 import {
+  aliasedTeamCodes,
   MLB_TEAM_CODE_ALIASES,
   MLB_TEAM_NAMES,
   canonicalizeMlbAbbr,
@@ -9,6 +10,7 @@ import {
   lookupByMlbAbbr,
   mlbTeamCodesEqual,
   resolveMlbTeamCode,
+  teamSelectionMatches,
 } from '../../lib/team-mapping.js'
 
 describe('espnEventSeasonYear', () => {
@@ -63,5 +65,14 @@ describe('MLB stored team codes ATH/CHW', () => {
     expect(lookupByMlbAbbr(parks, 'OAK')).toBe(0.93)
     expect(lookupByMlbAbbr(parks, 'CWS')).toBe(1.01)
     expect(lookupByMlbAbbr(parks, 'ATH')).toBe(0.93)
+  })
+
+  test('selection matching uses the shared table and keeps NFL LV↔OAK', () => {
+    expect(teamSelectionMatches('OAK', 'ATH')).toBe(true)
+    expect(teamSelectionMatches('CWS', 'CHW')).toBe(true)
+    expect(teamSelectionMatches('LV', 'OAK')).toBe(true)
+    expect(teamSelectionMatches('LV', 'ATH')).toBe(false)
+    expect(aliasedTeamCodes('ATH')).toEqual(expect.arrayContaining(['ATH', 'OAK']))
+    expect(aliasedTeamCodes('LV')).toEqual(expect.arrayContaining(['LV', 'OAK']))
   })
 })

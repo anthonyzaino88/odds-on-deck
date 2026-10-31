@@ -32,6 +32,14 @@ describe('parseEspnScore keeps a shutout zero', () => {
     expect(parseEspnScore(null)).toBeNull()
     expect(parseEspnScore('final')).toBeNull()
   })
+
+  test('pre-game 0 stays null; live and final keep a real 0', () => {
+    expect(parseEspnScore(0, { status: 'scheduled' })).toBeNull()
+    expect(parseEspnScore('0', { status: 'pre_game' })).toBeNull()
+    expect(parseEspnScore(0, { status: 'in_progress' })).toBe(0)
+    expect(parseEspnScore('0', { status: 'final' })).toBe(0)
+    expect(parseEspnScore(0, { status: { type: { name: 'STATUS_FINAL', completed: true } } })).toBe(0)
+  })
 })
 
 describe('espnHomeAwayCompetitors', () => {
@@ -47,6 +55,18 @@ describe('espnHomeAwayCompetitors', () => {
     expect(away.team.abbreviation).toBe('CAR')
     expect(parseEspnScore(home.score)).toBe(27)
     expect(parseEspnScore(away.score)).toBe(0)
+  })
+
+  test('falls back to index order when homeAway is missing', () => {
+    const unlabeled = {
+      competitors: [
+        { team: { abbreviation: 'GB' }, score: '27' },
+        { team: { abbreviation: 'CAR' }, score: '0' },
+      ],
+    }
+    const { home, away } = espnHomeAwayCompetitors(unlabeled)
+    expect(home.team.abbreviation).toBe('GB')
+    expect(away.team.abbreviation).toBe('CAR')
   })
 })
 
@@ -92,7 +112,7 @@ describe('fetch-fresh-games scoreboard mapping', () => {
     expect(src).not.toMatch(/competitors\?\.\[0\]/)
     expect(src).toMatch(/'STATUS_END_PERIOD': 'in_progress'/)
     expect(src).toMatch(/mapEspnTypeState\(event\.status\?\.type\?\.state\)/)
-    expect(src).toMatch(/parseEspnScore\(home\?\.score\)/)
+    expect(src).toMatch(/parseEspnScore\(home\?\.score,\s*\{\s*status:\s*gameStatus\s*\}\)/)
     expect(mapEspnTypeState('in')).toBe('in_progress')
     expect(mapEspnTypeState('pre')).toBe('scheduled')
   })
