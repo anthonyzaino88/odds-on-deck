@@ -3,6 +3,7 @@ import {
   fetchTeamPerformanceForSports,
   isPlaceholderTeam,
   planTeamPerformanceWrite,
+  resolveEspnTeamId,
 } from '../../lib/team-performance-fetch.js'
 import {
   extractEspnTeamPerformance,
@@ -119,6 +120,14 @@ function nhlEspnTeamWithoutSplits() {
     },
   }
 }
+
+describe('resolveEspnTeamId', () => {
+  test('maps bare MLB StatsAPI 133 (Athletics) to ESPN 11', () => {
+    expect(resolveEspnTeamId({ id: '133', sport: 'mlb', name: 'Athletics' })).toBe('11')
+    expect(resolveEspnTeamId({ id: 'MLB_133', sport: 'mlb' })).toBe('11')
+    expect(resolveEspnTeamId({ id: 'NFL_1', sport: 'nfl', espnId: '1' })).toBe('1')
+  })
+})
 
 describe('planTeamPerformanceWrite', () => {
   test('failed or empty extract does not produce a write payload', () => {

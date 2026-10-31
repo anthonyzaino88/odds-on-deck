@@ -13,6 +13,8 @@
  *   node scripts/fetch-fresh-games.js mlb --reconcile          # extra dual-source MLB ghost/flip dry-run
  *   node scripts/fetch-fresh-games.js mlb --reconcile --apply  # write not_needed (outside :05–:15 ET)
  *   --max-pct N   Percentage 0-100 (same as reconcile-games.js; default 30)
+ *   --apply-stale Write stale-status updates (final / postponed / not_needed).
+ *                 The sweep always runs on the default path; dry-run is default.
  *
  * After each sport upsert, scheduled games missing from a fully covered
  * source date are marked not_needed (never deleted). Failed / malformed
@@ -28,13 +30,19 @@
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
-import { createGameId, espnEventSeasonYear } from '../lib/team-mapping.js'
+import { createGameId, espnEventSeasonYear, canonicalizeMlbAbbr } from '../lib/team-mapping.js'
+import {
+  espnHomeAwayCompetitors,
+  mapEspnTypeState,
+  parseEspnScore,
+} from '../lib/espn-scoreboard.js'
 import {
   DEFAULT_MAX_RETIRE_PCT,
   parseMaxPctValue,
   runReconcile,
   shiftEtDate,
 } from '../lib/game-reconcile.js'
+import { runStaleStatusSweep, STALE_APPLY_FLAG } from '../lib/stale-game-status.js'
 import {
   attachFetchMeta,
   classifyEspnScoreboardPayload,
@@ -288,8 +296,7 @@ async function fetchGamesFromESPN(sport, date) {
     
     const mapped = allEvents.map(event => {
       const competition = event.competitions?.[0]
-      const home = competition?.competitors?.[0]
-      const away = competition?.competitors?.[1]
+      const { home, away } = espnHomeAwayCompetitors(competition)
       
       // Map ESPN team IDs to our format: "NFL_3" or "NHL_25"
       const prefix = sport.toUpperCase() + '_'
@@ -387,11 +394,12 @@ async function fetchGamesFromESPN(sport, date) {
           'STATUS_SCHEDULED': 'scheduled',
           'STATUS_IN_PROGRESS': 'in_progress',
           'STATUS_FINAL': 'final',
-          'STATUS_HALFTIME': 'halftime'
+          'STATUS_HALFTIME': 'halftime',
+          'STATUS_END_PERIOD': 'in_progress'
         }
         const typeId = event.status?.type?.id?.toString()
         const typeName = event.status?.type?.name
-        gameStatus = statusMap[typeId] || statusMap[typeName] || 'scheduled'
+        gameStatus = statusMap[typeId] || statusMap[typeName] || mapEspnTypeState(event.status?.type?.state) || 'scheduled'
       } else if (sport === 'mlb') {
         const statusMap = {
           '1': 'scheduled',
@@ -419,8 +427,8 @@ async function fetchGamesFromESPN(sport, date) {
         status: gameStatus,
         homeId: homeId,
         awayId: awayId,
-        homeScore: home?.score ? parseInt(home.score) : null,
-        awayScore: away?.score ? parseInt(away.score) : null,
+        homeScore: parseEspnScore(home?.score, { status: gameStatus }),
+        awayScore: parseEspnScore(away?.score, { status: gameStatus }),
         espnGameId: event.id, // Store original ESPN ID separately
         season: espnEventSeasonYear(event),
         _homeTeam: home?.team,
@@ -832,14 +840,8 @@ async function populateMLBGameIds(games) {
 
   console.log(`\n🔗 Cross-referencing ${games.length} ESPN games with MLB Stats API...`)
 
-  const MLB_ABBR_MAP = {
-    'AZ': 'ARI', 'ARI': 'ARI', 'WSH': 'WSH', 'WAS': 'WSH',
-    'CWS': 'CWS', 'CHW': 'CWS', 'SF': 'SF', 'SFG': 'SF',
-    'SD': 'SD', 'SDP': 'SD', 'KC': 'KC', 'KCR': 'KC',
-    'TB': 'TB', 'TBR': 'TB'
-  }
   function normalizeAbbr(abbr) {
-    return MLB_ABBR_MAP[abbr?.toUpperCase()] || abbr?.toUpperCase()
+    return canonicalizeMlbAbbr(abbr)
   }
 
   let matched = 0
@@ -892,6 +894,7 @@ function parseFetchFreshArgs(argv = []) {
   const positional = []
   let reconcile = false
   let apply = false
+  let applyStale = false
   let json = false
   let includePast = false
   let maxRetires = null
@@ -899,6 +902,7 @@ function parseFetchFreshArgs(argv = []) {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === '--reconcile') reconcile = true
+    else if (arg === STALE_APPLY_FLAG) applyStale = true
     else if (arg === '--apply') apply = true
     else if (arg === '--json') json = true
     else if (arg === '--include-past') includePast = true
@@ -925,6 +929,7 @@ function parseFetchFreshArgs(argv = []) {
     date: positional[1] || null,
     reconcile,
     apply,
+    applyStale,
     json,
     includePast,
     maxRetires,
@@ -1018,8 +1023,19 @@ async function main() {
   console.log(`📊 TOTAL SAVED: ${totalSaved} games`)
   console.log('✅ Fresh games fetched and saved!')
 
+  const staleExit = await sweepStaleAfterFetch(parsed)
   const reconcileExit = await maybeReconcileAfterFetch(parsed, mlbFetchedSuccessfully)
-  if (reconcileExit) process.exit(reconcileExit)
+  if (staleExit || reconcileExit) process.exit(staleExit || reconcileExit)
+}
+
+async function sweepStaleAfterFetch(parsed) {
+  console.log(`\n🧹 Sweeping stale active-status games (${parsed.applyStale ? 'apply' : 'dry-run'})...`)
+  const result = await runStaleStatusSweep({
+    apply: Boolean(parsed.applyStale),
+    supabase,
+    logger: console,
+  })
+  return result.exitCode || 0
 }
 
 main().catch(error => {

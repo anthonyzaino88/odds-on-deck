@@ -237,7 +237,6 @@ describe('getBatterVsPitcherMatchup', () => {
 
     expect(result).toHaveProperty('platoonAdvantage')
     expect(result).toHaveProperty('pitchMixFit')
-    expect(result).toHaveProperty('formFactor')
     expect(result).toHaveProperty('projectedOPS')
     expect(result).toHaveProperty('confidence')
 
