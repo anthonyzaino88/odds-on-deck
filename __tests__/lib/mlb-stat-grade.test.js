@@ -1,4 +1,5 @@
 import {
+  describeMlbGradeBox,
   isMlbPitcherProp,
   lookupMlbPlayerStat,
   matchMlbBoxscorePlayer,
@@ -14,6 +15,19 @@ import { getPlayerGameStat, lookupPlayerGameStat } from '../../lib/vendors/mlb-g
 import { mlbBoxscoreFixture } from '../fixtures/mlb-boxscore.fixture.js'
 
 const players = parseMlbBoxscorePlayers(mlbBoxscoreFixture())
+
+describe('describeMlbGradeBox', () => {
+  test('records home/away abbreviations and both roster sizes', () => {
+    const box = describeMlbGradeBox(mlbBoxscoreFixture())
+    expect(box).toMatchObject({
+      homeAbbr: 'HOU',
+      awayAbbr: 'KC',
+    })
+    expect(box.homeRosterCount).toBeGreaterThan(0)
+    expect(box.awayRosterCount).toBeGreaterThan(0)
+    expect(box.playerNames).toEqual(expect.arrayContaining(['Yordan Alvarez', 'Vinnie Pasquantino']))
+  })
+})
 
 describe('MLB appearance vs empty stat line', () => {
   test('empty batting {} is not an appearance — DNP voids, not actual 0', () => {

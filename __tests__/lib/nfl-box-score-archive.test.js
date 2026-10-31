@@ -169,18 +169,32 @@ describe('NFL archival parser', () => {
     )).toEqual({ passingYards: 12 })
   })
 
-  test('last-name-only NFL match requires exactly one candidate', () => {
+  test('unique first-name alias still matches Josh/Joshua', () => {
     expect(matchNflBoxscorePlayer(
-      { 'John Smithington': { rushingYards: 4 } },
-      'Jonathan Smithington',
-    )).toEqual({ rushingYards: 4 })
+      { 'Josh Allen': { passingYards: 300 } },
+      'Joshua Allen',
+    )).toEqual({ passingYards: 300 })
+  })
+
+  test('does not substring-match Christian Watson to Justin Watson', () => {
     expect(matchNflBoxscorePlayer(
-      {
-        'John Smithington': { rushingYards: 4 },
-        'Jane Smithington': { rushingYards: 9 },
-      },
-      'Jonathan Smithington',
+      { 'Justin Watson': { receivingYards: 41 } },
+      'Christian Watson',
     )).toBeNull()
+  })
+
+  test('does not substring-match Jordan Love to Jordan Lovett', () => {
+    expect(matchNflBoxscorePlayer(
+      { 'Jordan Lovett': { tackles: 6 } },
+      'Jordan Love',
+    )).toBeNull()
+  })
+
+  test('does not last-name-match Allen or Hines-Allen to Josh Allen', () => {
+    const box = { 'Josh Allen': { passingYards: 300 } }
+    expect(matchNflBoxscorePlayer(box, 'Allen')).toBeNull()
+    expect(matchNflBoxscorePlayer(box, 'Hines-Allen')).toBeNull()
+    expect(matchNflBoxscorePlayer(box, 'Jonathan Allen')).toBeNull()
   })
 })
 

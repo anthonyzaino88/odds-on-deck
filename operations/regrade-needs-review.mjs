@@ -8,7 +8,8 @@
  *
  * Writes a plan CSV to operations/backups/. --apply --confirm <plan-hash>
  * writes only after a full-row JSONL backup and a row-count re-check.
- * Refuses :05–:15 ET at start and before every batch of 25.
+ * If the hash does not match this run, re-run the dry-run and confirm
+ * the new hash. Refuses :05–:15 ET at start and before every batch of 25.
  * Updates with .eq('id').eq('status','needs_review').
  *
  * supabaseAdmin imports server-only. Run with:
@@ -27,7 +28,7 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { config } from 'dotenv'
 import { supabaseAdmin } from '../lib/supabase-admin.js'
-import { fetchParsedMlbBoxscore } from '../lib/vendors/mlb-game-stats.js'
+import { fetchMlbGradeBox } from '../lib/vendors/mlb-game-stats.js'
 import { getPlayerGameStat as lookupNflStat } from '../lib/vendors/nfl-game-stats.js'
 import { lookupPlayerGameStat as lookupNhlStat } from '../lib/vendors/nhl-game-stats.js'
 import { lookupMlbPlayerStat } from '../lib/mlb-stat-grade.js'
@@ -50,7 +51,7 @@ export async function main(argv = process.argv.slice(2)) {
     lookupMlb: lookupMlbPlayerStat,
     lookupNhl: lookupNhlStat,
     lookupNfl: lookupNflStat,
-    fetchMlbBoxscore: fetchParsedMlbBoxscore,
+    fetchMlbBoxscore: fetchMlbGradeBox,
     writeFile: writeFileSync,
     mkdir: mkdirSync,
     log: console,

@@ -3,6 +3,7 @@ import {
   isVerifiedPlayerStatGameId,
   planPlayerAppearanceGrade,
 } from '../../lib/player-stat-grade.js'
+import { isNearMissPlayerName } from '../../lib/player-name-match.js'
 
 const FINAL_MLB = {
   id: 'KC_at_HOU_2026-09-17',
@@ -12,21 +13,143 @@ const FINAL_MLB = {
   awayScore: 2,
   mlbGameId: '824141',
   espnGameId: '401581234',
+  homeId: 'MLB_117',
+  awayId: 'MLB_118',
+  home: { abbr: 'HOU' },
+  away: { abbr: 'KC' },
+}
+
+const KC_HOU_BOX = {
+  homeAbbr: 'HOU',
+  awayAbbr: 'KC',
+  homeRosterCount: 26,
+  awayRosterCount: 26,
+  playerNames: ['Jose Altuve', 'Bobby Witt Jr.'],
+}
+
+const NHL_GAME = {
+  id: 'NJD_at_NYR_2026-10-01',
+  sport: 'nhl',
+  status: 'final',
+  homeScore: 3,
+  awayScore: 2,
+  espnGameId: '401802001',
+  homeId: 'NHL_3',
+  awayId: 'NHL_1',
+  home: { abbr: 'NYR' },
+  away: { abbr: 'NJD' },
+}
+
+const NJD_NYR_BOX = {
+  homeAbbr: 'NYR',
+  awayAbbr: 'NJD',
+  homeRosterCount: 20,
+  awayRosterCount: 20,
+  playerNames: ['Artemi Panarin', 'Jack Hughes'],
 }
 
 describe('isVerifiedPlayerStatGameId', () => {
-  test('MLB is verified when mlbGameId matches the used id and a schedule/ESPN id is present', () => {
-    expect(isVerifiedPlayerStatGameId(FINAL_MLB, 'mlb', '824141')).toBe(true)
-    expect(isVerifiedPlayerStatGameId(FINAL_MLB, 'mlb', FINAL_MLB.id)).toBe(true)
-    expect(isVerifiedPlayerStatGameId({ ...FINAL_MLB, mlbGameId: null }, 'mlb', '824141')).toBe(false)
-    expect(isVerifiedPlayerStatGameId(FINAL_MLB, 'mlb', '999999')).toBe(false)
+  test('MLB is verified only with a real vendor id, both rosters, and matching teams', () => {
+    expect(isVerifiedPlayerStatGameId(FINAL_MLB, 'mlb', {
+      usedId: '824141',
+      box: KC_HOU_BOX,
+    })).toBe(true)
+    expect(isVerifiedPlayerStatGameId(FINAL_MLB, 'mlb', '824141')).toBe(false)
+    expect(isVerifiedPlayerStatGameId(FINAL_MLB, 'mlb', FINAL_MLB.id)).toBe(false)
+    expect(isVerifiedPlayerStatGameId({ ...FINAL_MLB, mlbGameId: null }, 'mlb', {
+      usedId: '824141',
+      box: KC_HOU_BOX,
+    })).toBe(false)
+    expect(isVerifiedPlayerStatGameId(FINAL_MLB, 'mlb', {
+      usedId: '999999',
+      box: KC_HOU_BOX,
+    })).toBe(false)
   })
 
-  test('NHL is verified from ESPN id or schedule id', () => {
-    const nhl = { id: 'NJD_at_NYR_2026-10-01', sport: 'nhl', espnGameId: '401802001' }
-    expect(isVerifiedPlayerStatGameId(nhl, 'nhl', '401802001')).toBe(true)
-    expect(isVerifiedPlayerStatGameId({ id: 'NJD_at_NYR_2026-10-01', sport: 'nhl' }, 'nhl')).toBe(true)
+  test('empty or partial box is not verified', () => {
+    expect(isVerifiedPlayerStatGameId(FINAL_MLB, 'mlb', {
+      usedId: '824141',
+      box: { ...KC_HOU_BOX, homeRosterCount: 0, awayRosterCount: 0, playerNames: [] },
+    })).toBe(false)
+    expect(isVerifiedPlayerStatGameId(FINAL_MLB, 'mlb', {
+      usedId: '824141',
+      box: { ...KC_HOU_BOX, awayRosterCount: 0 },
+    })).toBe(false)
+    expect(isVerifiedPlayerStatGameId(FINAL_MLB, 'mlb', {
+      usedId: '824141',
+      box: { ...KC_HOU_BOX, homeRosterCount: 0 },
+    })).toBe(false)
+  })
+
+  test('wrong-team box is not verified', () => {
+    expect(isVerifiedPlayerStatGameId(FINAL_MLB, 'mlb', {
+      usedId: '824141',
+      box: {
+        homeAbbr: 'NYY',
+        awayAbbr: 'BOS',
+        homeRosterCount: 26,
+        awayRosterCount: 26,
+        playerNames: ['Aaron Judge', 'Rafael Devers'],
+      },
+    })).toBe(false)
+  })
+
+  test('NHL requires a real ESPN id plus a matching full box', () => {
+    expect(isVerifiedPlayerStatGameId(NHL_GAME, 'nhl', {
+      usedId: '401802001',
+      box: NJD_NYR_BOX,
+    })).toBe(true)
+    expect(isVerifiedPlayerStatGameId({
+      id: 'NJD_at_NYR_2026-10-01',
+      sport: 'nhl',
+    }, 'nhl', { box: NJD_NYR_BOX })).toBe(false)
+    expect(isVerifiedPlayerStatGameId({
+      id: 'NJD_at_NYR_2026-10-01',
+      sport: 'nhl',
+    }, 'nhl')).toBe(false)
     expect(isVerifiedPlayerStatGameId({ id: 'nope', sport: 'nhl' }, 'nhl')).toBe(false)
+  })
+})
+
+describe('near-miss names stay needs_review', () => {
+  test('Zach/Zack Wheeler, Kiké Hernández, and J. Crawford are near-misses', () => {
+    expect(isNearMissPlayerName('Zach Wheeler', ['Zack Wheeler', 'Bryce Harper'])).toBe(true)
+    expect(isNearMissPlayerName('Kiké Hernández', ['Enrique Hernandez', 'Mookie Betts'])).toBe(true)
+    expect(isNearMissPlayerName('J. Crawford', ['J.P. Crawford', 'Cal Raleigh'])).toBe(true)
+    expect(isNearMissPlayerName('Nobody Fake', KC_HOU_BOX.playerNames)).toBe(false)
+  })
+
+  test('near-miss on a final verified box is needs_review, not void', () => {
+    expect(planPlayerAppearanceGrade(
+      { reason: 'not_in_box', matchStatus: 'unmatched', value: null },
+      {
+        sport: 'mlb',
+        gameFinal: true,
+        gameIdVerified: true,
+        playerName: 'Zach Wheeler',
+        box: { ...KC_HOU_BOX, playerNames: ['Zack Wheeler', 'Bryce Harper'] },
+      },
+    )).toEqual({ action: 'needs_review', reason: 'near_miss' })
+    expect(planPlayerAppearanceGrade(
+      { reason: 'not_in_box', matchStatus: 'unmatched', value: null },
+      {
+        sport: 'mlb',
+        gameFinal: true,
+        gameIdVerified: true,
+        playerName: 'Kiké Hernández',
+        box: { playerNames: ['Enrique Hernandez'] },
+      },
+    )).toEqual({ action: 'needs_review', reason: 'near_miss' })
+    expect(planPlayerAppearanceGrade(
+      { reason: 'not_in_box', matchStatus: 'unmatched', value: null },
+      {
+        sport: 'mlb',
+        gameFinal: true,
+        gameIdVerified: true,
+        playerName: 'J. Crawford',
+        box: { playerNames: ['J.P. Crawford'] },
+      },
+    )).toEqual({ action: 'needs_review', reason: 'near_miss' })
   })
 })
 
@@ -34,12 +157,57 @@ describe('planPlayerAppearanceGrade DNP voids', () => {
   test('MLB/NHL missing from a final verified box become void', () => {
     expect(planPlayerAppearanceGrade(
       { reason: 'not_in_box', matchStatus: 'unmatched', value: null },
-      { sport: 'mlb', gameFinal: true, gameIdVerified: true },
+      { sport: 'mlb', gameFinal: true, gameIdVerified: true, playerName: 'Nobody Fake', box: KC_HOU_BOX },
     )).toEqual({ action: 'void', reason: 'not_in_box' })
     expect(planPlayerAppearanceGrade(
       { matchStatus: 'unmatched', value: null, gameFinal: true },
-      { sport: 'nhl', gameFinal: true, gameIdVerified: true },
+      { sport: 'nhl', gameFinal: true, gameIdVerified: true, playerName: 'Nobody Fake', box: NJD_NYR_BOX },
     )).toEqual({ action: 'void', reason: 'not_in_box' })
+  })
+
+  test('empty, partial, or wrong-team boxes stay needs_review', () => {
+    const unmatched = { reason: 'not_in_box', matchStatus: 'unmatched', value: null }
+    expect(planPlayerAppearanceGrade(unmatched, {
+      sport: 'mlb',
+      gameFinal: true,
+      gameIdVerified: isVerifiedPlayerStatGameId(FINAL_MLB, 'mlb', {
+        usedId: '824141',
+        box: { ...KC_HOU_BOX, homeRosterCount: 0, awayRosterCount: 0, playerNames: [] },
+      }),
+      playerName: 'Nobody Fake',
+    })).toEqual({ action: 'needs_review', reason: 'not_in_box' })
+    expect(planPlayerAppearanceGrade(unmatched, {
+      sport: 'mlb',
+      gameFinal: true,
+      gameIdVerified: isVerifiedPlayerStatGameId(FINAL_MLB, 'mlb', {
+        usedId: '824141',
+        box: { ...KC_HOU_BOX, awayRosterCount: 0 },
+      }),
+      playerName: 'Nobody Fake',
+    })).toEqual({ action: 'needs_review', reason: 'not_in_box' })
+    expect(planPlayerAppearanceGrade(unmatched, {
+      sport: 'mlb',
+      gameFinal: true,
+      gameIdVerified: isVerifiedPlayerStatGameId(FINAL_MLB, 'mlb', {
+        usedId: '824141',
+        box: {
+          homeAbbr: 'NYY',
+          awayAbbr: 'BOS',
+          homeRosterCount: 26,
+          awayRosterCount: 26,
+          playerNames: ['Aaron Judge'],
+        },
+      }),
+      playerName: 'Nobody Fake',
+    })).toEqual({ action: 'needs_review', reason: 'not_in_box' })
+  })
+
+  test('NHL with no ESPN id stays needs_review even when a box is present', () => {
+    const game = { id: 'NJD_at_NYR_2026-10-01', sport: 'nhl', status: 'final' }
+    expect(planPlayerAppearanceGrade(
+      { reason: 'not_in_box', matchStatus: 'unmatched', value: null },
+      appearanceGradeContext(game, 'nhl', { box: NJD_NYR_BOX, playerName: 'Nobody Fake' }),
+    )).toEqual({ action: 'needs_review', reason: 'not_in_box' })
   })
 
   test('keeps needs_review when the game is not final or the id is unverified', () => {
@@ -74,16 +242,23 @@ describe('planPlayerAppearanceGrade DNP voids', () => {
     })).toEqual({ action: 'void', reason: 'zero_toi' })
   })
 
-  test('appearanceGradeContext uses a real final + matching vendor id', () => {
-    expect(appearanceGradeContext(FINAL_MLB, 'mlb', '824141')).toEqual({
+  test('appearanceGradeContext verifies only a matching full box', () => {
+    expect(appearanceGradeContext(FINAL_MLB, 'mlb', {
+      usedId: '824141',
+      box: KC_HOU_BOX,
+    })).toMatchObject({
       sport: 'mlb',
       gameFinal: true,
       gameIdVerified: true,
     })
+    expect(appearanceGradeContext(FINAL_MLB, 'mlb', '824141')).toMatchObject({
+      gameFinal: true,
+      gameIdVerified: false,
+    })
     expect(appearanceGradeContext({
       ...FINAL_MLB,
       status: 'in_progress',
-    }, 'mlb', '824141')).toMatchObject({
+    }, 'mlb', { usedId: '824141', box: KC_HOU_BOX })).toMatchObject({
       gameFinal: false,
       gameIdVerified: true,
     })

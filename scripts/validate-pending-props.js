@@ -248,7 +248,11 @@ async function main() {
             mlbLookup = await lookupMLBStat(game.mlbGameId, v.playerName, v.propType)
             const mlbPlan = planPlayerAppearanceGrade(
               mlbLookup,
-              appearanceGradeContext(game, 'mlb', game.mlbGameId),
+              appearanceGradeContext(game, 'mlb', {
+                usedId: game.mlbGameId,
+                box: mlbLookup?.box,
+                playerName: v.playerName,
+              }),
             )
             if (mlbPlan.action === 'void') {
               dnpReason = mlbPlan.reason
@@ -269,7 +273,11 @@ async function main() {
             )
             const nhlPlan = planPlayerAppearanceGrade(
               nhlLookup,
-              appearanceGradeContext(game, 'nhl', game.espnGameId),
+              appearanceGradeContext(game, 'nhl', {
+                usedId: game.espnGameId,
+                box: nhlLookup?.box,
+                playerName: v.playerName,
+              }),
             )
             if (nhlPlan.action === 'void') {
               dnpReason = nhlPlan.reason

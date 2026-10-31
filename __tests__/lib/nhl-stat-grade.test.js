@@ -801,8 +801,9 @@ describe('NHL-only wiring leaves MLB/NFL graders untouched', () => {
     expect(nfl).not.toMatch('nhl-stat-grade')
     expect(mlb).toMatch(/lookupMlbPlayerStat/)
     expect(nfl).toMatch('player-name-match')
-    expect(nfl).toMatch(/last === targetLast && last\.length > 3/)
-    expect(nfl).toMatch(/lastNameHits\.length === 1/)
+    expect(nfl).toMatch(/uniqueFirstNameAliasMatch/)
+    expect(nfl).not.toMatch(/lastNameHits/)
+    expect(nfl).not.toMatch(/last === targetLast && last\.length > 3/)
   })
 
   test('validate-pending-props only accepts NHL zeros after a matched final stat', () => {
