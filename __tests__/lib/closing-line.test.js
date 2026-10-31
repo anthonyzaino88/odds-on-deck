@@ -269,6 +269,44 @@ describe('CLV math', () => {
     expect(summary.lineMovedAvgClvProb).toBeCloseTo(clvFromOdds(140, 160).clvProb, 8)
   })
 
+  test('ignores NHL rows from nfl-nhl-v0.1.0 and leaves NFL CLV unchanged', () => {
+    const nfl = {
+      sport: 'nfl',
+      modelRun: 'nfl-nhl-v0.1.0',
+      odds: 150,
+      closeOdds: 130,
+      threshold: 0.5,
+      closeLine: 0.5,
+    }
+    const legacyNhl = {
+      sport: 'nhl',
+      modelRun: 'nfl-nhl-v0.1.0',
+      source: 'game_line',
+      propType: 'moneyline',
+      odds: 150,
+      closeOdds: 130,
+      threshold: 0.5,
+      closeLine: 0.5,
+    }
+    const currentNhl = {
+      sport: 'nhl',
+      modelRun: 'nhl-gd-v0.2.0',
+      source: 'game_line',
+      propType: 'moneyline',
+      odds: -110,
+      closeOdds: -120,
+      threshold: 0.5,
+      closeLine: 0.5,
+    }
+    const summary = summarizePublishedClv([nfl, legacyNhl, currentNhl])
+    expect(summary.sample).toBe(2)
+    expect(summary.sameLine).toBe(2)
+    expect(summary.avgClvProb).toBeCloseTo((
+      clvFromOdds(150, 130).clvProb
+      + clvFromOdds(-110, -120).clvProb
+    ) / 2, 8)
+  })
+
   test('empty or missing closes stay honest zeros', () => {
     expect(summarizePublishedClv([])).toMatchObject({
       sample: 0,

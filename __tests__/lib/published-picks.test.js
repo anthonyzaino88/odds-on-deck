@@ -8,6 +8,7 @@ import {
   selectTodaysBoardRows,
   rankEditorsPicks,
   summarizeSidesTotals,
+  isSidesTotalsPick,
   summarizeYesterdayPublished,
   todaysBoardSlateState,
   getEtCalendarDayRange,
@@ -413,6 +414,36 @@ describe('summarizeSidesTotals', () => {
       }),
     ])
     expect(summary.graded).toBe(0)
+  })
+
+  test('ignores NHL game-line rows from the retired nfl-nhl-v0.1.0 model', () => {
+    const legacyNhl = publishedBase({
+      sport: 'nhl',
+      result: 'correct',
+      odds: 110,
+      propType: 'moneyline',
+      prediction: 'EDM',
+      source: 'game_line',
+      modelRun: 'nfl-nhl-v0.1.0',
+    })
+    const currentNhl = {
+      ...legacyNhl,
+      modelRun: 'nhl-gd-v0.2.0',
+    }
+    expect(isSidesTotalsPick(legacyNhl, { sports: ['nhl'] })).toBe(false)
+    expect(isSidesTotalsPick(currentNhl, { sports: ['nhl'] })).toBe(true)
+    expect(summarizeSidesTotals([legacyNhl, currentNhl], { sports: ['nhl'] }).graded).toBe(1)
+
+    const legacyNfl = publishedBase({
+      sport: 'nfl',
+      result: 'correct',
+      odds: 110,
+      propType: 'moneyline',
+      prediction: 'KC',
+      source: 'game_line',
+      modelRun: 'nfl-nhl-v0.1.0',
+    })
+    expect(isSidesTotalsPick(legacyNfl)).toBe(true)
   })
 })
 
@@ -922,6 +953,17 @@ describe('shadow published NHL cohort', () => {
       threshold: 0.5,
     })).toBe(false)
     expect(isShadowPublishedEligibleProp({ ...nhlKeep, sport: 'mlb' })).toBe(false)
+  })
+
+  test('shadow record/ROI drops rows tagged with nfl-nhl-v0.1.0 and keeps current props', () => {
+    const legacyTagged = {
+      ...nhlKeep,
+      modelRun: 'nfl-nhl-v0.1.0',
+    }
+    expect(isShadowPublishedPick(legacyTagged)).toBe(false)
+    expect(isPublishedPick(legacyTagged, { includeShadowPublished: true, sports: ['nhl'] })).toBe(false)
+    expect(isShadowPublishedPick(nhlKeep)).toBe(true)
+    expect(summarizeShadowPublishedPicks([legacyTagged, nhlKeep]).graded).toBe(1)
   })
 
   test('public Published helpers never admit a shadow-tagged row', () => {

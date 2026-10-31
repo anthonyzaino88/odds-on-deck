@@ -62,6 +62,19 @@ describe('morning ops team-stats refresh', () => {
     expect(script).toMatch(/calculateNFLEdges\(game, odds\)/)
   })
 
+  test('calculate-game-edges writes NHL model inputs on the existing payload column', () => {
+    const script = read('scripts/calculate-game-edges.js')
+    expect(script).toMatch(/toNhlEdgeSnapshotInsert/)
+    expect(script).toMatch(/from '\.\.\/lib\/edge-nfl-nhl\.js'/)
+    expect(script).not.toMatch(/modelRun: 'nfl-nhl-v0\.1\.0'/)
+
+    const nhl = read('lib/edge-nfl-nhl.js')
+    expect(nhl).toMatch(/export function toNhlEdgeSnapshotInsert/)
+    expect(nhl).toMatch(/payload: edges\?\.payload/)
+    expect(nhl).toMatch(/NHL_MODEL_VERSION/)
+    expect(nhl).not.toMatch(/modelRun: 'nfl-nhl-v0\.1\.0'/)
+  })
+
   test('calculate-game-edges skips MLB when team stats are ineligible', () => {
     const script = read('scripts/calculate-game-edges.js')
     expect(script).toMatch(/evaluateMatchupTeamStatsForEdge/)
