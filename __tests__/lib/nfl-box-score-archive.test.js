@@ -19,7 +19,7 @@ import {
   verifyNflArchiveVersion,
   writeNflBoxScoreArchive,
 } from '../../lib/nfl-box-score-archive.js'
-import { fetchNFLGameStats, getPlayerGameStat } from '../../lib/vendors/nfl-game-stats.js'
+import { fetchNFLGameStats, getPlayerGameStat, matchNflBoxscorePlayer } from '../../lib/vendors/nfl-game-stats.js'
 import { nflArchiveJobExitCode, runNflBoxScoreJob } from '../../lib/nfl-archive-job.js'
 import {
   COMPLETED_EVENT_ID,
@@ -138,6 +138,49 @@ describe('NFL archival parser', () => {
     await expect(
       getPlayerGameStat(COMPLETED_EVENT_ID, 'Noah Fant', 'player_receptions')
     ).resolves.toBeNull()
+  })
+
+  test('matched player with no category line in a final box is 0, not null', async () => {
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      statusText: 'OK',
+      json: async () => completedNflSummaryFixture(),
+    })
+    await expect(
+      getPlayerGameStat(COMPLETED_EVENT_ID, 'Jalen Hurts', 'rushing_yards')
+    ).resolves.toBe(0)
+  })
+
+  test('matched player with no category line in a live box stays null', async () => {
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      statusText: 'OK',
+      json: async () => inProgressNflSummaryFixture(),
+    })
+    await expect(
+      getPlayerGameStat('401547399', 'Jalen Hurts', 'rushing_yards')
+    ).resolves.toBeNull()
+  })
+
+  test('JT Ginn matches J.T. Ginn via the shared normalizer', () => {
+    expect(matchNflBoxscorePlayer(
+      { 'J.T. Ginn': { passingYards: 12 } },
+      'JT Ginn',
+    )).toEqual({ passingYards: 12 })
+  })
+
+  test('last-name-only NFL match requires exactly one candidate', () => {
+    expect(matchNflBoxscorePlayer(
+      { 'John Smithington': { rushingYards: 4 } },
+      'Jonathan Smithington',
+    )).toEqual({ rushingYards: 4 })
+    expect(matchNflBoxscorePlayer(
+      {
+        'John Smithington': { rushingYards: 4 },
+        'Jane Smithington': { rushingYards: 9 },
+      },
+      'Jonathan Smithington',
+    )).toBeNull()
   })
 })
 

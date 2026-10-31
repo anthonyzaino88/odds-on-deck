@@ -230,6 +230,20 @@ describe('strict NHL player matching', () => {
     ).status).toBe('matched')
   })
 
+  test('Yegor aliases Egor Chinakhov when unique', () => {
+    expect(matchNhlBoxscorePlayer(
+      [{ id: '8481477', name: 'Yegor Chinakhov', team: 'CBJ' }],
+      { name: 'Egor Chinakhov', team: 'CBJ' },
+    )).toMatchObject({
+      status: 'matched',
+      player: { id: '8481477' },
+    })
+    expect(matchNhlBoxscorePlayer(
+      [{ id: '8481477', name: 'Egor Chinakhov', team: 'CBJ' }],
+      { name: 'Yegor Chinakhov' },
+    ).status).toBe('matched')
+  })
+
   test('nickname aliases match only when unique after exact miss', () => {
     expect(matchNhlBoxscorePlayer(
       [{ id: '1', name: 'Mitchell Marner', team: 'TOR' }],
@@ -786,7 +800,9 @@ describe('NHL-only wiring leaves MLB/NFL graders untouched', () => {
     expect(mlb).not.toMatch('nhl-stat-grade')
     expect(nfl).not.toMatch('nhl-stat-grade')
     expect(mlb).toMatch(/lookupMlbPlayerStat/)
+    expect(nfl).toMatch('player-name-match')
     expect(nfl).toMatch(/last === targetLast && last\.length > 3/)
+    expect(nfl).toMatch(/lastNameHits\.length === 1/)
   })
 
   test('validate-pending-props only accepts NHL zeros after a matched final stat', () => {
