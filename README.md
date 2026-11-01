@@ -214,7 +214,9 @@ npm run capture:published-closes:apply    # write Published / shadow closes
 npm run capture:published-closes:nfl-all  # dry-run + every pending NFL prop and NFL game lines
 npm run capture:published-closes:nfl-all:apply
 # Or: node scripts/capture-published-closes.js --nfl-all --dry-run
-#     node scripts/capture-published-closes.js --nfl-all --apply --max-calls 8
+#     node scripts/capture-published-closes.js --nfl-all --apply --max-calls 8 --max-credits 24
+# Do not overlap capture --apply runs. ClosingOdds has no unique
+# (game, book, market) key; a unique index is an optional follow-up.
 
 # Export
 npm run export:csv   # Export parlays to CSV

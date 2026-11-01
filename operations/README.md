@@ -226,11 +226,23 @@ that still has no close is targeted (Published bar ignored), and each
 NFL game's existing event-odds request also asks for `h2h`, `spreads`,
 and `totals`. Prop closes still write `closeOdds` / `closeLine` /
 `closeCapturedAt`. Game-line closes write one `ClosingOdds` row per
-book + market and skip rows that already exist. Absent the flag,
-behavior is unchanged. NHL visibility is unchanged. Dry-run prints
-planned HTTP calls including the quota check and ends with
-`CALLS_USED=<n>` (actual calls; 0 on dry-run). Prefer the dedicated
-npm scripts — do not pass flags through `npm run capture:published-closes`.
+book + market. A row counts as already captured only if it came from
+this close capture: `id` starts with `clvclose:` or `snapshot_at` is
+inside that game's T−35..T−1 window. Morning
+`snapshot-closing-lines` rows (same book title, up to 2 hours out) do
+not block the true close.
+
+**Do not overlap capture `--apply` runs.** `ClosingOdds` has no unique
+`(game_id, book, market)` key. The job uses a same-process key set
+plus deterministic `clvclose:` ids; two overlapping applies can still
+race. A unique index is an optional follow-up (schema change).
+
+`--max-credits N` stops before the next game would exceed markets ×
+regions (us=1), soonest kickoff first. Dry-run prints planned HTTP
+calls (quota included; unmapped games excluded) and planned credits,
+and ends with `CREDITS_USED` / `CALLS_USED`. Absent the flag, behavior
+is unchanged. NHL visibility is unchanged. Prefer the dedicated npm
+scripts — do not pass flags through `npm run capture:published-closes`.
 
 ```bash
 node scripts/capture-published-closes.js --nfl-all --dry-run
