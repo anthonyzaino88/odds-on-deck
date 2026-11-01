@@ -6,6 +6,9 @@ const opsOddsFetch = fs.readFileSync(path.join(__dirname, '../../operations/fetc
 const saveTop = fs.readFileSync(path.join(__dirname, '../../scripts/save-top-props-for-validation.js'), 'utf8')
 const recordScript = fs.readFileSync(path.join(__dirname, '../../scripts/record-published-props.js'), 'utf8')
 const validationSrc = fs.readFileSync(path.join(__dirname, '../../lib/validation.js'), 'utf8')
+const rosterGuardSrc = fs.readFileSync(path.join(__dirname, '../../lib/event-roster-eligibility.js'), 'utf8')
+const nflPropsSrc = fs.readFileSync(path.join(__dirname, '../../lib/nfl-props.js'), 'utf8')
+const nhlPropsSrc = fs.readFileSync(path.join(__dirname, '../../lib/nhl-props.js'), 'utf8')
 const pkg = fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8')
 
 describe('Published props are recorded when they clear the bar', () => {
@@ -14,7 +17,7 @@ describe('Published props are recorded when they clear the bar', () => {
     expect(validationSrc).toMatch(/export async function persistPublishedEligibleProps/)
     expect(validationSrc).toMatch(/export async function persistPublishedEligibleFromCache/)
     expect(validationSrc).toMatch(/export async function persistShadowPublishedEligibleFromCache/)
-    expect(validationSrc).toMatch(/persistShadowPublishedEligibleFromCache\(\)/)
+    expect(validationSrc).toMatch(/persistShadowPublishedEligibleFromCache\(options\)/)
     expect(validationSrc).toMatch(/mlbGate/)
     expect(validationSrc).toMatch(/skipped \$\{skippedMlb\} MLB prop/)
     expect(validationSrc).toMatch(/toPublishedValidationFields/)
@@ -24,6 +27,8 @@ describe('Published props are recorded when they clear the bar', () => {
     expect(validationSrc).toMatch(/skip_foreign/)
     expect(validationSrc).toMatch(/will not adopt or relabel/)
     expect(validationSrc).toMatch(/Number\.isFinite\(cachedQuality\)/)
+    expect(validationSrc).toMatch(/guardPropsByEventRoster/)
+    expect(validationSrc).toMatch(/PUBLISHED_ROSTER_GUARD_SPORTS/)
     expect(validationSrc).not.toMatch(/source: GAME_LINE_SOURCE[\s\S]{0,200}recordPublishedEligibleProp/)
   })
 
@@ -56,5 +61,16 @@ describe('Published props are recorded when they clear the bar', () => {
     expect(pkg).toMatch(/"record:mlb-window": "node scripts\/record-mlb-window-props\.js"/)
     expect(pkg).toMatch(/"record:game-lines": "node scripts\/record-game-lines\.js"/)
     expect(pkg).toMatch(/"preview:legacy-nfl": "node scripts\/preview-legacy-nfl-published\.js"/)
+  })
+
+  test('NFL/NHL generators and persist skip off-roster players via ESPN only', () => {
+    expect(rosterGuardSrc).toMatch(/site\.api\.espn\.com/)
+    expect(rosterGuardSrc).not.toMatch(/the-odds-api|player-props-odds|ODDS_API/)
+    expect(nflPropsSrc).toMatch(/loadEventRosterPlayers/)
+    expect(nflPropsSrc).toMatch(/logEventRosterSkip/)
+    expect(nhlPropsSrc).toMatch(/loadEventRosterPlayers/)
+    expect(nhlPropsSrc).toMatch(/logEventRosterSkip/)
+    expect(validationSrc).toMatch(/PUBLISHED_ROSTER_GUARD_SPORTS/)
+    expect(validationSrc).not.toMatch(/fetchAllPlayerProps/)
   })
 })
