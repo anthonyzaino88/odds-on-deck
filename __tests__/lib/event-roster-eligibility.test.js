@@ -3,20 +3,27 @@ import {
   PUBLISHED_ROSTER_GUARD_SPORTS,
   SHADOW_ROSTER_GUARD_SPORTS,
   ESPN_ROSTER_GAP_MS,
+  ESPN_ROSTER_RETRY_MS,
   blockedEspnStatusReason,
   checkPlayerEventRosterEligibility,
+  collectAthleteStatusSources,
   espnEventSummaryUrl,
   espnRosterUrl,
   evaluateEventRosterEligibility,
+  eventRosterHasBothTeams,
   findRosterPlayer,
   formatEventLabel,
   guardPropsByEventRoster,
+  isAllowedWeeklyEspnStatus,
   isBlockedEspnStatus,
   loadEventRosterPlayers,
   logEventRosterSkip,
+  logRosterGuardSummary,
   parseEspnEventRosters,
   parseEspnRosterAthletes,
   resolveEspnTeamId,
+  summarizeRosterGuard,
+  withSharedRosterGuard,
 } from '../../lib/event-roster-eligibility.js'
 
 const NYG_PHI = {
@@ -37,10 +44,24 @@ function nflRosterPayload(players) {
           displayName: player.name,
           position: { abbreviation: player.position || 'WR' },
           status: player.status,
+          injuries: player.injuries,
           id: player.id || player.name,
         })),
       },
     ],
+  }
+}
+
+function fakeClock(start = 1_000_000) {
+  let now = start
+  const sleeps = []
+  return {
+    sleeps,
+    nowImpl: () => now,
+    sleepImpl: async (ms) => {
+      sleeps.push(ms)
+      now += Number(ms) || 0
+    },
   }
 }
 
@@ -78,10 +99,66 @@ describe('ESPN status blocking', () => {
     expect(isBlockedEspnStatus({ name: 'Active' })).toBe(false)
     expect(isBlockedEspnStatus({ abbreviation: 'ACT' })).toBe(false)
     expect(isBlockedEspnStatus({ name: 'Questionable' })).toBe(false)
+    expect(isBlockedEspnStatus({ name: 'Doubtful' })).toBe(false)
+    expect(isBlockedEspnStatus('day-to-day')).toBe(false)
+    expect(isAllowedWeeklyEspnStatus({ name: 'Questionable' })).toBe(true)
+    expect(isAllowedWeeklyEspnStatus({ name: 'Doubtful' })).toBe(true)
+    expect(isAllowedWeeklyEspnStatus('Day-to-Day')).toBe(true)
+  })
+
+  test('blocks PUP, NFI, LTIR, and Suspended / Suspension', () => {
+    expect(blockedEspnStatusReason({ abbreviation: 'PUP' })).toBe(ROSTER_SKIP_REASONS.ESPN_STATUS_PUP)
+    expect(blockedEspnStatusReason({ name: 'Physically Unable to Perform' })).toBe(ROSTER_SKIP_REASONS.ESPN_STATUS_PUP)
+    expect(blockedEspnStatusReason({ abbreviation: 'NFI' })).toBe(ROSTER_SKIP_REASONS.ESPN_STATUS_NFI)
+    expect(blockedEspnStatusReason({ name: 'Non-Football Injury' })).toBe(ROSTER_SKIP_REASONS.ESPN_STATUS_NFI)
+    expect(blockedEspnStatusReason({ abbreviation: 'LTIR' })).toBe(ROSTER_SKIP_REASONS.ESPN_STATUS_LTIR)
+    expect(blockedEspnStatusReason({ name: 'Long-Term Injured Reserve' })).toBe(ROSTER_SKIP_REASONS.ESPN_STATUS_LTIR)
+    expect(blockedEspnStatusReason({ name: 'Suspended' })).toBe(ROSTER_SKIP_REASONS.ESPN_STATUS_SUSPENDED)
+    expect(blockedEspnStatusReason({ name: 'Suspension' })).toBe(ROSTER_SKIP_REASONS.ESPN_STATUS_SUSPENDED)
+    expect(blockedEspnStatusReason({ name: 'News' })).toBe(null)
   })
 })
 
 describe('roster parsing and name match', () => {
+  test('reads weekly designation from every injuries[] entry, not just athlete.status', () => {
+    const robinson = {
+      displayName: 'B. Robinson Jr.',
+      status: { name: 'Active', abbreviation: 'ACT' },
+      injuries: [{ status: 'Out', type: { name: 'Ankle' } }],
+    }
+    const walker = {
+      displayName: 'Jalon Walker',
+      status: { name: 'Active' },
+      injuries: [
+        { status: 'Questionable' },
+        { status: { abbreviation: 'IR', name: 'Injured Reserve' } },
+      ],
+    }
+    const pearce = {
+      displayName: 'Pearce Jr.',
+      status: { name: 'News' },
+      injuries: [{ status: 'Suspension' }],
+    }
+    expect(collectAthleteStatusSources(robinson).map((s) => s.status || s)).toEqual(
+      expect.arrayContaining(['Out', expect.objectContaining({ name: 'Active' })]),
+    )
+    const parsed = parseEspnRosterAthletes({
+      athletes: [{ items: [robinson, walker, pearce] }],
+    }, 'ATL')
+    expect(evaluateEventRosterEligibility({
+      playerName: 'B. Robinson Jr.',
+      players: parsed,
+    }).reason).toBe(ROSTER_SKIP_REASONS.ESPN_STATUS_OUT)
+    expect(evaluateEventRosterEligibility({
+      playerName: 'Jalon Walker',
+      players: parsed,
+    }).reason).toBe(ROSTER_SKIP_REASONS.ESPN_STATUS_IR)
+    expect(evaluateEventRosterEligibility({
+      playerName: 'Pearce Jr.',
+      players: parsed,
+    }).reason).toBe(ROSTER_SKIP_REASONS.ESPN_STATUS_SUSPENDED)
+  })
+
   test('parses grouped ESPN team roster athletes', () => {
     const players = parseEspnRosterAthletes(nflRosterPayload([
       { name: 'Malik Nabers', position: 'WR', status: { name: 'Active', abbreviation: 'ACT' } },
@@ -233,19 +310,101 @@ describe('loadEventRosterPlayers', () => {
         { name: 'Malik Nabers', status: { name: 'Active' } },
       ]))
     })
-    const sleeps = []
+    const clock = fakeClock()
     const roster = await loadEventRosterPlayers(NYG_PHI, {
       sport: 'nfl',
       fetchImpl,
-      sleepImpl: async (ms) => { sleeps.push(ms) },
+      nowImpl: clock.nowImpl,
+      sleepImpl: clock.sleepImpl,
       gapMs: ESPN_ROSTER_GAP_MS,
+      retryMs: 0,
     })
     expect(roster.ok).toBe(true)
     expect(roster.players.map((p) => p.name).sort()).toEqual(['A.J. Brown', 'Malik Nabers'])
     expect(fetchImpl).toHaveBeenCalledTimes(3)
-    expect(sleeps.length).toBeGreaterThanOrEqual(1)
-    expect(sleeps.every((ms) => ms === ESPN_ROSTER_GAP_MS)).toBe(true)
+    expect(clock.sleeps).toEqual([ESPN_ROSTER_GAP_MS, ESPN_ROSTER_GAP_MS])
     expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('the-odds-api'))).toBe(false)
+  })
+
+  test('paces ESPN roster fetches from an injected clock, not wall time', async () => {
+    const clock = fakeClock(5_000)
+    const fetchImpl = jest.fn(async (url) => {
+      if (String(url).includes('/summary?')) return jsonResponse({ rosters: [] })
+      return jsonResponse(nflRosterPayload([{ name: 'Malik Nabers', status: { name: 'Active' } }]))
+    })
+    await loadEventRosterPlayers(NYG_PHI, {
+      sport: 'nfl',
+      fetchImpl,
+      nowImpl: clock.nowImpl,
+      sleepImpl: clock.sleepImpl,
+      gapMs: ESPN_ROSTER_GAP_MS,
+      retryMs: 0,
+    })
+    expect(clock.sleeps).toEqual([ESPN_ROSTER_GAP_MS, ESPN_ROSTER_GAP_MS])
+  })
+
+  test('does not treat a one-team event summary as complete', () => {
+    const onlyPhi = parseEspnEventRosters({
+      rosters: [
+        { team: { abbreviation: 'PHI' }, roster: [{ displayName: 'A.J. Brown', status: { name: 'Active' } }] },
+      ],
+    })
+    expect(eventRosterHasBothTeams(onlyPhi, NYG_PHI, 'nfl')).toBe(false)
+    expect(eventRosterHasBothTeams([
+      { name: 'A.J. Brown', team: 'PHI' },
+      { name: 'Malik Nabers', team: 'NYG' },
+    ], NYG_PHI, 'nfl')).toBe(true)
+  })
+
+  test('falls back to team rosters when the event summary has only one team', async () => {
+    const fetchImpl = jest.fn(async (url) => {
+      if (String(url).includes('/summary?')) {
+        return jsonResponse({
+          rosters: [
+            { team: { abbreviation: 'PHI' }, roster: [{ displayName: 'A.J. Brown', status: { name: 'Active' } }] },
+          ],
+        })
+      }
+      if (String(url).includes('/teams/21/')) {
+        return jsonResponse(nflRosterPayload([{ name: 'A.J. Brown', status: { name: 'Active' } }]))
+      }
+      return jsonResponse(nflRosterPayload([{ name: 'Malik Nabers', status: { name: 'Active' } }]))
+    })
+    const roster = await loadEventRosterPlayers(NYG_PHI, {
+      sport: 'nfl',
+      fetchImpl,
+      sleepImpl: async () => {},
+      retryMs: 0,
+    })
+    expect(roster.ok).toBe(true)
+    expect(roster.players.map((p) => p.name).sort()).toEqual(['A.J. Brown', 'Malik Nabers'])
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    expect(fetchImpl.mock.calls[0][0]).toContain('/summary?event=')
+  })
+
+  test('retries a failed ESPN fetch once with the capped backoff', async () => {
+    const clock = fakeClock()
+    let nygTries = 0
+    const fetchImpl = jest.fn(async (url) => {
+      if (String(url).includes('/summary?')) return jsonResponse({ rosters: [] })
+      if (String(url).includes('/teams/19/')) {
+        nygTries += 1
+        if (nygTries === 1) return jsonResponse({}, false)
+        return jsonResponse(nflRosterPayload([{ name: 'Malik Nabers', status: { name: 'Active' } }]))
+      }
+      return jsonResponse(nflRosterPayload([{ name: 'A.J. Brown', status: { name: 'Active' } }]))
+    })
+    const roster = await loadEventRosterPlayers(NYG_PHI, {
+      sport: 'nfl',
+      fetchImpl,
+      nowImpl: clock.nowImpl,
+      sleepImpl: clock.sleepImpl,
+      retryMs: ESPN_ROSTER_RETRY_MS,
+      retryMaxMs: ESPN_ROSTER_RETRY_MS,
+    })
+    expect(roster.ok).toBe(true)
+    expect(nygTries).toBe(2)
+    expect(clock.sleeps).toContain(ESPN_ROSTER_RETRY_MS)
   })
 
   test('fails closed when one team roster cannot be fetched', async () => {
@@ -260,6 +419,7 @@ describe('loadEventRosterPlayers', () => {
       sport: 'nfl',
       fetchImpl,
       sleepImpl: async () => {},
+      retryMs: 0,
     })
     expect(roster).toMatchObject({ ok: false, reason: ROSTER_SKIP_REASONS.ROSTER_UNAVAILABLE })
   })
@@ -270,9 +430,9 @@ describe('loadEventRosterPlayers', () => {
       return jsonResponse(nflRosterPayload([{ name: 'Malik Nabers', status: { name: 'Active' } }]))
     })
     const cache = new Map()
-    const pace = { lastFetchAt: 0 }
-    await loadEventRosterPlayers(NYG_PHI, { fetchImpl, cache, pace, sleepImpl: async () => {} })
-    await loadEventRosterPlayers(NYG_PHI, { fetchImpl, cache, pace, sleepImpl: async () => {} })
+    const pace = { lastFetchAt: null }
+    await loadEventRosterPlayers(NYG_PHI, { fetchImpl, cache, pace, sleepImpl: async () => {}, retryMs: 0 })
+    await loadEventRosterPlayers(NYG_PHI, { fetchImpl, cache, pace, sleepImpl: async () => {}, retryMs: 0 })
     expect(fetchImpl).toHaveBeenCalledTimes(3)
   })
 })
@@ -377,6 +537,46 @@ describe('guardPropsByEventRoster', () => {
   })
 })
 
+describe('roster outage summary', () => {
+  test('counts unavailable skips and flags a full outage', () => {
+    const stats = summarizeRosterGuard({
+      kept: [],
+      skipped: [
+        { reason: ROSTER_SKIP_REASONS.ROSTER_UNAVAILABLE },
+        { reason: ROSTER_SKIP_REASONS.ROSTER_UNAVAILABLE },
+      ],
+      guardedCount: 2,
+    })
+    expect(stats.unavailableCount).toBe(2)
+    expect(stats.rosterOutage).toBe(true)
+    const lines = []
+    const errors = []
+    logRosterGuardSummary(stats, {
+      log: (...args) => lines.push(args.join(' ')),
+      error: (...args) => errors.push(args.join(' ')),
+    })
+    expect(lines.join('\n')).toMatch(/unavailable=2/)
+    expect(errors.join('\n')).toMatch(/Roster guard outage/)
+  })
+
+  test('does not flag an outage when some guarded props were kept', () => {
+    const stats = summarizeRosterGuard({
+      kept: [publishedNflProp()],
+      skipped: [{ reason: ROSTER_SKIP_REASONS.ROSTER_UNAVAILABLE }],
+      guardedCount: 2,
+    })
+    expect(stats.unavailableCount).toBe(1)
+    expect(stats.rosterOutage).toBe(false)
+  })
+
+  test('shares one roster cache between persist-style calls', () => {
+    const shared = withSharedRosterGuard()
+    const again = withSharedRosterGuard(shared)
+    expect(again.rosterCache).toBe(shared.rosterCache)
+    expect(again.rosterPace).toBe(shared.rosterPace)
+  })
+})
+
 describe('checkPlayerEventRosterEligibility', () => {
   test('returns the skip decision used by the generators', async () => {
     const decision = await checkPlayerEventRosterEligibility({
@@ -390,6 +590,7 @@ describe('checkPlayerEventRosterEligibility', () => {
         ]))
       },
       sleepImpl: async () => {},
+      retryMs: 0,
     })
     expect(decision).toMatchObject({
       ok: false,

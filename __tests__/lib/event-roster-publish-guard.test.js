@@ -34,6 +34,10 @@ import {
   persistShadowPublishedEligibleProps,
 } from '../../lib/validation.js'
 import { ROSTER_SKIP_REASONS } from '../../lib/event-roster-eligibility.js'
+import {
+  publishedRosterOutageExit,
+  runRecordPublishedProps,
+} from '../../scripts/record-published-props.js'
 
 const NYG_PHI = {
   id: 'NYG_at_PHI_2026-11-02',
@@ -124,9 +128,13 @@ describe('Published persist applies the event-roster guard', () => {
       loadGame: async () => NYG_PHI,
       fetchImpl: async () => ({ ok: false, json: async () => ({}) }),
       sleepImpl: async () => {},
+      retryMs: 0,
       log: () => {},
+      error: () => {},
     })
-    expect(saved).toEqual([])
+    expect([...saved]).toEqual([])
+    expect(saved.rosterOutage).toBe(true)
+    expect(saved.unavailableCount).toBe(1)
     expect(inserts).toEqual([])
   })
 })
@@ -182,9 +190,35 @@ describe('shadow NHL persist uses the same roster guard and stays private', () =
       }),
       fetchImpl: async () => ({ ok: false, json: async () => ({}) }),
       sleepImpl: async () => {},
+      retryMs: 0,
       log: () => {},
+      error: () => {},
     })
-    expect(saved).toEqual([])
+    expect([...saved]).toEqual([])
     expect(inserts).toEqual([])
+  })
+})
+
+describe('record:published exits non-zero on a full roster outage', () => {
+  test('publishedRosterOutageExit is 1 only when every guarded prop was unavailable', () => {
+    expect(publishedRosterOutageExit({ rosterOutage: true })).toBe(1)
+    expect(publishedRosterOutageExit({ rosterOutage: false, unavailableCount: 2 })).toBe(0)
+    expect(publishedRosterOutageExit([])).toBe(0)
+  })
+
+  test('runRecordPublishedProps logs a loud warning and returns exitCode 1', async () => {
+    const lines = []
+    const errors = []
+    const saved = []
+    saved.rosterOutage = true
+    saved.unavailableCount = 3
+    const result = await runRecordPublishedProps({
+      persist: async () => saved,
+      log: (...args) => lines.push(args.join(' ')),
+      error: (...args) => errors.push(args.join(' ')),
+    })
+    expect(result.exitCode).toBe(1)
+    expect(errors.join('\n')).toMatch(/Roster guard outage/)
+    expect(lines.join('\n')).toMatch(/unavailable=3/)
   })
 })

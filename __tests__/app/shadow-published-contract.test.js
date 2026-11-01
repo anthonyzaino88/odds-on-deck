@@ -18,7 +18,7 @@ describe('private NHL shadow-published track stays off Published surfaces', () =
     const record = read('scripts/record-published-props.js')
     const pkg = read('package.json')
     expect(validation).toMatch(/export async function persistShadowPublishedEligibleFromCache/)
-    expect(validation).toMatch(/persistShadowPublishedEligibleFromCache\(options\)/)
+    expect(validation).toMatch(/persistShadowPublishedEligibleFromCache\(shared\)/)
     expect(validation).toMatch(/SHADOW_PUBLISHED_STATS_PREFILTER\.sports/)
     expect(validation).toMatch(/SHADOW_ROSTER_GUARD_SPORTS/)
     expect(validation).toMatch(/guardPropsByEventRoster/)
