@@ -18,8 +18,9 @@ import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import { lookupPlayerGameStat as lookupMLBStat, fetchMLBGameStats } from '../lib/vendors/mlb-game-stats.js'
 import { getPlayerGameStat as getNFLStat } from '../lib/vendors/nfl-game-stats.js'
-import { lookupPlayerGameStat as getNHLStat } from '../lib/vendors/nhl-game-stats.js'
-import { isGradeableNhlStatResult, nhlGradeSourceFromResult } from '../lib/nhl-stat-grade.js'
+import { lookupPlayerGameStat as getNHLStat, createNhlLookupCache, NHL_FETCH_DELAY_MS } from '../lib/vendors/nhl-game-stats.js'
+import { isGradeableNhlStatResult, isNhlFetchError, nhlFetchErrorResult, nhlGradeSourceFromResult } from '../lib/nhl-stat-grade.js'
+import { isOpsWriteQuietPeriod } from '../lib/mlb-recording-window.js'
 import { appendJsonl, boxScoreArchiveRows, loadJsonlFieldSet, resolveBoxScoresDir, shouldArchiveBoxScore } from '../lib/local-archive.js'
 import { propValidationGradeAudit, updateWithOptionalAudit } from '../lib/grade-audit.js'
 import { planPlayerStatValidation } from '../lib/pending-props.js'
@@ -31,11 +32,20 @@ config({ path: '.env.local' })
 
 const supabase = createScriptSupabaseClient()
 
+function assertCanWrite(now = new Date()) {
+  if (isOpsWriteQuietPeriod(now)) {
+    console.error('Refuse writes during ops quiet window (:05–:15 ET)')
+    process.exit(1)
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2)
   const sportFilter = args.find(a => ['mlb', 'nhl', 'nfl'].includes(a.toLowerCase()))
   const limitArg = args.indexOf('--limit')
   const limit = limitArg >= 0 ? parseInt(args[limitArg + 1]) || 1000 : 1000
+
+  assertCanWrite()
 
   console.log('\n🔍 VALIDATE PENDING PROPS')
   console.log('='.repeat(70))
@@ -148,9 +158,12 @@ async function main() {
   console.log(`   ${skippedGameLine} skipped (source=game_line → gradePendingGameLines)\n`)
 
   // Step 4: Void cancelled games, then process real finals
-  let correct = 0, incorrect = 0, pushes = 0, voids = 0, errors = 0, needsReview = 0
+  let correct = 0, incorrect = 0, pushes = 0, voids = 0, errors = 0, needsReview = 0, fetchErrors = 0
+  const nhlCache = createNhlLookupCache()
+  let nhlRateLimitAbort = false
 
   async function writeVoid(v, game, extraNotes = '') {
+    assertCanWrite()
     const reviewedAt = new Date()
     const voidPatch = voidPropValidationPatch(reviewedAt, game, extraNotes)
     return updateWithOptionalAudit(
@@ -178,6 +191,7 @@ async function main() {
   }
 
   for (const { validation: v, game } of toTimeout) {
+    assertCanWrite()
     const reviewedAt = new Date()
     const write = await updateWithOptionalAudit(
       (payload) => supabase.from('PropValidation').update(payload).eq('id', v.id),
@@ -209,6 +223,7 @@ async function main() {
 
     try {
       if (!game) {
+        assertCanWrite()
         const reviewedAt = new Date()
         await updateWithOptionalAudit(
           (payload) => supabase.from('PropValidation').update(payload).eq('id', v.id),
@@ -261,6 +276,10 @@ async function main() {
             actualValue = mlbPlan.action === 'grade' ? mlbPlan.actualValue : null
           } else if (sport === 'nhl') {
             if (!game.espnGameId) break
+            if (nhlRateLimitAbort) {
+              nhlLookup = nhlFetchErrorResult({ status: 429, statusText: 'aborted after persistent 429' })
+              break
+            }
             // PropValidation has no playerId or team column, so these are
             // always undefined. Matching is name-only for now; the NHL team
             // alias table is inert until those columns exist.
@@ -269,7 +288,16 @@ async function main() {
               v.playerName,
               v.propType,
               v.gameIdRef,
-              { playerId: v.playerId, team: v.team },
+              {
+                playerId: v.playerId,
+                team: v.team,
+                cache: nhlCache,
+                fetchDelayMs: NHL_FETCH_DELAY_MS,
+                onPersistentRateLimit({ url, status } = {}) {
+                  nhlRateLimitAbort = true
+                  console.error(`Persistent NHL 429 after retries: ${url || 'unknown URL'}${status ? ` (${status})` : ''}`)
+                },
+              },
             )
             const nhlPlan = planPlayerAppearanceGrade(
               nhlLookup,
@@ -295,7 +323,14 @@ async function main() {
           }
         }
         if (dnpReason || (actualValue !== null && actualValue !== undefined)) break
+        if (sport === 'nhl' && isNhlFetchError(nhlLookup)) break
         if (attempt === 0) await new Promise(r => setTimeout(r, 500))
+      }
+
+      if (sport === 'nhl' && isNhlFetchError(nhlLookup)) {
+        fetchErrors++
+        console.log(`${prefix} ⏭️  ${v.playerName} ${v.propType} - fetch_error, leaving pending`)
+        continue
       }
 
       if (dnpReason) {
@@ -313,6 +348,7 @@ async function main() {
       if (actualValue === null || actualValue === undefined) {
         const missingField = sport === 'mlb' ? !game.mlbGameId : !game.espnGameId
         const reason = missingField ? `No ${sport === 'mlb' ? 'mlbGameId' : 'espnGameId'}` : 'Stat not found in API'
+        assertCanWrite()
         const reviewedAt = new Date()
         await updateWithOptionalAudit(
           (payload) => supabase.from('PropValidation').update(payload).eq('id', v.id),
@@ -333,6 +369,7 @@ async function main() {
 
       const result = gradePropFromActual(v.prediction, v.threshold, actualValue)
 
+      assertCanWrite()
       const completedAt = new Date()
       const write = await updateWithOptionalAudit(
         (payload) => supabase.from('PropValidation').update(payload).eq('id', v.id),
@@ -386,6 +423,7 @@ async function main() {
   console.log(`🟰 Push:          ${pushes}`)
   console.log(`⚪ Void:          ${voids}`)
   console.log(`⚠️  Needs Review:  ${needsReview}`)
+  console.log(`📡 Fetch errors:  ${fetchErrors} (left pending)`)
   console.log(`⏭️  Not Final Yet: ${skippedNotFinal}`)
   console.log(`🧾 Game lines:    ${skippedGameLine}`)
   console.log(`💥 Errors:        ${errors}`)
