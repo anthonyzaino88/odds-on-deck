@@ -1,4 +1,5 @@
 import {
+  applyClearBadNflCloseUpdate,
   assertClearBadNflClosesApplyAllowed,
   backupFileName,
   clearBadNflClosesPayload,
@@ -74,6 +75,8 @@ function mockClient({
   games = [nflGame()],
   picks = [movedPick()],
   updates = [],
+  updateFilters = [],
+  updateResult = (row) => ({ data: [{ id: row?.id || picks[0]?.id }], error: null }),
 } = {}) {
   return {
     from(table) {
@@ -84,30 +87,28 @@ function mockClient({
         select() {
           const terminal = Promise.resolve({ data: picks, error: null })
           const query = chainable(terminal)
-          query.update = (body) => {
-            updates.push(body)
-            const chain = {
-              eq() { return chain },
-              then(resolve, reject) {
-                return Promise.resolve({ data: [{ id: picks[0]?.id }], error: null })
-                  .then(resolve, reject)
-              },
-            }
-            return chain
-          }
+          query.update = (body) => updateChain(body)
           return query
         },
         update(body) {
-          updates.push(body)
-          const chain = {
-            eq() { return chain },
-            then(resolve, reject) {
-              return Promise.resolve({ data: [{ id: picks[0]?.id }], error: null })
-                .then(resolve, reject)
-            },
-          }
-          return chain
+          return updateChain(body)
         },
+      }
+
+      function updateChain(body) {
+        updates.push(body)
+        const filters = []
+        const chain = {
+          eq(col, val) { filters.push(['eq', col, val]); return chain },
+          neq(col, val) { filters.push(['neq', col, val]); return chain },
+          select(cols) { filters.push(['select', cols]); return chain },
+          then(resolve, reject) {
+            updateFilters.push([...filters])
+            const row = picks[0]
+            return Promise.resolve(updateResult(row, filters)).then(resolve, reject)
+          },
+        }
+        return chain
       }
     },
   }
@@ -160,6 +161,26 @@ describe('moved NFL close selection', () => {
       closeCapturedAt: null,
     })
     expect(Object.keys(clearBadNflClosesPayload()).sort()).toEqual([...CLOSE_ODDS_FIELDS].sort())
+  })
+
+  test('UPDATE stays conditional on closeLine still != threshold', () => {
+    const filters = []
+    const table = {
+      update(body) {
+        expect(body).toEqual(clearBadNflClosesPayload())
+        return {
+          eq(col, val) { filters.push(['eq', col, val]); return this },
+          neq(col, val) { filters.push(['neq', col, val]); return this },
+          select(cols) { filters.push(['select', cols]); return this },
+        }
+      },
+    }
+    applyClearBadNflCloseUpdate(table, movedPick())
+    expect(filters).toEqual([
+      ['eq', 'id', 'pv-stafford'],
+      ['neq', 'closeLine', 219.5],
+      ['select', 'id'],
+    ])
   })
 
   test('JSONL backup is one object per line', () => {
@@ -233,15 +254,34 @@ describe('runClearBadNflCloses', () => {
     expect(writes).toHaveLength(0)
   })
 
+  test('--apply is refused during the :05–:15 ET quiet period', async () => {
+    const updates = []
+    const writes = []
+    const createClient = jest.fn(() => mockClient({ updates }))
+    const result = await runClearBadNflCloses({
+      argv: ['--date', '2026-10-26', '--apply'],
+      env: {},
+      now: new Date('2026-07-15T16:09:00.000Z'),
+      createClient,
+      writeFile: (path, body) => writes.push({ path, body }),
+      log: memoryLog(),
+    })
+    expect(result).toMatchObject({ exitCode: 0, skippedQuiet: true, applied: 0 })
+    expect(createClient).not.toHaveBeenCalled()
+    expect(updates).toHaveLength(0)
+    expect(writes).toHaveLength(0)
+  })
+
   test('--apply backs up JSONL then nulls close fields', async () => {
     const updates = []
+    const updateFilters = []
     const writes = []
     const log = memoryLog()
     const result = await runClearBadNflCloses({
       argv: ['--date', '2026-10-26', '--apply', '--backup-dir', '/tmp/clear-bad-closes'],
       env: {},
       now: new Date('2026-10-27T01:02:03.000Z'),
-      createClient: () => mockClient({ updates }),
+      createClient: () => mockClient({ updates, updateFilters }),
       writeFile: (path, body) => writes.push({ path, body }),
       mkdir: () => {},
       log,
@@ -253,8 +293,33 @@ describe('runClearBadNflCloses', () => {
     expect(writes[0].body).toMatch(/pv-stafford/)
     expect(writes[0].body.trim().split('\n')).toHaveLength(1)
     expect(updates[0]).toEqual(clearBadNflClosesPayload())
+    expect(updateFilters[0]).toEqual([
+      ['eq', 'id', 'pv-stafford'],
+      ['neq', 'closeLine', 219.5],
+      ['select', 'id'],
+    ])
     expect(log.lines[0]).toBe('MODE: APPLY')
     expect(log.lines.join('\n')).toMatch(/close fields nulled/)
+  })
+
+  test('--apply skips a row whose closeLine already matches the threshold', async () => {
+    const updates = []
+    const log = memoryLog()
+    const result = await runClearBadNflCloses({
+      argv: ['--date', '2026-10-26', '--apply', '--backup-dir', '/tmp/clear-bad-closes'],
+      env: {},
+      now: new Date('2026-10-27T01:02:03.000Z'),
+      createClient: () => mockClient({
+        updates,
+        updateResult: () => ({ data: [], error: null }),
+      }),
+      writeFile: () => {},
+      mkdir: () => {},
+      log,
+    })
+    expect(result.applied).toBe(0)
+    expect(result.skippedFixed).toBe(1)
+    expect(log.lines.join('\n')).toMatch(/already matches threshold/)
   })
 
   test('missing --date fails closed', async () => {

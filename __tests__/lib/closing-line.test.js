@@ -18,11 +18,14 @@ import {
   marketsForPublishedPicks,
   marketsForCaptureJob,
   marketsForQuoteMatch,
+  marketsToRequestForPick,
   matchClosingQuote,
   alternateMarketKey,
   consensusClosingQuote,
   describeSkippedTeamOutcome,
+  describeSkippedTotalOutcome,
   formatGameLineCloseCounts,
+  shouldRequestAlternateMarket,
   oddsApiSportKey,
   parseOddsApiQuota,
   buildSportsQuotaProbeUrl,
@@ -125,10 +128,45 @@ describe('odds API market mapping', () => {
     }, { nflAll: true })).toEqual(['batter_hits'])
     expect(NFL_GAME_LINE_MARKETS).toEqual(['h2h', 'spreads', 'totals'])
     expect(alternateMarketKey('player_pass_yds')).toBe('player_pass_yds_alternate')
-    expect(marketsForQuoteMatch({ propType: 'pass_yds' }).sort()).toEqual([
+    expect(marketsForQuoteMatch({ propType: 'pass_yds', sport: 'nfl' }).sort()).toEqual([
       'player_pass_yds',
       'player_pass_yds_alternate',
     ])
+  })
+
+  test('does not request NHL/MLB *_alternate markets; NFL only when source is alternate or unknown', () => {
+    expect(marketsToRequestForPick({
+      propType: 'player_shots_on_goal',
+      sport: 'nhl',
+    })).toEqual(['player_shots_on_goal'])
+    expect(marketsForPublishedPicks([
+      { propType: 'player_shots_on_goal', sport: 'nhl' },
+      { propType: 'player_points', sport: 'nhl' },
+    ], { sport: 'nhl' }).sort()).toEqual(['player_points', 'player_shots_on_goal'])
+    expect(marketsForCaptureJob({
+      game: { sport: 'nhl' },
+      picks: [{ propType: 'player_shots_on_goal', sport: 'nhl' }],
+    })).toEqual(['player_shots_on_goal'])
+    expect(shouldRequestAlternateMarket({ propType: 'pass_yds' })).toBe(false)
+    expect(shouldRequestAlternateMarket({ propType: 'pass_yds', sport: 'nfl' })).toBe(true)
+    expect(marketsToRequestForPick({
+      propType: 'pass_yds',
+      sport: 'nfl',
+      sourceMarket: 'player_pass_yds',
+    })).toEqual(['player_pass_yds'])
+    expect(marketsToRequestForPick({
+      propType: 'pass_yds',
+      sport: 'nfl',
+      sourceMarket: 'player_pass_yds_alternate',
+    })).toEqual(['player_pass_yds_alternate'])
+    expect(marketsToRequestForPick({
+      propType: 'pass_yds',
+      sport: 'nfl',
+    }).sort()).toEqual(['player_pass_yds', 'player_pass_yds_alternate'])
+    expect(marketsForCaptureJob({
+      game: { sport: 'nfl' },
+      picks: [{ propType: 'pass_yds', sport: 'nfl', sourceMarket: 'player_pass_yds' }],
+    }, { nflAll: true }).sort()).toEqual(['h2h', 'player_pass_yds', 'spreads', 'totals'])
   })
 
   test('planned HTTP calls include the quota probe and honor --max-calls', () => {
@@ -453,6 +491,7 @@ describe('quote matching', () => {
     const match = matchClosingQuote({
       playerName: 'Matthew Stafford',
       propType: 'pass_yds',
+      sport: 'nfl',
       prediction: 'over',
       threshold: 219.5,
     }, stafford)
@@ -468,6 +507,7 @@ describe('quote matching', () => {
     expect(matchClosingQuote({
       playerName: 'Matthew Stafford',
       propType: 'pass_yds',
+      sport: 'nfl',
       prediction: 'over',
       threshold: 219.5,
     }, stafford.filter((quote) => quote.market === 'player_pass_yds'))).toBeNull()
@@ -483,6 +523,7 @@ describe('quote matching', () => {
     const match = matchClosingQuote({
       playerName: 'Matthew Stafford',
       propType: 'passing_yards',
+      sport: 'nfl',
       prediction: 'over',
       threshold: 219.5,
     }, three)
@@ -737,6 +778,23 @@ describe('NFL game-line ClosingOdds writes', () => {
     expect(lines.join('\n')).toMatch(/skipped book/)
     expect(lines.join('\n')).toMatch(/BetMGM h2h/)
     expect(lines.join('\n')).toMatch(/missing\/name-mismatched/)
+    const totalsLog = []
+    gameLineClosesFromEventOdds({
+      home_team: 'Kansas City Chiefs',
+      away_team: 'Buffalo Bills',
+      bookmakers: [{
+        title: 'Caesars',
+        markets: [{
+          key: 'totals',
+          outcomes: [{ name: 'Over', price: -108, point: 47.5 }],
+        }],
+      }],
+    }, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+      log: { log: (...args) => totalsLog.push(args.join(' ')) },
+    })
+    expect(totalsLog.join('\n')).toMatch(/Caesars totals: missing Under/)
     expect(describeSkippedTeamOutcome({
       book: 'BetMGM',
       market: 'h2h',
@@ -746,6 +804,12 @@ describe('NFL game-line ClosingOdds writes', () => {
       away: null,
       outcomes: [{ name: 'KC' }, { name: 'BUF' }],
     })).toMatch(/outcomes: KC, BUF/)
+    expect(describeSkippedTotalOutcome({
+      book: 'Caesars',
+      over: { name: 'Over' },
+      under: null,
+      outcomes: [{ name: 'Over' }],
+    })).toMatch(/missing Under/)
     expect(formatGameLineCloseCounts({
       label: 'KC_at_BUF',
       proposed: 4,

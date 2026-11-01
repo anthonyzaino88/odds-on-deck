@@ -40,6 +40,7 @@ import {
   withPreservedCohortNotes,
   withAppendedCohortTag,
   withAppendedOddsMarketTag,
+  notesHasExactTag,
   oddsMarketNotesTag,
   sourceMarketFromPick,
   publishedPersistNotes,
@@ -886,6 +887,12 @@ describe('toPublishedValidationFields', () => {
     })).toBe('player_pass_yds_alternate')
     expect(withAppendedOddsMarketTag('cohort:published', 'player_pass_yds_alternate'))
       .toBe('cohort:published | oddsMarket:player_pass_yds_alternate')
+    expect(notesHasExactTag('oddsMarket:player_pass_yds_alternate', 'oddsMarket:player_pass_yds')).toBe(false)
+    expect(notesHasExactTag('oddsMarket:player_pass_yds_alternate', 'oddsMarket:player_pass_yds_alternate')).toBe(true)
+    expect(withAppendedOddsMarketTag('oddsMarket:player_pass_yds_alternate', 'player_pass_yds'))
+      .toBe('oddsMarket:player_pass_yds_alternate | oddsMarket:player_pass_yds')
+    expect(withAppendedOddsMarketTag('oddsMarket:player_pass_yds', 'player_pass_yds'))
+      .toBe('oddsMarket:player_pass_yds')
     const fields = toPublishedValidationFields({
       propId: 'stafford-1',
       gameId: 'g3',

@@ -25,7 +25,9 @@ import {
   etDayStartUtc,
   paginateSupabaseSelect,
 } from '../lib/unplayed-game-grades.js'
+import { closeUpdateRowCount, isOpsWriteQuietPeriod } from '../lib/closing-line.js'
 import {
+  applyClearBadNflCloseUpdate,
   assertClearBadNflClosesApplyAllowed,
   backupFileName,
   clearBadNflClosesPayload,
@@ -81,7 +83,9 @@ Dry-run (default): list NFL PropValidation rows for that ET game date
 whose closeLine moved off the recorded threshold.
 --apply: backup matching rows to JSONL, then null closeOdds, closeLine,
          closeBook, closeNumBooks, closeCapturedAt.
-         Refused in CI / hosted production. Do NOT run against prod.
+         UPDATE is closeLine != threshold so a row fixed meanwhile
+         is left alone. Refused in CI / hosted production and during
+         the :05–:15 ET quiet period. Do NOT run against prod.
 Requires SUPABASE_SECRET_KEY (SUPABASE_REQUIRE_SECRET_KEY=1).
 Anon/public keys are refused. Never prints secrets.`)
     return { exitCode: 0, rows: [], applied: 0, help: true }
@@ -109,6 +113,10 @@ Anon/public keys are refused. Never prints secrets.`)
     } catch (error) {
       log.error(`❌ ${error.message}`)
       return { exitCode: 1, rows: [], applied: 0, refusedProd: true }
+    }
+    if (isOpsWriteQuietPeriod(now)) {
+      log.log('⏸️  Ops quiet period (:05–:15 ET) — no close-clear writes.')
+      return { exitCode: 0, rows: [], applied: 0, skippedQuiet: true }
     }
   }
 
@@ -198,26 +206,34 @@ Anon/public keys are refused. Never prints secrets.`)
 
   const payload = clearBadNflClosesPayload()
   let applied = 0
+  let skippedFixed = 0
   let applyErrors = 0
   for (const row of rows) {
-    const write = await supabase
-      .from('PropValidation')
-      .update(payload)
-      .eq('id', row.id)
+    const write = await applyClearBadNflCloseUpdate(
+      supabase.from('PropValidation'),
+      row,
+      payload,
+    )
     if (write?.error) {
       applyErrors += 1
       log.error(`❌ Write failed for ${row.id}: ${write.error.message}`)
+      continue
+    }
+    if (closeUpdateRowCount(write) === 0) {
+      skippedFixed += 1
+      log.log(`  skipped ${row.id} closeLine already matches threshold`)
       continue
     }
     applied += 1
     log.log(`✅ ${row.id} close fields nulled`)
   }
 
-  log.log(`\nCleared ${applied} row(s); ${applyErrors} error(s).`)
+  log.log(`\nCleared ${applied} row(s); ${skippedFixed} already fixed; ${applyErrors} error(s).`)
   return {
     exitCode: applyErrors ? 1 : 0,
     rows,
     applied,
+    skippedFixed,
     backupPath,
     date: args.date,
   }
