@@ -1035,6 +1035,7 @@ describe('runCapturePublishedCloses', () => {
     const fetchEventOdds = jest.fn(async ({ url }) => {
       expect(url).toContain('/sports/americanfootball_nfl/events/evt-kc-buf/odds')
       expect(url).toContain('player_receptions')
+      expect(url).toContain('player_receptions_alternate')
       expect(url).toContain('h2h')
       expect(url).toContain('spreads')
       expect(url).toContain('totals')
@@ -1193,7 +1194,9 @@ describe('runCapturePublishedCloses', () => {
     expect(result.gameLineWrites.some((row) => row.market === 'totals')).toBe(true)
     expect(log.lines.join('\n')).toMatch(/permission denied/)
     expect(log.lines.join('\n')).toMatch(/1 row\(s\) not captured/)
-    expect(log.lines.join('\n')).toMatch(/game-line closes: 1 new ClosingOdds row\(s\)/)
+    expect(log.lines.join('\n')).toMatch(/proposed=/)
+    expect(log.lines.join('\n')).toMatch(/inserted=1/)
+    expect(log.lines.join('\n')).toMatch(/failed=1/)
   })
 
   test('--nfl-all game-line writes stay idempotent on a re-run', async () => {
@@ -1282,7 +1285,7 @@ describe('runCapturePublishedCloses', () => {
     })
     const log = memoryLog()
     const result = await runCapturePublishedCloses({
-      argv: ['--apply', '--nfl-all', '--max-credits', '4'],
+      argv: ['--apply', '--nfl-all', '--max-credits', '5'],
       now: IN_WINDOW,
       createClient: () => mockClient({
         games: [later, soon],
@@ -1296,12 +1299,109 @@ describe('runCapturePublishedCloses', () => {
       apiKey: 'test-key',
       log,
     })
-    expect(result.creditsUsed).toBe(4)
-    expect(result.plannedCredits).toBe(4)
+    expect(result.creditsUsed).toBe(5)
+    expect(result.plannedCredits).toBe(5)
     expect(fetchEventOdds).toHaveBeenCalledTimes(1)
     expect(fetchEventOdds.mock.calls[0][0].url).toContain('/events/evt-soon/odds')
-    expect(log.lines.join('\n')).toMatch(/Odds API credits this run: 4/)
-    expect(log.lines.join('\n')).toMatch(/CREDITS_USED=4/)
+    expect(log.lines.join('\n')).toMatch(/Odds API credits this run: 5/)
+    expect(log.lines.join('\n')).toMatch(/CREDITS_USED=5/)
     expect(log.lines.at(-1)).toBe('CALLS_USED=2')
+  })
+
+  test('requests *_alternate and matches the exact recorded line, not a main-line juice', async () => {
+    const updates = []
+    const fetchEventOdds = jest.fn(async ({ url }) => {
+      expect(url).toContain('player_pass_yds')
+      expect(url).toContain('player_pass_yds_alternate')
+      return {
+        data: {
+          home_team: 'Los Angeles Rams',
+          away_team: 'Seattle Seahawks',
+          bookmakers: [{
+            title: 'FanDuel',
+            markets: [
+              {
+                key: 'player_pass_yds',
+                outcomes: [
+                  { name: 'Over', description: 'Matthew Stafford', point: 281.5, price: 170 },
+                ],
+              },
+              {
+                key: 'player_pass_yds_alternate',
+                outcomes: [
+                  { name: 'Over', description: 'Matthew Stafford', point: 219.5, price: -110 },
+                ],
+              },
+            ],
+          }],
+        },
+        quota: { remaining: 18000, used: 2000 },
+      }
+    })
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--nfl-all'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [nflWindowGame()],
+        picks: [nflPendingPick({
+          id: 'pv-stafford',
+          playerName: 'Matthew Stafford',
+          propType: 'pass_yds',
+          threshold: 219.5,
+          prediction: 'over',
+        })],
+        updates,
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(result.updates).toHaveLength(1)
+    expect(updates[0]).toMatchObject({
+      closeOdds: -110,
+      closeLine: 219.5,
+      closeBook: 'FanDuel',
+      closeNumBooks: 1,
+    })
+  })
+
+  test('leaves close fields empty when the exact line is missing', async () => {
+    const updates = []
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--nfl-all'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [nflWindowGame()],
+        picks: [nflPendingPick({
+          id: 'pv-stafford',
+          playerName: 'Matthew Stafford',
+          propType: 'pass_yds',
+          threshold: 219.5,
+        })],
+        updates,
+      }),
+      fetchEventOdds: async () => ({
+        data: {
+          bookmakers: [{
+            title: 'FanDuel',
+            markets: [{
+              key: 'player_pass_yds',
+              outcomes: [
+                { name: 'Over', description: 'Matthew Stafford', point: 281.5, price: 170 },
+              ],
+            }],
+          }],
+        },
+        quota: { remaining: 18000, used: 2000 },
+      }),
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.updates).toHaveLength(0)
+    expect(updates).toHaveLength(0)
+    expect(log.lines.join('\n')).toMatch(/no quote pv-stafford/)
   })
 })

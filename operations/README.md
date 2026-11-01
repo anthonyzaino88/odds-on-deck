@@ -269,6 +269,16 @@ node scripts/capture-published-closes.js --dry-run
 Read-only CLV (same-line only; line-moved rows are excluded):
 `node scripts/report-published-clv.js`
 
+Line-moved NFL closes (closeLine != recorded threshold) can be listed
+with `node scripts/clear-bad-nfl-closes.js --date YYYY-MM-DD` (dry-run
+default). `--apply` writes a JSONL backup then nulls the close fields.
+Do **not** run `--apply` against production. Refused in CI / hosted prod.
+
+Capture now requests each prop's matching `*_alternate` market on the
+same event-odds call (credits = markets × regions) and matches only the
+exact recorded line. Missing exact-line quotes stay empty for a later
+retry. Consensus close is the median book on that line, not max juice.
+
 ### During Games (Every 15-30 min)
 ```bash
 node scripts/update-scores-safely.js all

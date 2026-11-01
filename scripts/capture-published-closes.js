@@ -56,6 +56,7 @@ import {
   flattenEventOddsQuotes,
   formatCallsUsed,
   formatCreditsUsed,
+  formatGameLineCloseCounts,
   gameLineClosesForCaptureJob,
   groupCaptureJobsByOddsApiEventId,
   hasCloseAlready,
@@ -233,7 +234,9 @@ ODDS_API_KEY + SUPABASE_SECRET_KEY (SUPABASE_REQUIRE_SECRET_KEY=1).
          Do not run from CI. Anon/public keys are refused.
 --nfl-all: also target every pending NFL prop without a close
 (Published bar ignored) and merge h2h/spreads/totals onto that same
-per-game call. Game-line closes write to ClosingOdds (no duplicates).
+per-game call. Prop markets also request the matching *_alternate
+key so alternate-line picks can match the exact recorded threshold.
+Game-line closes write to ClosingOdds (no duplicates).
 Absent --nfl-all, behavior is unchanged. NHL visibility is unchanged.
 PowerShell: prefer npm run capture:published-closes:apply or
             npm run capture:published-closes:nfl-all:apply.
@@ -572,7 +575,7 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
     }
 
     if (args.nflAll && isNflSport(game?.sport)) {
-      const gameLineRows = gameLineClosesForCaptureJob(job, payload.data, now)
+      const gameLineRows = gameLineClosesForCaptureJob(job, payload.data, now, { log })
       const writtenLines = await writeGameLineCloses(supabase, gameLineRows, {
         gamesById,
       })
@@ -582,11 +585,15 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
           : ''
         log.error(`  ❌ ClosingOdds ${label}: ${writtenLines.error.message}${failedNote}`)
       }
+      log.log(formatGameLineCloseCounts({
+        label,
+        proposed: gameLineRows.length,
+        inserted: writtenLines.inserted,
+        skipped: writtenLines.skipped,
+        failed: writtenLines.failed,
+      }))
       if (writtenLines.inserted > 0) {
         gameLineWrites.push(...(writtenLines.rows || []))
-        log.log(`  ✅ ${label} game-line closes: ${writtenLines.inserted} new ClosingOdds row(s)`)
-      } else if (!writtenLines.error && gameLineRows.length > 0) {
-        log.log(`  skipped ${label} game-line closes already captured`)
       }
     }
 

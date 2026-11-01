@@ -40,6 +40,7 @@
     "capture:published-closes:nfl-all": "node scripts/capture-published-closes.js --nfl-all",
     "capture:published-closes:nfl-all:apply": "node scripts/capture-published-closes.js --nfl-all --apply",
     "report:published-clv": "node scripts/report-published-clv.js",
+    "clear:bad-nfl-closes": "node scripts/clear-bad-nfl-closes.js",
     "report:shadow-nhl": "node scripts/report-shadow-nhl.js",
     "repair:dnp": "node scripts/repair-dnp-grades.js",
     "restore:dnp": "node scripts/restore-dnp-grades.js",

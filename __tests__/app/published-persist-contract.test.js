@@ -75,6 +75,7 @@ describe('Published props are recorded when they clear the bar', () => {
     expect(rosterGuardSrc).not.toMatch(/the-odds-api|player-props-odds|ODDS_API/)
     expect(nflPropsSrc).toMatch(/loadEventRosterPlayers/)
     expect(nflPropsSrc).toMatch(/logEventRosterSkip/)
+    expect(nflPropsSrc).toMatch(/sourceMarket: apiProp\.market/)
     expect(nflPropsSrc).toMatch(/Do not invent props from stale known-player names/)
     expect(nhlPropsSrc).toMatch(/loadEventRosterPlayers/)
     expect(nhlPropsSrc).toMatch(/logEventRosterSkip/)
