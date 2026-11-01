@@ -75,6 +75,8 @@ describe('validate:all grades props before parlays', () => {
     expect(src).toMatch(/isNflFetchError/)
     expect(src).toMatch(/if \(sport === 'nfl' && isNflFetchError\(nflLookup\)\) \{[\s\S]*?continue/)
     expect(src).toMatch(/leaving pending/)
+    expect(src).toMatch(/PropValidation has no playerId\/team columns/)
+    expect(src).toMatch(/unique exact name/)
     expect(src).toMatch(/Refuse writes during ops quiet window/)
   })
 

@@ -330,6 +330,8 @@ async function main() {
               }
               break
             }
+            // PropValidation has no playerId/team columns. Identity comes
+            // from a unique exact name on the event's two complete rosters.
             nflLookup = await getNFLStat(
               game.espnGameId,
               v.playerName,
@@ -338,6 +340,10 @@ async function main() {
                 playerId: v.playerId,
                 team: v.team,
                 game,
+                gameTeams: {
+                  home: game.home?.abbr || game.homeAbbr || null,
+                  away: game.away?.abbr || game.awayAbbr || null,
+                },
                 cache: nflCache,
                 fetchDelayMs: NFL_FETCH_DELAY_MS,
                 now: new Date(),
