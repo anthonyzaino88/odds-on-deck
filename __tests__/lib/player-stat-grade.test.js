@@ -3,6 +3,7 @@ import {
   bothBoxRostersPresent,
   boxTeamsMatchGame,
   canonicalTeamCode,
+  isMissingFromBox,
   isVerifiedPlayerStatGameId,
   MLB_MIN_BOX_ROSTER,
   NHL_MIN_BOX_ROSTER,
@@ -294,6 +295,18 @@ describe('planPlayerAppearanceGrade DNP voids', () => {
       { reason: 'not_in_box', matchStatus: 'unmatched', value: null },
       { sport: 'mlb', gameFinal: true, gameIdVerified: false },
     )).toEqual({ action: 'needs_review', reason: 'not_in_box' })
+  })
+
+  test('NHL fetch errors never void, even on a final verified box', () => {
+    expect(planPlayerAppearanceGrade(
+      { reason: 'fetch_error', matchStatus: 'fetch_error', value: null, status: 429 },
+      { sport: 'nhl', gameFinal: true, gameIdVerified: true, playerName: 'Nobody Fake', box: NJD_NYR_BOX },
+    )).toEqual({ action: 'needs_review', reason: 'fetch_error' })
+    expect(isMissingFromBox({
+      reason: 'fetch_error',
+      matchStatus: 'fetch_error',
+      value: null,
+    })).toBe(false)
   })
 
   test('NFL players missing from the box stay needs_review', () => {
