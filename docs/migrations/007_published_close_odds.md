@@ -49,12 +49,13 @@ Kill switch: `CLOSING_CAPTURE=0`. Caps: `--max-calls N` and
 `--nfl-all` (opt-in) also captures every pending NFL prop without a
 close, regardless of Published status, and merges `h2h` / `spreads` /
 `totals` onto that same per-game Odds API call. Game-line closes reuse
-the existing `ClosingOdds` table. Re-runs skip a row only when it is
-from this close capture (`id` prefix `clvclose:` or `snapshot_at` in
-the game's T−35..T−1 window), so earlier `snapshot-closing-lines`
-rows do not hide the true close. Do not overlap `--apply` runs —
-there is no unique `(game_id, book, market)` key. A unique index is
-an optional follow-up. `--max-credits N` caps markets × regions.
+the existing `ClosingOdds` table. Re-runs skip a row only when `id`
+starts with `clvclose:` (`ClosingOdds.id` is TEXT). `snapshot_at` is
+not used, so a T−30 `snapshot-closing-lines` insert cannot hide the
+true close. Overlapping applies hit the existing primary key (`23505`)
+and are treated as already captured. A unique `(game_id, book, market)`
+index is an optional follow-up. `--max-credits N` caps markets ×
+regions.
 Prop closes still use `closeOdds`, `closeLine`, `closeCapturedAt`.
 Dry-run prints planned HTTP/credits and `CALLS_USED` / `CREDITS_USED`.
 

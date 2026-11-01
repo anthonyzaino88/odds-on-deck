@@ -216,7 +216,8 @@ npm run capture:published-closes:nfl-all:apply
 # Or: node scripts/capture-published-closes.js --nfl-all --dry-run
 #     node scripts/capture-published-closes.js --nfl-all --apply --max-calls 8 --max-credits 24
 # Do not overlap capture --apply runs. ClosingOdds has no unique
-# (game, book, market) key; a unique index is an optional follow-up.
+# (game, book, market) key; clvclose: ids are the TEXT primary key.
+# A unique index is an optional follow-up.
 
 # Export
 npm run export:csv   # Export parlays to CSV

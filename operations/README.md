@@ -226,16 +226,18 @@ that still has no close is targeted (Published bar ignored), and each
 NFL game's existing event-odds request also asks for `h2h`, `spreads`,
 and `totals`. Prop closes still write `closeOdds` / `closeLine` /
 `closeCapturedAt`. Game-line closes write one `ClosingOdds` row per
-book + market. A row counts as already captured only if it came from
-this close capture: `id` starts with `clvclose:` or `snapshot_at` is
-inside that game's T−35..T−1 window. Morning
-`snapshot-closing-lines` rows (same book title, up to 2 hours out) do
-not block the true close.
+book + market. A row counts as already captured only if `id` starts
+with `clvclose:`. `snapshot_at` is ignored — `snapshot-closing-lines`
+stamps insert time, so a T−30 snapshot must not block the true close.
+`ClosingOdds.id` is TEXT (Prisma `String`, SQL `TEXT PRIMARY KEY`).
+Deterministic `clvclose:` ids are the primary key; overlapping applies
+hit `23505` and are treated as already captured, not a failure.
 
 **Do not overlap capture `--apply` runs.** `ClosingOdds` has no unique
-`(game_id, book, market)` key. The job uses a same-process key set
-plus deterministic `clvclose:` ids; two overlapping applies can still
-race. A unique index is an optional follow-up (schema change).
+`(game_id, book, market)` key. A unique index is an optional follow-up
+(schema change). If a fetch returns no book for a market, one
+`book=attempted` `clvclose:` row marks that market so the game is not
+refetched every run.
 
 `--max-credits N` stops before the next game would exceed markets ×
 regions (us=1), soonest kickoff first. Dry-run prints planned HTTP
