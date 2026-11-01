@@ -24,6 +24,10 @@ import {
   plannedCloseCaptureHttpCalls,
   publishedMarketKey,
   resetCloseColumnCache,
+  resetClosingOddsWriteGuard,
+  selectCloseCaptureJobsWithinBudget,
+  capturedNflGameLineGameIds,
+  isCloseCaptureClosingOddsRow,
   sortCloseCaptureJobs,
   summarizePublishedClv,
   updateWithOptionalCloseOdds,
@@ -37,9 +41,11 @@ import {
   isTargetedCloseCapturePick,
   NFL_GAME_LINE_MARKETS,
 } from '../../lib/closing-line.js'
+import { getBestLines } from '../../lib/vendors/odds.js'
 
 beforeEach(() => {
   resetCloseColumnCache()
+  resetClosingOddsWriteGuard()
 })
 
 describe('odds API market mapping', () => {
@@ -99,8 +105,39 @@ describe('odds API market mapping', () => {
     expect(plannedCloseCaptureHttpCalls({ jobCount: 3, maxCalls: 2 })).toBe(2)
     expect(plannedCloseCaptureHttpCalls({ jobCount: 3, maxCalls: 0 })).toBe(0)
     expect(plannedCloseCaptureHttpCalls({ jobCount: 0 })).toBe(0)
+    expect(plannedCloseCaptureHttpCalls({
+      jobs: [
+        { eventId: 'evt-1', game: { sport: 'nfl' } },
+        { eventId: null, game: { sport: 'nfl' } },
+        { eventId: 'evt-2', game: { sport: 'nfl' } },
+      ],
+    })).toBe(3)
     expect(formatCallsUsed(2)).toBe('CALLS_USED=2')
     expect(formatCallsUsed(0)).toBe('CALLS_USED=0')
+  })
+
+  test('selectCloseCaptureJobsWithinBudget stops before exceeding --max-credits', () => {
+    const soon = {
+      gameId: 'soon',
+      gameIds: ['soon'],
+      eventId: 'evt-soon',
+      game: { sport: 'nfl', date: '2026-07-15T23:00:00.000Z' },
+      picks: [{ propType: 'player_receptions' }],
+    }
+    const later = {
+      gameId: 'later',
+      gameIds: ['later'],
+      eventId: 'evt-later',
+      game: { sport: 'nfl', date: '2026-07-15T23:16:00.000Z' },
+      picks: [{ propType: 'player_receptions' }],
+    }
+    const picked = selectCloseCaptureJobsWithinBudget([soon, later], {
+      nflAll: true,
+      maxCredits: 4,
+    })
+    expect(picked.jobs.map((job) => job.gameId)).toEqual(['soon'])
+    expect(picked.plannedCredits).toBe(4)
+    expect(picked.plannedCalls).toBe(2)
   })
 })
 
@@ -244,6 +281,11 @@ describe('event-id dedupe and conditional close write', () => {
     const empty = includeNflWindowGamesForGameLines(new Map(), games, { nflAll: true })
     expect(empty.get('nfl-1')).toEqual([])
     expect(empty.has('mlb-1')).toBe(false)
+    const skipped = includeNflWindowGamesForGameLines(new Map(), games, {
+      nflAll: true,
+      capturedGameIds: new Set(['nfl-1']),
+    })
+    expect(skipped.has('nfl-1')).toBe(false)
   })
 
   test('applyPublishedCloseUpdate only patches rows where closeOdds IS NULL', () => {
@@ -578,8 +620,8 @@ describe('NFL game-line ClosingOdds writes', () => {
         book: 'FanDuel',
         market: 'totals',
         total: 47.5,
-        price_away: -108,
-        price_home: -112,
+        price_home: -108,
+        price_away: -112,
       }),
       expect.objectContaining({
         book: 'DraftKings',
@@ -619,5 +661,96 @@ describe('NFL game-line ClosingOdds writes', () => {
     expect(second.skipped).toBe(4)
     expect(inserts).toHaveLength(4)
     expect(filterNewClosingOddsRows(proposed, existing)).toEqual([])
+  })
+
+  test('early snapshot-closing-lines rows do not count as already captured', () => {
+    const kickoff = '2026-07-15T23:10:00.000Z'
+    const game = { id: 'KC_at_BUF', date: kickoff, sport: 'nfl' }
+    const gamesById = new Map([['KC_at_BUF', game]])
+    const earlySnapshot = {
+      id: 'uuid-snapshot',
+      game_id: 'KC_at_BUF',
+      book: 'FanDuel',
+      market: 'h2h',
+      snapshot_at: '2026-07-15T21:20:00.000Z',
+    }
+    expect(isCloseCaptureClosingOddsRow(earlySnapshot, game)).toBe(false)
+    const proposed = gameLineClosesFromEventOdds(eventData, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+    })
+    const fresh = filterNewClosingOddsRows(proposed, [earlySnapshot], { gamesById })
+    expect(fresh.some((row) => row.market === 'h2h' && row.book === 'FanDuel')).toBe(true)
+  })
+
+  test('close-window snapshot_at or clvclose: id counts as this capture', () => {
+    const kickoff = '2026-07-15T23:10:00.000Z'
+    const game = { id: 'KC_at_BUF', date: kickoff, sport: 'nfl' }
+    const gamesById = new Map([['KC_at_BUF', game]])
+    const inWindow = {
+      id: 'uuid-close',
+      game_id: 'KC_at_BUF',
+      book: 'FanDuel',
+      market: 'h2h',
+      snapshot_at: '2026-07-15T22:50:00.000Z',
+    }
+    const tagged = {
+      id: 'clvclose:kc_at_buf|draftkings|h2h',
+      game_id: 'KC_at_BUF',
+      book: 'DraftKings',
+      market: 'h2h',
+      snapshot_at: '2026-07-15T21:00:00.000Z',
+    }
+    expect(isCloseCaptureClosingOddsRow(inWindow, game)).toBe(true)
+    expect(isCloseCaptureClosingOddsRow(tagged, game)).toBe(true)
+    const proposed = gameLineClosesFromEventOdds(eventData, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+    })
+    const fresh = filterNewClosingOddsRows(proposed, [inWindow, tagged], { gamesById })
+    expect(fresh.find((row) => row.book === 'FanDuel' && row.market === 'h2h')).toBeUndefined()
+    expect(fresh.find((row) => row.book === 'DraftKings' && row.market === 'h2h')).toBeUndefined()
+  })
+
+  test('totals Over maps to priceHome so getBestLines reads Over from priceHome', () => {
+    const rows = gameLineClosesFromEventOdds(eventData, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+    })
+    const totals = rows.find((row) => row.market === 'totals')
+    expect(totals).toMatchObject({
+      price_home: -108,
+      price_away: -112,
+      total: 47.5,
+    })
+    const best = getBestLines([{
+      market: 'totals',
+      book: totals.book,
+      priceHome: totals.price_home,
+      priceAway: totals.price_away,
+      total: totals.total,
+    }])
+    expect(best.totals.over.price).toBe(-108)
+    expect(best.totals.under.price).toBe(-112)
+  })
+
+  test('capturedNflGameLineGameIds requires all three markets from this capture', () => {
+    const game = { id: 'g1', date: '2026-07-15T23:10:00.000Z', sport: 'nfl' }
+    const early = {
+      id: 'snap',
+      game_id: 'g1',
+      book: 'FanDuel',
+      market: 'h2h',
+      snapshot_at: '2026-07-15T21:00:00.000Z',
+    }
+    const closeRows = ['h2h', 'spreads', 'totals'].map((market) => ({
+      id: `clvclose:g1|fanduel|${market}`,
+      game_id: 'g1',
+      book: 'FanDuel',
+      market,
+      snapshot_at: '2026-07-15T22:50:00.000Z',
+    }))
+    expect(capturedNflGameLineGameIds([game], [early])).toEqual(new Set())
+    expect(capturedNflGameLineGameIds([game], closeRows)).toEqual(new Set(['g1']))
   })
 })

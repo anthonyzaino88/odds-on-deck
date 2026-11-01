@@ -224,6 +224,8 @@ describe('parseCaptureClosesArgs', () => {
       unknown: [],
     })
     expect(parseCaptureClosesArgs([]).nflAll).toBe(false)
+    expect(parseCaptureClosesArgs(['--max-credits', '12']).maxCredits).toBe(12)
+    expect(parseCaptureClosesArgs(['--max-credits']).invalidFlags).toEqual(['--max-credits'])
     expect(isClosingCaptureDisabled({ CLOSING_CAPTURE: '0' })).toBe(true)
     expect(isClosingCaptureDisabled({ CLOSING_CAPTURE: '1' })).toBe(false)
   })
@@ -236,6 +238,7 @@ describe('parseCaptureClosesArgs', () => {
     expect(parseCaptureClosesArgs(['--min-remaining', 'nope']).invalidFlags).toEqual(['--min-remaining'])
     expect(parseCaptureClosesArgs(['--min-remaining']).invalidFlags).toEqual(['--min-remaining'])
     expect(parseCaptureClosesArgs(['--max-calls', '0']).invalidFlags).toEqual([])
+    expect(parseCaptureClosesArgs(['--max-credits', '-1']).invalidFlags).toEqual(['--max-credits'])
   })
 
   test('CLV_APPLY=1 is an apply switch; --dry-run still wins', () => {
@@ -678,7 +681,7 @@ describe('runCapturePublishedCloses', () => {
   test('invalid --max-calls or --min-remaining exits 1 before any work', async () => {
     const createClient = jest.fn()
     const fetchEventOdds = jest.fn()
-    for (const argv of [['--max-calls', 'abc'], ['--max-calls'], ['--min-remaining', '-1']]) {
+    for (const argv of [['--max-calls', 'abc'], ['--max-calls'], ['--min-remaining', '-1'], ['--max-credits', 'nope']]) {
       const log = memoryLog()
       const result = await runCapturePublishedCloses({
         argv,
@@ -1170,5 +1173,85 @@ describe('runCapturePublishedCloses', () => {
     const second = await run()
     expect(second.gameLineWrites).toHaveLength(0)
     expect(closingInserts).toHaveLength(insertedAfterFirst)
+  })
+
+  test('--help prints CALLS_USED', async () => {
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--help'],
+      log,
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.help).toBe(true)
+    expect(log.lines.at(-1)).toBe('CALLS_USED=0')
+  })
+
+  test('already-captured NFL game lines are not refetched when props are done', async () => {
+    const fetchEventOdds = jest.fn()
+    const game = nflWindowGame()
+    const closingOdds = ['h2h', 'spreads', 'totals'].map((market) => ({
+      id: `clvclose:${game.id}|fanduel|${market}`,
+      game_id: game.id,
+      book: 'FanDuel',
+      market,
+      snapshot_at: '2026-07-15T22:50:00.000Z',
+    }))
+    const result = await runCapturePublishedCloses({
+      argv: ['--nfl-all'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [game],
+        picks: [nflPendingPick({
+          closeOdds: -110,
+          closeCapturedAt: '2026-07-15T22:50:00.000Z',
+        })],
+        closingOdds,
+      }),
+      fetchEventOdds,
+      log: memoryLog(),
+    })
+    expect(result.captureJobs || []).toHaveLength(0)
+    expect(result.plannedCalls).toBe(0)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+
+  test('--max-credits stops before exceeding, soonest kickoff first', async () => {
+    const fetchEventOdds = jest.fn(async () => ({
+      data: nflEventOdds(),
+      quota: { remaining: 9000, used: 1 },
+    }))
+    const soon = nflWindowGame({
+      id: 'soon',
+      date: '2026-07-15T23:00:00.000Z',
+      oddsApiEventId: 'evt-soon',
+    })
+    const later = nflWindowGame({
+      id: 'later',
+      date: '2026-07-15T23:16:00.000Z',
+      oddsApiEventId: 'evt-later',
+    })
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--nfl-all', '--max-credits', '4'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [later, soon],
+        picks: [
+          nflPendingPick({ id: 'pv-later', gameIdRef: later.id }),
+          nflPendingPick({ id: 'pv-soon', gameIdRef: soon.id }),
+        ],
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.creditsUsed).toBe(4)
+    expect(result.plannedCredits).toBe(4)
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(fetchEventOdds.mock.calls[0][0].url).toContain('/events/evt-soon/odds')
+    expect(log.lines.join('\n')).toMatch(/Odds API credits this run: 4/)
+    expect(log.lines.join('\n')).toMatch(/CREDITS_USED=4/)
+    expect(log.lines.at(-1)).toBe('CALLS_USED=2')
   })
 })
