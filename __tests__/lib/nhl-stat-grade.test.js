@@ -24,9 +24,12 @@ import {
   createNhlLookupCache,
   getPlayerGameStat,
   lookupPlayerGameStat,
+  NHL_FETCH_5XX_BACKOFF_MS,
   NHL_FETCH_MAX_RETRIES,
   NHL_FETCH_RETRY_AFTER_DEFAULT_MS,
+  NHL_FETCH_RETRY_AFTER_MAX_MS,
   nhlApiPlayerDisplayName,
+  retryAfterWaitMs,
 } from '../../lib/vendors/nhl-game-stats.js'
 
 const ESPN_SKATER_LABELS = ['TOI', 'G', 'A', '+/-', 'S', 'SM', 'SOG', 'SV']
@@ -799,7 +802,7 @@ describe('NHL API display names', () => {
       gameFinal: true,
     })
     expect(scheduleCalls).toBe(2)
-    expect(sleep).toHaveBeenCalledWith(NHL_FETCH_RETRY_AFTER_DEFAULT_MS)
+    expect(sleep).toHaveBeenCalledWith(NHL_FETCH_5XX_BACKOFF_MS[0])
 
     const recoveredEspn = await lookupPlayerGameStat(
       '401802001',
@@ -863,7 +866,7 @@ describe('NHL API rate-limit and fetch-error handling', () => {
       gameFinal: true,
     })
     expect(scheduleCalls).toBe(2)
-    expect(sleep).toHaveBeenCalledWith(60_000)
+    expect(sleep).toHaveBeenCalledWith(NHL_FETCH_RETRY_AFTER_MAX_MS)
     expect(cache.nhlGameIdByRef.get(GAME_REF)).toBe(2026020101)
   })
 
@@ -899,7 +902,21 @@ describe('NHL API rate-limit and fetch-error handling', () => {
     expect(cache.nhlGameIdByRef.has(GAME_REF)).toBe(false)
     expect(cache.nhlScheduleByDate.has('2026-01-01')).toBe(false)
     expect(scheduleCalls).toBe(NHL_FETCH_MAX_RETRIES + 1)
-    expect(onPersistentRateLimit).toHaveBeenCalledWith(expect.objectContaining({ status: 429 }))
+    expect(onPersistentRateLimit).toHaveBeenCalledWith(expect.objectContaining({
+      status: 429,
+      url: expect.stringContaining('/schedule/'),
+    }))
+    expect(cache.failedUrls.size).toBeGreaterThan(0)
+
+    const scheduleHits = scheduleCalls
+    await lookupPlayerGameStat(
+      '401802099',
+      'Charlie Coyle',
+      'player_shots_on_goal',
+      GAME_REF,
+      { cache, sleep, onPersistentRateLimit },
+    )
+    expect(scheduleCalls).toBe(scheduleHits)
     expect(planPlayerAppearanceGrade(result, {
       sport: 'nhl',
       gameFinal: true,
@@ -993,6 +1010,102 @@ describe('NHL API rate-limit and fetch-error handling', () => {
     ).action).toBe('skip')
   })
 
+  test('caps 429 Retry-After at 30s and uses 1-5s backoff for 5xx/throws', () => {
+    expect(retryAfterWaitMs({
+      status: 429,
+      headers: { get: (name) => (String(name).toLowerCase() === 'retry-after' ? '60' : null) },
+    }, 0, 429)).toBe(NHL_FETCH_RETRY_AFTER_MAX_MS)
+    expect(retryAfterWaitMs(null, 0, 429)).toBe(NHL_FETCH_RETRY_AFTER_DEFAULT_MS)
+    expect(retryAfterWaitMs(null, 0, 503)).toBe(1_000)
+    expect(retryAfterWaitMs(null, 1, 500)).toBe(2_000)
+    expect(retryAfterWaitMs(null, 2, 0)).toBe(4_000)
+    expect(NHL_FETCH_RETRY_AFTER_MAX_MS).toBe(30_000)
+  })
+
+  test('empty or missing play-by-play rosterSpots is fetch_error, not unmatched/void', async () => {
+    const sleep = jest.fn(async () => {})
+    const cache = createNhlLookupCache()
+    global.fetch = jest.fn((url) => {
+      const href = String(url)
+      if (href.includes('/schedule/')) return jsonResponse(nhlSchedule())
+      if (href.includes('/boxscore')) return jsonResponse(nhlBoxscore({ padRosters: true }))
+      if (href.includes('/play-by-play')) return jsonResponse({ homeTeam: { id: 6 }, awayTeam: { id: 3 } })
+      return errorResponse(500, 'Error')
+    })
+
+    const result = await lookupPlayerGameStat(
+      '401802099',
+      'Charlie Coyle',
+      'player_shots_on_goal',
+      GAME_REF,
+      { cache, sleep },
+    )
+    expect(isNhlFetchError(result)).toBe(true)
+    expect(result.matchStatus).not.toBe('unmatched')
+    expect(result.gameFinal).toBe(false)
+    expect(result.didNotPlay).toBe(false)
+    expect(planPlayerAppearanceGrade(result, {
+      sport: 'nhl',
+      gameFinal: true,
+      gameIdVerified: true,
+      playerName: 'Charlie Coyle',
+    })).toEqual({ action: 'needs_review', reason: 'fetch_error' })
+    expect(buildRegradePreview(
+      { id: 'pv-1', sport: 'nhl', playerName: 'Charlie Coyle', propType: 'player_shots_on_goal', gameIdRef: GAME_REF, status: 'needs_review' },
+      result,
+      NHL_GAME,
+      { sport: 'nhl', gameFinal: true, gameIdVerified: true },
+    ).action).toBe('skip')
+  })
+
+  test('unmatched NHL plus ESPN 500 is fetch_error, not unmatched/void', async () => {
+    const sleep = jest.fn(async () => {})
+    global.fetch = jest.fn((url) => {
+      const href = String(url)
+      if (href.includes('/schedule/')) return jsonResponse(nhlSchedule())
+      if (href.includes('/boxscore')) return jsonResponse(nhlBoxscore({ padRosters: true }))
+      if (href.includes('/play-by-play')) return jsonResponse(nhlPlayByPlay())
+      return errorResponse(500, 'Error')
+    })
+
+    const result = await lookupPlayerGameStat(
+      '401802099',
+      'Jamie Benn',
+      'player_shots_on_goal',
+      GAME_REF,
+      { cache: createNhlLookupCache(), sleep, team: 'DAL' },
+    )
+    expect(isNhlFetchError(result)).toBe(true)
+    expect(result.matchStatus).not.toBe('unmatched')
+    expect(planPlayerAppearanceGrade(result, {
+      sport: 'nhl',
+      gameFinal: true,
+      gameIdVerified: true,
+    })).toEqual({ action: 'needs_review', reason: 'fetch_error' })
+  })
+
+  test('unmatched NHL plus ESPN throw is fetch_error, not unmatched/void', async () => {
+    const sleep = jest.fn(async () => {})
+    global.fetch = jest.fn((url) => {
+      const href = String(url)
+      if (href.includes('/schedule/')) return jsonResponse(nhlSchedule())
+      if (href.includes('/boxscore')) return jsonResponse(nhlBoxscore({ padRosters: true }))
+      if (href.includes('/play-by-play')) return jsonResponse(nhlPlayByPlay())
+      return Promise.reject(new Error('socket hang up'))
+    })
+
+    const result = await lookupPlayerGameStat(
+      '401802099',
+      'Jamie Benn',
+      'player_shots_on_goal',
+      GAME_REF,
+      { cache: createNhlLookupCache(), sleep },
+    )
+    expect(isNhlFetchError(result)).toBe(true)
+    expect(result.matchStatus).not.toBe('unmatched')
+    expect(result.didNotPlay).toBe(false)
+  })
+
   test('nhlFetchErrorResult cannot be treated as a gradeable or DNP void', () => {
     const result = nhlFetchErrorResult({ source: 'nhl-api', status: 429, gameFinal: true, didNotPlay: true })
     expect(result).toMatchObject({
@@ -1023,5 +1136,13 @@ describe('NHL-only wiring leaves MLB/NFL graders untouched', () => {
     expect(src).toMatch(/isGradeableNhlStatResult\(nhlLookup\)/)
     expect(src).toMatch(/nhlGradeSourceFromResult\(nhlLookup\)/)
     expect(src).toMatch(/lookupPlayerGameStat/)
+    expect(src).toMatch(/createNhlLookupCache/)
+    expect(src).toMatch(/fetchDelayMs: NHL_FETCH_DELAY_MS/)
+    expect(src).toMatch(/onPersistentRateLimit/)
+    expect(src).toMatch(/isOpsWriteQuietPeriod/)
+    expect(src).toMatch(/assertCanWrite/)
+    expect(src).toMatch(/isNhlFetchError\(nhlLookup\)/)
+    expect(src).toMatch(/leaving pending/)
+    expect(src).toMatch(/Refuse writes during ops quiet window/)
   })
 })

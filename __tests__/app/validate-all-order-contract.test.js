@@ -65,6 +65,13 @@ describe('validate:all grades props before parlays', () => {
     expect(src).toMatch(/boxScoreArchiveRows/)
     expect(src).toMatch(/gradePendingGameLines/)
     expect(src).toMatch(/withPreservedCohortNotes/)
+    expect(src).toMatch(/createNhlLookupCache/)
+    expect(src).toMatch(/NHL_FETCH_DELAY_MS/)
+    expect(src).toMatch(/onPersistentRateLimit/)
+    expect(src).toMatch(/isOpsWriteQuietPeriod/)
+    expect(src).toMatch(/isNhlFetchError/)
+    expect(src).toMatch(/leaving pending/)
+    expect(src).toMatch(/Refuse writes during ops quiet window/)
   })
 
   test('gradePendingGameLines pages in id order instead of a 200-row cap', () => {
