@@ -7,7 +7,9 @@ import {
   appendJsonlRecords,
   appendJsonlVerified,
   dailyJsonlFilename,
+  filterClosingOddsForResearchArchive,
   groupRowsByUtcDay,
+  rowsForResearchArchiveExport,
   inspectJsonlText,
   loadJsonlFieldSet,
   resolveBoxScoresDir,
@@ -243,5 +245,24 @@ describe('box-score archive gate', () => {
       gamePk: '824785',
     })
     expect(boxScoreArchiveRows({ ...finalGame, status: 'postponed' }, { 'A': { hits: 0 } })).toEqual([])
+  })
+})
+
+describe('ClosingOdds research archive export', () => {
+  test('drops book=attempted rows and leaves other tables unchanged', () => {
+    const close = { id: 'clvclose:g1|fanduel|totals', book: 'FanDuel', total: 47.5 }
+    const attempted = { id: 'clvclose:g1|attempted|totals', book: 'attempted', total: null }
+    const morning = { id: 'snap-1', book: 'DraftKings', total: 46.5 }
+    expect(filterClosingOddsForResearchArchive([attempted, close, morning])).toEqual([
+      close,
+      morning,
+    ])
+    expect(rowsForResearchArchiveExport('ClosingOdds', [attempted, close])).toEqual([close])
+    const props = [{ prop_id: 'p1', book: 'attempted' }]
+    expect(rowsForResearchArchiveExport('ArchivedPropLine', props)).toEqual(props)
+    const src = fs.readFileSync(path.join(process.cwd(), 'lib/local-archive.js'), 'utf8')
+    expect(src).toMatch(/export \{ filterClosingOddsForResearchArchive \} from '\.\/closing-line\.js'/)
+    expect(src).toMatch(/Group rows into UTC-day buckets[\s\S]*export function groupRowsByUtcDay/)
+    expect(src).not.toMatch(/function filterClosingOddsForResearchArchive/)
   })
 })

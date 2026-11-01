@@ -21,6 +21,7 @@ import {
   groupRowsByUtcDay,
   resolveBoxScoresDir,
   resolvePropLinesDir,
+  rowsForResearchArchiveExport,
 } from '../lib/local-archive.js'
 
 config({ path: '.env.local' })
@@ -45,7 +46,7 @@ async function fetchAllRows(supabase, table, columns = '*') {
     if (data.length < PAGE_SIZE) break
     from += PAGE_SIZE
   }
-  return all
+  return rowsForResearchArchiveExport(table, all)
 }
 
 function printDayCounts(label, groups) {

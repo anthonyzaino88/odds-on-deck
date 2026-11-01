@@ -144,6 +144,7 @@ function mockClient({
   updates = [],
   closingOdds = [],
   closingInserts = [],
+  closingInsert = null,
 } = {}) {
   return {
     from(table) {
@@ -160,6 +161,7 @@ function mockClient({
           },
           insert(rows) {
             const list = Array.isArray(rows) ? rows : [rows]
+            if (closingInsert) return closingInsert(list, { closingOdds, closingInserts })
             closingInserts.push(...list)
             closingOdds.push(...list)
             return Promise.resolve({ data: list, error: null })
@@ -1144,6 +1146,54 @@ describe('runCapturePublishedCloses', () => {
     })
     expect(apply.calls).toBe(2)
     expect(applyLog.lines.at(-1)).toBe('CALLS_USED=2')
+  })
+
+  test('--nfl-all logs a mixed ClosingOdds batch without marking failed rows captured', async () => {
+    const closingOdds = []
+    const closingInserts = []
+    const pkeyError = {
+      code: '23505',
+      message: 'duplicate key value violates unique constraint "ClosingOdds_pkey"',
+    }
+    const deniedError = { code: '42501', message: 'permission denied' }
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--nfl-all'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [nflWindowGame()],
+        picks: [nflPendingPick()],
+        closingOdds,
+        closingInserts,
+        closingInsert(rows, { closingOdds: existing, closingInserts: inserts }) {
+          if (rows.length > 1) {
+            return Promise.resolve({ data: null, error: pkeyError })
+          }
+          const [row] = rows
+          if (row.market === 'h2h') {
+            return Promise.resolve({ data: null, error: pkeyError })
+          }
+          if (row.market === 'spreads') {
+            return Promise.resolve({ data: null, error: deniedError })
+          }
+          inserts.push(row)
+          existing.push(row)
+          return Promise.resolve({ data: rows, error: null })
+        },
+      }),
+      fetchEventOdds: async () => ({
+        data: nflEventOdds(),
+        quota: { remaining: 18000, used: 2000 },
+      }),
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.gameLineWrites.every((row) => row.market !== 'spreads')).toBe(true)
+    expect(result.gameLineWrites.some((row) => row.market === 'totals')).toBe(true)
+    expect(log.lines.join('\n')).toMatch(/permission denied/)
+    expect(log.lines.join('\n')).toMatch(/1 row\(s\) not captured/)
+    expect(log.lines.join('\n')).toMatch(/game-line closes: 1 new ClosingOdds row\(s\)/)
   })
 
   test('--nfl-all game-line writes stay idempotent on a re-run', async () => {
