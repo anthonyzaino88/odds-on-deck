@@ -39,6 +39,9 @@ import {
   summarizeShadowPublishedPicks,
   withPreservedCohortNotes,
   withAppendedCohortTag,
+  withAppendedOddsMarketTag,
+  oddsMarketNotesTag,
+  sourceMarketFromPick,
   publishedPersistNotes,
   publishedValidationUpdateFields,
   shouldLockPublishedRecordedPrice,
@@ -874,6 +877,30 @@ describe('toPublishedValidationFields', () => {
       sport: 'mlb',
     })
     expect(fields.propType).toBe('batter_total_bases')
+  })
+
+  test('records sourceMarket on notes without a schema change', () => {
+    expect(oddsMarketNotesTag('player_pass_yds_alternate')).toBe('oddsMarket:player_pass_yds_alternate')
+    expect(sourceMarketFromPick({
+      notes: 'cohort:published | oddsMarket:player_pass_yds_alternate',
+    })).toBe('player_pass_yds_alternate')
+    expect(withAppendedOddsMarketTag('cohort:published', 'player_pass_yds_alternate'))
+      .toBe('cohort:published | oddsMarket:player_pass_yds_alternate')
+    const fields = toPublishedValidationFields({
+      propId: 'stafford-1',
+      gameId: 'g3',
+      playerName: 'Matthew Stafford',
+      type: 'passing_yards',
+      pick: 'over',
+      threshold: 219.5,
+      odds: -110,
+      edge: 0.05,
+      qualityScore: 50,
+      sport: 'nfl',
+      sourceMarket: 'player_pass_yds_alternate',
+    })
+    expect(fields.notes).toBe('cohort:published | oddsMarket:player_pass_yds_alternate')
+    expect(sourceMarketFromPick(fields)).toBe('player_pass_yds_alternate')
   })
 })
 
