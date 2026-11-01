@@ -309,11 +309,76 @@ describe('planPlayerAppearanceGrade DNP voids', () => {
     })).toBe(false)
   })
 
-  test('NFL players missing from the box stay needs_review', () => {
+  test('NFL players missing from the box stay needs_review until the roster path decides', () => {
     expect(planPlayerAppearanceGrade(
       { reason: 'not_in_box', matchStatus: 'unmatched', value: null },
       { sport: 'nfl', gameFinal: true, gameIdVerified: true },
     )).toEqual({ action: 'needs_review', reason: 'not_in_box' })
+  })
+
+  test('NFL roster-backed DNP / no-snap / not-on-roster voids', () => {
+    expect(planPlayerAppearanceGrade({
+      didNotPlay: true,
+      reason: 'dnp_verified',
+      matchStatus: 'matched',
+      value: null,
+    })).toEqual({ action: 'void', reason: 'dnp_verified' })
+    expect(planPlayerAppearanceGrade({
+      didNotPlay: true,
+      reason: 'dnp_no_snap',
+      matchStatus: 'matched',
+      value: null,
+    })).toEqual({ action: 'void', reason: 'dnp_no_snap' })
+    expect(planPlayerAppearanceGrade({
+      didNotPlay: true,
+      reason: 'not_on_roster',
+      matchStatus: 'not_on_roster',
+      value: null,
+    })).toEqual({ action: 'void', reason: 'not_on_roster' })
+  })
+
+  test('NFL fail-closed lookups never void', () => {
+    expect(planPlayerAppearanceGrade({
+      reason: 'fetch_error',
+      matchStatus: 'fetch_error',
+      value: null,
+    }, { sport: 'nfl', gameFinal: true, gameIdVerified: true })).toEqual({
+      action: 'needs_review',
+      reason: 'fetch_error',
+    })
+    expect(planPlayerAppearanceGrade({
+      reason: 'missing_roster',
+      matchStatus: 'unmatched',
+      value: null,
+    }, { sport: 'nfl', gameFinal: true, gameIdVerified: true })).toEqual({
+      action: 'needs_review',
+      reason: 'missing_roster',
+    })
+    expect(planPlayerAppearanceGrade({
+      reason: 'no_log_entry',
+      matchStatus: 'unmatched',
+      value: null,
+    }, { sport: 'nfl', gameFinal: true, gameIdVerified: true })).toEqual({
+      action: 'needs_review',
+      reason: 'no_log_entry',
+    })
+    expect(planPlayerAppearanceGrade({
+      reason: 'pending_final_window',
+      matchStatus: 'n/a',
+      value: null,
+      gameFinal: false,
+    }, { sport: 'nfl', gameFinal: true, gameIdVerified: true })).toEqual({
+      action: 'needs_review',
+      reason: 'pending_final_window',
+    })
+    expect(planPlayerAppearanceGrade({
+      reason: 'missing_team',
+      matchStatus: 'unmatched',
+      value: null,
+    }, { sport: 'nfl', gameFinal: true, gameIdVerified: true })).toEqual({
+      action: 'needs_review',
+      reason: 'missing_team',
+    })
   })
 
   test('in-box 0 PA / 0 TOI still void without the not-in-box gate', () => {

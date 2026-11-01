@@ -10,6 +10,7 @@ import {
   lookupByMlbAbbr,
   mlbTeamCodesEqual,
   resolveMlbTeamCode,
+  resolveNflTeamCode,
   teamSelectionMatches,
 } from '../../lib/team-mapping.js'
 
@@ -74,5 +75,14 @@ describe('MLB stored team codes ATH/CHW', () => {
     expect(teamSelectionMatches('LV', 'ATH')).toBe(false)
     expect(aliasedTeamCodes('ATH')).toEqual(expect.arrayContaining(['ATH', 'OAK']))
     expect(aliasedTeamCodes('LV')).toEqual(expect.arrayContaining(['LV', 'OAK']))
+  })
+})
+
+describe('NFL full team names', () => {
+  test('Kansas City Chiefs normalizes to KC', () => {
+    expect(resolveNflTeamCode('Kansas City Chiefs')).toBe('KC')
+    expect(resolveNflTeamCode('kc')).toBe('KC')
+    expect(resolveNflTeamCode('Philadelphia Eagles')).toBe('PHI')
+    expect(resolveNflTeamCode('NFL_PHI')).toBe('PHI')
   })
 })
