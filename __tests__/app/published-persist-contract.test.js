@@ -59,10 +59,15 @@ describe('Published props are recorded when they clear the bar', () => {
     expect(recordScript).toMatch(/does not call The Odds API/)
     expect(recordScript).toMatch(/publishedRosterOutageExit|exitCode/)
     expect(recordScript).toMatch(/Roster guard outage/)
+    expect(recordScript).toMatch(/ROSTER_GUARD_STATUS|formatRosterGuardStatusLine/)
     expect(pkg).toMatch(/"record:published": "node scripts\/record-published-props\.js"/)
     expect(pkg).toMatch(/"record:mlb-window": "node scripts\/record-mlb-window-props\.js"/)
     expect(pkg).toMatch(/"record:game-lines": "node scripts\/record-game-lines\.js"/)
     expect(pkg).toMatch(/"preview:legacy-nfl": "node scripts\/preview-legacy-nfl-published\.js"/)
+    const ops = fs.readFileSync(path.join(__dirname, '../../operations/README.md'), 'utf8')
+    expect(ops).toMatch(/record:published` exit 1 is DEGRADED/)
+    expect(ops).toMatch(/record:featured` and `record:game-lines` must still run/)
+    expect(ops).toMatch(/ROSTER_GUARD_STATUS=/)
   })
 
   test('NFL/NHL generators and persist skip off-roster players via ESPN only', () => {

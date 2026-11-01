@@ -9,8 +9,9 @@
  * Run after the morning odds pull (or any time the public board is up)
  * so validate:all can grade the same cohort the homepage showed.
  *
- * Exits 1 when every guarded prop was skipped because ESPN roster
- * data was unavailable (full outage). Ops can alert on that.
+ * Exits 1 (DEGRADED) when NFL and/or NHL had a full ESPN roster
+ * outage. Later morning steps (record:featured, record:game-lines)
+ * should still run. Parse the ROSTER_GUARD_STATUS= footer.
  *
  * Usage:
  *   node scripts/record-published-props.js
@@ -19,6 +20,7 @@
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { config } from 'dotenv'
+import { formatRosterGuardStatusLine } from '../lib/event-roster-eligibility.js'
 config({ path: '.env.local' })
 
 export function publishedRosterOutageExit(result) {
@@ -36,6 +38,7 @@ export async function runRecordPublishedProps({
   if (saved.unavailableCount) {
     log(`📌 Roster guard: unavailable=${saved.unavailableCount}`)
   }
+  log(formatRosterGuardStatusLine(saved.rosterGuard || saved))
   if (saved.rosterOutage) {
     error('🚨 Roster guard outage: every prop skipped because ESPN roster was unavailable')
     return { saved, exitCode: 1 }

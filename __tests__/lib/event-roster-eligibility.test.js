@@ -18,11 +18,14 @@ import {
   isBlockedEspnStatus,
   loadEventRosterPlayers,
   logEventRosterSkip,
+  formatRosterGuardStatusLine,
   logRosterGuardSummary,
+  mergeRosterGuardMeta,
   parseEspnEventRosters,
   parseEspnRosterAthletes,
   resolveEspnTeamId,
   summarizeRosterGuard,
+  withRosterGuardMeta,
   withSharedRosterGuard,
 } from '../../lib/event-roster-eligibility.js'
 
@@ -567,6 +570,37 @@ describe('roster outage summary', () => {
     })
     expect(stats.unavailableCount).toBe(1)
     expect(stats.rosterOutage).toBe(false)
+  })
+
+  test('mergeRosterGuardMeta flags outage when either sport had a full outage', () => {
+    const nfl = withRosterGuardMeta([], {
+      ...summarizeRosterGuard({
+        kept: [],
+        skipped: [
+          { reason: ROSTER_SKIP_REASONS.ROSTER_UNAVAILABLE },
+          { reason: ROSTER_SKIP_REASONS.ROSTER_UNAVAILABLE },
+        ],
+        guardedCount: 2,
+      }),
+      sport: 'nfl',
+    })
+    const nhl = withRosterGuardMeta([{ playerName: 'Jack Hughes' }], {
+      ...summarizeRosterGuard({
+        kept: [{ playerName: 'Jack Hughes' }],
+        skipped: [],
+        guardedCount: 1,
+      }),
+      sport: 'nhl',
+    })
+    const merged = mergeRosterGuardMeta(nfl, nhl)
+    expect(merged).toHaveLength(1)
+    expect(merged.rosterOutage).toBe(true)
+    expect(merged.unavailableCount).toBe(2)
+    expect(merged.rosterGuard.sports.nfl.rosterOutage).toBe(true)
+    expect(merged.rosterGuard.sports.nhl.rosterOutage).toBe(false)
+    expect(formatRosterGuardStatusLine(merged.rosterGuard)).toBe(
+      'ROSTER_GUARD_STATUS=outage unavailable=2 nfl=outage nhl=ok',
+    )
   })
 
   test('shares one roster cache between persist-style calls', () => {

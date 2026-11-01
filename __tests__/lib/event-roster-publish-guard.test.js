@@ -220,5 +220,32 @@ describe('record:published exits non-zero on a full roster outage', () => {
     expect(result.exitCode).toBe(1)
     expect(errors.join('\n')).toMatch(/Roster guard outage/)
     expect(lines.join('\n')).toMatch(/unavailable=3/)
+    expect(lines.join('\n')).toMatch(/ROSTER_GUARD_STATUS=outage unavailable=3/)
+  })
+
+  test('runRecordPublishedProps exits 1 when NFL is a full outage even if NHL kept a prop', async () => {
+    const lines = []
+    const errors = []
+    const saved = [{ playerName: 'Jack Hughes', sport: 'nhl' }]
+    saved.rosterOutage = true
+    saved.unavailableCount = 2
+    saved.rosterGuard = {
+      rosterOutage: true,
+      unavailableCount: 2,
+      sports: {
+        nfl: { rosterOutage: true, unavailableCount: 2 },
+        nhl: { rosterOutage: false, unavailableCount: 0 },
+      },
+    }
+    const result = await runRecordPublishedProps({
+      persist: async () => saved,
+      log: (...args) => lines.push(args.join(' ')),
+      error: (...args) => errors.push(args.join(' ')),
+    })
+    expect(result.exitCode).toBe(1)
+    expect(publishedRosterOutageExit(saved)).toBe(1)
+    expect(saved).toHaveLength(1)
+    expect(lines.join('\n')).toMatch(/ROSTER_GUARD_STATUS=outage unavailable=2 nfl=outage nhl=ok/)
+    expect(errors.join('\n')).toMatch(/Roster guard outage/)
   })
 })
