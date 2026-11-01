@@ -37,6 +37,8 @@
     "preview:legacy-nfl": "node scripts/preview-legacy-nfl-published.js",
     "capture:published-closes": "node scripts/capture-published-closes.js",
     "capture:published-closes:apply": "node scripts/capture-published-closes.js --apply",
+    "capture:published-closes:nfl-all": "node scripts/capture-published-closes.js --nfl-all",
+    "capture:published-closes:nfl-all:apply": "node scripts/capture-published-closes.js --nfl-all --apply",
     "report:published-clv": "node scripts/report-published-clv.js",
     "report:shadow-nhl": "node scripts/report-shadow-nhl.js",
     "repair:dnp": "node scripts/repair-dnp-grades.js",

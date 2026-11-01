@@ -66,16 +66,106 @@ function chainable(terminal) {
   return query
 }
 
+function nflWindowGame(overrides = {}) {
+  return {
+    id: 'KC_at_BUF_2026-07-15',
+    sport: 'nfl',
+    date: '2026-07-15T23:10:00.000Z',
+    status: 'scheduled',
+    oddsApiEventId: 'evt-kc-buf',
+    ...overrides,
+  }
+}
+
+function nflPendingPick(overrides = {}) {
+  return {
+    id: 'pv-kelce',
+    propId: 'prop-kelce',
+    gameIdRef: 'KC_at_BUF_2026-07-15',
+    playerName: 'Travis Kelce',
+    propType: 'player_receptions',
+    threshold: 5.5,
+    prediction: 'over',
+    odds: -110,
+    edge: 0,
+    qualityScore: 18,
+    sport: 'nfl',
+    source: 'user_saved',
+    status: 'pending',
+    closeOdds: null,
+    closeCapturedAt: null,
+    ...overrides,
+  }
+}
+
+function nflEventOdds() {
+  return {
+    home_team: 'Kansas City Chiefs',
+    away_team: 'Buffalo Bills',
+    bookmakers: [{
+      title: 'FanDuel',
+      markets: [
+        {
+          key: 'player_receptions',
+          outcomes: [
+            { name: 'Over', description: 'Travis Kelce', point: 5.5, price: -115 },
+          ],
+        },
+        {
+          key: 'h2h',
+          outcomes: [
+            { name: 'Kansas City Chiefs', price: -150 },
+            { name: 'Buffalo Bills', price: 130 },
+          ],
+        },
+        {
+          key: 'spreads',
+          outcomes: [
+            { name: 'Kansas City Chiefs', price: -110, point: -3.5 },
+            { name: 'Buffalo Bills', price: -110, point: 3.5 },
+          ],
+        },
+        {
+          key: 'totals',
+          outcomes: [
+            { name: 'Over', price: -108, point: 47.5 },
+            { name: 'Under', price: -112, point: 47.5 },
+          ],
+        },
+      ],
+    }],
+  }
+}
+
 function mockClient({
   games = [windowGame()],
   picks = [publishedPick()],
   pickError = null,
   updates = [],
+  closingOdds = [],
+  closingInserts = [],
 } = {}) {
   return {
     from(table) {
       if (table === 'Game') {
         return chainable(Promise.resolve({ data: games, error: null }))
+      }
+      if (table === 'ClosingOdds') {
+        const query = {
+          select() { return query },
+          eq() { return query },
+          in() { return query },
+          then(resolve, reject) {
+            return Promise.resolve({ data: closingOdds, error: null }).then(resolve, reject)
+          },
+          insert(rows) {
+            const list = Array.isArray(rows) ? rows : [rows]
+            closingInserts.push(...list)
+            closingOdds.push(...list)
+            return Promise.resolve({ data: list, error: null })
+          },
+        }
+        return query
       }
       return {
         select(cols) {
@@ -127,6 +217,15 @@ describe('parseCaptureClosesArgs', () => {
     expect(parseCaptureClosesArgs(['--apply', '--dry-run'])).toMatchObject({ apply: false, dryRun: true })
     expect(parseCaptureClosesArgs(['--max-calls', '3']).maxCalls).toBe(3)
     expect(parseCaptureClosesArgs(['--max-calls', '3']).invalidFlags).toEqual([])
+    expect(parseCaptureClosesArgs(['--nfl-all']).nflAll).toBe(true)
+    expect(parseCaptureClosesArgs(['--apply', '--nfl-all'])).toMatchObject({
+      apply: true,
+      nflAll: true,
+      unknown: [],
+    })
+    expect(parseCaptureClosesArgs([]).nflAll).toBe(false)
+    expect(parseCaptureClosesArgs(['--max-credits', '12']).maxCredits).toBe(12)
+    expect(parseCaptureClosesArgs(['--max-credits']).invalidFlags).toEqual(['--max-credits'])
     expect(isClosingCaptureDisabled({ CLOSING_CAPTURE: '0' })).toBe(true)
     expect(isClosingCaptureDisabled({ CLOSING_CAPTURE: '1' })).toBe(false)
   })
@@ -139,6 +238,7 @@ describe('parseCaptureClosesArgs', () => {
     expect(parseCaptureClosesArgs(['--min-remaining', 'nope']).invalidFlags).toEqual(['--min-remaining'])
     expect(parseCaptureClosesArgs(['--min-remaining']).invalidFlags).toEqual(['--min-remaining'])
     expect(parseCaptureClosesArgs(['--max-calls', '0']).invalidFlags).toEqual([])
+    expect(parseCaptureClosesArgs(['--max-credits', '-1']).invalidFlags).toEqual(['--max-credits'])
   })
 
   test('CLV_APPLY=1 is an apply switch; --dry-run still wins', () => {
@@ -160,6 +260,8 @@ describe('parseCaptureClosesArgs', () => {
     expect(parseCaptureClosesArgs(['--apply', '3']).unknown).toEqual(['3'])
     expect(parseCaptureClosesArgs(['--max-calls', '3']).unknown).toEqual([])
     expect(parseCaptureClosesArgs(['--oops']).unknown).toEqual(['--oops'])
+    expect(parseCaptureClosesArgs(['--nfl-all']).unknown).toEqual([])
+    expect(parseCaptureClosesArgs(['--nfl-alls']).unknown).toEqual(['--nfl-alls'])
   })
 })
 
@@ -579,7 +681,7 @@ describe('runCapturePublishedCloses', () => {
   test('invalid --max-calls or --min-remaining exits 1 before any work', async () => {
     const createClient = jest.fn()
     const fetchEventOdds = jest.fn()
-    for (const argv of [['--max-calls', 'abc'], ['--max-calls'], ['--min-remaining', '-1']]) {
+    for (const argv of [['--max-calls', 'abc'], ['--max-calls'], ['--min-remaining', '-1'], ['--max-credits', 'nope']]) {
       const log = memoryLog()
       const result = await runCapturePublishedCloses({
         argv,
@@ -856,5 +958,300 @@ describe('runCapturePublishedCloses', () => {
     expect(fetchEventOdds).toHaveBeenCalledTimes(1)
     expect(fetchEventOdds.mock.calls[0][0].url).toContain('/sports/baseball_mlb/events/evt-kc-hou/odds')
     expect(fetchEventOdds.mock.calls[0][0].url).not.toContain('icehockey_nhl')
+  })
+
+  test('without --nfl-all, unpublished NFL pending props stay untargeted', async () => {
+    const fetchEventOdds = jest.fn()
+    const result = await runCapturePublishedCloses({
+      argv: [],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [nflWindowGame()],
+        picks: [nflPendingPick()],
+      }),
+      fetchEventOdds,
+      log: memoryLog(),
+    })
+    expect(result.openPicks).toHaveLength(0)
+    expect(result.captureJobs || []).toHaveLength(0)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+
+  test('--nfl-all targets pending NFL props that miss the Published bar', async () => {
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--nfl-all'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [nflWindowGame()],
+        picks: [nflPendingPick()],
+      }),
+      fetchEventOdds: jest.fn(),
+      log,
+    })
+    expect(result.openPicks.map((pick) => pick.id)).toEqual(['pv-kelce'])
+    expect(result.captureJobs).toHaveLength(1)
+    expect(log.lines.join('\n')).toMatch(/player_receptions/)
+    expect(log.lines.join('\n')).toMatch(/h2h/)
+    expect(log.lines.join('\n')).toMatch(/spreads/)
+    expect(log.lines.join('\n')).toMatch(/totals/)
+    expect(log.lines.join('\n')).toMatch(/Odds API HTTP calls this run: 2/)
+    expect(log.lines.join('\n')).toMatch(/CALLS_USED=0/)
+  })
+
+  test('--nfl-all still leaves untagged NHL archive off the target list', async () => {
+    const nhlGame = windowGame({
+      id: 'TOR_at_BOS_2026-10-29',
+      sport: 'nhl',
+      oddsApiEventId: 'evt-tor-bos',
+    })
+    const archive = publishedPick({
+      id: 'pv-archive',
+      gameIdRef: nhlGame.id,
+      playerName: 'Brad Marchand',
+      propType: 'player_shots_on_goal',
+      threshold: 1.5,
+      sport: 'nhl',
+      notes: 'tier:elite',
+    })
+    const result = await runCapturePublishedCloses({
+      argv: ['--nfl-all'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [nhlGame, nflWindowGame()],
+        picks: [archive, nflPendingPick()],
+      }),
+      fetchEventOdds: jest.fn(),
+      log: memoryLog(),
+    })
+    expect(result.openPicks.map((pick) => pick.id)).toEqual(['pv-kelce'])
+  })
+
+  test('--nfl-all merges prop + game-line markets into one event call', async () => {
+    const closingInserts = []
+    const updates = []
+    const fetchEventOdds = jest.fn(async ({ url }) => {
+      expect(url).toContain('/sports/americanfootball_nfl/events/evt-kc-buf/odds')
+      expect(url).toContain('player_receptions')
+      expect(url).toContain('h2h')
+      expect(url).toContain('spreads')
+      expect(url).toContain('totals')
+      return { data: nflEventOdds(), quota: { remaining: 18000, used: 2000 } }
+    })
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--nfl-all'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [nflWindowGame()],
+        picks: [nflPendingPick()],
+        updates,
+        closingInserts,
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(result.calls).toBe(2)
+    expect(result.updates).toHaveLength(1)
+    expect(updates[0]).toMatchObject({
+      closeOdds: -115,
+      closeLine: 5.5,
+      closeBook: 'FanDuel',
+    })
+    expect(closingInserts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        game_id: 'KC_at_BUF_2026-07-15',
+        market: 'h2h',
+        book: 'FanDuel',
+        price_home: -150,
+      }),
+      expect.objectContaining({ market: 'spreads', spread: -3.5 }),
+      expect.objectContaining({ market: 'totals', total: 47.5 }),
+    ]))
+    expect(closingInserts.filter((row) => row.market === 'player_receptions')).toHaveLength(0)
+  })
+
+  test('--nfl-all --max-calls spends the budget on the soonest kickoff', async () => {
+    const fetchEventOdds = jest.fn(async () => ({
+      data: nflEventOdds(),
+      quota: { remaining: 9000, used: 1 },
+    }))
+    const soon = nflWindowGame({
+      id: 'soon',
+      date: '2026-07-15T23:00:00.000Z',
+      oddsApiEventId: 'evt-soon',
+    })
+    const later = nflWindowGame({
+      id: 'later',
+      date: '2026-07-15T23:16:00.000Z',
+      oddsApiEventId: 'evt-later',
+    })
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--nfl-all', '--max-calls', '2'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [later, soon],
+        picks: [
+          nflPendingPick({ id: 'pv-later', gameIdRef: later.id }),
+          nflPendingPick({ id: 'pv-soon', gameIdRef: soon.id }),
+        ],
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(result.calls).toBe(2)
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(fetchEventOdds.mock.calls[0][0].url).toContain('/events/evt-soon/odds')
+    expect(fetchEventOdds.mock.calls[0][0].url).not.toContain('evt-later')
+  })
+
+  test('prints CALLS_USED for dry-run and apply, with planned calls including quota', async () => {
+    const dryLog = memoryLog()
+    const dry = await runCapturePublishedCloses({
+      argv: ['--nfl-all'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [nflWindowGame()],
+        picks: [nflPendingPick()],
+      }),
+      fetchEventOdds: jest.fn(),
+      log: dryLog,
+    })
+    expect(dry.calls).toBe(0)
+    expect(dry.plannedCalls).toBe(2)
+    expect(dryLog.lines.join('\n')).toMatch(/Odds API HTTP calls this run: 2/)
+    expect(dryLog.lines.at(-1)).toBe('CALLS_USED=0')
+
+    const applyLog = memoryLog()
+    const apply = await runCapturePublishedCloses({
+      argv: ['--apply', '--nfl-all'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [nflWindowGame()],
+        picks: [nflPendingPick()],
+      }),
+      fetchEventOdds: async () => ({
+        data: nflEventOdds(),
+        quota: { remaining: 18000, used: 2000 },
+      }),
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      apiKey: 'test-key',
+      log: applyLog,
+    })
+    expect(apply.calls).toBe(2)
+    expect(applyLog.lines.at(-1)).toBe('CALLS_USED=2')
+  })
+
+  test('--nfl-all game-line writes stay idempotent on a re-run', async () => {
+    const closingOdds = []
+    const closingInserts = []
+    const client = mockClient({
+      games: [nflWindowGame()],
+      picks: [nflPendingPick()],
+      closingOdds,
+      closingInserts,
+    })
+    const run = () => runCapturePublishedCloses({
+      argv: ['--apply', '--nfl-all'],
+      now: IN_WINDOW,
+      createClient: () => client,
+      fetchEventOdds: async () => ({
+        data: nflEventOdds(),
+        quota: { remaining: 18000, used: 2000 },
+      }),
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    const first = await run()
+    expect(first.gameLineWrites.length).toBeGreaterThan(0)
+    const insertedAfterFirst = closingInserts.length
+    const second = await run()
+    expect(second.gameLineWrites).toHaveLength(0)
+    expect(closingInserts).toHaveLength(insertedAfterFirst)
+  })
+
+  test('--help prints CALLS_USED', async () => {
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--help'],
+      log,
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.help).toBe(true)
+    expect(log.lines.at(-1)).toBe('CALLS_USED=0')
+  })
+
+  test('already-captured NFL game lines are not refetched when props are done', async () => {
+    const fetchEventOdds = jest.fn()
+    const game = nflWindowGame()
+    const closingOdds = ['h2h', 'spreads', 'totals'].map((market) => ({
+      id: `clvclose:${game.id}|fanduel|${market}`,
+      game_id: game.id,
+      book: 'FanDuel',
+      market,
+      snapshot_at: '2026-07-15T22:50:00.000Z',
+    }))
+    const result = await runCapturePublishedCloses({
+      argv: ['--nfl-all'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [game],
+        picks: [nflPendingPick({
+          closeOdds: -110,
+          closeCapturedAt: '2026-07-15T22:50:00.000Z',
+        })],
+        closingOdds,
+      }),
+      fetchEventOdds,
+      log: memoryLog(),
+    })
+    expect(result.captureJobs || []).toHaveLength(0)
+    expect(result.plannedCalls).toBe(0)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+
+  test('--max-credits stops before exceeding, soonest kickoff first', async () => {
+    const fetchEventOdds = jest.fn(async () => ({
+      data: nflEventOdds(),
+      quota: { remaining: 9000, used: 1 },
+    }))
+    const soon = nflWindowGame({
+      id: 'soon',
+      date: '2026-07-15T23:00:00.000Z',
+      oddsApiEventId: 'evt-soon',
+    })
+    const later = nflWindowGame({
+      id: 'later',
+      date: '2026-07-15T23:16:00.000Z',
+      oddsApiEventId: 'evt-later',
+    })
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--nfl-all', '--max-credits', '4'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [later, soon],
+        picks: [
+          nflPendingPick({ id: 'pv-later', gameIdRef: later.id }),
+          nflPendingPick({ id: 'pv-soon', gameIdRef: soon.id }),
+        ],
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.creditsUsed).toBe(4)
+    expect(result.plannedCredits).toBe(4)
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(fetchEventOdds.mock.calls[0][0].url).toContain('/events/evt-soon/odds')
+    expect(log.lines.join('\n')).toMatch(/Odds API credits this run: 4/)
+    expect(log.lines.join('\n')).toMatch(/CREDITS_USED=4/)
+    expect(log.lines.at(-1)).toBe('CALLS_USED=2')
   })
 })

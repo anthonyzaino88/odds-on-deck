@@ -16,19 +16,41 @@ import {
   isCloseCaptureCandidate,
   isOpsWriteQuietPeriod,
   marketsForPublishedPicks,
+  marketsForCaptureJob,
   matchClosingQuote,
   oddsApiSportKey,
   parseOddsApiQuota,
   buildSportsQuotaProbeUrl,
+  plannedCloseCaptureHttpCalls,
   publishedMarketKey,
   resetCloseColumnCache,
+  resetClosingOddsWriteGuard,
+  selectCloseCaptureJobsWithinBudget,
+  capturedNflGameLineGameIds,
+  isCloseCaptureClosingOddsRow,
+  isDuplicateClosingOddsError,
+  fillMissingNflGameLineAttempts,
+  CLOSE_CAPTURE_ATTEMPTED_BOOK,
+  CLOSE_CAPTURE_ID_PREFIX,
+  sortCloseCaptureJobs,
   summarizePublishedClv,
   updateWithOptionalCloseOdds,
   withoutCloseOddsFields,
+  writeGameLineCloses,
+  filterNewClosingOddsRows,
+  formatCallsUsed,
+  gameLineClosesFromEventOdds,
+  includeNflWindowGamesForGameLines,
+  isNflAllPendingProp,
+  isTargetedCloseCapturePick,
+  NFL_GAME_LINE_MARKETS,
 } from '../../lib/closing-line.js'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 beforeEach(() => {
   resetCloseColumnCache()
+  resetClosingOddsWriteGuard()
 })
 
 describe('odds API market mapping', () => {
@@ -65,6 +87,62 @@ describe('odds API market mapping', () => {
       marketCounts: [2, 1, 3],
       regions: 1,
     })).toEqual(expect.objectContaining({ httpCalls: 3, credits: 6, regions: 1 }))
+  })
+
+  test('marketsForCaptureJob merges NFL game lines onto the same call only with --nfl-all', () => {
+    const job = {
+      game: { sport: 'nfl' },
+      picks: [{ propType: 'player_receptions' }, { propType: 'rush_yds' }],
+    }
+    expect(marketsForCaptureJob(job)).toEqual(['player_receptions', 'player_rush_yds'])
+    expect(marketsForCaptureJob(job, { nflAll: true }).sort()).toEqual([
+      'h2h', 'player_receptions', 'player_rush_yds', 'spreads', 'totals',
+    ])
+    expect(marketsForCaptureJob({
+      game: { sport: 'mlb' },
+      picks: [{ propType: 'batter_hits' }],
+    }, { nflAll: true })).toEqual(['batter_hits'])
+    expect(NFL_GAME_LINE_MARKETS).toEqual(['h2h', 'spreads', 'totals'])
+  })
+
+  test('planned HTTP calls include the quota probe and honor --max-calls', () => {
+    expect(plannedCloseCaptureHttpCalls({ jobCount: 3 })).toBe(4)
+    expect(plannedCloseCaptureHttpCalls({ jobCount: 3, maxCalls: 2 })).toBe(2)
+    expect(plannedCloseCaptureHttpCalls({ jobCount: 3, maxCalls: 0 })).toBe(0)
+    expect(plannedCloseCaptureHttpCalls({ jobCount: 0 })).toBe(0)
+    expect(plannedCloseCaptureHttpCalls({
+      jobs: [
+        { eventId: 'evt-1', game: { sport: 'nfl' } },
+        { eventId: null, game: { sport: 'nfl' } },
+        { eventId: 'evt-2', game: { sport: 'nfl' } },
+      ],
+    })).toBe(3)
+    expect(formatCallsUsed(2)).toBe('CALLS_USED=2')
+    expect(formatCallsUsed(0)).toBe('CALLS_USED=0')
+  })
+
+  test('selectCloseCaptureJobsWithinBudget stops before exceeding --max-credits', () => {
+    const soon = {
+      gameId: 'soon',
+      gameIds: ['soon'],
+      eventId: 'evt-soon',
+      game: { sport: 'nfl', date: '2026-07-15T23:00:00.000Z' },
+      picks: [{ propType: 'player_receptions' }],
+    }
+    const later = {
+      gameId: 'later',
+      gameIds: ['later'],
+      eventId: 'evt-later',
+      game: { sport: 'nfl', date: '2026-07-15T23:16:00.000Z' },
+      picks: [{ propType: 'player_receptions' }],
+    }
+    const picked = selectCloseCaptureJobsWithinBudget([soon, later], {
+      nflAll: true,
+      maxCredits: 4,
+    })
+    expect(picked.jobs.map((job) => job.gameId)).toEqual(['soon'])
+    expect(picked.plannedCredits).toBe(4)
+    expect(picked.plannedCalls).toBe(2)
   })
 })
 
@@ -129,6 +207,90 @@ describe('event-id dedupe and conditional close write', () => {
     expect(jobs.filter((job) => job.eventId === 'evt-shared')).toHaveLength(1)
     expect(jobs.find((job) => job.eventId === 'evt-other').picks).toEqual([{ id: 'p3' }])
     expect(jobs.find((job) => job.gameId === 'g4').eventId).toBeNull()
+  })
+
+  test('sortCloseCaptureJobs uses Published-first unless --nfl-all prefers kickoff', () => {
+    const mlbLater = {
+      game: { sport: 'mlb', date: '2026-07-15T23:20:00.000Z' },
+    }
+    const nflSoon = {
+      game: { sport: 'nfl', date: '2026-07-15T23:00:00.000Z' },
+    }
+    const nhlMid = {
+      game: { sport: 'nhl', date: '2026-07-15T23:10:00.000Z' },
+    }
+    expect(sortCloseCaptureJobs([nhlMid, nflSoon, mlbLater]).map((job) => job.game.sport))
+      .toEqual(['nfl', 'mlb', 'nhl'])
+    expect(sortCloseCaptureJobs([mlbLater, nhlMid, nflSoon], { nflAll: true }).map((job) => job.game.sport))
+      .toEqual(['nfl', 'nhl', 'mlb'])
+  })
+
+  test('--nfl-all pending props ignore the Published bar; NHL archive stays out', () => {
+    const pendingNfl = {
+      sport: 'nfl',
+      status: 'pending',
+      source: 'user_saved',
+      edge: 0,
+      qualityScore: 12,
+      propType: 'player_receptions',
+      closeOdds: null,
+    }
+    const publishedNfl = {
+      sport: 'nfl',
+      status: 'pending',
+      source: 'system_generated',
+      edge: 0.06,
+      qualityScore: 52,
+      propType: 'player_receptions',
+      odds: -110,
+      prediction: 'over',
+      threshold: 5.5,
+      closeOdds: null,
+    }
+    const nhlArchive = {
+      sport: 'nhl',
+      status: 'pending',
+      source: 'system_generated',
+      edge: 0.08,
+      qualityScore: 55,
+      propType: 'player_shots_on_goal',
+      odds: -110,
+      prediction: 'over',
+      threshold: 2.5,
+      notes: 'tier:elite',
+      closeOdds: null,
+    }
+    expect(isNflAllPendingProp(pendingNfl)).toBe(true)
+    expect(isTargetedCloseCapturePick(pendingNfl)).toBe(false)
+    expect(isTargetedCloseCapturePick(pendingNfl, { nflAll: true })).toBe(true)
+    expect(isTargetedCloseCapturePick(publishedNfl)).toBe(true)
+    expect(isTargetedCloseCapturePick(nhlArchive, { nflAll: true })).toBe(false)
+    expect(isTargetedCloseCapturePick({
+      ...pendingNfl,
+      source: 'game_line',
+      propType: 'moneyline',
+    }, { nflAll: true })).toBe(false)
+  })
+
+  test('includeNflWindowGamesForGameLines only adds empty NFL jobs when --nfl-all', () => {
+    const games = [
+      { id: 'nfl-1', sport: 'nfl' },
+      { id: 'mlb-1', sport: 'mlb' },
+    ]
+    expect(includeNflWindowGamesForGameLines(new Map(), games).size).toBe(0)
+    const withFlag = includeNflWindowGamesForGameLines(new Map([['nfl-1', [{ id: 'p1' }]]]), games, {
+      nflAll: true,
+    })
+    expect([...withFlag.keys()].sort()).toEqual(['nfl-1'])
+    expect(withFlag.get('nfl-1')).toEqual([{ id: 'p1' }])
+    const empty = includeNflWindowGamesForGameLines(new Map(), games, { nflAll: true })
+    expect(empty.get('nfl-1')).toEqual([])
+    expect(empty.has('mlb-1')).toBe(false)
+    const skipped = includeNflWindowGamesForGameLines(new Map(), games, {
+      nflAll: true,
+      capturedGameIds: new Set(['nfl-1']),
+    })
+    expect(skipped.has('nfl-1')).toBe(false)
   })
 
   test('applyPublishedCloseUpdate only patches rows where closeOdds IS NULL', () => {
@@ -384,5 +546,268 @@ describe('close write payload and missing-column retry', () => {
     expect(buildSportsQuotaProbeUrl('k')).toBe(
       'https://api.the-odds-api.com/v4/sports?apiKey=k',
     )
+  })
+})
+
+describe('NFL game-line ClosingOdds writes', () => {
+  const eventData = {
+    home_team: 'Kansas City Chiefs',
+    away_team: 'Buffalo Bills',
+    bookmakers: [
+      {
+        title: 'FanDuel',
+        markets: [
+          {
+            key: 'player_receptions',
+            outcomes: [
+              { name: 'Over', description: 'Travis Kelce', point: 5.5, price: -115 },
+            ],
+          },
+          {
+            key: 'h2h',
+            outcomes: [
+              { name: 'Kansas City Chiefs', price: -150 },
+              { name: 'Buffalo Bills', price: 130 },
+            ],
+          },
+          {
+            key: 'spreads',
+            outcomes: [
+              { name: 'Kansas City Chiefs', price: -110, point: -3.5 },
+              { name: 'Buffalo Bills', price: -110, point: 3.5 },
+            ],
+          },
+          {
+            key: 'totals',
+            outcomes: [
+              { name: 'Over', price: -108, point: 47.5 },
+              { name: 'Under', price: -112, point: 47.5 },
+            ],
+          },
+        ],
+      },
+      {
+        title: 'DraftKings',
+        markets: [{
+          key: 'h2h',
+          outcomes: [
+            { name: 'Kansas City Chiefs', price: -148 },
+            { name: 'Buffalo Bills', price: 128 },
+          ],
+        }],
+      },
+    ],
+  }
+
+  test('stores each book\'s h2h / spread / total using ClosingOdds columns', () => {
+    const rows = gameLineClosesFromEventOdds(eventData, {
+      gameId: 'KC_at_BUF',
+      sport: 'nfl',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+    })
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        game_id: 'KC_at_BUF',
+        sport: 'nfl',
+        book: 'FanDuel',
+        market: 'h2h',
+        price_home: -150,
+        price_away: 130,
+      }),
+      expect.objectContaining({
+        book: 'FanDuel',
+        market: 'spreads',
+        spread: -3.5,
+        price_home: -110,
+        price_away: -110,
+      }),
+      expect.objectContaining({
+        book: 'FanDuel',
+        market: 'totals',
+        total: 47.5,
+        price_away: -108,
+        price_home: -112,
+      }),
+      expect.objectContaining({
+        book: 'DraftKings',
+        market: 'h2h',
+        price_home: -148,
+      }),
+    ]))
+    expect(rows.find((row) => row.market === 'player_receptions')).toBeUndefined()
+  })
+
+  test('writeGameLineCloses is idempotent on game_id + book + market', async () => {
+    const existing = []
+    const inserts = []
+    const supabase = {
+      from(table) {
+        expect(table).toBe('ClosingOdds')
+        return {
+          select() { return this },
+          in() { return Promise.resolve({ data: existing, error: null }) },
+          insert(rows) {
+            inserts.push(...rows)
+            existing.push(...rows)
+            return Promise.resolve({ data: rows, error: null })
+          },
+        }
+      },
+    }
+    const proposed = gameLineClosesFromEventOdds(eventData, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+    })
+    const first = await writeGameLineCloses(supabase, proposed)
+    expect(first.inserted).toBe(4)
+    expect(inserts).toHaveLength(4)
+    const second = await writeGameLineCloses(supabase, proposed)
+    expect(second.inserted).toBe(0)
+    expect(second.skipped).toBe(4)
+    expect(inserts).toHaveLength(4)
+    expect(filterNewClosingOddsRows(proposed, existing)).toEqual([])
+  })
+
+  test('early snapshot-closing-lines rows do not count as already captured', () => {
+    const kickoff = '2026-07-15T23:10:00.000Z'
+    const game = { id: 'KC_at_BUF', date: kickoff, sport: 'nfl' }
+    const gamesById = new Map([['KC_at_BUF', game]])
+    const earlySnapshot = {
+      id: 'uuid-snapshot',
+      game_id: 'KC_at_BUF',
+      book: 'FanDuel',
+      market: 'h2h',
+      snapshot_at: '2026-07-15T21:20:00.000Z',
+    }
+    expect(isCloseCaptureClosingOddsRow(earlySnapshot, game)).toBe(false)
+    const proposed = gameLineClosesFromEventOdds(eventData, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+    })
+    const fresh = filterNewClosingOddsRows(proposed, [earlySnapshot], { gamesById })
+    expect(fresh.some((row) => row.market === 'h2h' && row.book === 'FanDuel')).toBe(true)
+  })
+
+  test('T-30 snapshot_at without clvclose: id does not count as captured', () => {
+    const game = { id: 'KC_at_BUF', date: '2026-07-15T23:10:00.000Z', sport: 'nfl' }
+    const t30 = {
+      id: 'uuid-snapshot-t30',
+      game_id: 'KC_at_BUF',
+      book: 'FanDuel',
+      market: 'h2h',
+      snapshot_at: '2026-07-15T22:40:00.000Z',
+    }
+    expect(isCloseCaptureClosingOddsRow(t30, game)).toBe(false)
+    const proposed = gameLineClosesFromEventOdds(eventData, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+    })
+    const fresh = filterNewClosingOddsRows(proposed, [t30])
+    expect(fresh.some((row) => row.market === 'h2h' && row.book === 'FanDuel')).toBe(true)
+  })
+
+  test('only clvclose: ids count as this capture', () => {
+    const tagged = {
+      id: 'clvclose:kc_at_buf|draftkings|h2h',
+      game_id: 'KC_at_BUF',
+      book: 'DraftKings',
+      market: 'h2h',
+      snapshot_at: '2026-07-15T22:50:00.000Z',
+    }
+    expect(isCloseCaptureClosingOddsRow(tagged)).toBe(true)
+    const proposed = gameLineClosesFromEventOdds(eventData, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+    })
+    const fresh = filterNewClosingOddsRows(proposed, [tagged])
+    expect(fresh.find((row) => row.book === 'DraftKings' && row.market === 'h2h')).toBeUndefined()
+    expect(fresh.find((row) => row.book === 'FanDuel' && row.market === 'h2h')).toBeTruthy()
+  })
+
+  test('capture writes pin Over = price_away (getBestLines is the outlier)', () => {
+    const rows = gameLineClosesFromEventOdds(eventData, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+    })
+    const totals = rows.find((row) => row.market === 'totals')
+    expect(totals).toMatchObject({
+      price_away: -108,
+      price_home: -112,
+      total: 47.5,
+    })
+  })
+
+  test('duplicate-key insert is already captured, not a failure', async () => {
+    expect(isDuplicateClosingOddsError({
+      code: '23505',
+      message: 'duplicate key value violates unique constraint "ClosingOdds_pkey"',
+    })).toBe(true)
+    const supabase = {
+      from(table) {
+        expect(table).toBe('ClosingOdds')
+        return {
+          select() { return this },
+          in() { return Promise.resolve({ data: [], error: null }) },
+          insert() {
+            return Promise.resolve({
+              data: null,
+              error: {
+                code: '23505',
+                message: 'duplicate key value violates unique constraint "ClosingOdds_pkey"',
+              },
+            })
+          },
+        }
+      },
+    }
+    const proposed = gameLineClosesFromEventOdds(eventData, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+    })
+    const result = await writeGameLineCloses(supabase, proposed)
+    expect(result.error).toBeNull()
+    expect(result.inserted).toBe(0)
+    expect(result.skipped).toBe(proposed.length)
+  })
+
+  test('ClosingOdds.id is text in Prisma and the archive SQL', () => {
+    const schema = readFileSync(join(process.cwd(), 'prisma/schema.prisma'), 'utf8')
+    const sql = readFileSync(join(process.cwd(), 'scripts/migrations/001_archive_tables.sql'), 'utf8')
+    expect(schema).toMatch(/model ClosingOdds \{[\s\S]*?id\s+String\s+@id/)
+    expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS "ClosingOdds" \([\s\S]*?id\s+TEXT PRIMARY KEY/)
+    expect(CLOSE_CAPTURE_ID_PREFIX).toBe('clvclose:')
+  })
+
+  test('missing markets are marked attempted so the game is not refetched', () => {
+    const filled = fillMissingNflGameLineAttempts(
+      [{ game_id: 'g1', book: 'FanDuel', market: 'h2h', id: 'clvclose:g1|fanduel|h2h' }],
+      ['g1'],
+      new Date('2026-07-15T22:50:00.000Z'),
+    )
+    expect(filled.map((row) => row.market).sort()).toEqual(['h2h', 'spreads', 'totals'])
+    const spreads = filled.find((row) => row.market === 'spreads')
+    expect(spreads.book).toBe(CLOSE_CAPTURE_ATTEMPTED_BOOK)
+    expect(spreads.id.startsWith(CLOSE_CAPTURE_ID_PREFIX)).toBe(true)
+    expect(isCloseCaptureClosingOddsRow(spreads)).toBe(true)
+  })
+
+  test('capturedNflGameLineGameIds requires all three markets from this capture', () => {
+    const game = { id: 'g1', date: '2026-07-15T23:10:00.000Z', sport: 'nfl' }
+    const early = {
+      id: 'snap',
+      game_id: 'g1',
+      book: 'FanDuel',
+      market: 'h2h',
+      snapshot_at: '2026-07-15T21:00:00.000Z',
+    }
+    const closeRows = ['h2h', 'spreads', 'totals'].map((market) => ({
+      id: `clvclose:g1|fanduel|${market}`,
+      game_id: 'g1',
+      book: 'FanDuel',
+      market,
+      snapshot_at: '2026-07-15T22:50:00.000Z',
+    }))
+    expect(capturedNflGameLineGameIds([game], [early])).toEqual(new Set())
+    expect(capturedNflGameLineGameIds([game], closeRows)).toEqual(new Set(['g1']))
   })
 })

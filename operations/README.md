@@ -221,6 +221,38 @@ Kill switch: `CLOSING_CAPTURE=0`. Caps: `--max-calls N` (includes the
 `SUPABASE_SECRET_KEY` (`SUPABASE_REQUIRE_SECRET_KEY=1`; anon refused).
 London NFL 9:30 AM ET games are missed on this 11–22 clock.
 
+`--nfl-all` is opt-in. With it, every pending NFL prop in the window
+that still has no close is targeted (Published bar ignored), and each
+NFL game's existing event-odds request also asks for `h2h`, `spreads`,
+and `totals`. Prop closes still write `closeOdds` / `closeLine` /
+`closeCapturedAt`. Game-line closes write one `ClosingOdds` row per
+book + market. A row counts as already captured only if `id` starts
+with `clvclose:`. `snapshot_at` is ignored — `snapshot-closing-lines`
+stamps insert time, so a T−30 snapshot must not block the true close.
+`ClosingOdds.id` is TEXT (Prisma `String`, SQL `TEXT PRIMARY KEY`).
+Deterministic `clvclose:` ids are the primary key; overlapping applies
+hit `23505` and are treated as already captured, not a failure.
+
+**Do not overlap capture `--apply` runs.** `ClosingOdds` has no unique
+`(game_id, book, market)` key. A unique index is an optional follow-up
+(schema change). If a fetch returns no book for a market, one
+`book=attempted` `clvclose:` row marks that market so the game is not
+refetched every run.
+
+`--max-credits N` stops before the next game would exceed markets ×
+regions (us=1), soonest kickoff first. Dry-run prints planned HTTP
+calls (quota included; unmapped games excluded) and planned credits,
+and ends with `CREDITS_USED` / `CALLS_USED`. Absent the flag, behavior
+is unchanged. NHL visibility is unchanged. Prefer the dedicated npm
+scripts — do not pass flags through `npm run capture:published-closes`.
+
+```bash
+node scripts/capture-published-closes.js --nfl-all --dry-run
+node scripts/capture-published-closes.js --nfl-all --apply
+npm run capture:published-closes:nfl-all
+npm run capture:published-closes:nfl-all:apply
+```
+
 Same-day doubleheaders are skipped when StatsAPI `doubleHeader` is
 `Y` or `S` (fetch-fresh-games keeps one row / first gamePk). Safe to
 run when there are no MLB games — record prints "No MLB games in the

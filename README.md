@@ -208,6 +208,17 @@ npm run validate:all      # Props first, then parlays
 npm run regrade:featured  # Regrade Featured from current PropValidation
 npm run backup       # Export all data (CSV/JSON)
 
+# Closing lines (laptop only; do not run --apply from CI)
+npm run capture:published-closes          # dry-run Published / shadow closes
+npm run capture:published-closes:apply    # write Published / shadow closes
+npm run capture:published-closes:nfl-all  # dry-run + every pending NFL prop and NFL game lines
+npm run capture:published-closes:nfl-all:apply
+# Or: node scripts/capture-published-closes.js --nfl-all --dry-run
+#     node scripts/capture-published-closes.js --nfl-all --apply --max-calls 8 --max-credits 24
+# Do not overlap capture --apply runs. ClosingOdds has no unique
+# (game, book, market) key; clvclose: ids are the TEXT primary key.
+# A unique index is an optional follow-up.
+
 # Export
 npm run export:csv   # Export parlays to CSV
 npm run export:stats # Export performance stats
