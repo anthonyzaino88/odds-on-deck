@@ -383,6 +383,12 @@ async function main() {
         continue
       }
 
+      if (sport === 'nfl' && isNflFetchError(nflLookup)) {
+        fetchErrors++
+        console.log(`${prefix} ⏭️  ${v.playerName} ${v.propType} - fetch_error, leaving pending`)
+        continue
+      }
+
       if (holdPending) {
         console.log(`${prefix} ⏭️  ${v.playerName} ${v.propType} - waiting 6h after final, leaving pending`)
         continue
@@ -403,7 +409,6 @@ async function main() {
       if (actualValue === null || actualValue === undefined) {
         const missingField = sport === 'mlb' ? !game.mlbGameId : !game.espnGameId
         const nflClosed = sport === 'nfl' && nflLookup?.reason
-        if (sport === 'nfl' && isNflFetchError(nflLookup)) fetchErrors++
         const reason = missingField
           ? `No ${sport === 'mlb' ? 'mlbGameId' : 'espnGameId'}`
           : nflClosed

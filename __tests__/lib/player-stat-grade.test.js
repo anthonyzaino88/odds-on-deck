@@ -371,6 +371,14 @@ describe('planPlayerAppearanceGrade DNP voids', () => {
       action: 'needs_review',
       reason: 'pending_final_window',
     })
+    expect(planPlayerAppearanceGrade({
+      reason: 'missing_team',
+      matchStatus: 'unmatched',
+      value: null,
+    }, { sport: 'nfl', gameFinal: true, gameIdVerified: true })).toEqual({
+      action: 'needs_review',
+      reason: 'missing_team',
+    })
   })
 
   test('in-box 0 PA / 0 TOI still void without the not-in-box gate', () => {

@@ -1142,6 +1142,7 @@ describe('NHL-only wiring leaves MLB/NFL graders untouched', () => {
     expect(src).toMatch(/isOpsWriteQuietPeriod/)
     expect(src).toMatch(/assertCanWrite/)
     expect(src).toMatch(/isNhlFetchError\(nhlLookup\)/)
+    expect(src).toMatch(/isNflFetchError\(nflLookup\)/)
     expect(src).toMatch(/leaving pending/)
     expect(src).toMatch(/Refuse writes during ops quiet window/)
   })

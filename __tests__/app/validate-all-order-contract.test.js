@@ -72,6 +72,8 @@ describe('validate:all grades props before parlays', () => {
     expect(src).toMatch(/onPersistentRateLimit/)
     expect(src).toMatch(/isOpsWriteQuietPeriod/)
     expect(src).toMatch(/isNhlFetchError/)
+    expect(src).toMatch(/isNflFetchError/)
+    expect(src).toMatch(/if \(sport === 'nfl' && isNflFetchError\(nflLookup\)\) \{[\s\S]*?continue/)
     expect(src).toMatch(/leaving pending/)
     expect(src).toMatch(/Refuse writes during ops quiet window/)
   })
