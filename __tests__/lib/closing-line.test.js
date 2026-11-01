@@ -28,6 +28,10 @@ import {
   selectCloseCaptureJobsWithinBudget,
   capturedNflGameLineGameIds,
   isCloseCaptureClosingOddsRow,
+  isDuplicateClosingOddsError,
+  fillMissingNflGameLineAttempts,
+  CLOSE_CAPTURE_ATTEMPTED_BOOK,
+  CLOSE_CAPTURE_ID_PREFIX,
   sortCloseCaptureJobs,
   summarizePublishedClv,
   updateWithOptionalCloseOdds,
@@ -41,7 +45,8 @@ import {
   isTargetedCloseCapturePick,
   NFL_GAME_LINE_MARKETS,
 } from '../../lib/closing-line.js'
-import { getBestLines } from '../../lib/vendors/odds.js'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 beforeEach(() => {
   resetCloseColumnCache()
@@ -620,8 +625,8 @@ describe('NFL game-line ClosingOdds writes', () => {
         book: 'FanDuel',
         market: 'totals',
         total: 47.5,
-        price_home: -108,
-        price_away: -112,
+        price_away: -108,
+        price_home: -112,
       }),
       expect.objectContaining({
         book: 'DraftKings',
@@ -683,55 +688,107 @@ describe('NFL game-line ClosingOdds writes', () => {
     expect(fresh.some((row) => row.market === 'h2h' && row.book === 'FanDuel')).toBe(true)
   })
 
-  test('close-window snapshot_at or clvclose: id counts as this capture', () => {
-    const kickoff = '2026-07-15T23:10:00.000Z'
-    const game = { id: 'KC_at_BUF', date: kickoff, sport: 'nfl' }
-    const gamesById = new Map([['KC_at_BUF', game]])
-    const inWindow = {
-      id: 'uuid-close',
+  test('T-30 snapshot_at without clvclose: id does not count as captured', () => {
+    const game = { id: 'KC_at_BUF', date: '2026-07-15T23:10:00.000Z', sport: 'nfl' }
+    const t30 = {
+      id: 'uuid-snapshot-t30',
       game_id: 'KC_at_BUF',
       book: 'FanDuel',
       market: 'h2h',
-      snapshot_at: '2026-07-15T22:50:00.000Z',
+      snapshot_at: '2026-07-15T22:40:00.000Z',
     }
+    expect(isCloseCaptureClosingOddsRow(t30, game)).toBe(false)
+    const proposed = gameLineClosesFromEventOdds(eventData, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+    })
+    const fresh = filterNewClosingOddsRows(proposed, [t30])
+    expect(fresh.some((row) => row.market === 'h2h' && row.book === 'FanDuel')).toBe(true)
+  })
+
+  test('only clvclose: ids count as this capture', () => {
     const tagged = {
       id: 'clvclose:kc_at_buf|draftkings|h2h',
       game_id: 'KC_at_BUF',
       book: 'DraftKings',
       market: 'h2h',
-      snapshot_at: '2026-07-15T21:00:00.000Z',
+      snapshot_at: '2026-07-15T22:50:00.000Z',
     }
-    expect(isCloseCaptureClosingOddsRow(inWindow, game)).toBe(true)
-    expect(isCloseCaptureClosingOddsRow(tagged, game)).toBe(true)
+    expect(isCloseCaptureClosingOddsRow(tagged)).toBe(true)
     const proposed = gameLineClosesFromEventOdds(eventData, {
       gameId: 'KC_at_BUF',
       capturedAt: new Date('2026-07-15T22:50:00.000Z'),
     })
-    const fresh = filterNewClosingOddsRows(proposed, [inWindow, tagged], { gamesById })
-    expect(fresh.find((row) => row.book === 'FanDuel' && row.market === 'h2h')).toBeUndefined()
+    const fresh = filterNewClosingOddsRows(proposed, [tagged])
     expect(fresh.find((row) => row.book === 'DraftKings' && row.market === 'h2h')).toBeUndefined()
+    expect(fresh.find((row) => row.book === 'FanDuel' && row.market === 'h2h')).toBeTruthy()
   })
 
-  test('totals Over maps to priceHome so getBestLines reads Over from priceHome', () => {
+  test('capture writes pin Over = price_away (getBestLines is the outlier)', () => {
     const rows = gameLineClosesFromEventOdds(eventData, {
       gameId: 'KC_at_BUF',
       capturedAt: new Date('2026-07-15T22:50:00.000Z'),
     })
     const totals = rows.find((row) => row.market === 'totals')
     expect(totals).toMatchObject({
-      price_home: -108,
-      price_away: -112,
+      price_away: -108,
+      price_home: -112,
       total: 47.5,
     })
-    const best = getBestLines([{
-      market: 'totals',
-      book: totals.book,
-      priceHome: totals.price_home,
-      priceAway: totals.price_away,
-      total: totals.total,
-    }])
-    expect(best.totals.over.price).toBe(-108)
-    expect(best.totals.under.price).toBe(-112)
+  })
+
+  test('duplicate-key insert is already captured, not a failure', async () => {
+    expect(isDuplicateClosingOddsError({
+      code: '23505',
+      message: 'duplicate key value violates unique constraint "ClosingOdds_pkey"',
+    })).toBe(true)
+    const supabase = {
+      from(table) {
+        expect(table).toBe('ClosingOdds')
+        return {
+          select() { return this },
+          in() { return Promise.resolve({ data: [], error: null }) },
+          insert() {
+            return Promise.resolve({
+              data: null,
+              error: {
+                code: '23505',
+                message: 'duplicate key value violates unique constraint "ClosingOdds_pkey"',
+              },
+            })
+          },
+        }
+      },
+    }
+    const proposed = gameLineClosesFromEventOdds(eventData, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+    })
+    const result = await writeGameLineCloses(supabase, proposed)
+    expect(result.error).toBeNull()
+    expect(result.inserted).toBe(0)
+    expect(result.skipped).toBe(proposed.length)
+  })
+
+  test('ClosingOdds.id is text in Prisma and the archive SQL', () => {
+    const schema = readFileSync(join(process.cwd(), 'prisma/schema.prisma'), 'utf8')
+    const sql = readFileSync(join(process.cwd(), 'scripts/migrations/001_archive_tables.sql'), 'utf8')
+    expect(schema).toMatch(/model ClosingOdds \{[\s\S]*?id\s+String\s+@id/)
+    expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS "ClosingOdds" \([\s\S]*?id\s+TEXT PRIMARY KEY/)
+    expect(CLOSE_CAPTURE_ID_PREFIX).toBe('clvclose:')
+  })
+
+  test('missing markets are marked attempted so the game is not refetched', () => {
+    const filled = fillMissingNflGameLineAttempts(
+      [{ game_id: 'g1', book: 'FanDuel', market: 'h2h', id: 'clvclose:g1|fanduel|h2h' }],
+      ['g1'],
+      new Date('2026-07-15T22:50:00.000Z'),
+    )
+    expect(filled.map((row) => row.market).sort()).toEqual(['h2h', 'spreads', 'totals'])
+    const spreads = filled.find((row) => row.market === 'spreads')
+    expect(spreads.book).toBe(CLOSE_CAPTURE_ATTEMPTED_BOOK)
+    expect(spreads.id.startsWith(CLOSE_CAPTURE_ID_PREFIX)).toBe(true)
+    expect(isCloseCaptureClosingOddsRow(spreads)).toBe(true)
   })
 
   test('capturedNflGameLineGameIds requires all three markets from this capture', () => {
