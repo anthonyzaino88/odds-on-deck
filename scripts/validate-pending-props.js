@@ -24,7 +24,7 @@ import { appendJsonl, boxScoreArchiveRows, loadJsonlFieldSet, resolveBoxScoresDi
 import { propValidationGradeAudit, updateWithOptionalAudit } from '../lib/grade-audit.js'
 import { planPlayerStatValidation } from '../lib/pending-props.js'
 import { voidPropValidationPatch } from '../lib/game-grade-eligibility.js'
-import { planPlayerAppearanceGrade, gradePropFromActual } from '../lib/player-stat-grade.js'
+import { appearanceGradeContext, planPlayerAppearanceGrade, gradePropFromActual } from '../lib/player-stat-grade.js'
 import { withPreservedCohortNotes } from '../lib/published-picks.js'
 
 config({ path: '.env.local' })
@@ -235,17 +235,25 @@ async function main() {
 
       // Attempt to fetch the stat, with one retry on failure.
       // MLB: in-box empty batting/pitching {} or 0 PA / 0 BF is DNP (void).
-      // A name missing from the box is needs_review — a wrong mlbGameId
-      // must not silently void the whole game.
+      // Not on either full roster voids only when the game is final and
+      // the game id is verified (schedule or ESPN/MLB id).
       // NHL: a fallback 0 is final only when the player matched, TOI > 0,
-      // and the stat column exists in a final boxscore. 0 TOI → void.
-      // NFL: missing from the box score stays needs_review (not inferred DNP).
+      // and the stat column exists in a final boxscore. 0 TOI or not
+      // dressed (unmatched, final + verified id) → void.
+      // NFL: missing from the box score stays needs_review (inactive list).
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           if (sport === 'mlb') {
             if (!game.mlbGameId) break
             mlbLookup = await lookupMLBStat(game.mlbGameId, v.playerName, v.propType)
-            const mlbPlan = planPlayerAppearanceGrade(mlbLookup)
+            const mlbPlan = planPlayerAppearanceGrade(
+              mlbLookup,
+              appearanceGradeContext(game, 'mlb', {
+                usedId: game.mlbGameId,
+                box: mlbLookup?.box,
+                playerName: v.playerName,
+              }),
+            )
             if (mlbPlan.action === 'void') {
               dnpReason = mlbPlan.reason
               break
@@ -263,7 +271,14 @@ async function main() {
               v.gameIdRef,
               { playerId: v.playerId, team: v.team },
             )
-            const nhlPlan = planPlayerAppearanceGrade(nhlLookup)
+            const nhlPlan = planPlayerAppearanceGrade(
+              nhlLookup,
+              appearanceGradeContext(game, 'nhl', {
+                usedId: game.espnGameId,
+                box: nhlLookup?.box,
+                playerName: v.playerName,
+              }),
+            )
             if (nhlPlan.action === 'void') {
               dnpReason = nhlPlan.reason
               break

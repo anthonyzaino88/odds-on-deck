@@ -86,6 +86,7 @@ next-env.d.ts
 # Exports & backups (generated dumps, not project config)
 *.csv
 /*.json
+/operations/backups/
 !/package.json
 !/package-lock.json
 !/vercel.json

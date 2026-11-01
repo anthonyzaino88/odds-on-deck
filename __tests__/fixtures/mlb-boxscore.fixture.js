@@ -4,7 +4,7 @@ export function mlbBoxscoreFixture() {
   return {
     teams: {
       home: {
-        team: { name: 'Houston Astros' },
+        team: { name: 'Houston Astros', abbreviation: 'HOU' },
         players: {
           ID_WALKER: {
             person: { fullName: 'Christian Walker' },
@@ -78,7 +78,7 @@ export function mlbBoxscoreFixture() {
         },
       },
       away: {
-        team: { name: 'Kansas City Royals' },
+        team: { name: 'Kansas City Royals', abbreviation: 'KC' },
         players: {
           ID_VINNIE: {
             person: { fullName: 'Vinnie Pasquantino' },
