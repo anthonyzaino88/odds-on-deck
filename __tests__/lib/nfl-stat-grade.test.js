@@ -3,6 +3,7 @@ import {
   planPlayerAppearanceGrade,
 } from '../../lib/player-stat-grade.js'
 import {
+  bothNflEventRostersComplete,
   classifyNflGameLogAppearance,
   classifyNflRosterAppearance,
   dedupeRosterAthleteCandidates,
@@ -17,6 +18,7 @@ import {
   NFL_ESTIMATED_DURATION_MS,
   NFL_MIN_EVENT_ROSTER,
   NFL_MISSING_STAT_SETTLE_HOURS,
+  NFL_ROSTER_PAIR_MIN_RATIO,
   parseEspnNflEventRoster,
   parseNumericEspnAthleteId,
   planNflMissingStatFromSources,
@@ -120,7 +122,7 @@ function mockEspn({
     }
     if (href.includes('/competitors/12/roster')) {
       if (homeStatus) return errorResponse(homeStatus, 'Error')
-      return jsonResponse(homeRoster ?? eventRoster([
+      return jsonResponse(homeRoster ?? completeEventRoster([
         rosterEntry({
           playerId: 3139477,
           displayName: 'Mahomes',
@@ -130,7 +132,7 @@ function mockEspn({
     }
     if (href.includes('/competitors/9/roster')) {
       if (awayStatus) return errorResponse(awayStatus, 'Error')
-      return jsonResponse(awayRoster ?? eventRoster([rosterEntry()]))
+      return jsonResponse(awayRoster ?? completeEventRoster([rosterEntry()], '9'))
     }
     if (href.includes('/eventlog')) {
       if (eventlogStatus) return errorResponse(eventlogStatus, 'Error')
@@ -257,6 +259,7 @@ describe('NFL missing-stat classification', () => {
       settleReady: true,
       rosterOk: true,
       rosterMatch: entry,
+      bothRostersComplete: true,
     })).toEqual({ action: 'grade', reason: 'appeared', actualValue: 0 })
   })
 
@@ -269,6 +272,7 @@ describe('NFL missing-stat classification', () => {
       settleReady: true,
       rosterOk: true,
       rosterMatch: entry,
+      bothRostersComplete: true,
     })).toEqual({ action: 'void', reason: 'dnp_verified' })
   })
 
@@ -285,6 +289,7 @@ describe('NFL missing-stat classification', () => {
       rosterMatch: entry,
       logFetched: true,
       logEntry: { event: { $ref: `.../events/${COMPLETED_EVENT_ID}` }, played: false },
+      bothRostersComplete: true,
     })).toEqual({ action: 'void', reason: 'dnp_no_snap' })
   })
 
@@ -365,6 +370,38 @@ describe('NFL missing-stat classification', () => {
     }))).toBe(false)
   })
 
+  test('name-matched identity on incomplete rosters is needs_review, never grade or void', () => {
+    const played = parseEspnNflEventRoster(eventRoster([rosterEntry()])).entries[0]
+    const dnp = parseEspnNflEventRoster(eventRoster([
+      rosterEntry({ didNotPlay: true, valid: false, statistics: undefined }),
+    ])).entries[0]
+    expect(planNflMissingStatFromSources({
+      settleReady: true,
+      rosterOk: true,
+      rosterMatch: played,
+      bothRostersComplete: false,
+    })).toEqual({ action: 'needs_review', reason: 'incomplete_roster' })
+    expect(planNflMissingStatFromSources({
+      settleReady: true,
+      rosterOk: true,
+      rosterMatch: dnp,
+      bothRostersComplete: false,
+    })).toEqual({ action: 'needs_review', reason: 'incomplete_roster' })
+  })
+
+  test('lopsided 46 vs 70 pair is incomplete when ESPN count is absent', () => {
+    const smaller = parseEspnNflEventRoster(completeEventRoster([rosterEntry()], '9', 46))
+    const larger = parseEspnNflEventRoster(completeEventRoster([rosterEntry()], '12', 70))
+    expect(isNflEventRosterComplete(smaller)).toBe(true)
+    expect(isNflEventRosterComplete(larger)).toBe(true)
+    expect(smaller.entries.length / larger.entries.length).toBeLessThan(NFL_ROSTER_PAIR_MIN_RATIO)
+    expect(bothNflEventRostersComplete(smaller, larger)).toBe(false)
+    expect(bothNflEventRostersComplete(
+      parseEspnNflEventRoster(completeEventRoster([rosterEntry()], '9', 48)),
+      parseEspnNflEventRoster(completeEventRoster([rosterEntry()], '12', 53)),
+    )).toBe(true)
+  })
+
   test('fail-closed: missing roster, no log, or incomplete settle window', () => {
     expect(planNflMissingStatFromSources({
       settleReady: false,
@@ -383,6 +420,7 @@ describe('NFL missing-stat classification', () => {
       ])).entries[0],
       logFetched: true,
       logEntry: null,
+      bothRostersComplete: true,
     })).toEqual({ action: 'needs_review', reason: 'no_log_entry' })
   })
 
@@ -462,14 +500,14 @@ describe('lookupPlayerGameStat missing-from-box outcomes', () => {
 
   test('verified DNP voids as dnp_verified', async () => {
     mockEspn({
-      awayRoster: eventRoster([
+      awayRoster: completeEventRoster([
         rosterEntry({
           didNotPlay: true,
           valid: false,
           statistics: undefined,
           athlete: { id: '1001', fullName: 'Noah Fant', displayName: 'Noah Fant' },
         }),
-      ]),
+      ], '9'),
     })
     const result = await lookupPlayerGameStat(
       COMPLETED_EVENT_ID,
@@ -498,7 +536,7 @@ describe('lookupPlayerGameStat missing-from-box outcomes', () => {
 
   test('Bagent dressed with 0 snaps voids passing props as dnp_no_snap', async () => {
     mockEspn({
-      awayRoster: eventRoster([
+      awayRoster: completeEventRoster([
         rosterEntry({
           playerId: 4434153,
           displayName: 'Bagent',
@@ -506,7 +544,7 @@ describe('lookupPlayerGameStat missing-from-box outcomes', () => {
           statistics: undefined,
           athlete: { id: '4434153', fullName: 'Tyson Bagent', displayName: 'Tyson Bagent' },
         }),
-      ], '3'),
+      ], '9'),
       eventlog: {
         events: {
           items: [{
@@ -595,6 +633,14 @@ describe('lookupPlayerGameStat missing-from-box outcomes', () => {
 
   test('a verified Slayton id still needs_review when either event roster is under 45', async () => {
     mockEspn({
+      homeRoster: eventRoster([
+        rosterEntry({
+          playerId: 3139477,
+          displayName: 'Mahomes',
+          athlete: { id: '3139477', fullName: 'Patrick Mahomes', displayName: 'Patrick Mahomes' },
+        }),
+      ], '12'),
+      awayRoster: eventRoster([rosterEntry()], '9'),
       athletes: { 4241478: 'Darius Slayton' },
     })
     const result = await lookupPlayerGameStat(
@@ -634,6 +680,90 @@ describe('lookupPlayerGameStat missing-from-box outcomes', () => {
       },
     )
     expect(result).toMatchObject({ didNotPlay: false, reason: 'not_in_box', value: null })
+  })
+
+  test('truncated own roster plus same-name active player on the other side is needs_review, not a graded 0', async () => {
+    mockEspn({
+      homeRoster: eventRoster([
+        rosterEntry({
+          playerId: 9001,
+          athlete: { id: '9001', fullName: 'Pad One', displayName: 'Pad One' },
+        }),
+        rosterEntry({
+          playerId: 9002,
+          athlete: { id: '9002', fullName: 'Pad Two', displayName: 'Pad Two' },
+        }),
+        rosterEntry({
+          playerId: 9003,
+          athlete: { id: '9003', fullName: 'Pad Three', displayName: 'Pad Three' },
+        }),
+      ], '12'),
+      awayRoster: completeEventRoster([
+        rosterEntry({
+          playerId: 1001,
+          athlete: { id: '1001', fullName: 'Noah Fant', displayName: 'Noah Fant' },
+        }),
+      ], '9', 50),
+    })
+    const result = await lookupPlayerGameStat(
+      COMPLETED_EVENT_ID,
+      'Noah Fant',
+      'player_receptions',
+      { cache: createNflLookupCache(), sleep: async () => {}, now: SETTLE_NOW },
+    )
+    expect(result).toMatchObject({
+      reason: 'incomplete_roster',
+      didNotPlay: false,
+      value: null,
+    })
+    expect(planPlayerAppearanceGrade(result, { sport: 'nfl', gameFinal: true })).toEqual({
+      action: 'needs_review',
+      reason: 'incomplete_roster',
+    })
+  })
+
+  test('truncated own roster plus same-name didNotPlay on the other side is needs_review, not dnp_verified', async () => {
+    mockEspn({
+      homeRoster: eventRoster([
+        rosterEntry({
+          playerId: 9001,
+          athlete: { id: '9001', fullName: 'Pad One', displayName: 'Pad One' },
+        }),
+        rosterEntry({
+          playerId: 9002,
+          athlete: { id: '9002', fullName: 'Pad Two', displayName: 'Pad Two' },
+        }),
+        rosterEntry({
+          playerId: 9003,
+          athlete: { id: '9003', fullName: 'Pad Three', displayName: 'Pad Three' },
+        }),
+      ], '12'),
+      awayRoster: completeEventRoster([
+        rosterEntry({
+          playerId: 1001,
+          didNotPlay: true,
+          valid: false,
+          statistics: undefined,
+          athlete: { id: '1001', fullName: 'Noah Fant', displayName: 'Noah Fant' },
+        }),
+      ], '9', 50),
+    })
+    const result = await lookupPlayerGameStat(
+      COMPLETED_EVENT_ID,
+      'Noah Fant',
+      'player_receptions',
+      { cache: createNflLookupCache(), sleep: async () => {}, now: SETTLE_NOW },
+    )
+    expect(result).toMatchObject({
+      reason: 'incomplete_roster',
+      didNotPlay: false,
+      value: null,
+    })
+    expect(result.reason).not.toBe('dnp_verified')
+    expect(planPlayerAppearanceGrade(result, { sport: 'nfl', gameFinal: true })).toEqual({
+      action: 'needs_review',
+      reason: 'incomplete_roster',
+    })
   })
 
   test('Kelce last-name-only and Gabe Davis nickname stay needs_review', async () => {
@@ -779,13 +909,13 @@ describe('lookupPlayerGameStat missing-from-box outcomes', () => {
 
   test('no eventlog / gamelog entry for a dressed no-stat player is needs_review', async () => {
     mockEspn({
-      awayRoster: eventRoster([
+      awayRoster: completeEventRoster([
         rosterEntry({
           valid: false,
           statistics: undefined,
           athlete: { id: '1001', fullName: 'Noah Fant', displayName: 'Noah Fant' },
         }),
-      ]),
+      ], '9'),
       eventlog: { events: { items: [] } },
       gamelog: { events: {} },
     })
@@ -837,13 +967,13 @@ describe('lookupPlayerGameStat missing-from-box outcomes', () => {
     const sleep = jest.fn(async () => {})
     const cache = createNflLookupCache()
     mockEspn({
-      awayRoster: eventRoster([
+      awayRoster: completeEventRoster([
         rosterEntry({
           valid: false,
           statistics: undefined,
           athlete: { id: '1001', fullName: 'Noah Fant', displayName: 'Noah Fant' },
         }),
-      ]),
+      ], '9'),
       eventlogStatus: 429,
     })
     const result = await lookupPlayerGameStat(
@@ -855,6 +985,36 @@ describe('lookupPlayerGameStat missing-from-box outcomes', () => {
     expect(result).toMatchObject({ reason: 'fetch_error', didNotPlay: false })
     expect(sleep).toHaveBeenCalledWith(NFL_FETCH_RETRY_AFTER_MAX_MS)
     expect(planPlayerAppearanceGrade(result, { sport: 'nfl', gameFinal: true }).action).toBe('needs_review')
+  })
+
+  test('permanent 404 on eventlog and gamelog is needs_review, not fetch_error', async () => {
+    mockEspn({
+      awayRoster: completeEventRoster([
+        rosterEntry({
+          valid: false,
+          statistics: undefined,
+          athlete: { id: '1001', fullName: 'Noah Fant', displayName: 'Noah Fant' },
+        }),
+      ], '9'),
+      eventlogStatus: 404,
+      gamelogStatus: 404,
+    })
+    const result = await lookupPlayerGameStat(
+      COMPLETED_EVENT_ID,
+      'Noah Fant',
+      'player_receptions',
+      { cache: createNflLookupCache(), sleep: async () => {}, now: SETTLE_NOW, team: 'PHI' },
+    )
+    expect(result).toMatchObject({
+      reason: 'no_log_entry',
+      didNotPlay: false,
+      value: null,
+    })
+    expect(result.matchStatus).not.toBe('fetch_error')
+    expect(planPlayerAppearanceGrade(result, { sport: 'nfl', gameFinal: true })).toEqual({
+      action: 'needs_review',
+      reason: 'no_log_entry',
+    })
   })
 
   test('persistent 429 is remembered and later lookups do not hit the network again', async () => {
@@ -887,7 +1047,7 @@ describe('lookupPlayerGameStat missing-from-box outcomes', () => {
   })
 
   test('hydrate copies roster rows and dedupes athlete fetches by playerId', async () => {
-    const rawAway = eventRoster([
+    const rawAway = completeEventRoster([
       rosterEntry({
         playerId: 1001,
         displayName: 'Fant',
@@ -900,7 +1060,7 @@ describe('lookupPlayerGameStat missing-from-box outcomes', () => {
         athlete: { $ref: 'https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/2025/athletes/1001' },
         statistics: { $ref: 'https://example.test/stats/1001' },
       }),
-    ])
+    ], '9')
     const cache = createNflLookupCache()
     mockEspn({
       awayRoster: rawAway,
@@ -941,11 +1101,13 @@ describe('historical 36-row mix', () => {
       settleReady: true,
       rosterOk: true,
       rosterMatch: parseEspnNflEventRoster(eventRoster([rosterEntry()])).entries[0],
+      bothRostersComplete: true,
     }))
     const dnp = Array.from({ length: 11 }, () => planNflMissingStatFromSources({
       settleReady: true,
       rosterOk: true,
       rosterMatch: { didNotPlay: true },
+      bothRostersComplete: true,
     }))
     const bagent = Array.from({ length: 2 }, () => planNflMissingStatFromSources({
       settleReady: true,
@@ -953,6 +1115,7 @@ describe('historical 36-row mix', () => {
       rosterMatch: { didNotPlay: false, hasStatistics: false, active: false },
       logFetched: true,
       logEntry: { played: false },
+      bothRostersComplete: true,
     }))
     const slayton = Array.from({ length: 2 }, () => planNflMissingStatFromSources({
       settleReady: true,
@@ -974,11 +1137,13 @@ describe('historical 36-row mix', () => {
       settleReady: true,
       rosterOk: true,
       rosterMatch: parseEspnNflEventRoster(eventRoster([rosterEntry()])).entries[0],
+      bothRostersComplete: true,
     }))
     const dnp = Array.from({ length: 11 }, () => planNflMissingStatFromSources({
       settleReady: true,
       rosterOk: true,
       rosterMatch: { didNotPlay: true },
+      bothRostersComplete: true,
     }))
     const bagent = Array.from({ length: 2 }, () => planNflMissingStatFromSources({
       settleReady: true,
@@ -986,6 +1151,7 @@ describe('historical 36-row mix', () => {
       rosterMatch: { didNotPlay: false, hasStatistics: false, active: false },
       logFetched: true,
       logEntry: { played: false },
+      bothRostersComplete: true,
     }))
     const slayton = Array.from({ length: 2 }, () => planNflMissingStatFromSources({
       settleReady: true,
