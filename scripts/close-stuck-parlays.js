@@ -105,26 +105,27 @@ function aggregateParlay(outcomes) {
   return 'pending'
 }
 
-async function loadClosingTotals(gameIds) {
-  const map = new Map()
-  if (!gameIds.length) return map
+async function loadClosingTotals(gameIds, gamesById = new Map()) {
+  const empty = new Map()
+  if (!gameIds.length) return empty
   try {
     const rows = await prisma.$queryRaw`
-      SELECT game_id, total, book, snapshot_at
+      SELECT id, game_id, total, book, market, snapshot_at, price_away, price_home
       FROM "ClosingOdds"
       WHERE game_id IN (${Prisma.join(gameIds)})
+        AND book IS DISTINCT FROM 'attempted'
+      ORDER BY
+        CASE WHEN id LIKE 'clvclose:%' THEN 0 ELSE 1 END,
+        snapshot_at DESC,
+        book ASC,
+        id ASC
     `
-    for (const row of rows || []) {
-      if (!isNumeric(row.total)) continue
-      const gameId = row.game_id || row.gameId
-      if (!map.has(gameId)) {
-        map.set(gameId, { line: Number(row.total), book: row.book })
-      }
-    }
+    const { closingTotalsByGame } = await import('../lib/closing-line.js')
+    return closingTotalsByGame(rows || [], gamesById)
   } catch (error) {
     console.log(`⚠️  ClosingOdds not available (${error.message})`)
+    return empty
   }
-  return map
 }
 
 function resolveTotalLine(leg, closingTotals) {
@@ -297,7 +298,7 @@ async function main() {
     },
   })
 
-  const closingTotals = await loadClosingTotals(gameIds)
+  const closingTotals = await loadClosingTotals(gameIds, games)
 
   const results = []
 

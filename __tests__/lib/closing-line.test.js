@@ -27,11 +27,18 @@ import {
   resetClosingOddsWriteGuard,
   selectCloseCaptureJobsWithinBudget,
   capturedNflGameLineGameIds,
+  closeCaptureRowId,
   isCloseCaptureClosingOddsRow,
   isDuplicateClosingOddsError,
   fillMissingNflGameLineAttempts,
   CLOSE_CAPTURE_ATTEMPTED_BOOK,
   CLOSE_CAPTURE_ID_PREFIX,
+  CLOSING_ODDS_PKEY,
+  POSTGRES_UNIQUE_VIOLATION,
+  closingTotalsByGame,
+  closingTotalOverUnderPrices,
+  filterClosingOddsForResearchArchive,
+  selectClosingTotalRow,
   sortCloseCaptureJobs,
   summarizePublishedClv,
   updateWithOptionalCloseOdds,
@@ -739,8 +746,8 @@ describe('NFL game-line ClosingOdds writes', () => {
 
   test('duplicate-key insert is already captured, not a failure', async () => {
     expect(isDuplicateClosingOddsError({
-      code: '23505',
-      message: 'duplicate key value violates unique constraint "ClosingOdds_pkey"',
+      code: POSTGRES_UNIQUE_VIOLATION,
+      message: `duplicate key value violates unique constraint "${CLOSING_ODDS_PKEY}"`,
     })).toBe(true)
     const supabase = {
       from(table) {
@@ -752,8 +759,8 @@ describe('NFL game-line ClosingOdds writes', () => {
             return Promise.resolve({
               data: null,
               error: {
-                code: '23505',
-                message: 'duplicate key value violates unique constraint "ClosingOdds_pkey"',
+                code: POSTGRES_UNIQUE_VIOLATION,
+                message: `duplicate key value violates unique constraint "${CLOSING_ODDS_PKEY}"`,
               },
             })
           },
@@ -768,6 +775,116 @@ describe('NFL game-line ClosingOdds writes', () => {
     expect(result.error).toBeNull()
     expect(result.inserted).toBe(0)
     expect(result.skipped).toBe(proposed.length)
+  })
+
+  test('isDuplicateClosingOddsError matches only Postgres 23505', () => {
+    expect(isDuplicateClosingOddsError({
+      code: POSTGRES_UNIQUE_VIOLATION,
+      message: `duplicate key value violates unique constraint "${CLOSING_ODDS_PKEY}"`,
+    })).toBe(true)
+    expect(isDuplicateClosingOddsError({
+      code: POSTGRES_UNIQUE_VIOLATION,
+      constraint: CLOSING_ODDS_PKEY,
+    })).toBe(true)
+    expect(isDuplicateClosingOddsError({
+      code: POSTGRES_UNIQUE_VIOLATION,
+      details: 'Key (id)=(clvclose:g1|fanduel|h2h) already exists.',
+    })).toBe(true)
+    expect(isDuplicateClosingOddsError({
+      code: POSTGRES_UNIQUE_VIOLATION,
+    })).toBe(true)
+    expect(isDuplicateClosingOddsError({
+      message: 'duplicate key value violates unique constraint "ClosingOdds_pkey"',
+    })).toBe(false)
+    expect(isDuplicateClosingOddsError({
+      code: '23503',
+      message: 'insert or update on table "ClosingOdds" violates foreign key constraint',
+    })).toBe(false)
+    expect(isDuplicateClosingOddsError({
+      message: 'unique violation: row already exists',
+    })).toBe(false)
+    expect(isDuplicateClosingOddsError({
+      code: POSTGRES_UNIQUE_VIOLATION,
+      message: 'duplicate key value violates unique constraint "Odds_pkey"',
+    })).toBe(false)
+    expect(isDuplicateClosingOddsError({
+      code: POSTGRES_UNIQUE_VIOLATION,
+      constraint: 'Odds_gameId_book_market_key',
+    })).toBe(false)
+  })
+
+  test('a 23505 batch retries per row and still inserts the non-duplicates', async () => {
+    const stored = []
+    const inserts = []
+    const duplicateId = closeCaptureRowId('KC_at_BUF', 'FanDuel', 'h2h')
+    const pkeyError = {
+      code: POSTGRES_UNIQUE_VIOLATION,
+      message: `duplicate key value violates unique constraint "${CLOSING_ODDS_PKEY}"`,
+    }
+    const supabase = {
+      from(table) {
+        expect(table).toBe('ClosingOdds')
+        return {
+          select() { return this },
+          in() { return Promise.resolve({ data: [], error: null }) },
+          insert(rows) {
+            inserts.push(rows)
+            if (rows.length > 1) {
+              return Promise.resolve({ data: null, error: pkeyError })
+            }
+            const [row] = rows
+            if (row.id === duplicateId) {
+              return Promise.resolve({ data: null, error: pkeyError })
+            }
+            stored.push(row)
+            return Promise.resolve({ data: rows, error: null })
+          },
+        }
+      },
+    }
+    const proposed = gameLineClosesFromEventOdds(eventData, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+    })
+    expect(proposed.some((row) => row.id === duplicateId)).toBe(true)
+    const result = await writeGameLineCloses(supabase, proposed)
+    expect(result.error).toBeNull()
+    expect(result.inserted).toBe(proposed.length - 1)
+    expect(result.skipped).toBe(1)
+    expect(stored).toHaveLength(proposed.length - 1)
+    expect(stored.find((row) => row.id === duplicateId)).toBeUndefined()
+    expect(inserts[0]).toHaveLength(proposed.length)
+    expect(inserts.slice(1).every((batch) => batch.length === 1)).toBe(true)
+
+    const second = await writeGameLineCloses(supabase, proposed)
+    expect(second.inserted).toBe(0)
+    expect(second.skipped).toBe(proposed.length)
+    expect(stored).toHaveLength(proposed.length - 1)
+  })
+
+  test('a non-23505 insert error is still a failure', async () => {
+    const supabase = {
+      from(table) {
+        expect(table).toBe('ClosingOdds')
+        return {
+          select() { return this },
+          in() { return Promise.resolve({ data: [], error: null }) },
+          insert() {
+            return Promise.resolve({
+              data: null,
+              error: { code: '42501', message: 'permission denied' },
+            })
+          },
+        }
+      },
+    }
+    const proposed = gameLineClosesFromEventOdds(eventData, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+    })
+    const result = await writeGameLineCloses(supabase, proposed)
+    expect(result.error).toMatchObject({ code: '42501' })
+    expect(result.inserted).toBe(0)
   })
 
   test('ClosingOdds.id is text in Prisma and the archive SQL', () => {
@@ -809,5 +926,158 @@ describe('NFL game-line ClosingOdds writes', () => {
     }))
     expect(capturedNflGameLineGameIds([game], [early])).toEqual(new Set())
     expect(capturedNflGameLineGameIds([game], closeRows)).toEqual(new Set(['g1']))
+  })
+})
+
+describe('ClosingOdds total selection for close-stuck-parlays', () => {
+  const kickoff = '2026-07-15T23:10:00.000Z'
+  const morning = {
+    id: 'uuid-morning',
+    game_id: 'KC_at_BUF',
+    book: 'FanDuel',
+    market: 'totals',
+    total: 44.5,
+    price_away: -105,
+    price_home: -115,
+    snapshot_at: '2026-07-15T14:05:00.000Z',
+  }
+  const t30 = {
+    id: 'uuid-t30',
+    game_id: 'KC_at_BUF',
+    book: 'DraftKings',
+    market: 'totals',
+    total: 46.5,
+    price_away: -110,
+    price_home: -110,
+    snapshot_at: '2026-07-15T22:40:00.000Z',
+  }
+  const afterKickoff = {
+    id: 'uuid-late',
+    game_id: 'KC_at_BUF',
+    book: 'BetMGM',
+    market: 'totals',
+    total: 49.5,
+    price_away: -102,
+    price_home: -118,
+    snapshot_at: '2026-07-15T23:25:00.000Z',
+  }
+  const closeRow = {
+    id: 'clvclose:kc_at_buf|fanduel|totals',
+    game_id: 'KC_at_BUF',
+    book: 'FanDuel',
+    market: 'totals',
+    total: 47.5,
+    price_away: -108,
+    price_home: -112,
+    snapshot_at: '2026-07-15T22:50:00.000Z',
+  }
+  const attempted = {
+    id: 'clvclose:kc_at_buf|attempted|totals',
+    game_id: 'KC_at_BUF',
+    book: CLOSE_CAPTURE_ATTEMPTED_BOOK,
+    market: 'totals',
+    total: 47.5,
+    price_away: null,
+    price_home: null,
+    snapshot_at: '2026-07-15T22:51:00.000Z',
+  }
+
+  test('prefers a clvclose: total over an earlier morning snapshot', () => {
+    const selected = selectClosingTotalRow(
+      [morning, attempted, closeRow, t30],
+      { kickoff },
+    )
+    expect(selected).toMatchObject({
+      id: closeRow.id,
+      total: 47.5,
+      book: 'FanDuel',
+    })
+    expect(closingTotalOverUnderPrices(selected)).toEqual({
+      over: -108,
+      under: -112,
+    })
+  })
+
+  test('ignores book=attempted clvclose rows and falls back to latest snapshot before kickoff', () => {
+    const withoutT30 = selectClosingTotalRow(
+      [morning, attempted, afterKickoff],
+      { kickoff },
+    )
+    expect(withoutT30.id).toBe('uuid-morning')
+    const withT30 = selectClosingTotalRow(
+      [afterKickoff, morning, t30, attempted],
+      { kickoff },
+    )
+    expect(withT30).toMatchObject({ id: 'uuid-t30', total: 46.5 })
+  })
+
+  test('without clvclose rows uses the latest snapshot_at before kickoff', () => {
+    const selected = selectClosingTotalRow(
+      [afterKickoff, morning, t30],
+      { kickoff },
+    )
+    expect(selected.id).toBe('uuid-t30')
+    expect(selectClosingTotalRow([afterKickoff], { kickoff })).toBeNull()
+  })
+
+  test('tied snapshot_at breaks deterministically by book then id', () => {
+    const tiedB = {
+      id: 'snap-b',
+      game_id: 'KC_at_BUF',
+      book: 'BetMGM',
+      market: 'totals',
+      total: 45.5,
+      snapshot_at: '2026-07-15T22:40:00.000Z',
+    }
+    const tiedA = {
+      id: 'snap-a',
+      game_id: 'KC_at_BUF',
+      book: 'BetMGM',
+      market: 'totals',
+      total: 45.0,
+      snapshot_at: '2026-07-15T22:40:00.000Z',
+    }
+    const tiedDk = {
+      id: 'snap-dk',
+      game_id: 'KC_at_BUF',
+      book: 'DraftKings',
+      market: 'totals',
+      total: 46.0,
+      snapshot_at: '2026-07-15T22:40:00.000Z',
+    }
+    const first = selectClosingTotalRow([tiedDk, tiedB, tiedA], { kickoff })
+    const second = selectClosingTotalRow([tiedA, tiedDk, tiedB], { kickoff })
+    expect(first.id).toBe('snap-a')
+    expect(second.id).toBe(first.id)
+  })
+
+  test('closingTotalsByGame keeps Over = price_away and Under = price_home', () => {
+    const gamesById = new Map([
+      ['KC_at_BUF', { id: 'KC_at_BUF', date: kickoff }],
+    ])
+    const map = closingTotalsByGame([morning, closeRow, attempted], gamesById)
+    expect(map.get('KC_at_BUF')).toMatchObject({
+      line: 47.5,
+      book: 'FanDuel',
+      overPrice: -108,
+      underPrice: -112,
+    })
+  })
+
+  test('research archive export drops book=attempted ClosingOdds rows', () => {
+    expect(filterClosingOddsForResearchArchive([closeRow, attempted, morning])).toEqual([
+      closeRow,
+      morning,
+    ])
+  })
+
+  test('close-stuck-parlays orders and prefers clvclose totals', () => {
+    const src = readFileSync(join(process.cwd(), 'scripts/close-stuck-parlays.js'), 'utf8')
+    expect(src).toMatch(/closingTotalsByGame/)
+    expect(src).toMatch(/clvclose:%/)
+    expect(src).toMatch(/book IS DISTINCT FROM 'attempted'/)
+    expect(src).toMatch(/ORDER BY/)
+    expect(src).toMatch(/price_away/)
+    expect(src).toMatch(/price_home/)
   })
 })

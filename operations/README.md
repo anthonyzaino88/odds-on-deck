@@ -231,7 +231,9 @@ with `clvclose:`. `snapshot_at` is ignored — `snapshot-closing-lines`
 stamps insert time, so a T−30 snapshot must not block the true close.
 `ClosingOdds.id` is TEXT (Prisma `String`, SQL `TEXT PRIMARY KEY`).
 Deterministic `clvclose:` ids are the primary key; overlapping applies
-hit `23505` and are treated as already captured, not a failure.
+hit `23505`. A batch unique violation is retried row-by-row so only
+the duplicate is treated as already captured and the other rows still
+insert. Message-only "duplicate" strings are not treated as captured.
 
 **Do not overlap capture `--apply` runs.** `ClosingOdds` has no unique
 `(game_id, book, market)` key. A unique index is an optional follow-up
