@@ -849,6 +849,7 @@ describe('NFL game-line ClosingOdds writes', () => {
     expect(proposed.some((row) => row.id === duplicateId)).toBe(true)
     const result = await writeGameLineCloses(supabase, proposed)
     expect(result.error).toBeNull()
+    expect(result.failed).toBe(0)
     expect(result.inserted).toBe(proposed.length - 1)
     expect(result.skipped).toBe(1)
     expect(stored).toHaveLength(proposed.length - 1)
@@ -860,6 +861,63 @@ describe('NFL game-line ClosingOdds writes', () => {
     expect(second.inserted).toBe(0)
     expect(second.skipped).toBe(proposed.length)
     expect(stored).toHaveLength(proposed.length - 1)
+  })
+
+  test('a mixed 23505 batch returns firstOtherError and does not mark failed rows captured', async () => {
+    const stored = []
+    const duplicateId = closeCaptureRowId('KC_at_BUF', 'FanDuel', 'h2h')
+    const deniedId = closeCaptureRowId('KC_at_BUF', 'FanDuel', 'spreads')
+    const pkeyError = {
+      code: POSTGRES_UNIQUE_VIOLATION,
+      message: `duplicate key value violates unique constraint "${CLOSING_ODDS_PKEY}"`,
+    }
+    const deniedError = { code: '42501', message: 'permission denied' }
+    const supabase = {
+      from(table) {
+        expect(table).toBe('ClosingOdds')
+        return {
+          select() { return this },
+          in() { return Promise.resolve({ data: [], error: null }) },
+          insert(rows) {
+            if (rows.length > 1) {
+              return Promise.resolve({ data: null, error: pkeyError })
+            }
+            const [row] = rows
+            if (row.id === duplicateId) {
+              return Promise.resolve({ data: null, error: pkeyError })
+            }
+            if (row.id === deniedId) {
+              return Promise.resolve({ data: null, error: deniedError })
+            }
+            stored.push(row)
+            return Promise.resolve({ data: rows, error: null })
+          },
+        }
+      },
+    }
+    const proposed = gameLineClosesFromEventOdds(eventData, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+    })
+    expect(proposed.map((row) => row.id)).toEqual(expect.arrayContaining([
+      duplicateId,
+      deniedId,
+    ]))
+    const result = await writeGameLineCloses(supabase, proposed)
+    expect(result.error).toMatchObject({ code: '42501', message: 'permission denied' })
+    expect(result.failed).toBe(1)
+    expect(result.inserted).toBe(proposed.length - 2)
+    expect(result.skipped).toBe(1)
+    expect(result.rows.map((row) => row.id)).not.toContain(deniedId)
+    expect(result.rows.map((row) => row.id)).not.toContain(duplicateId)
+    expect(stored.map((row) => row.id)).toEqual(result.rows.map((row) => row.id))
+
+    const second = await writeGameLineCloses(supabase, proposed)
+    expect(second.error).toMatchObject({ code: '42501' })
+    expect(second.inserted).toBe(0)
+    expect(second.failed).toBe(1)
+    expect(second.skipped).toBe(proposed.length - 1)
+    expect(stored).toHaveLength(result.inserted)
   })
 
   test('a non-23505 insert error is still a failure', async () => {
@@ -885,6 +943,8 @@ describe('NFL game-line ClosingOdds writes', () => {
     const result = await writeGameLineCloses(supabase, proposed)
     expect(result.error).toMatchObject({ code: '42501' })
     expect(result.inserted).toBe(0)
+    expect(result.failed).toBe(proposed.length)
+    expect(result.skipped).toBe(0)
   })
 
   test('ClosingOdds.id is text in Prisma and the archive SQL', () => {
@@ -1064,6 +1124,22 @@ describe('ClosingOdds total selection for close-stuck-parlays', () => {
     })
   })
 
+  test('ignores non-totals rows even when they carry a numeric total', () => {
+    const h2hWithTotal = {
+      id: 'clvclose:kc_at_buf|fanduel|h2h',
+      game_id: 'KC_at_BUF',
+      book: 'FanDuel',
+      market: 'h2h',
+      total: 99.5,
+      price_away: 130,
+      price_home: -150,
+      snapshot_at: '2026-07-15T22:55:00.000Z',
+    }
+    expect(selectClosingTotalRow([h2hWithTotal], { kickoff })).toBeNull()
+    const selected = selectClosingTotalRow([h2hWithTotal, morning], { kickoff })
+    expect(selected).toMatchObject({ id: 'uuid-morning', market: 'totals', total: 44.5 })
+  })
+
   test('research archive export drops book=attempted ClosingOdds rows', () => {
     expect(filterClosingOddsForResearchArchive([closeRow, attempted, morning])).toEqual([
       closeRow,
@@ -1075,6 +1151,7 @@ describe('ClosingOdds total selection for close-stuck-parlays', () => {
     const src = readFileSync(join(process.cwd(), 'scripts/close-stuck-parlays.js'), 'utf8')
     expect(src).toMatch(/closingTotalsByGame/)
     expect(src).toMatch(/clvclose:%/)
+    expect(src).toMatch(/market = 'totals'/)
     expect(src).toMatch(/book IS DISTINCT FROM 'attempted'/)
     expect(src).toMatch(/ORDER BY/)
     expect(src).toMatch(/price_away/)

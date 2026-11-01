@@ -113,6 +113,7 @@ async function loadClosingTotals(gameIds, gamesById = new Map()) {
       SELECT id, game_id, total, book, market, snapshot_at, price_away, price_home
       FROM "ClosingOdds"
       WHERE game_id IN (${Prisma.join(gameIds)})
+        AND market = 'totals'
         AND book IS DISTINCT FROM 'attempted'
       ORDER BY
         CASE WHEN id LIKE 'clvclose:%' THEN 0 ELSE 1 END,

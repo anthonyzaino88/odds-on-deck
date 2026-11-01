@@ -260,5 +260,9 @@ describe('ClosingOdds research archive export', () => {
     expect(rowsForResearchArchiveExport('ClosingOdds', [attempted, close])).toEqual([close])
     const props = [{ prop_id: 'p1', book: 'attempted' }]
     expect(rowsForResearchArchiveExport('ArchivedPropLine', props)).toEqual(props)
+    const src = fs.readFileSync(path.join(process.cwd(), 'lib/local-archive.js'), 'utf8')
+    expect(src).toMatch(/export \{ filterClosingOddsForResearchArchive \} from '\.\/closing-line\.js'/)
+    expect(src).toMatch(/Group rows into UTC-day buckets[\s\S]*export function groupRowsByUtcDay/)
+    expect(src).not.toMatch(/function filterClosingOddsForResearchArchive/)
   })
 })

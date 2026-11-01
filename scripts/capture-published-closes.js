@@ -577,11 +577,15 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
         gamesById,
       })
       if (writtenLines.error) {
-        log.error(`  ❌ ClosingOdds ${label}: ${writtenLines.error.message}`)
-      } else if (writtenLines.inserted > 0) {
+        const failedNote = writtenLines.failed
+          ? ` (${writtenLines.failed} row(s) not captured)`
+          : ''
+        log.error(`  ❌ ClosingOdds ${label}: ${writtenLines.error.message}${failedNote}`)
+      }
+      if (writtenLines.inserted > 0) {
         gameLineWrites.push(...(writtenLines.rows || []))
         log.log(`  ✅ ${label} game-line closes: ${writtenLines.inserted} new ClosingOdds row(s)`)
-      } else if (gameLineRows.length > 0) {
+      } else if (!writtenLines.error && gameLineRows.length > 0) {
         log.log(`  skipped ${label} game-line closes already captured`)
       }
     }
