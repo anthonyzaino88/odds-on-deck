@@ -48,13 +48,14 @@ import {
   CLOSE_CAPTURE_WINDOW_MINUTES,
   applyPublishedCloseUpdate,
   buildEventOddsUrl,
+  capturedNflGameLineGameIds,
   closeCaptureJobPriority,
   closeCapturePayload,
   closeUpdateRowCount,
   CLOSE_CAPTURE_DEFAULT_MIN_REMAINING,
-  estimateCloseCaptureCost,
   flattenEventOddsQuotes,
   formatCallsUsed,
+  formatCreditsUsed,
   gameLineClosesForCaptureJob,
   groupCaptureJobsByOddsApiEventId,
   hasCloseAlready,
@@ -63,12 +64,14 @@ import {
   isNflSport,
   isOpsWriteQuietPeriod,
   isTargetedCloseCapturePick,
+  loadExistingClosingOdds,
   marketsForCaptureJob,
   matchClosingQuote,
   oddsApiSportKey,
   parseOddsApiQuota,
-  plannedCloseCaptureHttpCalls,
   probeOddsApiQuota,
+  resetClosingOddsWriteGuard,
+  selectCloseCaptureJobsWithinBudget,
   sortCloseCaptureJobs,
   updateWithOptionalCloseOdds,
   writeGameLineCloses,
@@ -86,9 +89,9 @@ export const PICK_SELECT = `${PICK_SELECT_BASE}, closeOdds, closeCapturedAt`
 
 const KNOWN_FLAGS = new Set([
   '--dry-run', '--apply', '--help', '-h', '--max-calls', '--min-remaining',
-  '--nfl-all',
+  '--max-credits', '--nfl-all',
 ])
-const FLAGS_WITH_VALUE = new Set(['--max-calls', '--min-remaining'])
+const FLAGS_WITH_VALUE = new Set(['--max-calls', '--min-remaining', '--max-credits'])
 
 /** Non-negative integer flag. Missing or invalid values fail closed. */
 export function parseNonNegIntFlag(args, flag) {
@@ -159,11 +162,13 @@ export function parseCaptureClosesArgs(argv = [], env = process.env) {
   const applyFlag = args.includes('--apply') || envFlagEnabled(env.CLV_APPLY)
   const maxCalls = parseNonNegIntFlag(args, '--max-calls')
   const minRemainingFlag = parseNonNegIntFlag(args, '--min-remaining')
+  const maxCredits = parseNonNegIntFlag(args, '--max-credits')
   const envMinRemaining = Number(env.CLOSING_CAPTURE_MIN_REMAINING)
   const unknown = unknownCaptureArgs(args)
   const invalidFlags = [
     maxCalls.invalid ? '--max-calls' : null,
     minRemainingFlag.invalid ? '--min-remaining' : null,
+    maxCredits.invalid ? '--max-credits' : null,
   ].filter(Boolean)
   const minRemaining = minRemainingFlag.present
     ? minRemainingFlag.value
@@ -176,6 +181,7 @@ export function parseCaptureClosesArgs(argv = [], env = process.env) {
     help: args.includes('--help') || args.includes('-h'),
     maxCalls: maxCalls.present ? maxCalls.value : null,
     minRemaining,
+    maxCredits: maxCredits.present ? maxCredits.value : null,
     nflAll: args.includes('--nfl-all'),
     disabled: isClosingCaptureDisabled(env),
     unknown,
@@ -207,13 +213,17 @@ export async function runCapturePublishedCloses({
   env = process.env,
   log = console,
 } = {}) {
+  resetClosingOddsWriteGuard()
   const args = parseCaptureClosesArgs(argv, env)
   const done = (result) => {
+    if (result.plannedCredits != null || result.creditsUsed != null) {
+      log.log(formatCreditsUsed(result.creditsUsed ?? 0))
+    }
     log.log(formatCallsUsed(result.calls ?? 0))
     return result
   }
   if (args.help) {
-    log.log(`Usage: node scripts/capture-published-closes.js [--dry-run|--apply] [--nfl-all] [--max-calls N] [--min-remaining N]
+    log.log(`Usage: node scripts/capture-published-closes.js [--dry-run|--apply] [--nfl-all] [--max-calls N] [--max-credits N] [--min-remaining N]
 
 Dry-run (default): list in-window Published and shadow-published picks
 missing a close. Shadow NHL shares this --max-calls budget (Published
@@ -229,17 +239,22 @@ PowerShell: prefer npm run capture:published-closes:apply or
             npm run capture:published-closes:nfl-all:apply.
             $env:CLV_APPLY=1 stays set for later plain runs.
 CLOSING_CAPTURE=0 disables the job. --max-calls caps HTTP calls
-(including the /v4/sports quota probe). Unknown flags and
-invalid/missing --max-calls / --min-remaining values fail closed.
+(including the /v4/sports quota probe). --max-credits caps
+markets × regions (us=1) and stops before exceeding, soonest
+kickoff first when --nfl-all. Unknown flags and invalid/missing
+--max-calls / --max-credits / --min-remaining values fail closed.
+ClosingOdds has no unique (game, book, market) key — do not overlap
+capture --apply runs. A unique index is an optional follow-up.
 --min-remaining (default ${CLOSE_CAPTURE_DEFAULT_MIN_REMAINING}) stops when
 Odds API remaining credits fall below the floor.
 Window is T−${CLOSE_CAPTURE_WINDOW_MINUTES}..T−1 (pre-start games only).
 No-ops during :05–:15 ET. Schedule at :16 and :46 ET, after
 record-mlb-window-props. London NFL 9:30 AM ET games are missed
 if this job only runs in the 11–22 ET MLB window.
-Dry-run prints planned HTTP calls including the quota check.
-Every run prints a final CALLS_USED=<n> line (actual HTTP calls).`)
-    return { exitCode: 0, updates: [], calls: 0, help: true }
+Dry-run prints planned HTTP calls including the quota check,
+plus planned credits. Every run prints CALLS_USED=<n> (actual
+HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
+    return done({ exitCode: 0, updates: [], calls: 0, help: true })
   }
 
   if (args.unknown.length) {
@@ -354,8 +369,24 @@ Every run prints a final CALLS_USED=<n> line (actual HTTP calls).`)
     && gamesById.has(row.gameIdRef)
   ))
 
+  let existingClosingOdds = []
+  if (args.nflAll) {
+    const nflIds = windowGames.filter((game) => isNflSport(game.sport)).map((game) => game.id)
+    const loaded = await loadExistingClosingOdds(supabase, nflIds)
+    if (loaded.error) {
+      log.log(`⚠️ ClosingOdds read failed (${loaded.error.message}); planning game-line fetches without a skip list.`)
+    } else {
+      existingClosingOdds = loaded.rows
+    }
+  }
+  const capturedGameIds = capturedNflGameLineGameIds(
+    windowGames.filter((game) => isNflSport(game.sport)),
+    existingClosingOdds,
+  )
+
   const byGame = includeNflWindowGamesForGameLines(new Map(), windowGames, {
     nflAll: args.nflAll,
+    capturedGameIds,
   })
   for (const pick of openPicks) {
     const list = byGame.get(pick.gameIdRef) || []
@@ -363,18 +394,19 @@ Every run prints a final CALLS_USED=<n> line (actual HTTP calls).`)
     byGame.set(pick.gameIdRef, list)
   }
 
-  const captureJobs = sortCloseCaptureJobs(
+  const allJobs = sortCloseCaptureJobs(
     groupCaptureJobsByOddsApiEventId(byGame, gamesById),
     { nflAll: args.nflAll },
   )
-  const marketCounts = captureJobs.map((job) => (
-    marketsForCaptureJob(job, { nflAll: args.nflAll }).length
-  ))
-  const cost = estimateCloseCaptureCost({ gameCount: captureJobs.length, marketCounts })
-  const plannedCalls = plannedCloseCaptureHttpCalls({
-    jobCount: captureJobs.length,
+  const budgeted = selectCloseCaptureJobsWithinBudget(allJobs, {
+    nflAll: args.nflAll,
     maxCalls: args.maxCalls,
+    maxCredits: args.maxCredits,
+    gameLinesCapturedByGameId: capturedGameIds,
   })
+  const captureJobs = budgeted.jobs
+  const plannedCalls = budgeted.plannedCalls
+  const plannedCredits = budgeted.plannedCredits
 
   log.log('\n📸 PUBLISHED CLOSE CAPTURE')
   log.log('='.repeat(60))
@@ -385,22 +417,61 @@ Every run prints a final CALLS_USED=<n> line (actual HTTP calls).`)
       ? `Published + shadow + pending NFL props missing close: ${openPicks.length}`
       : `Published + shadow picks missing close: ${openPicks.length}`,
   )
-  if (args.nflAll) log.log('NFL-all: pending props + h2h/spreads/totals (one call per game)')
+  if (args.nflAll) {
+    log.log('NFL-all: pending props + h2h/spreads/totals (one call per game)')
+    log.log('Do not overlap --apply runs (ClosingOdds has no unique game/book/market key).')
+  }
   log.log(`Odds API HTTP calls this run: ${plannedCalls}`)
-  log.log(`Odds API credits this run: ${cost.credits} (markets × regions=${cost.regions})`)
-  log.log(cost.note)
+  log.log(`Odds API credits this run: ${plannedCredits} (markets × regions=1)`)
+  log.log('1 HTTP call per game. Credits = markets × regions (us=1), not the morning 10-market slate.')
 
   if (captureJobs.length === 0) {
+    if (args.maxCalls != null && args.maxCalls <= 0) {
+      log.log(`⏸️  --max-calls ${args.maxCalls} reached. No Odds API calls.`)
+      return done({
+        exitCode: 0,
+        updates: [],
+        calls: 0,
+        creditsUsed: 0,
+        plannedCalls,
+        plannedCredits,
+        skippedMaxCalls: true,
+      })
+    }
+    if (args.maxCredits != null && args.maxCredits <= 0) {
+      log.log(`⏸️  --max-credits ${args.maxCredits} reached. No Odds API calls.`)
+      return done({
+        exitCode: 0,
+        updates: [],
+        calls: 0,
+        creditsUsed: 0,
+        plannedCalls,
+        plannedCredits,
+        skippedMaxCredits: true,
+      })
+    }
     log.log('✅ Nothing to capture.')
-    return done({ exitCode: 0, updates: [], calls: 0, openPicks, captureJobs })
+    return done({
+      exitCode: 0,
+      updates: [],
+      calls: 0,
+      creditsUsed: 0,
+      plannedCalls,
+      plannedCredits,
+      openPicks,
+      captureJobs,
+    })
   }
 
   if (args.dryRun) {
     for (const job of captureJobs) {
       log.log(
         `  would fetch ${job.gameIds.join(',')}  event=${job.eventId || 'UNMAPPED'}  `
-        + `markets=${marketsForCaptureJob(job, { nflAll: args.nflAll }).join(',') || '—'}  `
-        + `picks=${job.picks.length}`,
+        + `markets=${(job.markets || marketsForCaptureJob(job, {
+          nflAll: args.nflAll,
+          gameLinesCaptured: capturedGameIds.has(job.gameId),
+        })).join(',') || '—'}  `
+        + `picks=${job.picks.length}  credits=${job.creditCost ?? ''}`,
       )
     }
     log.log('\n💡 Dry-run only. Pass --apply after 007 SQL to write closes.')
@@ -408,7 +479,9 @@ Every run prints a final CALLS_USED=<n> line (actual HTTP calls).`)
       exitCode: 0,
       updates: [],
       calls: 0,
+      creditsUsed: 0,
       plannedCalls,
+      plannedCredits,
       openPicks,
       byGame,
       captureJobs,
@@ -422,10 +495,17 @@ Every run prints a final CALLS_USED=<n> line (actual HTTP calls).`)
 
   const updates = []
   let calls = 0
+  let creditsUsed = 0
   let lastQuota = { remaining: null, used: null }
   if (args.maxCalls != null && args.maxCalls <= 0) {
     log.log(`⏸️  --max-calls ${args.maxCalls} reached. No Odds API calls.`)
-    return done({ exitCode: 0, updates: [], calls: 0, skippedMaxCalls: true })
+    return done({
+      exitCode: 0,
+      updates: [],
+      calls: 0,
+      creditsUsed: 0,
+      skippedMaxCalls: true,
+    })
   }
   try {
     lastQuota = await probeQuota({ apiKey }) || lastQuota
@@ -451,13 +531,20 @@ Every run prints a final CALLS_USED=<n> line (actual HTTP calls).`)
       log.log(`  skip ${label}: no Odds API event id`)
       continue
     }
-    const markets = marketsForCaptureJob(job, { nflAll: args.nflAll })
+    const markets = job.markets || marketsForCaptureJob(job, {
+      nflAll: args.nflAll,
+      gameLinesCaptured: capturedGameIds.has(job.gameId),
+    })
     if (markets.length === 0) {
       log.log(`  skip ${label}: no mapped markets`)
       continue
     }
     if (args.maxCalls != null && calls >= args.maxCalls) {
       log.log(`⏸️  --max-calls ${args.maxCalls} reached. Stopping.`)
+      break
+    }
+    if (args.maxCredits != null && creditsUsed + markets.length > args.maxCredits) {
+      log.log(`⏸️  --max-credits ${args.maxCredits} reached. Stopping.`)
       break
     }
     if (lastQuota.remaining != null && lastQuota.remaining < args.minRemaining) {
@@ -474,6 +561,7 @@ Every run prints a final CALLS_USED=<n> line (actual HTTP calls).`)
       apiKey,
     })
     calls += 1
+    creditsUsed += markets.length
     let payload
     try {
       payload = await fetchEventOdds({ url })
@@ -485,7 +573,9 @@ Every run prints a final CALLS_USED=<n> line (actual HTTP calls).`)
 
     if (args.nflAll && isNflSport(game?.sport)) {
       const gameLineRows = gameLineClosesForCaptureJob(job, payload.data, now)
-      const writtenLines = await writeGameLineCloses(supabase, gameLineRows)
+      const writtenLines = await writeGameLineCloses(supabase, gameLineRows, {
+        gamesById,
+      })
       if (writtenLines.error) {
         log.error(`  ❌ ClosingOdds ${label}: ${writtenLines.error.message}`)
       } else if (writtenLines.inserted > 0) {
@@ -541,8 +631,10 @@ Every run prints a final CALLS_USED=<n> line (actual HTTP calls).`)
     exitCode: 0,
     updates,
     calls,
+    creditsUsed,
     lastQuota,
     plannedCalls,
+    plannedCredits,
     gameLineWrites,
   })
 }
@@ -560,6 +652,7 @@ if (invokedDirectly()) {
     process.exit(result.exitCode)
   }).catch((error) => {
     console.error('Fatal:', error)
+    console.log(formatCallsUsed(0))
     process.exit(1)
   })
 }
