@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import {
+  NHL_REGRADE_FETCH_DELAY_MS,
   REGRADE_BATCH_SIZE,
   REGRADE_GAME_SELECT,
   REGRADE_GRADE_SOURCE,
@@ -13,6 +14,7 @@ import {
   runRegradeNeedsReview,
   validateRegradeNeedsReviewArgs,
 } from '../../lib/regrade-needs-review.js'
+import { lookupPlayerGameStat } from '../../lib/vendors/nhl-game-stats.js'
 import { SHADOW_PUBLISHED_COHORT_TAG } from '../../lib/published-picks.js'
 
 function needsReviewRow(overrides = {}) {
@@ -427,5 +429,203 @@ describe('operations/regrade-needs-review.mjs contract', () => {
     expect(lib).toMatch(/isOpsWriteQuietPeriod|isQuietPeriod/)
     expect(lib).toMatch(/REGRADE_BATCH_SIZE = 25/)
     expect(lib).toMatch(/throw new Error\(`Game lookup failed/)
+    expect(lib).toMatch(/createNhlLookupCache/)
+    expect(lib).toMatch(/fetchDelayMs/)
+    expect(lib).toMatch(/Fetch errors/)
+    expect(NHL_REGRADE_FETCH_DELAY_MS).toBe(350)
+  })
+})
+
+describe('NHL regrade fetch errors', () => {
+  function nhlRow(overrides = {}) {
+    return needsReviewRow({
+      id: 'pv-nhl-1',
+      sport: 'nhl',
+      playerName: 'Charlie Coyle',
+      propType: 'player_shots_on_goal',
+      gameIdRef: 'NYR_at_BOS_2026-01-01',
+      ...overrides,
+    })
+  }
+
+  function nhlGame() {
+    return {
+      id: 'NYR_at_BOS_2026-01-01',
+      sport: 'nhl',
+      status: 'final',
+      espnGameId: '401802099',
+      homeScore: 3,
+      awayScore: 2,
+      home: { abbr: 'BOS' },
+      away: { abbr: 'NYR' },
+    }
+  }
+
+  test('paces NHL lookups at ~350ms and reports fetch-error skips', async () => {
+    const lookupNhl = jest.fn(async () => ({
+      reason: 'fetch_error',
+      matchStatus: 'fetch_error',
+      value: null,
+      didNotPlay: false,
+      gameFinal: false,
+      status: 503,
+    }))
+    const log = memoryLog()
+    const result = await runRegradeNeedsReview({
+      argv: ['--sport', 'nhl', '--source', 'system_generated', '--ids', 'pv-nhl-1'],
+      createClient: () => mockClient([nhlRow()], [], { games: [nhlGame()] }),
+      lookupNhl,
+      mkdir: () => {},
+      writeFile: () => {},
+      isQuietPeriod: () => false,
+      now: new Date('2026-10-10T16:20:00Z'),
+      log,
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.summary.voids).toBe(0)
+    expect(result.summary.fetchErrors).toBe(1)
+    expect(result.plan[0]).toMatchObject({
+      action: 'skip',
+      newStatus: 'needs_review',
+      reason: 'fetch_error',
+    })
+    expect(lookupNhl).toHaveBeenCalledWith(
+      '401802099',
+      'Charlie Coyle',
+      'player_shots_on_goal',
+      'NYR_at_BOS_2026-01-01',
+      expect.objectContaining({
+        fetchDelayMs: 350,
+        cache: expect.any(Object),
+      }),
+    )
+    expect(log.lines.join('\n')).toMatch(/Fetch errors: 1/)
+  })
+
+  test('persistent 429 aborts remaining NHL rows as skip, not void', async () => {
+    const lookupNhl = jest.fn(async () => ({
+      reason: 'fetch_error',
+      matchStatus: 'fetch_error',
+      value: null,
+      didNotPlay: false,
+      gameFinal: false,
+      status: 429,
+    }))
+    const rows = [
+      nhlRow({ id: 'pv-nhl-1' }),
+      nhlRow({ id: 'pv-nhl-2', playerName: 'Jack Hughes' }),
+    ]
+    const log = memoryLog()
+    const result = await runRegradeNeedsReview({
+      argv: ['--sport', 'nhl', '--source', 'system_generated', '--ids', 'pv-nhl-1,pv-nhl-2'],
+      createClient: () => mockClient(rows, [], { games: [nhlGame()] }),
+      lookupNhl,
+      mkdir: () => {},
+      writeFile: () => {},
+      isQuietPeriod: () => false,
+      now: new Date('2026-10-10T16:20:00Z'),
+      log,
+    })
+    expect(lookupNhl).toHaveBeenCalledTimes(1)
+    expect(result.nhlAborted).toBe(true)
+    expect(result.summary.voids).toBe(0)
+    expect(result.summary.fetchErrors).toBe(2)
+    expect(result.plan.every((row) => row.action === 'skip' && row.reason === 'fetch_error')).toBe(true)
+    expect(log.lines.join('\n')).toMatch(/Aborted remaining NHL lookups/)
+    expect(log.lines.join('\n')).toMatch(/Fetch errors: 2/)
+  })
+
+  test('live lookup of a play-by-play 429 does not plan a void', async () => {
+    const sleep = jest.fn(async () => {})
+    global.fetch = jest.fn((url) => {
+      const href = String(url)
+      if (href.includes('/schedule/')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: { get: () => null },
+          json: async () => ({
+            gameWeek: [{
+              games: [{
+                id: 2026020101,
+                awayTeam: { abbrev: 'NYR' },
+                homeTeam: { abbrev: 'BOS' },
+              }],
+            }],
+          }),
+        })
+      }
+      if (href.includes('/boxscore')) {
+        const home = Array.from({ length: 15 }, (_, i) => ({
+          playerId: 8476000 + i,
+          name: { default: `BOS ${i}` },
+          sog: 1,
+          toi: '12:00',
+        }))
+        home[0] = { playerId: 8475745, name: { default: 'C. Coyle' }, sog: 4, toi: '18:22' }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: { get: () => null },
+          json: async () => ({
+            gameState: 'OFF',
+            homeTeam: { id: 6, abbrev: 'BOS' },
+            awayTeam: { id: 3, abbrev: 'NYR' },
+            playerByGameStats: {
+              homeTeam: { forwards: home, defense: [], goalies: [] },
+              awayTeam: {
+                forwards: Array.from({ length: 15 }, (_, i) => ({
+                  playerId: 8477000 + i,
+                  name: { default: `NYR ${i}` },
+                  sog: 0,
+                  toi: '11:00',
+                })),
+                defense: [],
+                goalies: [],
+              },
+            },
+          }),
+        })
+      }
+      if (href.includes('/play-by-play')) {
+        return Promise.resolve({
+          ok: false,
+          status: 429,
+          statusText: 'Too Many Requests',
+          headers: { get: (name) => (String(name).toLowerCase() === 'retry-after' ? '60' : null) },
+          json: async () => ({}),
+        })
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 500,
+        statusText: 'Error',
+        headers: { get: () => null },
+        json: async () => ({}),
+      })
+    })
+
+    const result = await runRegradeNeedsReview({
+      argv: ['--sport', 'nhl', '--source', 'system_generated', '--ids', 'pv-nhl-1'],
+      createClient: () => mockClient([nhlRow()], [], { games: [nhlGame()] }),
+      lookupNhl: lookupPlayerGameStat,
+      nhlFetchDelayMs: 0,
+      sleep,
+      mkdir: () => {},
+      writeFile: () => {},
+      isQuietPeriod: () => false,
+      now: new Date('2026-10-10T16:20:00Z'),
+      log: memoryLog(),
+    })
+
+    expect(result.summary.voids).toBe(0)
+    expect(result.plan[0]).toMatchObject({
+      action: 'skip',
+      newStatus: 'needs_review',
+      reason: 'fetch_error',
+    })
+    expect(result.nhlAborted).toBe(true)
   })
 })
