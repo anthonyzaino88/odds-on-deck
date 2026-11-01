@@ -221,6 +221,24 @@ Kill switch: `CLOSING_CAPTURE=0`. Caps: `--max-calls N` (includes the
 `SUPABASE_SECRET_KEY` (`SUPABASE_REQUIRE_SECRET_KEY=1`; anon refused).
 London NFL 9:30 AM ET games are missed on this 11–22 clock.
 
+`--nfl-all` is opt-in. With it, every pending NFL prop in the window
+that still has no close is targeted (Published bar ignored), and each
+NFL game's existing event-odds request also asks for `h2h`, `spreads`,
+and `totals`. Prop closes still write `closeOdds` / `closeLine` /
+`closeCapturedAt`. Game-line closes write one `ClosingOdds` row per
+book + market and skip rows that already exist. Absent the flag,
+behavior is unchanged. NHL visibility is unchanged. Dry-run prints
+planned HTTP calls including the quota check and ends with
+`CALLS_USED=<n>` (actual calls; 0 on dry-run). Prefer the dedicated
+npm scripts — do not pass flags through `npm run capture:published-closes`.
+
+```bash
+node scripts/capture-published-closes.js --nfl-all --dry-run
+node scripts/capture-published-closes.js --nfl-all --apply
+npm run capture:published-closes:nfl-all
+npm run capture:published-closes:nfl-all:apply
+```
+
 Same-day doubleheaders are skipped when StatsAPI `doubleHeader` is
 `Y` or `S` (fetch-fresh-games keeps one row / first gamePk). Safe to
 run when there are no MLB games — record prints "No MLB games in the

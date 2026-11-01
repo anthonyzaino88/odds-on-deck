@@ -46,6 +46,20 @@ runs apply. Do not pass flags through `npm run capture:published-closes`.
 Kill switch: `CLOSING_CAPTURE=0`. Caps: `--max-calls N` and
 `--min-remaining N` (default 50 remaining credits).
 
+`--nfl-all` (opt-in) also captures every pending NFL prop without a
+close, regardless of Published status, and merges `h2h` / `spreads` /
+`totals` onto that same per-game Odds API call. Game-line closes reuse
+the existing `ClosingOdds` table (one row per book + market; re-runs
+do not insert duplicates). Prop closes still use `closeOdds`,
+`closeLine`, `closeCapturedAt`. Dry-run prints planned HTTP calls
+including the quota probe and a final `CALLS_USED=<n>` line.
+
+```
+node scripts/capture-published-closes.js --nfl-all --dry-run
+node scripts/capture-published-closes.js --nfl-all --apply
+npm run capture:published-closes:nfl-all:apply
+```
+
 The capture step takes **only** games that:
 
 - have at least one Published-track pick still missing `closeOdds`
@@ -105,7 +119,10 @@ report prints them separately.
 ```
 node scripts/capture-published-closes.js --dry-run
 node scripts/capture-published-closes.js --apply
+node scripts/capture-published-closes.js --nfl-all --dry-run
+node scripts/capture-published-closes.js --nfl-all --apply
 npm run capture:published-closes:apply
+npm run capture:published-closes:nfl-all:apply
 CLV_APPLY=1 node scripts/capture-published-closes.js
 node scripts/report-published-clv.js
 ```
