@@ -65,6 +65,8 @@ npm run record:featured
 npm run record:game-lines
 ```
 
+**`record:published` exit 1 is DEGRADED, not a stop.** A full ESPN roster outage for NFL and/or NHL (every guarded prop skipped because the roster could not be fetched) exits `1`. Featured cards and game-lines do not depend on that roster sweep, so `record:featured` and `record:game-lines` must still run. Label the morning **DEGRADED / PARTIAL SUCCESS**, not OK. Parse the `ROSTER_GUARD_STATUS=` line (`ok` or `outage`) plus `unavailable=N` and the per-sport tokens (`nfl=outage`, `nhl=ok`) when present.
+
 **Vercel Build also needs `SUPABASE_SECRET_KEY`.** `sitemap.xml` is
 prerendered and reads `Game` through the admin client. Production-only
 is not enough — set the secret on the Build environment too.
