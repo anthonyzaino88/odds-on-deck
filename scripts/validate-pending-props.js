@@ -17,8 +17,9 @@
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import { lookupPlayerGameStat as lookupMLBStat, fetchMLBGameStats } from '../lib/vendors/mlb-game-stats.js'
-import { getPlayerGameStat as getNFLStat } from '../lib/vendors/nfl-game-stats.js'
+import { lookupPlayerGameStat as getNFLStat, createNflLookupCache, NFL_FETCH_DELAY_MS } from '../lib/vendors/nfl-game-stats.js'
 import { lookupPlayerGameStat as getNHLStat, createNhlLookupCache, NHL_FETCH_DELAY_MS } from '../lib/vendors/nhl-game-stats.js'
+import { isNflFetchError, isGradeableNflStatResult } from '../lib/nfl-stat-grade.js'
 import { isGradeableNhlStatResult, isNhlFetchError, nhlFetchErrorResult, nhlGradeSourceFromResult } from '../lib/nhl-stat-grade.js'
 import { isOpsWriteQuietPeriod } from '../lib/mlb-recording-window.js'
 import { appendJsonl, boxScoreArchiveRows, loadJsonlFieldSet, resolveBoxScoresDir, shouldArchiveBoxScore } from '../lib/local-archive.js'
@@ -160,7 +161,9 @@ async function main() {
   // Step 4: Void cancelled games, then process real finals
   let correct = 0, incorrect = 0, pushes = 0, voids = 0, errors = 0, needsReview = 0, fetchErrors = 0
   const nhlCache = createNhlLookupCache()
+  const nflCache = createNflLookupCache()
   let nhlRateLimitAbort = false
+  let nflRateLimitAbort = false
 
   async function writeVoid(v, game, extraNotes = '') {
     assertCanWrite()
@@ -246,7 +249,9 @@ async function main() {
       let actualValue = null
       let nhlLookup = null
       let mlbLookup = null
+      let nflLookup = null
       let dnpReason = null
+      let holdPending = false
 
       // Attempt to fetch the stat, with one retry on failure.
       // MLB: in-box empty batting/pitching {} or 0 PA / 0 BF is DNP (void).
@@ -314,7 +319,51 @@ async function main() {
             actualValue = isGradeableNhlStatResult(nhlLookup) ? nhlLookup.value : null
           } else if (sport === 'nfl') {
             if (!game.espnGameId) break
-            actualValue = await getNFLStat(game.espnGameId, v.playerName, v.propType)
+            if (nflRateLimitAbort) {
+              nflLookup = {
+                didNotPlay: false,
+                reason: 'fetch_error',
+                matchStatus: 'fetch_error',
+                value: null,
+                gameFinal: false,
+                status: 429,
+              }
+              break
+            }
+            nflLookup = await getNFLStat(
+              game.espnGameId,
+              v.playerName,
+              v.propType,
+              {
+                playerId: v.playerId,
+                team: v.team,
+                game,
+                cache: nflCache,
+                fetchDelayMs: NFL_FETCH_DELAY_MS,
+                now: new Date(),
+                onPersistentRateLimit({ url, status } = {}) {
+                  nflRateLimitAbort = true
+                  console.error(`Persistent NFL 429 after retries: ${url || 'unknown URL'}${status ? ` (${status})` : ''}`)
+                },
+              },
+            )
+            const nflPlan = planPlayerAppearanceGrade(
+              nflLookup,
+              appearanceGradeContext(game, 'nfl', {
+                usedId: game.espnGameId,
+                box: nflLookup?.box,
+                playerName: v.playerName,
+              }),
+            )
+            if (nflPlan.reason === 'pending_final_window') {
+              holdPending = true
+              break
+            }
+            if (nflPlan.action === 'void') {
+              dnpReason = nflPlan.reason
+              break
+            }
+            actualValue = isGradeableNflStatResult(nflLookup) ? nflLookup.value : null
           }
         } catch (fetchErr) {
           if (attempt === 0) {
@@ -322,14 +371,20 @@ async function main() {
             continue
           }
         }
-        if (dnpReason || (actualValue !== null && actualValue !== undefined)) break
+        if (dnpReason || holdPending || (actualValue !== null && actualValue !== undefined)) break
         if (sport === 'nhl' && isNhlFetchError(nhlLookup)) break
+        if (sport === 'nfl' && isNflFetchError(nflLookup)) break
         if (attempt === 0) await new Promise(r => setTimeout(r, 500))
       }
 
       if (sport === 'nhl' && isNhlFetchError(nhlLookup)) {
         fetchErrors++
         console.log(`${prefix} ⏭️  ${v.playerName} ${v.propType} - fetch_error, leaving pending`)
+        continue
+      }
+
+      if (holdPending) {
+        console.log(`${prefix} ⏭️  ${v.playerName} ${v.propType} - waiting 6h after final, leaving pending`)
         continue
       }
 
@@ -347,7 +402,13 @@ async function main() {
 
       if (actualValue === null || actualValue === undefined) {
         const missingField = sport === 'mlb' ? !game.mlbGameId : !game.espnGameId
-        const reason = missingField ? `No ${sport === 'mlb' ? 'mlbGameId' : 'espnGameId'}` : 'Stat not found in API'
+        const nflClosed = sport === 'nfl' && nflLookup?.reason
+        if (sport === 'nfl' && isNflFetchError(nflLookup)) fetchErrors++
+        const reason = missingField
+          ? `No ${sport === 'mlb' ? 'mlbGameId' : 'espnGameId'}`
+          : nflClosed
+            ? `NFL ${nflLookup.reason}`
+            : 'Stat not found in API'
         assertCanWrite()
         const reviewedAt = new Date()
         await updateWithOptionalAudit(

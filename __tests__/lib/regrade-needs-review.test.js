@@ -2,6 +2,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import {
   NHL_REGRADE_FETCH_DELAY_MS,
+  NFL_REGRADE_FETCH_DELAY_MS,
   REGRADE_BATCH_SIZE,
   REGRADE_GAME_SELECT,
   REGRADE_GRADE_SOURCE,
@@ -235,6 +236,35 @@ describe('regrade preview payloads', () => {
       actualValue: 0,
     })
   })
+
+  test('NFL structured roster voids and fail-closed skips use the same preview path', () => {
+    const game = {
+      id: 'PHI_at_KC_2025-09-05',
+      sport: 'nfl',
+      espnGameId: '401547353',
+      status: 'final',
+      homeScore: 24,
+      awayScore: 21,
+    }
+    expect(buildRegradePreview(
+      needsReviewRow({ sport: 'nfl', playerName: 'Tyson Bagent', propType: 'player_passing_yards' }),
+      { didNotPlay: true, reason: 'dnp_no_snap', matchStatus: 'matched', value: null },
+      game,
+      { sport: 'nfl', gameFinal: true, gameIdVerified: true },
+    )).toMatchObject({ action: 'void', newStatus: 'manual_closed', reason: 'dnp_no_snap' })
+    expect(buildRegradePreview(
+      needsReviewRow({ sport: 'nfl', playerName: 'Darius Slayton' }),
+      { didNotPlay: true, reason: 'not_on_roster', matchStatus: 'not_on_roster', value: null },
+      game,
+      { sport: 'nfl', gameFinal: true, gameIdVerified: true },
+    )).toMatchObject({ action: 'void', reason: 'not_on_roster' })
+    expect(buildRegradePreview(
+      needsReviewRow({ sport: 'nfl', playerName: 'Noah Fant' }),
+      { reason: 'fetch_error', matchStatus: 'fetch_error', value: null, didNotPlay: false },
+      game,
+      { sport: 'nfl', gameFinal: true, gameIdVerified: true },
+    )).toMatchObject({ action: 'skip', newStatus: 'needs_review', reason: 'fetch_error' })
+  })
 })
 
 describe('runRegradeNeedsReview', () => {
@@ -430,9 +460,13 @@ describe('operations/regrade-needs-review.mjs contract', () => {
     expect(lib).toMatch(/REGRADE_BATCH_SIZE = 25/)
     expect(lib).toMatch(/throw new Error\(`Game lookup failed/)
     expect(lib).toMatch(/createNhlLookupCache/)
+    expect(lib).toMatch(/createNflLookupCache/)
     expect(lib).toMatch(/fetchDelayMs/)
     expect(lib).toMatch(/Fetch errors/)
     expect(NHL_REGRADE_FETCH_DELAY_MS).toBe(350)
+    expect(NFL_REGRADE_FETCH_DELAY_MS).toBe(350)
+    const ops = readFileSync(join(process.cwd(), 'operations/regrade-needs-review.mjs'), 'utf8')
+    expect(ops).toMatch(/lookupPlayerGameStat as lookupNflStat/)
   })
 })
 
@@ -627,5 +661,94 @@ describe('NHL regrade fetch errors', () => {
       reason: 'fetch_error',
     })
     expect(result.nhlAborted).toBe(true)
+  })
+})
+
+describe('NFL regrade roster path', () => {
+  function nflRow(overrides = {}) {
+    return needsReviewRow({
+      id: 'pv-nfl-1',
+      sport: 'nfl',
+      playerName: 'Noah Fant',
+      propType: 'player_receptions',
+      gameIdRef: 'PHI_at_KC_2025-09-05',
+      ...overrides,
+    })
+  }
+
+  function nflGame() {
+    return {
+      id: 'PHI_at_KC_2025-09-05',
+      sport: 'nfl',
+      status: 'final',
+      espnGameId: '401547353',
+      homeScore: 24,
+      awayScore: 21,
+      date: '2025-09-05T00:20:00.000Z',
+      home: { abbr: 'KC' },
+      away: { abbr: 'PHI' },
+    }
+  }
+
+  test('dry-run uses the structured NFL lookup with cache and pacing', async () => {
+    const lookupNfl = jest.fn(async () => ({
+      value: 0,
+      matchStatus: 'matched',
+      statFound: true,
+      gameFinal: true,
+      didNotPlay: false,
+      reason: 'appeared',
+    }))
+    const result = await runRegradeNeedsReview({
+      argv: ['--sport', 'nfl', '--source', 'system_generated', '--ids', 'pv-nfl-1'],
+      createClient: () => mockClient([nflRow()], [], { games: [nflGame()] }),
+      lookupNfl,
+      mkdir: () => {},
+      writeFile: () => {},
+      isQuietPeriod: () => false,
+      now: new Date('2026-10-10T16:20:00Z'),
+      log: memoryLog(),
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.applied).toBe(0)
+    expect(result.summary.grades).toBe(1)
+    expect(result.plan[0]).toMatchObject({ action: 'grade', actualValue: 0, reason: 'appeared' })
+    expect(lookupNfl).toHaveBeenCalledWith(
+      '401547353',
+      'Noah Fant',
+      'player_receptions',
+      expect.objectContaining({
+        fetchDelayMs: 350,
+        cache: expect.any(Object),
+        game: expect.objectContaining({ espnGameId: '401547353' }),
+      }),
+    )
+  })
+
+  test('NFL fetch_error stays skip/needs_review and never voids', async () => {
+    const lookupNfl = jest.fn(async () => ({
+      reason: 'fetch_error',
+      matchStatus: 'fetch_error',
+      value: null,
+      didNotPlay: false,
+      status: 503,
+    }))
+    const result = await runRegradeNeedsReview({
+      argv: ['--sport', 'nfl', '--source', 'system_generated', '--ids', 'pv-nfl-1'],
+      createClient: () => mockClient([nflRow()], [], { games: [nflGame()] }),
+      lookupNfl,
+      mkdir: () => {},
+      writeFile: () => {},
+      isQuietPeriod: () => false,
+      now: new Date('2026-10-10T16:20:00Z'),
+      log: memoryLog(),
+    })
+    expect(result.summary.voids).toBe(0)
+    expect(result.summary.fetchErrors).toBe(1)
+    expect(result.plan[0]).toMatchObject({
+      action: 'skip',
+      newStatus: 'needs_review',
+      reason: 'fetch_error',
+    })
   })
 })
