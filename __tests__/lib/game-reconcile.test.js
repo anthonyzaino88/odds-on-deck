@@ -209,6 +209,19 @@ describe('game id / pair helpers', () => {
     })
     expect(unorderedPairKey('CLE', 'TBR')).toBe(unorderedPairKey('TB', 'CLE'))
   })
+
+  test('OAK/CWS game ids canonicalize to ATH/CHW', () => {
+    expect(parseGameIdParts('OAK_at_TEX_2026-04-26')).toMatchObject({
+      awayAbbr: 'ATH',
+      homeAbbr: 'TEX',
+    })
+    expect(parseGameIdParts('CWS_at_HOU_2026-04-20')).toMatchObject({
+      awayAbbr: 'CHW',
+      homeAbbr: 'HOU',
+    })
+    expect(unorderedPairKey('OAK', 'TEX')).toBe(unorderedPairKey('ATH', 'TEX'))
+    expect(unorderedPairKey('CWS', 'HOU')).toBe(unorderedPairKey('CHW', 'HOU'))
+  })
 })
 
 describe('planReconcile ghosts', () => {

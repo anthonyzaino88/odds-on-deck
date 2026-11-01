@@ -34,6 +34,7 @@ import {
 } from '../lib/live-odds-landing.js'
 import { applyEventRemap, planEventRemap, shouldCheckPropsCache } from '../lib/odds-event-remap.js'
 import { isCancelledGameStatus } from '../lib/game-grade-eligibility.js'
+import { mlbTeamCodesEqual, resolveMlbTeamCode } from '../lib/team-mapping.js'
 
 // Game ids whose oddsApiEventId changed during this run (new map, reclaim,
 // re-map). Their cached props belong to a different event, so the props
@@ -223,7 +224,12 @@ function fullNameToAbbr(name, sport) {
     // Only return if it's an exact match in the map
     const fullNameMap = FULL_NAME_TO_ABBR[sport] || {}
     if (fullNameMap[lower]) {
-      return fullNameMap[lower].toLowerCase()
+      const mapped = fullNameMap[lower]
+      return (sport === 'mlb' ? resolveMlbTeamCode(mapped) || mapped : mapped).toLowerCase()
+    }
+    if (sport === 'mlb') {
+      const canonical = resolveMlbTeamCode(lower)
+      if (canonical && canonical.length <= 4) return canonical.toLowerCase()
     }
     // Don't try partial matching for short abbreviations
     return null
@@ -373,11 +379,14 @@ function matchTeams(espnHome, espnAway, oddsHome, oddsAway, sport) {
     // Direct match
     if (norm1 === norm2) return true
     
-    // Abbreviation match
+    // Abbreviation match (ATH↔OAK, CHW↔CWS via the shared MLB alias table)
+    if (sport === 'mlb' && mlbTeamCodesEqual(team1, team2)) return true
+
     const abbr1 = fullNameToAbbr(team1, sport) || extractTeamIdentifier(team1, sport) || norm1
     const abbr2 = fullNameToAbbr(team2, sport) || extractTeamIdentifier(team2, sport) || norm2
     
     if (abbr1 === abbr2) return true
+    if (sport === 'mlb' && mlbTeamCodesEqual(abbr1, abbr2)) return true
     if (abbr1.includes(abbr2) || abbr2.includes(abbr1)) return true
     
     // First word match (city name)

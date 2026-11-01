@@ -51,6 +51,7 @@ import {
   gradeTotalFromGame,
   teamMatches,
 } from '../lib/parlay-game-grade.js'
+import { aliasedTeamCodes } from '../lib/team-mapping.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.join(__dirname, '..', '.env.local') })
@@ -74,15 +75,6 @@ function parseArgs(argv) {
 }
 
 const { regrade: REGRADE, ids: TARGET_IDS } = parseArgs(process.argv.slice(2))
-
-const TEAM_VARIATIONS = {
-  'JAX': 'JAC', 'JAC': 'JAX',
-  'WSH': 'WAS', 'WAS': 'WSH',
-  'LV': 'OAK', 'OAK': 'LV',
-  'LA': 'LAR', 'LAR': 'LA',
-  'TB': 'TBL', 'TBL': 'TB',
-  'AZ': 'ARI', 'ARI': 'AZ',
-}
 
 function isNumeric(value) {
   return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value))
@@ -284,8 +276,12 @@ async function fetchGameResults(sport, gameDate) {
         }
       }
 
-      for (const [from, to] of Object.entries(TEAM_VARIATIONS)) {
-        if (results[from] && !results[to]) results[to] = results[from]
+      for (const abbr of [awayAbbrev, homeAbbrev]) {
+        const payloadFor = results[abbr]
+        if (!payloadFor) continue
+        for (const alias of aliasedTeamCodes(abbr)) {
+          if (!results[alias]) results[alias] = payloadFor
+        }
       }
 
       console.log(`  ✅ ${awayAbbrev} ${awayScore} @ ${homeAbbrev} ${homeScore} (Total: ${totalScore})`)

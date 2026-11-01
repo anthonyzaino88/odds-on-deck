@@ -1,4 +1,4 @@
-import { gradeMoneylineFromGame, gradeTotalFromGame } from '../../lib/parlay-game-grade.js'
+import { gradeMoneylineFromGame, gradeTotalFromGame, teamMatches } from '../../lib/parlay-game-grade.js'
 
 const rainout = {
   id: 'BAL_at_NYY_2026-09-27',
@@ -37,6 +37,15 @@ describe('non-Featured ML / total from Game rows', () => {
       outcome: 'void',
       actualValue: null,
     })
+  })
+
+  test('OAK pick matches ATH Athletics and LV Raiders via shared aliases', () => {
+    expect(teamMatches('OAK', 'ATH')).toBe(true)
+    expect(teamMatches('OAK', 'LV')).toBe(true)
+    expect(gradeMoneylineFromGame(
+      { selection: 'OAK', betType: 'moneyline' },
+      { ...final, home: { abbr: 'ATH' }, away: { abbr: 'TEX' }, homeScore: 5, awayScore: 1 },
+    )).toMatchObject({ outcome: 'won' })
   })
 
   test('genuine final still grades ML and total', () => {
