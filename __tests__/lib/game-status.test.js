@@ -27,6 +27,7 @@ describe('game-status buckets', () => {
   test('LIVE includes halftime and warmup; DEAD includes not_needed', () => {
     expect(LIVE.has('halftime')).toBe(true)
     expect(LIVE.has('status_halftime')).toBe(true)
+    expect(LIVE.has('half')).toBe(false)
     expect(LIVE.has('warmup')).toBe(true)
     expect(DEAD.has('cancelled')).toBe(true)
     expect(DEAD.has('postponed')).toBe(true)
@@ -40,6 +41,7 @@ describe('game-status buckets', () => {
     expect(ACTIVE_GAME_STATUSES).toContain('halftime')
     expect(ACTIVE_GAME_STATUSES).toContain('status_halftime')
     expect(ACTIVE_GAME_STATUSES).toContain('STATUS_HALFTIME')
+    expect(ACTIVE_GAME_STATUSES).not.toContain('half')
     expect(ACTIVE_GAME_STATUSES).toContain('warmup')
     expect(MlbActive).toBe(ACTIVE_GAME_STATUSES)
   })

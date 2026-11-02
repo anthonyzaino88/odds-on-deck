@@ -573,6 +573,17 @@ describe('fetch-fresh-games vanish-retire hook', () => {
     expect(src).toMatch(/apply:\s*Boolean\(applyVanish\)/)
     expect(readFileSync(join(process.cwd(), 'lib/retire-vanished-games.js'), 'utf8')).not.toMatch(/\.delete\s*\(/)
   })
+
+  test('morning fetch-fresh-games command applies vanish-retire, not stale', () => {
+    const readme = readFileSync(join(process.cwd(), 'operations/README.md'), 'utf8')
+    expect(readme).toMatch(/node scripts\/fetch-fresh-games\.js all --apply-vanish/)
+    const morning = readme.slice(
+      readme.indexOf('### Morning Routine'),
+      readme.indexOf('# 3. Fetch odds'),
+    )
+    expect(morning).toMatch(/--apply-vanish/)
+    expect(morning).not.toMatch(/--apply-stale/)
+  })
 })
 
 describe('applyReconcilePlan ignoreQuietPeriod', () => {

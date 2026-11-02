@@ -571,7 +571,7 @@ async function fetchGameOdds(sport, date, ignoreCache = false) {
         .from('Game')
         .select('oddsApiEventId, homeId, awayId, id')
         .eq('sport', sport)
-        .in('status', ['scheduled', 'pre-game', 'pre_game', 'warmup', 'in_progress', 'halftime'])
+        .in('status', ['scheduled', 'pre-game', 'pre_game', 'warmup'])
         .gte('date', dateStart.toISOString())
         .lte('date', dateEnd.toISOString())
         .not('oddsApiEventId', 'is', null)

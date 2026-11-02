@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs'
+import { readFileSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { getBestLines } from '../../lib/vendors/odds.js'
 
@@ -56,5 +56,26 @@ describe('getBestLines totals mapping', () => {
     expect(src).toMatch(/priceAway:\s*overOutcome/)
     expect(src).toMatch(/priceHome:\s*underOutcome/)
     expect(src).not.toMatch(/priceHome:\s*overOutcome/)
+  })
+
+  test('no production importer; getBestLines stays pinned here', () => {
+    const importRe = /from ['"][^'"]*vendors\/odds(?:\.js)?['"]/
+    const roots = ['lib', 'scripts', 'app', 'components', 'operations']
+    const offenders = []
+    function walk(dir) {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const next = join(dir, entry.name)
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules') continue
+          walk(next)
+          continue
+        }
+        if (!entry.name.endsWith('.js')) continue
+        const text = readFileSync(next, 'utf8')
+        if (importRe.test(text)) offenders.push(next)
+      }
+    }
+    for (const root of roots) walk(join(process.cwd(), root))
+    expect(offenders).toEqual([])
   })
 })

@@ -21,9 +21,7 @@ node scripts/clear-stale-props.js
 
 # 2. Fetch fresh games from ESPN
 # Continue even if cleanup exited 1. Independent slate-refresh must still run.
-node scripts/fetch-fresh-games.js all
-# Vanish-retire and stale-status sweeps report by default (no Game.status writes).
-# After review: node scripts/fetch-fresh-games.js all --apply-vanish --apply-stale
+node scripts/fetch-fresh-games.js all --apply-vanish
 # 2b. Reconcile ghost / flipped MLB scheduled games. Dry-run until two clean mornings.
 # Never deletes. Absolute cap 5 rows; 30% cap only when a date has 5+ candidates.
 # PowerShell: use node scripts/... — npm run … -- --apply drops flags.
