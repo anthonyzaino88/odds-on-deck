@@ -22,6 +22,8 @@ node scripts/clear-stale-props.js
 # 2. Fetch fresh games from ESPN
 # Continue even if cleanup exited 1. Independent slate-refresh must still run.
 node scripts/fetch-fresh-games.js all
+# Vanish-retire and stale-status sweeps report by default (no Game.status writes).
+# After review: node scripts/fetch-fresh-games.js all --apply-vanish --apply-stale
 # 2b. Reconcile ghost / flipped MLB scheduled games. Dry-run until two clean mornings.
 # Never deletes. Absolute cap 5 rows; 30% cap only when a date has 5+ candidates.
 # PowerShell: use node scripts/... — npm run … -- --apply drops flags.
@@ -116,23 +118,25 @@ Do **not** treat a drop in expired counts as explained by elapsed time alone. A 
 
 ### Reconcile ghost / flipped scheduled games (MLB)
 
-`fetch-fresh-games.js` upserts what ESPN still lists, then retires scheduled
-games that vanished from a fully covered source date (`status=not_needed`).
+`fetch-fresh-games.js` upserts what ESPN still lists, then reports scheduled
+games that vanished from a fully covered source date. Detection is always on;
+writes (`status=not_needed`) are opt-in with `--apply-vanish`. Never deletes.
 Failed or malformed fetches never retire. A single ESPN `events:[]` is
 trusted only when that ET date is already in the past (or has no pre-start
 rows), so a transient empty scoreboard on today cannot wipe a small slate.
 If-necessary postseason ghosts (for example TB @ MIL after the World Series)
 are the main target. Dual-source MLB flip/ghost reconcile remains available
-as an extra dry-run.
+as an extra dry-run (`--reconcile`, writes with `--reconcile --apply`).
 
-Vanish-retire applies during `:05–:15` ET (`ignoreQuietPeriod: true`) because
-this script already upserts Game rows in that window; `--reconcile --apply`
-still refuses it. `oddsApiEventId` is not cleared. Caps: 5 retires per plan,
-5 per ET day across sports (counted via `Game.lastUpdate` on `not_needed`
-rows), 30% when a date has 5+ candidates, and on smaller dates more than
-1 retire or 50% or more (so 1-of-2 aborts; a lone 1-of-1 is allowed).
-Past-date retires skip rows that still have PropValidation, ParlayLeg,
-or player-prop cache rows and flag them for review.
+When `--apply-vanish` writes, vanish-retire ignores the `:05–:15` ET quiet
+window (`ignoreQuietPeriod: true`) because this script already upserts Game
+rows in that window; `--reconcile --apply` still refuses it. `oddsApiEventId`
+is not cleared. Caps: 5 retires per plan, 5 per ET day across sports
+(counted via `Game.lastUpdate` on `not_needed` rows), 30% when a date has
+5+ candidates, and on smaller dates more than 1 retire or 50% or more
+(so 1-of-2 aborts; a lone 1-of-1 is allowed). Past-date retires skip rows
+that still have PropValidation, ParlayLeg, or player-prop cache rows and
+flag them for review.
 
 ```bash
 # Dry-run (default, no writes)

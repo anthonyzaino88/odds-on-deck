@@ -2,6 +2,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { applyReconcilePlan, parseGameIdParts } from '../../lib/game-reconcile.js'
 import {
+  VANISH_APPLY_FLAG,
   VANISH_DAILY_MAX_RETIRES,
   VANISH_RETIRE_REASON,
   attachFetchMeta,
@@ -460,6 +461,29 @@ describe('runRetireVanishedFromFetch apply', () => {
     expect(() => supabase.from('Game').delete()).toThrow(/delete must not/)
   })
 
+  test('default path is a dry-run report and writes nothing', async () => {
+    const supabase = createApplySupabase()
+    const logs = []
+    const result = await runRetireVanishedFromFetch({
+      sport: 'mlb',
+      fetchedGames: [],
+      coverageByDate: { [TODAY]: 'empty' },
+      dbRows: [row('TB_at_MIL_2026-10-30')],
+      supabase,
+      now: PAST_NOW,
+      logger: {
+        log: (...args) => logs.push(args.join(' ')),
+        warn: (...args) => logs.push(args.join(' ')),
+        error: (...args) => logs.push(args.join(' ')),
+      },
+    })
+    expect(result.apply).toBe(false)
+    expect(result.dryRun).toBe(true)
+    expect(result.applied).toEqual([])
+    expect(supabase.ops).toEqual([])
+    expect(logs.some((line) => line.includes('would retire TB_at_MIL_2026-10-30'))).toBe(true)
+  })
+
   test('daily retire cap aborts apply when 5 games already retired this ET day', async () => {
     const supabase = createApplySupabase({ alreadyToday: VANISH_DAILY_MAX_RETIRES })
     const warns = []
@@ -540,7 +564,14 @@ describe('fetch-fresh-games vanish-retire hook', () => {
     expect(src).toMatch(/empty slate/)
     expect(src).toMatch(/saveToSupabase[\s\S]*retireVanishedAfterFetch/)
     expect(src).toMatch(/ignoreQuietPeriod: true/)
-    expect(src).toMatch(/ignoreQuietPeriod is true for this write/)
+  })
+
+  test('vanish-retire is dry-run by default; writes are opt-in', () => {
+    expect(VANISH_APPLY_FLAG).toBe('--apply-vanish')
+    expect(src).toMatch(/--apply-vanish/)
+    expect(src).toMatch(/applyVanish/)
+    expect(src).toMatch(/apply:\s*Boolean\(applyVanish\)/)
+    expect(readFileSync(join(process.cwd(), 'lib/retire-vanished-games.js'), 'utf8')).not.toMatch(/\.delete\s*\(/)
   })
 })
 
