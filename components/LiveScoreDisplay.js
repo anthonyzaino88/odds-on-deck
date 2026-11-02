@@ -34,7 +34,7 @@ export default function LiveScoreDisplay({ game, refreshInterval = 30000 }) {
 
   // Auto-refresh every 30 seconds for live games
   useEffect(() => {
-    if (game.status !== 'in_progress' && game.status !== 'pre_game') return
+    if (game.status !== 'in_progress' && game.status !== 'halftime' && game.status !== 'pre_game') return
 
     const interval = setInterval(refreshLiveData, refreshInterval)
     return () => clearInterval(interval)

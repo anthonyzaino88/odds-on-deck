@@ -124,7 +124,8 @@ const TEAM_NAME_VARIATIONS = {
     'Utah Mammoth': ['Utah Hockey Club', 'Utah HC', 'Utah', 'UTA'],  // Also map from Odds API name
   },
   mlb: {
-    'Chicago White Sox': ['Chi White Sox', 'White Sox', 'Chicago White Sox'],
+    'Chicago White Sox': ['Chi White Sox', 'White Sox', 'Chicago White Sox', 'CHW', 'CWS'],
+    'Athletics': ['Oakland Athletics', "A's", 'Athletics', 'Oakland As', 'ATH', 'OAK'],
     'Chicago Cubs': ['Chi Cubs', 'Cubs', 'Chicago Cubs'],
     'Los Angeles Dodgers': ['LA Dodgers', 'Dodgers', 'Los Angeles Dodgers'],
     'Los Angeles Angels': ['LA Angels', 'Angels', 'Los Angeles Angels'],
@@ -570,7 +571,7 @@ async function fetchGameOdds(sport, date, ignoreCache = false) {
         .from('Game')
         .select('oddsApiEventId, homeId, awayId, id')
         .eq('sport', sport)
-        .in('status', ['scheduled', 'pre-game', 'pre_game', 'warmup', 'in_progress'])
+        .in('status', ['scheduled', 'pre-game', 'pre_game', 'warmup'])
         .gte('date', dateStart.toISOString())
         .lte('date', dateEnd.toISOString())
         .not('oddsApiEventId', 'is', null)

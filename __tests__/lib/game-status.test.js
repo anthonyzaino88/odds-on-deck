@@ -26,6 +26,8 @@ function statusMapValues(src) {
 describe('game-status buckets', () => {
   test('LIVE includes halftime and warmup; DEAD includes not_needed', () => {
     expect(LIVE.has('halftime')).toBe(true)
+    expect(LIVE.has('status_halftime')).toBe(true)
+    expect(LIVE.has('half')).toBe(false)
     expect(LIVE.has('warmup')).toBe(true)
     expect(DEAD.has('cancelled')).toBe(true)
     expect(DEAD.has('postponed')).toBe(true)
@@ -37,6 +39,9 @@ describe('game-status buckets', () => {
 
   test('ACTIVE_GAME_STATUSES includes halftime so the updater keeps selecting NFL', () => {
     expect(ACTIVE_GAME_STATUSES).toContain('halftime')
+    expect(ACTIVE_GAME_STATUSES).toContain('status_halftime')
+    expect(ACTIVE_GAME_STATUSES).toContain('STATUS_HALFTIME')
+    expect(ACTIVE_GAME_STATUSES).not.toContain('half')
     expect(ACTIVE_GAME_STATUSES).toContain('warmup')
     expect(MlbActive).toBe(ACTIVE_GAME_STATUSES)
   })
@@ -45,6 +50,7 @@ describe('game-status buckets', () => {
     expect(isLiveStatus('STATUS_IN_PROGRESS')).toBe(true)
     expect(isLiveStatus('in-progress')).toBe(true)
     expect(isLiveStatus('halftime')).toBe(true)
+    expect(isLiveStatus('STATUS_HALFTIME')).toBe(true)
     expect(isFinalStatus('STATUS_FINAL')).toBe(true)
     expect(isFinalStatus('game over')).toBe(true)
     expect(isPreStartStatus('pre-game')).toBe(true)
@@ -98,6 +104,7 @@ describe('vendor-emitted Game.status contract', () => {
     const fromNflMapper = [
       mapNFLStatus({ type: { state: 'pre' } }),
       mapNFLStatus({ type: { state: 'in', detail: 'Halftime' } }),
+      mapNFLStatus({ type: { state: 'in', name: 'STATUS_HALFTIME' } }),
       mapNFLStatus({ type: { state: 'in', detail: 'Q2 4:12' } }),
       mapNFLStatus({ type: { state: 'post' } }),
       mapNFLStatus({ type: { state: 'post', detail: 'Final' } }),

@@ -165,7 +165,7 @@ export default function GamesPage() {
 
   const liveCount = [...games.mlb, ...games.nfl, ...games.nhl].filter(g => {
     let s = (g.status || '').toLowerCase().replace(/^status_/i, '').replace(/-/g, '_')
-    return s === 'in_progress'
+    return s === 'in_progress' || s === 'halftime' || s === 'half_time'
   }).length
 
   const SPORT_SECTIONS = [
@@ -284,7 +284,7 @@ function GameCard({ game }) {
   statusNormalized = statusNormalized.replace(/^status_/i, '')
   statusNormalized = statusNormalized.replace(/-/g, '_')
   
-  const isLive = statusNormalized === 'in_progress'
+  const isLive = statusNormalized === 'in_progress' || statusNormalized === 'halftime' || statusNormalized === 'half_time'
   const isFinal = statusNormalized === 'final'
   const isDelayed = statusNormalized === 'delayed' || statusNormalized === 'rain_delay'
   const isPostponed = statusNormalized === 'postponed'

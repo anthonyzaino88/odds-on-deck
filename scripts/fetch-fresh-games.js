@@ -15,17 +15,20 @@
  *   --max-pct N   Percentage 0-100 (same as reconcile-games.js; default 30)
  *   --apply-stale Write stale-status updates (final / postponed / not_needed).
  *                 The sweep always runs on the default path; dry-run is default.
+ *   --apply-vanish Write vanish-retire updates (status=not_needed). Detection
+ *                 always runs after each sport upsert; dry-run / report is default.
  *
  * After each sport upsert, scheduled games missing from a fully covered
- * source date are marked not_needed (never deleted). Failed / malformed
- * fetches never retire. An ESPN events:[] slate is trusted only for a
- * strictly past ET date (or a date with no pre-start rows).
+ * source date are reported (and with --apply-vanish marked not_needed,
+ * never deleted). Failed / malformed fetches never retire. An ESPN
+ * events:[] slate is trusted only for a strictly past ET date (or a
+ * date with no pre-start rows).
  *
- * ignoreQuietPeriod is true for this write: fetch-fresh-games already
- * upserts Game rows during :05–:15 ET (including the 8:09 morning job).
- * Vanish-retire is the same class of Game.status write, so the recording
- * quiet window does not apply. --reconcile --apply still refuses that
- * window. oddsApiEventId is left in place so a false retire is reversible.
+ * ignoreQuietPeriod is true when --apply-vanish writes: fetch-fresh-games
+ * already upserts Game rows during :05–:15 ET (including the 8:09 morning
+ * job). Vanish-retire is the same class of Game.status write, so the
+ * recording quiet window does not apply. --reconcile --apply still refuses
+ * that window. oddsApiEventId is left in place so a false retire is reversible.
  */
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
@@ -50,6 +53,7 @@ import {
   markCoverageUnavailable,
   overallFetchState,
   runRetireVanishedFromFetch,
+  VANISH_APPLY_FLAG,
 } from '../lib/retire-vanished-games.js'
 
 config({ path: '.env.local' })
@@ -895,6 +899,7 @@ function parseFetchFreshArgs(argv = []) {
   let reconcile = false
   let apply = false
   let applyStale = false
+  let applyVanish = false
   let json = false
   let includePast = false
   let maxRetires = null
@@ -903,6 +908,7 @@ function parseFetchFreshArgs(argv = []) {
     const arg = argv[i]
     if (arg === '--reconcile') reconcile = true
     else if (arg === STALE_APPLY_FLAG) applyStale = true
+    else if (arg === VANISH_APPLY_FLAG) applyVanish = true
     else if (arg === '--apply') apply = true
     else if (arg === '--json') json = true
     else if (arg === '--include-past') includePast = true
@@ -930,6 +936,7 @@ function parseFetchFreshArgs(argv = []) {
     reconcile,
     apply,
     applyStale,
+    applyVanish,
     json,
     includePast,
     maxRetires,
@@ -966,16 +973,16 @@ async function maybeReconcileAfterFetch(parsed, mlbFetchedSuccessfully) {
   return result.exitCode || 0
 }
 
-async function retireVanishedAfterFetch(sport, games) {
+async function retireVanishedAfterFetch(sport, games, { applyVanish = false } = {}) {
   const coverageByDate = games?.coverageByDate || {}
-  console.log(`\n🪦 Checking ${sport.toUpperCase()} for vanished scheduled games...`)
+  console.log(`\n🪦 Checking ${sport.toUpperCase()} for vanished scheduled games (${applyVanish ? 'apply' : 'dry-run'})...`)
   return runRetireVanishedFromFetch({
     sport,
     fetchedGames: games || [],
     coverageByDate,
     supabase,
     logger: console,
-    apply: true,
+    apply: Boolean(applyVanish),
     // Same write class as the Game upserts this script already does at 8:09 ET.
     ignoreQuietPeriod: true,
   })
@@ -1001,7 +1008,7 @@ async function main() {
         mlbFetchedSuccessfully = games.fetchState === 'ok' || games.fetchState === 'empty'
       }
       totalSaved += await saveToSupabase(s, games, { logPossibleFlips: parsed.reconcile && s === 'mlb' })
-      await retireVanishedAfterFetch(s, games)
+      await retireVanishedAfterFetch(s, games, parsed)
       await new Promise(r => setTimeout(r, 1000))
     }
   } else if (SPORT_MAP[sport]) {
@@ -1013,7 +1020,7 @@ async function main() {
     totalSaved += await saveToSupabase(sport, games, {
       logPossibleFlips: parsed.reconcile && sport === 'mlb',
     })
-    await retireVanishedAfterFetch(sport, games)
+    await retireVanishedAfterFetch(sport, games, parsed)
   } else {
     console.error(`❌ Invalid sport: ${sport}. Use: mlb, nfl, nhl, or all`)
     process.exit(1)

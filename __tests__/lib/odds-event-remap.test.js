@@ -157,4 +157,13 @@ describe('fetch-live-odds wiring', () => {
     expect(src).not.toMatch(/update\(\{ oddsApiEventId: null \}\)\.eq\('id', alreadyMapped\.id\)/)
     expect(src).not.toMatch(/state === 'unmapped'/)
   })
+
+  test('props query is pre-game only (no in_progress / halftime Odds API spend)', () => {
+    expect(src).toMatch(
+      /select\('oddsApiEventId, homeId, awayId, id'\)[\s\S]{0,280}\.in\('status', \['scheduled', 'pre-game', 'pre_game', 'warmup'\]\)/,
+    )
+    expect(src).not.toMatch(
+      /select\('oddsApiEventId, homeId, awayId, id'\)[\s\S]{0,280}\.in\('status', \[[^\]]*(in_progress|halftime)[^\]]*\]\)/,
+    )
+  })
 })

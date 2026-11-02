@@ -944,7 +944,7 @@ describe('NFL game-line ClosingOdds writes', () => {
     expect(fresh.find((row) => row.book === 'FanDuel' && row.market === 'h2h')).toBeTruthy()
   })
 
-  test('capture writes pin Over = price_away (getBestLines is the outlier)', () => {
+  test('capture writes pin Over = price_away', () => {
     const rows = gameLineClosesFromEventOdds(eventData, {
       gameId: 'KC_at_BUF',
       capturedAt: new Date('2026-07-15T22:50:00.000Z'),

@@ -111,6 +111,8 @@ describe('isVerifiedPlayerStatGameId', () => {
   test('ATH and OAK are the same MLB team', () => {
     expect(canonicalTeamCode('mlb', 'ATH')).toBe('ATH')
     expect(canonicalTeamCode('mlb', 'OAK')).toBe('ATH')
+    expect(canonicalTeamCode('mlb', 'CHW')).toBe('CHW')
+    expect(canonicalTeamCode('mlb', 'CWS')).toBe('CHW')
     const game = {
       id: 'LAA_at_ATH_2026-09-23',
       sport: 'mlb',

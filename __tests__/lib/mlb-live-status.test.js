@@ -2,6 +2,7 @@ import { mapLiveGameData } from '../../lib/vendors/stats.js'
 import {
   hasExplicitMlbFinalStatus,
   hasExplicitMlbLiveStatus,
+  isActiveGameStatus,
   isEspnCompletedFinal,
   isRecentMlbFinalForRecheck,
   mergeActiveAndRecentFinalGames,
@@ -534,5 +535,15 @@ describe('incident payload MIA @ ARI 2026-09-15', () => {
     expect(mapped.outs).toBe(2)
     expect(mapped.homeScore).toBe(1)
     expect(mapped.awayScore).toBe(1)
+  })
+})
+
+describe('isActiveGameStatus', () => {
+  test('matches ACTIVE_GAME_STATUSES only, not every PRE_START alias', () => {
+    expect(isActiveGameStatus('scheduled')).toBe(true)
+    expect(isActiveGameStatus('halftime')).toBe(true)
+    expect(isActiveGameStatus('STATUS_HALFTIME')).toBe(true)
+    expect(isActiveGameStatus('delayed_start')).toBe(false)
+    expect(isActiveGameStatus('final')).toBe(false)
   })
 })

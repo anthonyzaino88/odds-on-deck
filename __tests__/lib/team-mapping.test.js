@@ -30,6 +30,7 @@ describe('MLB stored team codes ATH/CHW', () => {
     expect(MLB_TEAM_NAMES.Athletics).toBe('ATH')
     expect(MLB_TEAM_NAMES['Oakland Athletics']).toBe('ATH')
     expect(getTeamAbbr('Chicago White Sox')).toBe('CHW')
+    expect(getTeamAbbr('White Sox')).toBe('CHW')
     expect(getTeamAbbr('Athletics')).toBe('ATH')
   })
 
@@ -40,6 +41,7 @@ describe('MLB stored team codes ATH/CHW', () => {
     expect(MLB_TEAM_CODE_ALIASES.CHW).toBe('CHW')
     expect(canonicalizeMlbAbbr('oak')).toBe('ATH')
     expect(canonicalizeMlbAbbr('CWS')).toBe('CHW')
+    expect(canonicalizeMlbAbbr('TAM')).toBe('TB')
     expect(canonicalizeMlbAbbr('MLB_OAK')).toBe('ATH')
     expect(resolveMlbTeamCode('OAK')).toBe('ATH')
     expect(resolveMlbTeamCode('Chicago White Sox')).toBe('CHW')
