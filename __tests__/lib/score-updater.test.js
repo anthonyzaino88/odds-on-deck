@@ -184,6 +184,9 @@ describe('ACTIVE_GAME_STATUSES covers every MLB resolver non-terminal', () => {
     expect(updaterSrc).toMatch(/fetchMlbResumeGames/)
     expect(updaterSrc).toMatch(/lookupMlbLiveByPk/)
     expect(updaterSrc).not.toMatch(/\.in\('status', \['scheduled', 'in_progress', 'in-progress'\]\)/)
+    const opsUpdaterSrc = readFileSync(join(process.cwd(), 'operations/update-scores-safely.js'), 'utf8')
+    expect(opsUpdaterSrc).toMatch(/ACTIVE_GAME_STATUSES/)
+    expect(opsUpdaterSrc).not.toMatch(/\.in\('status', \['scheduled', 'in_progress', 'in-progress', 'halftime'\]\)/)
   })
 })
 
