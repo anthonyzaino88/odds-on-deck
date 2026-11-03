@@ -47,12 +47,31 @@ describe('GET /api/props stays on public sports', () => {
     isSupabaseAdminConfigured.mockReturnValue(true)
   })
 
-  test('sport=nhl returns nothing and does not query the cache', async () => {
+  test('sport=nhl queries the cache and returns NHL props', async () => {
+    const captured = { ins: [], eqs: [] }
+    supabase.from.mockReturnValue(thenableQuery([
+      {
+        propId: 'nhl-1',
+        gameId: 'BOS_at_TOR_2026-11-02',
+        playerName: 'Auston Matthews',
+        type: 'player_shots_on_goal',
+        pick: 'over',
+        threshold: 3.5,
+        odds: 1.91,
+        sport: 'nhl',
+      },
+    ], captured))
+
     const res = await getProps(new Request('http://localhost/api/props?sport=nhl'))
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body).toEqual({ success: true, props: [], count: 0 })
-    expect(supabase.from).not.toHaveBeenCalled()
+    expect(supabase.from).toHaveBeenCalledWith('PlayerPropCache')
+    expect(captured.eqs).toEqual(expect.arrayContaining([
+      { col: 'sport', val: 'nhl' },
+    ]))
+    expect(body.success).toBe(true)
+    expect(body.count).toBe(1)
+    expect(body.props.map((prop) => prop.playerName)).toEqual(['Auston Matthews'])
   })
 
   test('unlisted sport returns nothing', async () => {
@@ -64,7 +83,7 @@ describe('GET /api/props stays on public sports', () => {
     expect(supabase.from).not.toHaveBeenCalled()
   })
 
-  test('all / mlb queries only PUBLISHED_SPORTS and drops a leaked NHL row', async () => {
+  test('all queries PUBLISHED_SPORTS and keeps NHL alongside MLB', async () => {
     const captured = { ins: [], eqs: [] }
     supabase.from.mockReturnValue(thenableQuery([
       {
@@ -96,43 +115,59 @@ describe('GET /api/props stays on public sports', () => {
     expect(captured.ins).toEqual(expect.arrayContaining([
       { col: 'sport', vals: PUBLISHED_SPORTS },
     ]))
+    expect(PUBLISHED_SPORTS).toEqual(['mlb', 'nfl', 'nhl'])
     expect(body.success).toBe(true)
-    expect(body.count).toBe(1)
-    expect(body.props.map((prop) => prop.playerName)).toEqual(['Aaron Judge'])
-    expect(body.props.some((prop) => prop.sport === 'nhl')).toBe(false)
+    expect(body.count).toBe(2)
+    expect(body.props.map((prop) => prop.playerName)).toEqual(['Aaron Judge', 'Auston Matthews'])
+    expect(body.props.some((prop) => prop.sport === 'nhl')).toBe(true)
   })
 
-  test('getTopProps(nhl) returns nothing and does not query the cache', async () => {
-    await expect(getTopProps('nhl')).resolves.toEqual([])
-    expect(supabase.from).not.toHaveBeenCalled()
+  test('getTopProps(nhl) queries the cache', async () => {
+    supabase.from.mockReturnValue(thenableQuery([
+      {
+        propId: 'nhl-1',
+        gameId: 'BOS_at_TOR_2026-11-02',
+        playerName: 'Auston Matthews',
+        type: 'player_shots_on_goal',
+        pick: 'over',
+        threshold: 3.5,
+        odds: 1.91,
+        sport: 'nhl',
+        qualityScore: 55,
+      },
+    ], { ins: [], eqs: [] }))
+
+    const rows = await getTopProps('nhl')
+    expect(supabase.from).toHaveBeenCalledWith('PlayerPropCache')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].playerName).toBe('Auston Matthews')
   })
 })
 
-describe('public props / parlay surfaces do not offer NHL', () => {
-  test('props page filter is All + PUBLISHED_SPORTS — no NHL button', () => {
+describe('public props / parlay surfaces offer NHL', () => {
+  test('props page filter is All + PUBLISHED_SPORTS including NHL', () => {
     const page = read('app/props/page.js')
     expect(page).toMatch(/PUBLISHED_SPORTS/)
-    expect(page).not.toMatch(/value: 'nhl'/)
-    expect(page).not.toMatch(/label: 'NHL'/)
+    expect(page).toMatch(/nhl: 'NHL'/)
   })
 
-  test('PlayerPropsFilter does not render an NHL props section or keep NHL type tables', () => {
+  test('PlayerPropsFilter renders an NHL props section and NHL type tables', () => {
     const filter = read('components/PlayerPropsFilter.js')
-    expect(filter).not.toMatch(/nhlProps/)
-    expect(filter).not.toMatch(/title="NHL Props"/)
-    expect(filter).not.toMatch(/key: 'nhl'/)
-    expect(filter).not.toMatch(/sport: 'nhl'/)
-    expect(filter).not.toMatch(/player_shots_on_goal/)
-    expect(filter).not.toMatch(/player_blocked_shots/)
+    expect(filter).toMatch(/nhlProps/)
+    expect(filter).toMatch(/title="NHL Props"/)
+    expect(filter).toMatch(/key: 'nhl'/)
+    expect(filter).toMatch(/sport: 'nhl'/)
+    expect(filter).toMatch(/player_shots_on_goal/)
+    expect(filter).toMatch(/player_blocked_shots/)
   })
 
-  test('sport hubs load top props only for public sports', () => {
+  test('sport hubs load top props for public sports including NHL', () => {
     const hub = read('components/SportHub.js')
     const top = read('lib/top-props.js')
     expect(hub).toMatch(/getTopProps\(sport/)
     expect(top).toMatch(/isPublicPropSport/)
     expect(top).not.toMatch(/VALID_SPORTS/)
-    expect(top).not.toMatch(/'nhl'/)
+    expect(top).toMatch(/mlb \/ nfl \/ nhl/)
   })
 
   test('props API uses PUBLISHED_SPORTS and early-returns non-public sports', () => {
@@ -140,10 +175,9 @@ describe('public props / parlay surfaces do not offer NHL', () => {
     expect(route).toMatch(/PUBLISHED_SPORTS/)
     expect(route).toMatch(/isPublicPropSport/)
     expect(route).toMatch(/\.in\('sport', PUBLISHED_SPORTS\)/)
-    expect(route).not.toMatch(/'mlb', 'nfl', 'nhl'/)
   })
 
-  test('parlay explorer refuses NHL and mixed does not include it', () => {
+  test('parlay explorer uses public sports including NHL', () => {
     const generator = read('lib/simple-parlay-generator.js')
     expect(generator).toMatch(/const publicSports = featuredSportsFor\(sport\)/)
     expect(generator).toMatch(/if \(publicSports\.length === 0\) return \[\]/)
@@ -151,16 +185,21 @@ describe('public props / parlay surfaces do not offer NHL', () => {
     expect(generator).not.toMatch(/query = query\.eq\('sport', sport\)/)
   })
 
-  test('ParlayBuilder drops Hockey Only and does not auto-select NHL', () => {
+  test('ParlayBuilder restores Hockey Only and can auto-select NHL', () => {
     const builder = read('components/ParlayBuilder.js')
-    expect(builder).not.toMatch(/Hockey Only/)
-    expect(builder).not.toMatch(/value="nhl"/)
-    expect(builder).not.toMatch(/NHL props/)
-    expect(builder).toMatch(/Mix MLB and NFL props/)
-    expect(builder).not.toMatch(/nhl: \(result\.data\.nhl/)
+    expect(builder).toMatch(/Hockey Only/)
+    expect(builder).toMatch(/value="nhl"/)
+    expect(builder).toMatch(/NHL props/)
+    expect(builder).toMatch(/nhl: \(result\.data\.nhl/)
   })
 
-  test('generateSimpleParlays sport=nhl returns nothing', async () => {
+  test('generateSimpleParlays sport=nhl queries instead of early-returning empty', async () => {
+    const captured = { ins: [], eqs: [] }
+    supabase.from.mockReturnValue(thenableQuery([], captured))
     await expect(generateSimpleParlays({ sport: 'nhl' })).resolves.toEqual([])
+    expect(supabase.from).toHaveBeenCalled()
+    expect(captured.ins).toEqual(expect.arrayContaining([
+      { col: 'sport', vals: ['nhl'] },
+    ]))
   })
 })

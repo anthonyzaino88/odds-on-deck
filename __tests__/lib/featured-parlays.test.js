@@ -102,7 +102,7 @@ describe('Featured-cleared persist gate', () => {
     expect(featuredSnapshotKey(parlay)).toMatch(/^featured:nfl:multi:\d{4}-\d{2}-\d{2}$/)
   })
 
-  test('rejects 2-leg, juice, game lines, NHL, and edge-0 from the tracked cohort', () => {
+  test('rejects 2-leg, juice, game lines, and edge-0 from the tracked cohort', () => {
     const keep = featuredParlay()
     expect(toFeaturedParlayRow({
       ...keep,
@@ -133,14 +133,16 @@ describe('Featured-cleared persist gate', () => {
       ],
     }))).toBeNull()
 
-    expect(toFeaturedParlayRow(featuredParlay({
+    const nhl = toFeaturedParlayRow(featuredParlay({
       sport: 'nhl',
       legs: [
         publishedLeg('Auston Matthews', { sport: 'nhl', propType: 'player_points' }),
         publishedLeg('Jack Hughes', { sport: 'nhl', gameId: 'g-2', propType: 'player_points' }),
         publishedLeg('Connor McDavid', { sport: 'nhl', gameId: 'g-3', propType: 'player_points' }),
       ],
-    }))).toBeNull()
+    }))
+    expect(nhl).not.toBeNull()
+    expect(nhl.sport).toBe('nhl')
   })
 
   test('first snapshot write wins — existing slot is skip, not update', () => {

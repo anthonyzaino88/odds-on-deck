@@ -42,7 +42,7 @@ export default function PublishedPicksCard({ stats, windowLabel }) {
             </p>
           </div>
           <p className="text-[11px] uppercase tracking-widest text-slate-500 font-medium">
-            MLB + NFL · {windowLabel}
+            MLB + NFL + NHL · {windowLabel}
           </p>
         </div>
       </div>
@@ -121,7 +121,7 @@ export function SidesTotalsTrackCard({ stats, windowLabel }) {
             </p>
           </div>
           <p className="text-[11px] uppercase tracking-widest text-slate-500 font-medium">
-            MLB + NFL · {windowLabel}
+            MLB + NFL + NHL · {windowLabel}
           </p>
         </div>
       </div>
@@ -209,8 +209,8 @@ export function HowPublishedPicks() {
           <span className="text-slate-200 font-medium">Quality ≥ 40</span>
         </li>
         <li>
-          <span className="text-slate-200 font-medium">MLB and NFL only</span> &mdash; NHL stays
-          in the full archive for now.
+          <span className="text-slate-200 font-medium">MLB, NFL, and NHL</span> &mdash; new NHL
+          Published rows only. Historical shadow-tagged NHL stays off this card.
         </li>
         <li>
           <span className="text-slate-200 font-medium">Player props only</span> &mdash;

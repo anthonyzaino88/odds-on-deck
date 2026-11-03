@@ -57,11 +57,12 @@ export default function ParlayBuilder({ onGenerate }) {
         if (result.success && result.data) {
           const counts = {
             mlb: (result.data.mlb || []).length,
+            nhl: (result.data.nhl || []).length,
             nfl: (result.data.nfl || []).length,
           }
           const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]
           if (best && best[1] > 0) setSport(best[0])
-          setAllGamesCache({ mlb: result.data.mlb || [], nfl: result.data.nfl || [] })
+          setAllGamesCache({ mlb: result.data.mlb || [], nfl: result.data.nfl || [], nhl: result.data.nhl || [] })
           setCacheTimestamp(Date.now())
         }
       } catch { /* use default */ }
@@ -78,6 +79,7 @@ export default function ParlayBuilder({ onGenerate }) {
         const allGames = {
           mlb: result.data.mlb || [],
           nfl: result.data.nfl || [],
+          nhl: result.data.nhl || []
         }
         setAllGamesCache(allGames)
         setCacheTimestamp(Date.now())
@@ -169,6 +171,7 @@ export default function ParlayBuilder({ onGenerate }) {
           <select value={sport} onChange={(e) => setSport(e.target.value)} className={SELECT_CLASS}>
             <option value="mlb">Baseball Only</option>
             <option value="nfl">Football Only</option>
+            <option value="nhl">Hockey Only</option>
             <option value="mixed">Mixed Sports</option>
           </select>
         </div>
@@ -184,7 +187,7 @@ export default function ParlayBuilder({ onGenerate }) {
           <p className="mt-1.5 text-xs text-slate-400">
             {type === 'single_game' && 'Stack multiple props from a single game — the most popular bet type'}
             {type === 'multi_game' && 'Combine props from different games for more variety'}
-            {type === 'cross_sport' && 'Mix MLB and NFL props into one parlay'}
+            {type === 'cross_sport' && 'Mix MLB, NFL, and NHL props into one parlay'}
           </p>
         </div>
 

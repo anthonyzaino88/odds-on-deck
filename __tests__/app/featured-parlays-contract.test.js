@@ -11,10 +11,10 @@ describe('Featured parlays contract — Phase A Published bar', () => {
     expect(page).not.toMatch(/\/api\/parlays\/generate\?sport=\$\{s\}&legs=3&maxParlays=1`/)
   })
 
-  test('Featured page is MLB + NFL only — NHL stays off the public Featured card', () => {
+  test('Featured page uses PUBLISHED_SPORTS including NHL', () => {
     const page = read('app/parlays/page.js')
-    expect(page).toMatch(/const sports = \['mlb', 'nfl'\]/)
-    expect(page).not.toMatch(/const sports = \['mlb', 'nhl', 'nfl'\]/)
+    expect(page).toMatch(/PUBLISHED_SPORTS/)
+    expect(page).toMatch(/const sports = \[\.\.\.PUBLISHED_SPORTS\]/)
   })
 
   test('Featured copy is honest: Published-eligible, empty when thin', () => {

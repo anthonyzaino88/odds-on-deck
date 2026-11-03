@@ -288,7 +288,7 @@ describe('event-id dedupe and conditional close write', () => {
       game: { sport: 'nhl', date: '2026-07-15T23:10:00.000Z' },
     }
     expect(sortCloseCaptureJobs([nhlMid, nflSoon, mlbLater]).map((job) => job.game.sport))
-      .toEqual(['nfl', 'mlb', 'nhl'])
+      .toEqual(['nfl', 'nhl', 'mlb'])
     expect(sortCloseCaptureJobs([mlbLater, nhlMid, nflSoon], { nflAll: true }).map((job) => job.game.sport))
       .toEqual(['nfl', 'nhl', 'mlb'])
   })

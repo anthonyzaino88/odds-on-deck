@@ -42,7 +42,7 @@ import { mlbTeamCodesEqual, resolveMlbTeamCode } from '../lib/team-mapping.js'
 const CHANGED_MAPPING_GAME_IDS = new Set()
 import { calculateQualityScore } from '../lib/quality-score.js'
 import { isJuiceTrap, attachNumBooks } from '../lib/juice-traps.js'
-import { isPublishedEligibleProp } from '../lib/published-picks.js'
+import { isPublishedEligibleProp, isPublicPropSport } from '../lib/published-picks.js'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -1699,13 +1699,13 @@ async function autoSaveTopPropsForValidation(sport) {
 }
 
 async function autoSavePublishedPropsForValidation(sport) {
-  if (sport !== 'mlb' && sport !== 'nfl') return
+  if (!isPublicPropSport(sport)) return
 
   console.log(`\n📌 Recording Published-eligible ${sport.toUpperCase()} props for tomorrow's grades...`)
 
   try {
     const { persistPublishedEligibleProps } = await import('../lib/validation.js')
-    // Sport-scoped cache read so we do not double-scan NHL / other oceans.
+    // Sport-scoped cache read so we do not double-scan other oceans.
     const now = new Date().toISOString()
     const { data, error } = await supabase
       .from('PlayerPropCache')
@@ -1773,7 +1773,7 @@ async function main() {
         await autoSaveTopPropsForValidation(s)
       }
 
-      // Published track: record bar-clearing MLB/NFL props even on a
+      // Published track: record bar-clearing MLB/NFL/NHL props even on a
       // cache-hit morning. Reads PlayerPropCache only — no Odds API.
       if (!dryRun) {
         await autoSavePublishedPropsForValidation(s)

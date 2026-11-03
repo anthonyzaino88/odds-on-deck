@@ -59,7 +59,7 @@ export default function PicksPage() {
         <h1 className="text-xl font-semibold text-slate-100">Editor&apos;s Picks</h1>
         <p className="text-sm text-slate-400 mt-1.5 max-w-2xl leading-relaxed">
           These are the props we&apos;d actually bet &mdash; a short list aimed
-          at ROI, not a tour of every interesting line. MLB and NFL only.
+          at ROI, not a tour of every interesting line. MLB, NFL, and NHL.
           Prices in a sane range, roughly −200 to +250. The model has to show
           a positive edge. Quality score of 40 or better. Same standard as
           Today&apos;s picks on the homepage and the{' '}

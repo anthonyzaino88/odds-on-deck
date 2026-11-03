@@ -534,8 +534,8 @@ describe('guardPropsByEventRoster', () => {
     expect(fetchImpl.mock.calls.every(([url]) => !String(url).includes('the-odds-api'))).toBe(true)
   })
 
-  test('Published guard sports stay NFL-only so shadow NHL stays private', () => {
-    expect(PUBLISHED_ROSTER_GUARD_SPORTS).toEqual(['nfl'])
+  test('Published guard sports include NFL and public NHL', () => {
+    expect(PUBLISHED_ROSTER_GUARD_SPORTS).toEqual(['nfl', 'nhl'])
     expect(SHADOW_ROSTER_GUARD_SPORTS).toEqual(['nhl'])
   })
 })

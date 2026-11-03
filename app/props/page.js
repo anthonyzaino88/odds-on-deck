@@ -10,7 +10,7 @@ import { cn } from '../../lib/utils'
 import { SectionHeading } from '../../components/ui'
 import { PUBLISHED_SPORTS } from '../../lib/published-picks.js'
 
-const SPORT_LABELS = { mlb: 'MLB', nfl: 'NFL' }
+const SPORT_LABELS = { mlb: 'MLB', nfl: 'NFL', nhl: 'NHL' }
 const SPORT_OPTIONS = [
   { value: 'all', label: 'All' },
   ...PUBLISHED_SPORTS.map((value) => ({

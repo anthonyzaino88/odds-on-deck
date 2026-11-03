@@ -883,7 +883,7 @@ describe('runCapturePublishedCloses', () => {
     expect(fetchEventOdds).not.toHaveBeenCalled()
   })
 
-  test('captures tagged shadow NHL in the same window and ignores untagged NHL archive', async () => {
+  test('captures published and tagged shadow NHL in the same window and ignores untagged NHL archive', async () => {
     const fetchEventOdds = jest.fn()
     const nhlGame = windowGame({
       id: 'TOR_at_BOS_2026-10-29',
@@ -899,6 +899,15 @@ describe('runCapturePublishedCloses', () => {
       sport: 'nhl',
       notes: SHADOW_PUBLISHED_COHORT_TAG,
     })
+    const published = publishedPick({
+      id: 'pv-mcdavid',
+      gameIdRef: nhlGame.id,
+      playerName: 'Connor McDavid',
+      propType: 'player_shots_on_goal',
+      threshold: 3.5,
+      sport: 'nhl',
+      notes: 'cohort:published',
+    })
     const archive = publishedPick({
       id: 'pv-archive',
       gameIdRef: nhlGame.id,
@@ -913,12 +922,12 @@ describe('runCapturePublishedCloses', () => {
       now: IN_WINDOW,
       createClient: () => mockClient({
         games: [nhlGame],
-        picks: [shadow, archive],
+        picks: [shadow, published, archive],
       }),
       fetchEventOdds,
       log: memoryLog(),
     })
-    expect(result.openPicks.map((pick) => pick.id)).toEqual(['pv-matthews'])
+    expect(result.openPicks.map((pick) => pick.id).sort()).toEqual(['pv-matthews', 'pv-mcdavid'])
     expect(fetchEventOdds).not.toHaveBeenCalled()
   })
 

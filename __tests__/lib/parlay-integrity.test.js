@@ -571,7 +571,7 @@ describe('Featured quality — Published-eligible 3-leg or empty', () => {
     }
   })
 
-  test('rejects NHL and stale / expired / already-started legs', () => {
+  test('accepts NHL and rejects stale / expired / already-started legs', () => {
     const now = new Date('2026-09-10T18:00:00Z')
     const nhl = mapCachePropToParlayBet(publishedProp('Auston Matthews', {
       sport: 'nhl',
@@ -588,7 +588,7 @@ describe('Featured quality — Published-eligible 3-leg or empty', () => {
       gameTime: '2026-09-10T17:00:00Z',
     }))
 
-    expect(isFeaturedQualityLeg(nhl, now)).toBe(false)
+    expect(isFeaturedQualityLeg(nhl, now)).toBe(true)
     expect(isFeaturedQualityLeg(stale, now)).toBe(false)
     expect(isFeaturedQualityLeg(expired, now)).toBe(false)
     expect(isFeaturedQualityLeg(started, now)).toBe(false)

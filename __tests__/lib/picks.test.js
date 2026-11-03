@@ -29,20 +29,21 @@ describe('selectEditorPicks', () => {
       cacheRow('Decimal juice', { odds: 1.40, edge: 0.12, qualityScore: 70 }),
       cacheRow('No edge', { edge: 0, qualityScore: 80 }),
       cacheRow('Low QS', { qualityScore: 30 }),
+      cacheRow('NBA', { sport: 'nba', edge: 0.15, qualityScore: 70 }),
       cacheRow('NHL', { sport: 'nhl', edge: 0.15, qualityScore: 70 }),
     ]
 
     const picks = selectEditorPicks(rows)
-    expect(picks.map((p) => p.playerName)).toEqual(['Keep high', 'Keep mid'])
+    expect(picks.map((p) => p.playerName)).toEqual(['NHL', 'Keep high', 'Keep mid'])
     expect(picks.every((p) => p.type === 'player_prop')).toBe(true)
-    expect(picks.every((p) => p.sport === 'mlb' || p.sport === 'nfl')).toBe(true)
+    expect(picks.every((p) => p.sport === 'mlb' || p.sport === 'nfl' || p.sport === 'nhl')).toBe(true)
     expect(picks[0].propType).toBe('batter_hits')
   })
 
   test('returns an empty list instead of padding', () => {
     expect(selectEditorPicks([
       cacheRow('Trap', { pick: 'under', threshold: 0.5 }),
-      cacheRow('NHL', { sport: 'nhl' }),
+      cacheRow('NBA', { sport: 'nba' }),
     ])).toEqual([])
     expect(selectEditorPicks([])).toEqual([])
     expect(selectEditorPicks(null)).toEqual([])
