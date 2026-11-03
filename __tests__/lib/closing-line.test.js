@@ -47,6 +47,7 @@ import {
   closingTotalOverUnderPrices,
   filterClosingOddsForResearchArchive,
   selectClosingTotalRow,
+  closeCaptureJobPriority,
   sortCloseCaptureJobs,
   summarizePublishedClv,
   updateWithOptionalCloseOdds,
@@ -291,6 +292,23 @@ describe('event-id dedupe and conditional close write', () => {
       .toEqual(['nfl', 'nhl', 'mlb'])
     expect(sortCloseCaptureJobs([mlbLater, nhlMid, nflSoon], { nflAll: true }).map((job) => job.game.sport))
       .toEqual(['nfl', 'nhl', 'mlb'])
+  })
+
+  test('NFL outranks NHL so a later NFL close is not starved by a busy NHL slate', () => {
+    const nhlSoon = {
+      game: { sport: 'nhl', date: '2026-07-15T23:00:00.000Z' },
+    }
+    const nhlSooner = {
+      game: { sport: 'nhl', date: '2026-07-15T22:50:00.000Z' },
+    }
+    const nflLater = {
+      game: { sport: 'nfl', date: '2026-07-15T23:20:00.000Z' },
+    }
+    expect(closeCaptureJobPriority(nflLater)).toBeLessThan(closeCaptureJobPriority(nhlSoon))
+    expect(sortCloseCaptureJobs([nhlSoon, nhlSooner, nflLater]).map((job) => job.game.sport))
+      .toEqual(['nfl', 'nhl', 'nhl'])
+    expect(sortCloseCaptureJobs([nhlSoon, nflLater], { nflAll: true }).map((job) => job.game.sport))
+      .toEqual(['nhl', 'nfl'])
   })
 
   test('--nfl-all pending props ignore the Published bar; NHL archive stays out', () => {

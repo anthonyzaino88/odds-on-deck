@@ -31,7 +31,6 @@ jest.mock('../../lib/supabase-admin.js', () => ({
 
 import {
   persistPublishedEligibleProps,
-  persistShadowPublishedEligibleProps,
 } from '../../lib/validation.js'
 import { ROSTER_SKIP_REASONS } from '../../lib/event-roster-eligibility.js'
 import {
@@ -174,16 +173,6 @@ describe('public NHL persist uses the Published path and roster guard', () => {
     expect(inserts[0].notes).toMatch(/cohort:published/)
     expect(inserts[0].notes).not.toMatch(/shadow-published/)
     expect(inserts[0].sport).toBe('nhl')
-  })
-
-  test('does not mint new shadow NHL once the sport is public', async () => {
-    const saved = await persistShadowPublishedEligibleProps([
-      shadowNhl(),
-    ], {
-      guardPropsByEventRoster: async (rows) => ({ kept: rows, skipped: [] }),
-    })
-    expect([...saved]).toEqual([])
-    expect(inserts).toEqual([])
   })
 
   test('does not persist a public NHL prop when the roster is unavailable', async () => {

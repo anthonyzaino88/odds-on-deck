@@ -971,6 +971,57 @@ describe('runCapturePublishedCloses', () => {
     expect(fetchEventOdds.mock.calls[0][0].url).not.toContain('icehockey_nhl')
   })
 
+  test('tight --max-calls spends on later NFL before an earlier NHL slate', async () => {
+    const fetchEventOdds = jest.fn(async ({ url }) => ({
+      data: { bookmakers: [] },
+      quota: { remaining: 9000, used: 1 },
+    }))
+    const nhlGame = windowGame({
+      id: 'TOR_at_BOS_2026-10-29',
+      sport: 'nhl',
+      date: '2026-07-15T23:00:00.000Z',
+      oddsApiEventId: 'evt-tor-bos',
+    })
+    const nflGame = nflWindowGame({
+      date: '2026-07-15T23:20:00.000Z',
+    })
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--max-calls', '2'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [nhlGame, nflGame],
+        picks: [
+          publishedPick({
+            id: 'pv-matthews',
+            gameIdRef: nhlGame.id,
+            playerName: 'Auston Matthews',
+            propType: 'player_shots_on_goal',
+            threshold: 2.5,
+            sport: 'nhl',
+            notes: 'cohort:published',
+          }),
+          publishedPick({
+            id: 'pv-kelce-pub',
+            gameIdRef: nflGame.id,
+            playerName: 'Travis Kelce',
+            propType: 'player_receptions',
+            threshold: 5.5,
+            sport: 'nfl',
+            notes: 'cohort:published',
+          }),
+        ],
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(result.calls).toBe(2)
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(fetchEventOdds.mock.calls[0][0].url).toContain('/sports/americanfootball_nfl/events/evt-kc-buf/odds')
+    expect(fetchEventOdds.mock.calls[0][0].url).not.toContain('icehockey_nhl')
+  })
+
   test('without --nfl-all, unpublished NFL pending props stay untargeted', async () => {
     const fetchEventOdds = jest.fn()
     const result = await runCapturePublishedCloses({
