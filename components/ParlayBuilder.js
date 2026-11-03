@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { cn } from '../lib/utils'
 import { nextParlayBuilderGameId, parlayBuilderGamesForSport } from '../lib/parlay-builder-games.js'
+import { isLiveStatus } from '../lib/game-status.js'
 
 const STRATEGIES = [
   { id: 'safe', label: 'Safe Mode', sub: '52%+ win rate' },
@@ -202,7 +203,7 @@ export default function ParlayBuilder({ onGenerate }) {
                 {availableGames.map(game => (
                   <option key={game.id} value={game.id}>
                     {game.away?.abbr || 'Away'} @ {game.home?.abbr || 'Home'} 
-                    {' '}({game.status === 'in_progress' ? 'Live' : game.status === 'pre-game' ? 'Upcoming' : game.status})
+                    {' '}({isLiveStatus(game.status) ? 'Live' : game.status === 'pre-game' ? 'Upcoming' : game.status})
                   </option>
                 ))}
               </select>

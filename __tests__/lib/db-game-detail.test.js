@@ -1,4 +1,6 @@
-import { getGameDetail } from '../../lib/db.js'
+import { readFileSync } from 'fs'
+import { join } from 'path'
+import { getGameDetail, latestOddsByBookMarket } from '../../lib/db.js'
 
 function gameRow(id, overrides = {}) {
   return {
@@ -269,6 +271,38 @@ describe('getGameDetail sibling resolution', () => {
     const detail = await getGameDetail(nhlId, client)
     expect(detail.id).toBe(nhlId)
     expect(detail.playerProps.map((row) => row.id)).toEqual(['prop-nhl'])
+  })
+
+  test('keeps the newest Odds row per book+market and drops older snapshots', async () => {
+    expect(latestOddsByBookMarket([
+      { id: 'old', book: 'FanDuel', market: 'h2h', ts: '2026-10-01T18:00:00.000Z', priceHome: 100 },
+      { id: 'fresh', book: 'FanDuel', market: 'h2h', ts: '2026-10-01T20:00:00.000Z', priceHome: -110 },
+      { id: 'spread', book: 'FanDuel', market: 'spreads', ts: '2026-10-01T19:00:00.000Z' },
+    ]).map((row) => row.id)).toEqual(['fresh', 'spread'])
+
+    const client = createGameDetailClient({
+      games: [exactGame],
+      odds: [
+        { id: 'old', gameId: exactId, book: 'FanDuel', market: 'h2h', ts: '2026-10-01T18:00:00.000Z', priceHome: 100 },
+        { id: 'fresh', gameId: exactId, book: 'FanDuel', market: 'h2h', ts: '2026-10-01T20:00:00.000Z', priceHome: -110 },
+        { id: 'spread', gameId: exactId, book: 'FanDuel', market: 'spreads', ts: '2026-10-01T19:00:00.000Z' },
+      ],
+    })
+    const detail = await getGameDetail(exactId, client)
+    expect(detail.odds.map((row) => row.id)).toEqual(['fresh', 'spread'])
+    expect(detail.odds.find((row) => row.market === 'h2h').priceHome).toBe(-110)
+  })
+
+  test('game detail page revalidates on a short ISR window and is not force-dynamic', () => {
+    const src = readFileSync(join(process.cwd(), 'app/game/[id]/page.js'), 'utf8')
+    expect(src).toMatch(/export const revalidate = 60/)
+    expect(src).not.toMatch(/export const revalidate = 300/)
+    expect(src).not.toMatch(/export const revalidate = 0/)
+    expect(src).not.toMatch(/force-dynamic/)
+    expect(src).not.toMatch(/force-no-store/)
+    expect(src).toMatch(/isLiveStatus/)
+    expect(src).toMatch(/isHalftimeStatus/)
+    expect(src).toMatch(/isHalftimeStatus\(game.status\) \? 'Halftime'/)
   })
 
 })

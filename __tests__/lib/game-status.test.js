@@ -4,12 +4,14 @@ import {
   ACTIVE_GAME_STATUSES,
   DEAD,
   FINAL,
+  HALFTIME_ALIASES,
   LIVE,
   PRE_START,
   RETIRABLE_PRE_START,
   classifyVendorStatus,
   isDeadStatus,
   isFinalStatus,
+  isHalftimeStatus,
   isLiveStatus,
   isPreStartStatus,
   isStartedOrEndedStatus,
@@ -39,6 +41,7 @@ describe('game-status buckets', () => {
 
   test('ACTIVE_GAME_STATUSES includes halftime so the updater keeps selecting NFL', () => {
     expect(ACTIVE_GAME_STATUSES).toContain('halftime')
+    expect(ACTIVE_GAME_STATUSES).toContain('Halftime')
     expect(ACTIVE_GAME_STATUSES).toContain('status_halftime')
     expect(ACTIVE_GAME_STATUSES).toContain('STATUS_HALFTIME')
     expect(ACTIVE_GAME_STATUSES).not.toContain('half')
@@ -51,6 +54,11 @@ describe('game-status buckets', () => {
     expect(isLiveStatus('in-progress')).toBe(true)
     expect(isLiveStatus('halftime')).toBe(true)
     expect(isLiveStatus('STATUS_HALFTIME')).toBe(true)
+    expect(isHalftimeStatus('Halftime')).toBe(true)
+    expect(isHalftimeStatus('STATUS_HALFTIME')).toBe(true)
+    expect(isHalftimeStatus('half time')).toBe(true)
+    expect(isHalftimeStatus('in_progress')).toBe(false)
+    expect(HALFTIME_ALIASES.has('halftime')).toBe(true)
     expect(isFinalStatus('STATUS_FINAL')).toBe(true)
     expect(isFinalStatus('game over')).toBe(true)
     expect(isPreStartStatus('pre-game')).toBe(true)
@@ -60,6 +68,21 @@ describe('game-status buckets', () => {
     expect(isStartedOrEndedStatus('warmup')).toBe(true)
     expect(isStartedOrEndedStatus('halftime')).toBe(true)
     expect(isStartedOrEndedStatus('scheduled')).toBe(false)
+  })
+
+  test('live views use isLiveStatus instead of status === in_progress', () => {
+    const files = [
+      'app/game/[id]/page.js',
+      'app/games/page.js',
+      'components/LiveScoreCard.js',
+      'components/LiveScoreDisplay.js',
+      'components/ParlayBuilder.js',
+    ]
+    for (const rel of files) {
+      const src = readFileSync(join(process.cwd(), rel), 'utf8')
+      expect(src).toMatch(/isLiveStatus/)
+      expect(src).not.toMatch(/status === ['"]in_progress['"]/)
+    }
   })
 
   test('ESPN state=post postponed is never FINAL', () => {

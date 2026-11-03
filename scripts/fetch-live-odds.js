@@ -42,7 +42,13 @@ import { mlbTeamCodesEqual, resolveMlbTeamCode } from '../lib/team-mapping.js'
 const CHANGED_MAPPING_GAME_IDS = new Set()
 import { calculateQualityScore } from '../lib/quality-score.js'
 import { isJuiceTrap, attachNumBooks } from '../lib/juice-traps.js'
-import { isPublishedEligibleProp, isPublicPropSport } from '../lib/published-picks.js'
+import {
+  isPublishedEligibleProp,
+  isPublicPropSport,
+  loadPublishedEligibleForAutoSave,
+  selectAutoSaveValidationProps,
+} from '../lib/published-picks.js'
+import { paginateSupabaseSelect } from '../lib/unplayed-game-grades.js'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -1618,7 +1624,12 @@ async function autoSaveTopPropsForValidation(sport) {
     return
   }
   
-  const topProps = (candidates || []).filter((prop) => !isJuiceTrap(prop)).slice(0, 50)
+  const { rows: publishedUpcoming } = await loadPublishedEligibleForAutoSave(supabase, {
+    sport,
+    now,
+    paginate: paginateSupabaseSelect,
+  })
+  const topProps = selectAutoSaveValidationProps(candidates, publishedUpcoming)
 
   if (!topProps || topProps.length === 0) {
     console.log(`  ℹ️ No high-quality props found to save for validation`)

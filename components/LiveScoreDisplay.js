@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { isLiveStatus } from '../lib/game-status.js'
 
 export default function LiveScoreDisplay({ game, refreshInterval = 30000 }) {
   const [liveData, setLiveData] = useState(game)
@@ -34,7 +35,7 @@ export default function LiveScoreDisplay({ game, refreshInterval = 30000 }) {
 
   // Auto-refresh every 30 seconds for live games
   useEffect(() => {
-    if (game.status !== 'in_progress' && game.status !== 'halftime' && game.status !== 'pre_game') return
+    if (!isLiveStatus(game.status) && game.status !== 'pre_game' && game.status !== 'pre-game') return
 
     const interval = setInterval(refreshLiveData, refreshInterval)
     return () => clearInterval(interval)
@@ -60,16 +61,10 @@ export default function LiveScoreDisplay({ game, refreshInterval = 30000 }) {
   }
 
   const getStatusColor = () => {
-    switch (liveData.status) {
-      case 'final':
-        return 'text-green-600'
-      case 'in_progress':
-        return 'text-blue-600'
-      case 'pre_game':
-        return 'text-gray-600'
-      default:
-        return 'text-gray-500'
-    }
+    if (liveData.status === 'final') return 'text-green-600'
+    if (isLiveStatus(liveData.status)) return 'text-blue-600'
+    if (liveData.status === 'pre_game' || liveData.status === 'pre-game') return 'text-gray-600'
+    return 'text-gray-500'
   }
 
   return (
@@ -83,7 +78,7 @@ export default function LiveScoreDisplay({ game, refreshInterval = 30000 }) {
         </div>
       </div>
       
-      {liveData.status === 'in_progress' && (
+      {isLiveStatus(liveData.status) && (
         <button
           onClick={refreshLiveData}
           disabled={isRefreshing}

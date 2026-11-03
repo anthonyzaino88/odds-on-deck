@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { getGameDetail } from '../../../lib/db.js'
 import { formatEdge, formatOdds, formatProbability } from '../../../lib/implied.js'
 import { isPublishedGameLineSport } from '../../../lib/game-lines.js'
+import { isHalftimeStatus, isLiveStatus } from '../../../lib/game-status.js'
 import { format } from 'date-fns'
 import { cn } from '../../../lib/utils'
 import { SportBadge } from '../../../components/ui'
@@ -54,8 +55,7 @@ export async function generateMetadata({ params }) {
   }
 }
 
-// Revalidate every 5 minutes
-export const revalidate = 300
+export const revalidate = 60
 
 export default async function GameDetailPage({ params }) {
   const game = await getGameDetail(params.id)
@@ -140,13 +140,13 @@ export default async function GameDetailPage({ params }) {
         </p>
 
         {/* Score Display */}
-        {(game.status === 'in_progress' || (game.status === 'final' && game.homeScore != null)) ? (
+        {(isLiveStatus(game.status) || (game.status === 'final' && game.homeScore != null)) ? (
           <div className="mt-3 bg-surface border border-white/[0.06] rounded-[4px] p-4 max-w-sm">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-semibold text-slate-100 tabular-nums">{game.away.abbr}</span>
               <span className={cn(
                 'text-xl font-semibold tabular-nums font-mono',
-                game.status === 'in_progress' ? 'text-slate-100' :
+                isLiveStatus(game.status) ? 'text-slate-100' :
                 (game.awayScore || 0) > (game.homeScore || 0) ? 'text-slate-100' : 'text-slate-500',
               )}>
                 {game.awayScore ?? 0}
@@ -156,7 +156,7 @@ export default async function GameDetailPage({ params }) {
               <span className="text-sm font-semibold text-slate-100 tabular-nums">{game.home.abbr}</span>
               <span className={cn(
                 'text-xl font-semibold tabular-nums font-mono',
-                game.status === 'in_progress' ? 'text-slate-100' :
+                isLiveStatus(game.status) ? 'text-slate-100' :
                 (game.homeScore || 0) > (game.awayScore || 0) ? 'text-slate-100' : 'text-slate-500',
               )}>
                 {game.homeScore ?? 0}
@@ -164,7 +164,7 @@ export default async function GameDetailPage({ params }) {
             </div>
 
             <div className="mt-3 pt-3 border-t border-white/[0.04] flex items-center gap-2">
-              {game.status === 'in_progress' ? (
+              {isLiveStatus(game.status) ? (
                 <>
                   <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
@@ -183,7 +183,7 @@ export default async function GameDetailPage({ params }) {
                 <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Final</span>
               )}
             </div>
-            {game.status === 'in_progress' && game.lastPlay && (
+            {isLiveStatus(game.status) && game.lastPlay && (
               <p className="text-[11px] text-slate-500 mt-2">{game.lastPlay}</p>
             )}
           </div>
@@ -209,7 +209,7 @@ export default async function GameDetailPage({ params }) {
         const hasTotal = totalOdds?.total != null
         const hasH2H = h2hOdds && h2hOdds.priceHome != null && h2hOdds.priceAway != null
         const isMlbGame = !isNFL && !isNHL && game.sport === 'mlb'
-        const hasData = hasSpread || hasTotal || hasH2H || hasNflData || game.status === 'in_progress' || isMlbGame
+        const hasData = hasSpread || hasTotal || hasH2H || hasNflData || isLiveStatus(game.status) || isMlbGame
         
         if (!hasData) return null
         
@@ -239,10 +239,10 @@ export default async function GameDetailPage({ params }) {
                     subtitle={`O/U ${totalOdds.book || 'Latest'}`}
                   />
                 )}
-                {(hasNflData || game.status === 'in_progress') && (
+                {(hasNflData || isLiveStatus(game.status)) && (
                   <StatCard
                     title="Quarter"
-                    value={game.nflData?.quarter ? `Q${game.nflData.quarter}` : (game.status === 'in_progress' ? 'Live' : 'Pre-Game')}
+                    value={isHalftimeStatus(game.status) ? 'Halftime' : (game.nflData?.quarter ? `Q${game.nflData.quarter}` : (isLiveStatus(game.status) ? 'Live' : 'Pre-Game'))}
                     subtitle={game.nflData?.timeLeft || formatGameStatus(game.status)}
                   />
                 )}
@@ -279,8 +279,8 @@ export default async function GameDetailPage({ params }) {
                 )}
                 <StatCard
                   title="Status"
-                  value={game.status === 'in_progress' ? 'Live' : formatGameStatus(game.status)}
-                  subtitle={game.status === 'in_progress' ? 'Game in progress' : formatGameStatusSubtitle(game.status)}
+                  value={isHalftimeStatus(game.status) ? 'Halftime' : (isLiveStatus(game.status) ? 'Live' : formatGameStatus(game.status))}
+                  subtitle={isLiveStatus(game.status) ? 'Game in progress' : formatGameStatusSubtitle(game.status)}
                 />
               </>
             ) : null}
@@ -349,7 +349,7 @@ export default async function GameDetailPage({ params }) {
                   <span className="ml-2 text-sm text-slate-100">{game.nflData.lastPlay}</span>
                 </div>
               )}
-              {!game.nflData.quarter && !game.nflData.timeLeft && game.status === 'in_progress' && (
+              {!game.nflData.quarter && !game.nflData.timeLeft && isLiveStatus(game.status) && (
                 <div className="md:col-span-3">
                   <p className="text-sm text-slate-400 italic">Live game data updating...</p>
                 </div>
@@ -778,7 +778,7 @@ export default async function GameDetailPage({ params }) {
               <div>
                 <span className="text-sm font-medium text-slate-400">Status:</span>
                 <span className="ml-2 text-sm text-slate-100 capitalize">
-                  {game.status === 'in_progress' ? 'Live' : formatGameStatus(game.status)}
+                  {isHalftimeStatus(game.status) ? 'Halftime' : (isLiveStatus(game.status) ? 'Live' : formatGameStatus(game.status))}
                 </span>
               </div>
               <div>
@@ -870,7 +870,7 @@ export default async function GameDetailPage({ params }) {
                 </p>
               </div>
             )}
-            {game.status === 'in_progress' && (
+            {isLiveStatus(game.status) && (
               <div className="mt-4 p-4 bg-green-500/[0.08] border border-green-500/20 rounded-[4px]">
                 <p className="text-sm text-green-400">
                   <strong className="font-semibold">Game in Progress:</strong> Live updates are being fetched.

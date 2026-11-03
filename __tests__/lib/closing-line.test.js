@@ -42,6 +42,7 @@ import {
   CLOSE_CAPTURE_ATTEMPTED_BOOK,
   CLOSE_CAPTURE_ID_PREFIX,
   CLOSING_ODDS_PKEY,
+  CLOSING_ODDS_CLOSE_CAPTURE_UNIQ,
   POSTGRES_UNIQUE_VIOLATION,
   closingTotalsByGame,
   closingTotalOverUnderPrices,
@@ -1016,6 +1017,14 @@ describe('NFL game-line ClosingOdds writes', () => {
     expect(isDuplicateClosingOddsError({
       code: POSTGRES_UNIQUE_VIOLATION,
       constraint: CLOSING_ODDS_PKEY,
+    })).toBe(true)
+    expect(isDuplicateClosingOddsError({
+      code: POSTGRES_UNIQUE_VIOLATION,
+      constraint: CLOSING_ODDS_CLOSE_CAPTURE_UNIQ,
+    })).toBe(true)
+    expect(isDuplicateClosingOddsError({
+      code: POSTGRES_UNIQUE_VIOLATION,
+      message: `duplicate key value violates unique constraint "${CLOSING_ODDS_CLOSE_CAPTURE_UNIQ}"`,
     })).toBe(true)
     expect(isDuplicateClosingOddsError({
       code: POSTGRES_UNIQUE_VIOLATION,

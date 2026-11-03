@@ -28,6 +28,11 @@ import {
 } from '../lib/live-odds-landing.js'
 import { calculateQualityScore } from '../lib/quality-score.js'
 import { attachNumBooks } from '../lib/juice-traps.js'
+import {
+  loadPublishedEligibleForAutoSave,
+  selectAutoSaveValidationProps,
+} from '../lib/published-picks.js'
+import { paginateSupabaseSelect } from '../lib/unplayed-game-grades.js'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -1343,7 +1348,7 @@ async function autoSaveTopPropsForValidation(sport) {
   const now = new Date().toISOString()
   
   // Fetch top quality props from cache
-  const { data: topProps, error } = await supabase
+  const { data: candidates, error } = await supabase
     .from('PlayerPropCache')
     .select('*')
     .eq('sport', sport)
@@ -1358,7 +1363,14 @@ async function autoSaveTopPropsForValidation(sport) {
     console.log(`  ⚠️ Error fetching top props: ${error.message}`)
     return
   }
-  
+
+  const { rows: publishedUpcoming } = await loadPublishedEligibleForAutoSave(supabase, {
+    sport,
+    now,
+    paginate: paginateSupabaseSelect,
+  })
+  const topProps = selectAutoSaveValidationProps(candidates, publishedUpcoming)
+
   if (!topProps || topProps.length === 0) {
     console.log(`  ℹ️ No high-quality props found to save for validation`)
     return

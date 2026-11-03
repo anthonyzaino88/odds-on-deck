@@ -17,8 +17,14 @@ import {
   boardRowKey,
   matchesPublishedStatsPrefilter,
   toPublishedValidationFields,
-  toShadowPublishedValidationFields,
   publishedPropId,
+  filterOppositePlayerPropSides,
+  hasOppositePublishedBlocker,
+  isHomepageYesterdayPublished,
+  isPublishedOppositeBlocker,
+  selectAutoSaveValidationProps,
+  publishedEligibleAutoSaveCacheQuery,
+  loadPublishedEligibleForAutoSave,
   publishedSlateInstant,
   publishedValidationWritePlan,
   PUBLISHED_COHORT_TAG,
@@ -687,26 +693,31 @@ describe('summarizeYesterdayPublished', () => {
       publishedBase({
         result: 'correct',
         odds: 110,
+        notes: PUBLISHED_COHORT_TAG,
         completedAt: '2026-09-04T18:00:00.000Z',
       }),
       publishedBase({
         result: 'correct',
         odds: -110,
+        notes: PUBLISHED_COHORT_TAG,
         completedAt: '2026-09-04T20:00:00.000Z',
       }),
       publishedBase({
         result: 'incorrect',
         odds: 1.91,
+        notes: PUBLISHED_COHORT_TAG,
         completedAt: '2026-09-04T22:00:00.000Z',
       }),
       publishedBase({
         result: 'push',
         odds: -110,
+        notes: PUBLISHED_COHORT_TAG,
         completedAt: '2026-09-04T23:00:00.000Z',
       }),
       publishedBase({
         result: 'correct',
         odds: 150,
+        notes: PUBLISHED_COHORT_TAG,
         completedAt: '2026-09-05T10:00:00.000Z', // today ET — excluded
       }),
       publishedBase({
@@ -731,8 +742,8 @@ describe('summarizeYesterdayPublished', () => {
 
   test('soft line when zero decided Published grades yesterday', () => {
     const yesterday = summarizeYesterdayPublished([
-      publishedBase({ result: 'push', completedAt: '2026-09-04T18:00:00.000Z' }),
-      publishedBase({ result: 'correct', completedAt: '2026-09-03T18:00:00.000Z' }),
+      publishedBase({ notes: PUBLISHED_COHORT_TAG, result: 'push', completedAt: '2026-09-04T18:00:00.000Z' }),
+      publishedBase({ notes: PUBLISHED_COHORT_TAG, result: 'correct', completedAt: '2026-09-03T18:00:00.000Z' }),
     ], now)
     expect(yesterday.empty).toBe(true)
     expect(yesterday.decided).toBe(0)
@@ -749,6 +760,7 @@ describe('summarizeYesterdayPublished', () => {
       publishedBase({
         result: 'correct',
         odds: 110,
+        notes: PUBLISHED_COHORT_TAG,
         gameDate: '2026-09-08T23:05:00.000Z', // first pitch Tue ET
         timestamp: '2026-09-08T15:00:00.000Z',
         completedAt: '2026-09-09T11:10:00.000Z', // morning validate:all
@@ -756,12 +768,14 @@ describe('summarizeYesterdayPublished', () => {
       publishedBase({
         result: 'incorrect',
         odds: -110,
+        notes: PUBLISHED_COHORT_TAG,
         gameDate: '2026-09-08T17:10:00.000Z',
         completedAt: '2026-09-09T11:12:00.000Z',
       }),
       publishedBase({
         result: 'correct',
         odds: 150,
+        notes: PUBLISHED_COHORT_TAG,
         gameDate: '2026-09-09T17:05:00.000Z', // today's slate
         completedAt: '2026-09-09T18:00:00.000Z',
       }),
@@ -834,6 +848,40 @@ describe('selectLastNightPublished', () => {
     expect(isPublishedCohort(untagged)).toBe(false)
     expect(selectLastNightPublished([tagged, untagged], now).map((row) => row.playerName))
       .toEqual(['Tagged'])
+  })
+
+  test('yesterday W–L and last-night list use the same cohort:published membership', () => {
+    const taggedWin = publishedBase({
+      playerName: 'Tagged Win',
+      notes: PUBLISHED_COHORT_TAG,
+      gameDate: '2026-11-02T23:05:00.000Z',
+      completedAt: '2026-11-03T11:10:00.000Z',
+    })
+    const taggedLoss = publishedBase({
+      playerName: 'Tagged Loss',
+      result: 'incorrect',
+      notes: PUBLISHED_COHORT_TAG,
+      gameDate: '2026-11-02T23:10:00.000Z',
+      completedAt: '2026-11-03T11:12:00.000Z',
+    })
+    const untagged = publishedBase({
+      playerName: 'Untagged archive',
+      notes: 'tier:elite,auto-saved',
+      gameDate: '2026-11-02T23:15:00.000Z',
+      completedAt: '2026-11-03T11:14:00.000Z',
+    })
+    const records = [taggedWin, taggedLoss, untagged]
+    expect(isPublishedPick(untagged)).toBe(true)
+    expect(isHomepageYesterdayPublished(untagged, now)).toBe(false)
+    expect(isHomepageYesterdayPublished(taggedWin, now)).toBe(true)
+
+    const lastNight = selectLastNightPublished(records, now)
+    const yesterday = summarizeYesterdayPublished(records, now)
+    expect(lastNight.map((row) => row.playerName).sort()).toEqual(['Tagged Loss', 'Tagged Win'])
+    expect(yesterday.correct).toBe(1)
+    expect(yesterday.incorrect).toBe(1)
+    expect(yesterday.decided).toBe(2)
+    expect(lastNight.every((row) => isHomepageYesterdayPublished(row, now))).toBe(true)
   })
 
   test('does not treat cohort:shadow-published as the Published tag', () => {
@@ -1101,7 +1149,9 @@ describe('shadow published NHL cohort', () => {
       edge: 0.05,
       status: 'pending',
     })
-    const shadowFields = toShadowPublishedValidationFields(nhlKeep)
+    const shadowFields = toPublishedValidationFields(nhlKeep, {
+      notes: SHADOW_PUBLISHED_COHORT_TAG,
+    })
     expect(shadowFields).toMatchObject({
       sport: 'nhl',
       notes: SHADOW_PUBLISHED_COHORT_TAG,
@@ -1159,18 +1209,23 @@ describe('shadow published NHL cohort', () => {
   })
 
   test('update path locks recorded odds/line after a close or once the game has started', () => {
-    const fields = toShadowPublishedValidationFields({
+    const fields = toPublishedValidationFields({
       ...nhlKeep,
       threshold: 3.5,
       odds: -125,
+      pick: 'under',
       prediction: 'under',
       probability: 0.55,
       edge: 0.06,
       qualityScore: 50,
+    }, {
+      notes: SHADOW_PUBLISHED_COHORT_TAG,
     })
     expect(shouldLockPublishedRecordedPrice({ closeOdds: -108 }, { status: 'scheduled' })).toBe(true)
     expect(shouldLockPublishedRecordedPrice({ closeCapturedAt: '2026-10-29T00:00:00Z' }, {})).toBe(true)
     expect(shouldLockPublishedRecordedPrice({ odds: -110 }, { status: 'in_progress' })).toBe(true)
+    expect(shouldLockPublishedRecordedPrice({ odds: -110 }, { status: 'halftime' })).toBe(true)
+    expect(shouldLockPublishedRecordedPrice({ odds: -110 }, { status: 'STATUS_HALFTIME' })).toBe(true)
     expect(shouldLockPublishedRecordedPrice({ odds: -110 }, { status: 'scheduled' })).toBe(false)
     expect(shouldLockPublishedRecordedPrice({ odds: -110 }, {})).toBe(false)
     expect(shouldLockPublishedRecordedPrice(
@@ -1276,5 +1331,194 @@ describe('shadow published NHL cohort', () => {
     expect(filterShadowPublishedPicks([win, loss, archive])).toHaveLength(2)
     expect(summary.record).toBe('1–1')
     expect(summary.decided).toBe(2)
+  })
+})
+
+describe('filterOppositePlayerPropSides', () => {
+  function boeser(side, extras = {}) {
+    return {
+      playerName: 'Brock Boeser',
+      gameId: 'VAN_at_NYR_2026-11-02',
+      sport: 'nhl',
+      type: 'player_shots_on_goal',
+      pick: side,
+      threshold: 2.5,
+      odds: -110,
+      edge: 0.05,
+      qualityScore: 44,
+      ...extras,
+    }
+  }
+
+  test('keeps the stronger Over/Under of the same player+market+line', () => {
+    const kept = filterOppositePlayerPropSides([
+      boeser('under', { edge: 0.04, qualityScore: 41 }),
+      boeser('over', { edge: 0.08, qualityScore: 55 }),
+    ])
+    expect(kept).toHaveLength(1)
+    expect(kept[0].pick).toBe('over')
+  })
+
+  test('Published eligible Over beats a higher-edge auto-save Under', () => {
+    const publishedOver = boeser('over', {
+      edge: 0.04,
+      qualityScore: 42,
+      notes: PUBLISHED_COHORT_TAG,
+      propId: 'pub-boeser-over',
+    })
+    const tierUnder = boeser('under', {
+      edge: 0.12,
+      qualityScore: 48,
+      odds: -250,
+      notes: 'tier:elite,auto-saved',
+      propId: 'tier-boeser-under',
+    })
+    expect(isPublishedEligibleProp(publishedOver)).toBe(true)
+    expect(isPublishedEligibleProp(tierUnder)).toBe(false)
+    const kept = filterOppositePlayerPropSides([tierUnder, publishedOver])
+    expect(kept).toHaveLength(1)
+    expect(kept[0].pick).toBe('over')
+    expect(kept[0].propId).toBe('pub-boeser-over')
+  })
+
+  test('exact tie prefers Published, then a stable propId tiebreak', () => {
+    const tagged = boeser('over', {
+      notes: PUBLISHED_COHORT_TAG,
+      propId: 'z-over',
+    })
+    const untagged = boeser('under', { propId: 'a-under' })
+    expect(filterOppositePlayerPropSides([untagged, tagged]).map((row) => row.pick))
+      .toEqual(['over'])
+
+    const over = boeser('over', { propId: 'b-over' })
+    const under = boeser('under', { propId: 'a-under' })
+    expect(filterOppositePlayerPropSides([over, under]).map((row) => row.propId))
+      .toEqual(['a-under'])
+  })
+
+  test('keeps every distinct-propId row on the winning side', () => {
+    const kept = filterOppositePlayerPropSides([
+      boeser('under', { edge: 0.03, propId: 'under-1' }),
+      boeser('over', { edge: 0.08, propId: 'over-fd' }),
+      boeser('over', { edge: 0.06, propId: 'over-dk' }),
+    ])
+    expect(kept.map((row) => row.propId).sort()).toEqual(['over-dk', 'over-fd'])
+  })
+
+  test('collapses winning-side rows that share a book-less propId', () => {
+    const kept = filterOppositePlayerPropSides([
+      boeser('under', { edge: 0.03 }),
+      boeser('over', { edge: 0.08, bookmaker: 'FanDuel' }),
+      boeser('over', { edge: 0.06, bookmaker: 'DraftKings' }),
+    ])
+    expect(kept).toHaveLength(1)
+    expect(kept[0].pick).toBe('over')
+    expect(kept[0].edge).toBe(0.08)
+  })
+
+  test('leaves a single side and a different line alone', () => {
+    const other = boeser('over', { threshold: 3.5, playerName: 'Quinn Hughes' })
+    const kept = filterOppositePlayerPropSides([boeser('over'), other])
+    expect(kept).toHaveLength(2)
+  })
+})
+
+describe('auto-save opposite Published guard', () => {
+  function boeser(side, extras = {}) {
+    return {
+      playerName: 'Brock Boeser',
+      gameId: 'VAN_at_NYR_2026-11-02',
+      sport: 'nhl',
+      type: 'player_shots_on_goal',
+      pick: side,
+      threshold: 2.5,
+      odds: extras.odds ?? -110,
+      edge: extras.edge ?? 0.05,
+      qualityScore: extras.qualityScore ?? 44,
+      ...extras,
+    }
+  }
+
+  test('auto-saved Under does not count as a Published opposite blocker', () => {
+    const autoSaved = {
+      ...boeser('under'),
+      gameIdRef: 'VAN_at_NYR_2026-11-02',
+      propType: 'player_shots_on_goal',
+      prediction: 'under',
+      source: 'system_generated',
+      notes: 'tier:elite,auto-saved',
+    }
+    const publishedOver = boeser('over', { notes: PUBLISHED_COHORT_TAG })
+    expect(isPublishedOppositeBlocker(autoSaved)).toBe(false)
+    expect(isPublishedOppositeBlocker({
+      ...autoSaved,
+      notes: SHADOW_PUBLISHED_COHORT_TAG,
+    })).toBe(false)
+    expect(isPublishedOppositeBlocker(publishedOver)).toBe(true)
+    expect(hasOppositePublishedBlocker(publishedOver, [autoSaved])).toBe(false)
+    expect(hasOppositePublishedBlocker(boeser('under'), [publishedOver])).toBe(true)
+  })
+
+  test('selectAutoSaveValidationProps drops a tier Under when Published Over is upcoming', () => {
+    const publishedOver = boeser('over', { notes: PUBLISHED_COHORT_TAG, probability: 0.52 })
+    const tierUnder = boeser('under', {
+      edge: 0.12,
+      qualityScore: 48,
+      probability: 0.62,
+      odds: -250,
+      notes: 'tier:elite,auto-saved',
+    })
+    const kept = selectAutoSaveValidationProps([tierUnder], [publishedOver])
+    expect(kept).toEqual([])
+  })
+
+  test('eligible prefetch orders by qualityScore then propId and paginates past 200', async () => {
+    const calls = []
+    const chain = {
+      select(...args) { calls.push(['select', args]); return chain },
+      eq(...args) { calls.push(['eq', args]); return chain },
+      gte(...args) { calls.push(['gte', args]); return chain },
+      gt(...args) { calls.push(['gt', args]); return chain },
+      order(...args) { calls.push(['order', args]); return chain },
+      limit(...args) { calls.push(['limit', args]); return chain },
+    }
+    const client = { from(table) { calls.push(['from', [table]]); return chain } }
+
+    publishedEligibleAutoSaveCacheQuery(client, {
+      sport: 'nhl',
+      now: '2026-11-03T15:00:00.000Z',
+    })
+    expect(calls.filter((call) => call[0] === 'order')).toEqual([
+      ['order', ['qualityScore', { ascending: false }]],
+      ['order', ['propId', { ascending: true }]],
+    ])
+    expect(calls.some((call) => call[0] === 'limit')).toBe(false)
+
+    const pageOne = Array.from({ length: 200 }, (_, i) => boeser('over', {
+      playerName: `PageOne ${i}`,
+      propId: `p1-${String(i).padStart(3, '0')}`,
+      qualityScore: 50,
+    }))
+    const latePublishedOver = boeser('over', {
+      propId: 'p2-boeser-over',
+      qualityScore: 41,
+      notes: PUBLISHED_COHORT_TAG,
+    })
+    const { rows } = await loadPublishedEligibleForAutoSave(client, {
+      sport: 'nhl',
+      now: '2026-11-03T15:00:00.000Z',
+      paginate: async () => ({ rows: [...pageOne, latePublishedOver], error: null }),
+    })
+    expect(rows).toHaveLength(201)
+    expect(rows[200].propId).toBe('p2-boeser-over')
+
+    const tierUnder = boeser('under', {
+      edge: 0.12,
+      qualityScore: 48,
+      probability: 0.62,
+      odds: -250,
+      notes: 'tier:elite,auto-saved',
+    })
+    expect(selectAutoSaveValidationProps([tierUnder], rows)).toEqual([])
   })
 })

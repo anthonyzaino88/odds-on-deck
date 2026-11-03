@@ -7,6 +7,9 @@ const closingSrc = fs.readFileSync(path.join(__dirname, '../../lib/closing-line.
 const sql = fs.readFileSync(path.join(__dirname, '../../scripts/migrations/007_published_close_odds.sql'), 'utf8')
 const rollback = fs.readFileSync(path.join(__dirname, '../../scripts/migrations/007_published_close_odds_rollback.sql'), 'utf8')
 const docs = fs.readFileSync(path.join(__dirname, '../../docs/migrations/007_published_close_odds.md'), 'utf8')
+const sql008 = fs.readFileSync(path.join(__dirname, '../../scripts/migrations/008_closing_odds_close_capture_uniq.sql'), 'utf8')
+const rollback008 = fs.readFileSync(path.join(__dirname, '../../scripts/migrations/008_closing_odds_close_capture_uniq_rollback.sql'), 'utf8')
+const docs008 = fs.readFileSync(path.join(__dirname, '../../docs/migrations/008_closing_odds_close_capture_uniq.md'), 'utf8')
 const ops = fs.readFileSync(path.join(__dirname, '../../operations/README.md'), 'utf8')
 const pkg = fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8')
 const schema = fs.readFileSync(path.join(__dirname, '../../prisma/schema.prisma'), 'utf8')
@@ -33,6 +36,23 @@ describe('S1 closing-price capture contract', () => {
     expect(sql).toMatch(/DO NOT run from CI/)
     expect(rollback).toMatch(/DROP COLUMN IF EXISTS "closeOdds"/)
     expect(rollback).toMatch(/SET lock_timeout/)
+  })
+
+  test('008 close-capture unique index is additive, reports mixed groups, and only deletes exact dupes', () => {
+    expect(sql008).toMatch(/ClosingOdds_close_capture_uniq/)
+    expect(sql008).toMatch(/id LIKE 'clvclose:%'/)
+    expect(sql008).toMatch(/Never deletes a non-duplicate/)
+    expect(sql008).toMatch(/NOT undone by the rollback/)
+    expect(docs008).toMatch(/not\*\* undone by the rollback file/)
+    expect(sql008).toMatch(/exact_count = ranked.grp_count/)
+    expect(sql008).toMatch(/CREATE UNIQUE INDEX IF NOT EXISTS/)
+    expect(sql008).toMatch(/Skipping unique index/)
+    expect(sql008).toMatch(/SET lock_timeout/)
+    expect(sql008).toMatch(/DO NOT run from CI/)
+    expect(rollback008).toMatch(/DROP INDEX IF EXISTS "ClosingOdds_close_capture_uniq"/)
+    expect(docs008).toMatch(/Paste `scripts\/migrations\/008_closing_odds_close_capture_uniq.sql`/)
+    expect(closingSrc).toMatch(/CLOSING_ODDS_CLOSE_CAPTURE_UNIQ/)
+    expect(schema).toMatch(/partial unique index/)
   })
 
   test('owner commands and quota notes are documented', () => {

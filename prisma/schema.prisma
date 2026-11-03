@@ -545,6 +545,8 @@ model ClosingOdds {
 
   @@index([gameId])
   @@index([sport, snapshotAt])
+  // Close-capture uniqueness is a partial unique index on lower(game_id, book, market)
+  // WHERE id LIKE 'clvclose:%' (SQL 008). T-30 snapshot rows stay unscoped.
   @@map("ClosingOdds")
 }
 

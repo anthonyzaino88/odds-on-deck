@@ -55,6 +55,7 @@ import {
   runRetireVanishedFromFetch,
   VANISH_APPLY_FLAG,
 } from '../lib/retire-vanished-games.js'
+import { nflWeekEtDateKeys } from '../lib/todays-games.js'
 
 config({ path: '.env.local' })
 
@@ -102,55 +103,14 @@ async function fetchScoreboardForDate(sportInfo, targetDate, coverageByDate) {
 }
 
 function formatDateForESPN(date) {
+  if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return date.replace(/-/g, '')
+  }
   return date.toISOString().split('T')[0].replace(/-/g, '')
 }
 
-function getNFLWeekBounds(referenceDate = new Date()) {
-  const today = new Date(
-    referenceDate.getFullYear(),
-    referenceDate.getMonth(),
-    referenceDate.getDate()
-  )
-  const dayOfWeek = today.getDay()
-  const weekStart = new Date(today)
-
-  if (dayOfWeek === 2) {
-    // Tuesday -> upcoming Thursday
-    weekStart.setDate(today.getDate() + 2)
-  } else if (dayOfWeek === 3) {
-    // Wednesday -> upcoming Thursday
-    weekStart.setDate(today.getDate() + 1)
-  } else if (dayOfWeek === 4) {
-    // Thursday -> current week
-    weekStart.setDate(today.getDate())
-  } else if (dayOfWeek === 5) {
-    weekStart.setDate(today.getDate() - 1)
-  } else if (dayOfWeek === 6) {
-    weekStart.setDate(today.getDate() - 2)
-  } else if (dayOfWeek === 0) {
-    weekStart.setDate(today.getDate() - 3)
-  } else if (dayOfWeek === 1) {
-    weekStart.setDate(today.getDate() - 4)
-  }
-
-  weekStart.setHours(0, 0, 0, 0)
-  const weekEnd = new Date(weekStart)
-  weekEnd.setDate(weekStart.getDate() + 4) // Thursday -> Monday
-  weekEnd.setHours(23, 59, 59, 999)
-
-  return { weekStart, weekEnd }
-}
-
-function getDatesBetween(start, end) {
-  const dates = []
-  const current = new Date(start)
-
-  while (current <= end) {
-    dates.push(new Date(current))
-    current.setDate(current.getDate() + 1)
-  }
-
-  return dates
+function dateFromEtKey(dateKey) {
+  return new Date(`${dateKey}T12:00:00.000Z`)
 }
 
 async function fetchScoreboardJson(url) {
@@ -229,21 +189,22 @@ async function fetchGamesFromESPN(sport, date) {
           eventsForWeek.push(...result.events)
         }
       } else {
-        const { weekStart, weekEnd } = getNFLWeekBounds(new Date())
-        console.log(`📅 Fetching NFL week: ${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}`)
-        const datesToFetch = getDatesBetween(weekStart, weekEnd)
+        const weekKeys = nflWeekEtDateKeys(new Date())
+        console.log(`📅 Fetching NFL week: ${weekKeys[0]} - ${weekKeys[weekKeys.length - 1]} ET`)
+        const datesToFetch = weekKeys.map(dateFromEtKey)
 
         for (const targetDate of datesToFetch) {
+          const dateKey = targetDate.toISOString().slice(0, 10)
           const result = await fetchScoreboardForDate(sportInfo, targetDate, coverageByDate)
           if (!result.ok) {
-            console.warn(`  ⚠️  Error fetching ${targetDate.toLocaleDateString()}: ${result.error.message}`)
+            console.warn(`  ⚠️  Error fetching ${dateKey}: ${result.error.message}`)
           } else if (result.state === 'ok') {
             eventsForWeek.push(...result.events)
-            console.log(`  📅 ${targetDate.toLocaleDateString()}: ${result.events.length} games`)
+            console.log(`  📅 ${dateKey}: ${result.events.length} games`)
           } else if (result.state === 'empty') {
-            console.log(`  📅 ${targetDate.toLocaleDateString()}: 0 games (empty slate)`)
+            console.log(`  📅 ${dateKey}: 0 games (empty slate)`)
           } else {
-            console.warn(`  ⚠️  Malformed scoreboard for ${targetDate.toLocaleDateString()}`)
+            console.warn(`  ⚠️  Malformed scoreboard for ${dateKey}`)
           }
 
           await new Promise(r => setTimeout(r, 200))
