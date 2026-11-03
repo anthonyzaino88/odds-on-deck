@@ -25,6 +25,8 @@ import {
   selectAutoSaveValidationProps,
   publishedEligibleAutoSaveCacheQuery,
   loadPublishedEligibleForAutoSave,
+  skipAutoSaveAfterPublishedPrefetchError,
+  AUTO_SAVE_PUBLISHED_PREFETCH_MAX_PAGES,
   publishedSlateInstant,
   publishedValidationWritePlan,
   PUBLISHED_COHORT_TAG,
@@ -72,6 +74,7 @@ import {
   comparePublishedLegacyNfl,
 } from '../../lib/published-picks.js'
 import { unitsFromResult } from '../../lib/odds-units.js'
+import { paginateSupabaseSelect } from '../../lib/unplayed-game-grades.js'
 
 function publishedBase(overrides = {}) {
   return {
@@ -1520,5 +1523,57 @@ describe('auto-save opposite Published guard', () => {
       notes: 'tier:elite,auto-saved',
     })
     expect(selectAutoSaveValidationProps([tierUnder], rows)).toEqual([])
+  })
+
+  test('prefetch error fails closed: empty rows plus skip auto-save', async () => {
+    const logs = []
+    const result = await loadPublishedEligibleForAutoSave({}, {
+      sport: 'nhl',
+      paginate: async () => ({
+        rows: [boeser('over', { propId: 'should-not-use' })],
+        error: { message: 'timeout' },
+      }),
+      log: (msg) => logs.push(msg),
+    })
+    expect(result.rows).toEqual([])
+    expect(result.error).toEqual({ message: 'timeout' })
+    expect(skipAutoSaveAfterPublishedPrefetchError(result.error, 'nhl', (msg) => logs.push(msg))).toBe(true)
+    expect(skipAutoSaveAfterPublishedPrefetchError(null, 'nhl', (msg) => logs.push(msg))).toBe(false)
+    expect(logs.join('\n')).toMatch(/Skipping auto-save for NHL/)
+    expect(logs.join('\n')).toMatch(/timeout/)
+  })
+
+  test('prefetch pagination warns when the 20-page cap is hit', async () => {
+    const logs = []
+    const paginateOpts = []
+    const row = boeser('over', { propId: 'p-over' })
+    const result = await loadPublishedEligibleForAutoSave({}, {
+      sport: 'nfl',
+      paginate: async (_makeQuery, opts) => {
+        paginateOpts.push(opts)
+        return { rows: [row], error: null, capped: true }
+      },
+      log: (msg) => logs.push(msg),
+    })
+    expect(AUTO_SAVE_PUBLISHED_PREFETCH_MAX_PAGES).toBe(20)
+    expect(paginateOpts[0].maxPages).toBe(20)
+    expect(result.capped).toBe(true)
+    expect(result.rows).toHaveLength(1)
+    expect(logs.join('\n')).toMatch(/NFL/)
+    expect(logs.join('\n')).toMatch(/20-page cap/)
+  })
+
+  test('paginateSupabaseSelect stops at maxPages and reports capped', async () => {
+    let pages = 0
+    const result = await paginateSupabaseSelect(() => ({
+      range: async () => {
+        pages += 1
+        return { data: [{ id: pages }, { id: `${pages}b` }], error: null }
+      },
+    }), { pageSize: 2, maxPages: 3 })
+    expect(pages).toBe(3)
+    expect(result.rows).toHaveLength(6)
+    expect(result.capped).toBe(true)
+    expect(result.error).toBeNull()
   })
 })

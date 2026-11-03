@@ -47,6 +47,7 @@ import {
   isPublicPropSport,
   loadPublishedEligibleForAutoSave,
   selectAutoSaveValidationProps,
+  skipAutoSaveAfterPublishedPrefetchError,
 } from '../lib/published-picks.js'
 import { paginateSupabaseSelect } from '../lib/unplayed-game-grades.js'
 import fs from 'fs'
@@ -1624,11 +1625,12 @@ async function autoSaveTopPropsForValidation(sport) {
     return
   }
   
-  const { rows: publishedUpcoming } = await loadPublishedEligibleForAutoSave(supabase, {
+  const { rows: publishedUpcoming, error: publishedError } = await loadPublishedEligibleForAutoSave(supabase, {
     sport,
     now,
     paginate: paginateSupabaseSelect,
   })
+  if (skipAutoSaveAfterPublishedPrefetchError(publishedError, sport)) return
   const topProps = selectAutoSaveValidationProps(candidates, publishedUpcoming)
 
   if (!topProps || topProps.length === 0) {
