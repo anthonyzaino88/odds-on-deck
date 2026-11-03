@@ -162,10 +162,9 @@ export default function PlayerPropsFilter({ props }) {
     return filtered
   }, [adjustedProps, filterMode])
 
-  // Group props by sport
+  // Group props by sport — public board is MLB + NFL only
   const mlbProps = filteredProps.filter(p => p.sport === 'mlb')
   const nflProps = filteredProps.filter(p => p.sport === 'nfl')
-  const nhlProps = filteredProps.filter(p => p.sport === 'nhl')
   
   // MLB subcategories
   const battingProps = mlbProps.filter(p => p.category === 'batting')
@@ -212,11 +211,10 @@ export default function PlayerPropsFilter({ props }) {
       </div>
 
       {/* Stats Summary - Only show sports with props */}
-      {(mlbProps.length > 0 || nflProps.length > 0 || nhlProps.length > 0) && (
+      {(mlbProps.length > 0 || nflProps.length > 0) && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {[
             { key: 'mlb', count: mlbProps.length },
-            { key: 'nhl', count: nhlProps.length },
             { key: 'nfl', count: nflProps.length },
           ].filter(s => s.count > 0).map((s) => (
             <div key={s.key} className="bg-surface border border-white/[0.06] rounded-[4px] p-4">
@@ -282,27 +280,6 @@ export default function PlayerPropsFilter({ props }) {
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {/* NHL Props */}
-      {nhlProps.length > 0 && (
-        <div>
-          <SectionHeading
-            title="NHL Props"
-            action={
-              <span className="text-[11px] text-slate-600 whitespace-nowrap tabular-nums">
-                {nhlProps.filter(p => (p.probability || 0) >= 0.55).length} @ 55%+
-              </span>
-            }
-          />
-          <div className="rounded-[4px] border border-white/[0.06] overflow-hidden">
-            <div className="max-h-96 overflow-y-auto divide-y divide-white/[0.04]">
-              {nhlProps.map((prop) => (
-                <PropRow key={prop.propId || `${prop.gameId}-${prop.playerName}-${prop.type}-${prop.pick}-${prop.threshold}`} prop={prop} />
-              ))}
-            </div>
-          </div>
         </div>
       )}
 

@@ -3,6 +3,7 @@
 import { NextResponse } from 'next/server'
 import { isSupabaseAdminConfigured, supabase } from '../../../lib/supabase.js'
 import { clampPropsLimit } from '../../../lib/api-limits.js'
+import { PUBLISHED_SPORTS, isPublicPropSport } from '../../../lib/published-picks.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,20 +14,25 @@ export async function GET(request) {
     }
 
     const { searchParams } = new URL(request.url)
-    const sport = searchParams.get('sport') // 'mlb', 'nfl', 'nhl', or null for all
+    const sport = String(searchParams.get('sport') || '').toLowerCase().trim()
     const gameId = searchParams.get('gameId') // Optional: filter by specific game
     const limit = clampPropsLimit(searchParams.get('limit'))
+
+    // NHL (and any non-public sport) is private shadow — never serve it.
+    if (sport && !isPublicPropSport(sport)) {
+      return NextResponse.json({ success: true, props: [], count: 0 })
+    }
     
-    // Build query
+    // Build query — public sports only (same list as the homepage board).
     let query = supabase
       .from('PlayerPropCache')
       .select('*')
+      .in('sport', PUBLISHED_SPORTS)
       .order('gameTime', { ascending: true })
       .order('qualityScore', { ascending: false })
       .limit(limit)
     
-    // Filter by sport if provided
-    if (sport && ['mlb', 'nfl', 'nhl'].includes(sport)) {
+    if (sport) {
       query = query.eq('sport', sport)
     }
     
@@ -57,6 +63,7 @@ export async function GET(request) {
     const MAX_DECIMAL_ODDS = 15.0   // worse than +1400 is lottery territory
 
     const props = (data || [])
+      .filter(prop => isPublicPropSport(prop.sport))
       .filter(prop => {
         if (!prop.odds) return true
         return prop.odds >= MIN_DECIMAL_ODDS && prop.odds <= MAX_DECIMAL_ODDS

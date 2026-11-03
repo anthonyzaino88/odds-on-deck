@@ -256,4 +256,19 @@ describe('getGameDetail sibling resolution', () => {
     expect(insFor(client.captured, 'EdgeSnapshot').every((call) => !call.vals.includes(prevDayId))).toBe(true)
   })
 
+  test('NHL game detail never attaches player props', async () => {
+    const nhlId = 'BOS_at_TOR_2026-11-02'
+    const nhlGame = gameRow(nhlId, { sport: 'nhl', homeId: 'TOR', awayId: 'BOS' })
+    const client = createGameDetailClient({
+      games: [nhlGame],
+      props: [
+        { id: 'prop-nhl', gameId: nhlId, sport: 'nhl', isStale: false, qualityScore: 80, gameTime: nhlGame.date },
+      ],
+    })
+
+    const detail = await getGameDetail(nhlId, client)
+    expect(detail.id).toBe(nhlId)
+    expect(detail.playerProps).toEqual([])
+  })
+
 })
