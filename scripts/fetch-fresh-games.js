@@ -13,16 +13,20 @@
  *   node scripts/fetch-fresh-games.js mlb --reconcile          # extra dual-source MLB ghost/flip dry-run
  *   node scripts/fetch-fresh-games.js mlb --reconcile --apply  # write not_needed (outside :05–:15 ET)
  *   --max-pct N   Percentage 0-100 (same as reconcile-games.js; default 30)
- *   --apply-stale Write stale-status updates (final / postponed / not_needed).
- *                 The sweep always runs on the default path; dry-run is default.
+ *   --apply-stale Write stale-status updates (final / postponed / not_needed
+ *                 from the ESPN stale sweep). The sweep always runs on the
+ *                 default path; dry-run is default. Never use this flag to
+ *                 mark vanished scheduled games.
  *   --apply-vanish Write vanish-retire updates (status=not_needed). Detection
- *                 always runs after each sport upsert; dry-run / report is default.
+ *                 always runs after each sport upsert; dry-run / report is
+ *                 default. This is the only flag that marks vanished games
+ *                 not_needed.
  *
  * After each sport upsert, scheduled games missing from a fully covered
  * source date are reported (and with --apply-vanish marked not_needed,
  * never deleted). Failed / malformed fetches never retire. An ESPN
  * events:[] slate is trusted only for a strictly past ET date (or a
- * date with no pre-start rows).
+ * date with no pre-start rows). --apply-stale does not retire vanished games.
  *
  * ignoreQuietPeriod is true when --apply-vanish writes: fetch-fresh-games
  * already upserts Game rows during :05–:15 ET (including the 8:09 morning

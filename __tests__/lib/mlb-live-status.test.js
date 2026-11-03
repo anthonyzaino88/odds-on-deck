@@ -3,6 +3,7 @@ import {
   hasExplicitMlbFinalStatus,
   hasExplicitMlbLiveStatus,
   isActiveGameStatus,
+  isScoreUpdaterSelectedStatus,
   isEspnCompletedFinal,
   isRecentMlbFinalForRecheck,
   mergeActiveAndRecentFinalGames,
@@ -538,12 +539,14 @@ describe('incident payload MIA @ ARI 2026-09-15', () => {
   })
 })
 
-describe('isActiveGameStatus', () => {
-  test('matches ACTIVE_GAME_STATUSES only, not every PRE_START alias', () => {
+describe('isScoreUpdaterSelectedStatus', () => {
+  test('matches ACTIVE_GAME_STATUSES only, not every PRE_START alias or live-only', () => {
+    expect(isScoreUpdaterSelectedStatus('scheduled')).toBe(true)
+    expect(isScoreUpdaterSelectedStatus('halftime')).toBe(true)
+    expect(isScoreUpdaterSelectedStatus('STATUS_HALFTIME')).toBe(true)
+    expect(isScoreUpdaterSelectedStatus('delayed_start')).toBe(false)
+    expect(isScoreUpdaterSelectedStatus('final')).toBe(false)
     expect(isActiveGameStatus('scheduled')).toBe(true)
-    expect(isActiveGameStatus('halftime')).toBe(true)
-    expect(isActiveGameStatus('STATUS_HALFTIME')).toBe(true)
-    expect(isActiveGameStatus('delayed_start')).toBe(false)
-    expect(isActiveGameStatus('final')).toBe(false)
+    expect(isActiveGameStatus).toBe(isScoreUpdaterSelectedStatus)
   })
 })

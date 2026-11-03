@@ -119,6 +119,10 @@ Do **not** treat a drop in expired counts as explained by elapsed time alone. A 
 `fetch-fresh-games.js` upserts what ESPN still lists, then reports scheduled
 games that vanished from a fully covered source date. Detection is always on;
 writes (`status=not_needed`) are opt-in with `--apply-vanish`. Never deletes.
+Vanish-retire writes use `--apply-vanish` only. `--apply-stale` is a different
+sweep (stale ESPN status → final / postponed / not_needed) and never marks
+vanished scheduled games.
+
 Failed or malformed fetches never retire. A single ESPN `events:[]` is
 trusted only when that ET date is already in the past (or has no pre-start
 rows), so a transient empty scoreboard on today cannot wipe a small slate.
@@ -169,7 +173,7 @@ Morning ops status (required):
    and parse the CLEANUP_STATUS / CANDIDATES / ARCHIVED / DELETED / SKIPPED_REFETCH /
    SKIPPED_DELETE / REMAINING_EXPIRED / REMAINING_STALE / REMAINING_PAST_GAME footer.
 2. Always continue independent slate-refresh steps even when cleanup_exit != 0:
-   `node scripts/fetch-fresh-games.js all`
+   `node scripts/fetch-fresh-games.js all --apply-vanish`
    `node scripts/fetch-live-odds.js all --cache-fresh`
    `node scripts/fetch-team-performance-data.js`
    optional `node scripts/calculate-game-edges.js`
@@ -352,7 +356,7 @@ Morning ops and Prisma-backed scripts (`auto-validate-parlays.js`, etc.) need a 
 scripts/
 ├── clear-stale-props.js        # Archive then delete past/expired props (RUN DAILY!)
 ├── archive-nfl-box-scores.js   # Independent NFL box-score archive / coverage audit
-├── fetch-fresh-games.js        # Fetch games from ESPN (FREE); --reconcile dry-runs ghost/flip plan
+├── fetch-fresh-games.js        # ESPN slate; vanish writes with --apply-vanish (never --apply-stale)
 ├── reconcile-games.js          # Retire ghost / flipped MLB games (dry-run default; --apply writes)
 ├── fetch-live-odds.js          # Fetch odds/props from Odds API (PAID)
 ├── fetch-team-performance-data.js # ESPN team records / PPG (run before edges)
