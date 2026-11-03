@@ -31,11 +31,17 @@ describe('Published props are recorded when they clear the bar', () => {
     expect(validationSrc).toMatch(/PUBLISHED_ROSTER_GUARD_SPORTS/)
     expect(validationSrc).toMatch(/filterOppositePlayerPropSides/)
     expect(validationSrc).toMatch(/findOppositePublishedValidation/)
+    expect(validationSrc).toMatch(/isPublishedCohort/)
+    expect(validationSrc).toMatch(/isShadowPublishedCohort/)
+    expect(validationSrc).toMatch(/\.ilike\('notes'/)
+    expect(validationSrc).toMatch(/findOppositePublishedValidation[\s\S]{0,700}\.limit\(500\)/)
+    expect(validationSrc).not.toMatch(/findOppositePublishedValidation[\s\S]{0,400}\.limit\(10\)/)
     expect(validationSrc).not.toMatch(/source: GAME_LINE_SOURCE[\s\S]{0,200}recordPublishedEligibleProp/)
   })
 
   test('odds-fetch records Published-eligible cache rows without a new Odds API call', () => {
     expect(oddsFetch).toMatch(/autoSavePublishedPropsForValidation/)
+    expect(oddsFetch).toMatch(/selectAutoSaveValidationProps/)
     expect(oddsFetch).toMatch(/isPublishedEligibleProp/)
     expect(oddsFetch).toMatch(/persistPublishedEligibleProps/)
     expect(oddsFetch).toMatch(/Reads PlayerPropCache only|no Odds API/)
@@ -45,6 +51,7 @@ describe('Published props are recorded when they clear the bar', () => {
     expect(oddsFetch).toMatch(/oddsInsertPayload/)
     expect(oddsFetch).not.toMatch(/if all are mapped, fall back to closest-date mapped game/)
     expect(opsOddsFetch).toMatch(/resolveTeamNameFallback/)
+    expect(opsOddsFetch).toMatch(/selectAutoSaveValidationProps/)
     expect(opsOddsFetch).toMatch(/findGameByTeamNames\([^)]*game\.id\)/)
     expect(oddsFetch).toMatch(/findGameByTeamNames\([^)]*game\.id\)/)
   })
@@ -52,6 +59,7 @@ describe('Published props are recorded when they clear the bar', () => {
   test('save-top-props keeps cache qualityScore and includes the Published sweep', () => {
     expect(saveTop).toMatch(/isPublishedEligibleProp/)
     expect(saveTop).toMatch(/filterOppositePlayerPropSides/)
+    expect(saveTop).toMatch(/hasOppositePublishedBlocker/)
     expect(saveTop).toMatch(/cohort:published/)
     expect(saveTop).toMatch(/Number\.isFinite\(cachedQuality\)/)
     expect(saveTop).not.toMatch(/qualityScore: calculateQualityScore\(/)

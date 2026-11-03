@@ -19,7 +19,10 @@ import {
   toPublishedValidationFields,
   publishedPropId,
   filterOppositePlayerPropSides,
+  hasOppositePublishedBlocker,
   isHomepageYesterdayPublished,
+  isPublishedOppositeBlocker,
+  selectAutoSaveValidationProps,
   publishedSlateInstant,
   publishedValidationWritePlan,
   PUBLISHED_COHORT_TAG,
@@ -1354,16 +1357,116 @@ describe('filterOppositePlayerPropSides', () => {
     expect(kept[0].pick).toBe('over')
   })
 
-  test('skips both when Over and Under are equally strong', () => {
-    expect(filterOppositePlayerPropSides([
-      boeser('over'),
-      boeser('under'),
-    ])).toEqual([])
+  test('Published eligible Over beats a higher-edge auto-save Under', () => {
+    const publishedOver = boeser('over', {
+      edge: 0.04,
+      qualityScore: 42,
+      notes: PUBLISHED_COHORT_TAG,
+      propId: 'pub-boeser-over',
+    })
+    const tierUnder = boeser('under', {
+      edge: 0.12,
+      qualityScore: 48,
+      odds: -250,
+      notes: 'tier:elite,auto-saved',
+      propId: 'tier-boeser-under',
+    })
+    expect(isPublishedEligibleProp(publishedOver)).toBe(true)
+    expect(isPublishedEligibleProp(tierUnder)).toBe(false)
+    const kept = filterOppositePlayerPropSides([tierUnder, publishedOver])
+    expect(kept).toHaveLength(1)
+    expect(kept[0].pick).toBe('over')
+    expect(kept[0].propId).toBe('pub-boeser-over')
+  })
+
+  test('exact tie prefers Published, then a stable propId tiebreak', () => {
+    const tagged = boeser('over', {
+      notes: PUBLISHED_COHORT_TAG,
+      propId: 'z-over',
+    })
+    const untagged = boeser('under', { propId: 'a-under' })
+    expect(filterOppositePlayerPropSides([untagged, tagged]).map((row) => row.pick))
+      .toEqual(['over'])
+
+    const over = boeser('over', { propId: 'b-over' })
+    const under = boeser('under', { propId: 'a-under' })
+    expect(filterOppositePlayerPropSides([over, under]).map((row) => row.propId))
+      .toEqual(['a-under'])
+  })
+
+  test('keeps every distinct-propId row on the winning side', () => {
+    const kept = filterOppositePlayerPropSides([
+      boeser('under', { edge: 0.03, propId: 'under-1' }),
+      boeser('over', { edge: 0.08, propId: 'over-fd' }),
+      boeser('over', { edge: 0.06, propId: 'over-dk' }),
+    ])
+    expect(kept.map((row) => row.propId).sort()).toEqual(['over-dk', 'over-fd'])
+  })
+
+  test('collapses winning-side rows that share a book-less propId', () => {
+    const kept = filterOppositePlayerPropSides([
+      boeser('under', { edge: 0.03 }),
+      boeser('over', { edge: 0.08, bookmaker: 'FanDuel' }),
+      boeser('over', { edge: 0.06, bookmaker: 'DraftKings' }),
+    ])
+    expect(kept).toHaveLength(1)
+    expect(kept[0].pick).toBe('over')
+    expect(kept[0].edge).toBe(0.08)
   })
 
   test('leaves a single side and a different line alone', () => {
     const other = boeser('over', { threshold: 3.5, playerName: 'Quinn Hughes' })
     const kept = filterOppositePlayerPropSides([boeser('over'), other])
     expect(kept).toHaveLength(2)
+  })
+})
+
+describe('auto-save opposite Published guard', () => {
+  function boeser(side, extras = {}) {
+    return {
+      playerName: 'Brock Boeser',
+      gameId: 'VAN_at_NYR_2026-11-02',
+      sport: 'nhl',
+      type: 'player_shots_on_goal',
+      pick: side,
+      threshold: 2.5,
+      odds: extras.odds ?? -110,
+      edge: extras.edge ?? 0.05,
+      qualityScore: extras.qualityScore ?? 44,
+      ...extras,
+    }
+  }
+
+  test('auto-saved Under does not count as a Published opposite blocker', () => {
+    const autoSaved = {
+      ...boeser('under'),
+      gameIdRef: 'VAN_at_NYR_2026-11-02',
+      propType: 'player_shots_on_goal',
+      prediction: 'under',
+      source: 'system_generated',
+      notes: 'tier:elite,auto-saved',
+    }
+    const publishedOver = boeser('over', { notes: PUBLISHED_COHORT_TAG })
+    expect(isPublishedOppositeBlocker(autoSaved)).toBe(false)
+    expect(isPublishedOppositeBlocker({
+      ...autoSaved,
+      notes: SHADOW_PUBLISHED_COHORT_TAG,
+    })).toBe(false)
+    expect(isPublishedOppositeBlocker(publishedOver)).toBe(true)
+    expect(hasOppositePublishedBlocker(publishedOver, [autoSaved])).toBe(false)
+    expect(hasOppositePublishedBlocker(boeser('under'), [publishedOver])).toBe(true)
+  })
+
+  test('selectAutoSaveValidationProps drops a tier Under when Published Over is upcoming', () => {
+    const publishedOver = boeser('over', { notes: PUBLISHED_COHORT_TAG, probability: 0.52 })
+    const tierUnder = boeser('under', {
+      edge: 0.12,
+      qualityScore: 48,
+      probability: 0.62,
+      odds: -250,
+      notes: 'tier:elite,auto-saved',
+    })
+    const kept = selectAutoSaveValidationProps([tierUnder], [publishedOver])
+    expect(kept).toEqual([])
   })
 })

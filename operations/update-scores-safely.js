@@ -22,7 +22,7 @@ import { config } from 'dotenv'
 import { fetchNHLGameDetail } from '../lib/vendors/nhl-stats.js'
 import { fetchNFLGameDetail } from '../lib/vendors/nfl-stats.js'
 import { fetchLiveGameData } from '../lib/vendors/stats.js'
-import { ACTIVE_GAME_STATUSES } from '../lib/game-status.js'
+import { ACTIVE_GAME_STATUSES, isHalftimeStatus } from '../lib/game-status.js'
 
 config({ path: '.env.local' })
 
@@ -31,19 +31,15 @@ const supabase = createScriptSupabaseClient()
 /**
  * Map ESPN status to our clean format (removes status_ prefix)
  */
-const HALFTIME_ALIASES = new Set(['halftime', 'half_time', 'half-time', 'half time'])
-
 function normalizeStatus(status) {
   if (!status) return 'scheduled'
+  if (isHalftimeStatus(status)) return 'halftime'
 
   if (typeof status === 'string' && !status.toLowerCase().startsWith('status_')) {
-    const lower = status.toLowerCase()
-    if (HALFTIME_ALIASES.has(lower)) return 'halftime'
     return status
   }
 
   let cleanStatus = status.toLowerCase().replace(/^status_/i, '')
-  if (HALFTIME_ALIASES.has(cleanStatus)) return 'halftime'
 
   const statusMap = {
     'in_progress': 'in_progress',

@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { isLiveStatus } from '../lib/game-status.js'
+import { isHalftimeStatus, isLiveStatus } from '../lib/game-status.js'
 
 export default function LiveScoreCard({ game, refreshInterval = 15000 }) {
   const [liveData, setLiveData] = useState(game)
@@ -51,7 +51,7 @@ export default function LiveScoreCard({ game, refreshInterval = 15000 }) {
       return <span className="text-green-600 font-semibold">FINAL</span>
     }
     
-    if (isLiveStatus(liveData.status) && liveData.status !== 'halftime' && liveData.status !== 'warmup') {
+    if (isLiveStatus(liveData.status) && !isHalftimeStatus(liveData.status) && liveData.status !== 'warmup') {
       if (liveData.sport === 'nfl' && liveData.nflData) {
         return `Q${liveData.nflData.quarter || '?'} ${liveData.nflData.timeLeft || ''}`
       } else if (liveData.sport === 'mlb') {
@@ -63,7 +63,7 @@ export default function LiveScoreCard({ game, refreshInterval = 15000 }) {
       return <span className="text-yellow-600">Starting Soon</span>
     }
     
-    if (['halftime', 'half_time', 'half-time', 'STATUS_HALFTIME', 'status_halftime'].includes(liveData.status)) {
+    if (isHalftimeStatus(liveData.status)) {
       return <span className="text-blue-600">HALFTIME</span>
     }
     
@@ -72,7 +72,7 @@ export default function LiveScoreCard({ game, refreshInterval = 15000 }) {
 
   const getStatusColor = () => {
     if (liveData.status === 'warmup') return 'text-yellow-600'
-    if (liveData.status === 'halftime' || liveData.status === 'half_time' || liveData.status === 'STATUS_HALFTIME') return 'text-blue-600'
+    if (isHalftimeStatus(liveData.status)) return 'text-blue-600'
     if (isLiveStatus(liveData.status)) return 'text-red-600'
     if (liveData.status === 'final') return 'text-green-600'
     return 'text-gray-600'

@@ -4,8 +4,11 @@
 -- APPLY MANUALLY in Supabase: Dashboard -> SQL Editor -> New query -> paste -> Run
 --
 -- DO NOT run from CI, this PR, or a production refresh job.
--- Safe to re-run. Never deletes a non-duplicate. Does not touch T-30
--- snapshot-closing-lines rows (ids that do not start with clvclose:).
+-- Safe to re-run (IF NOT EXISTS, report SELECT, exact-duplicate extras only).
+-- Never deletes a non-duplicate. Does not touch T-30 snapshot-closing-lines
+-- rows (ids that do not start with clvclose:).
+-- DELETE of exact-duplicate extras is NOT undone by the rollback file.
+-- Rollback only drops the index; deleted rows stay deleted.
 --
 -- WHY:
 --   Close capture writes ClosingOdds with deterministic clvclose: ids.

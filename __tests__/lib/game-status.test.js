@@ -4,12 +4,14 @@ import {
   ACTIVE_GAME_STATUSES,
   DEAD,
   FINAL,
+  HALFTIME_ALIASES,
   LIVE,
   PRE_START,
   RETIRABLE_PRE_START,
   classifyVendorStatus,
   isDeadStatus,
   isFinalStatus,
+  isHalftimeStatus,
   isLiveStatus,
   isPreStartStatus,
   isStartedOrEndedStatus,
@@ -52,6 +54,11 @@ describe('game-status buckets', () => {
     expect(isLiveStatus('in-progress')).toBe(true)
     expect(isLiveStatus('halftime')).toBe(true)
     expect(isLiveStatus('STATUS_HALFTIME')).toBe(true)
+    expect(isHalftimeStatus('Halftime')).toBe(true)
+    expect(isHalftimeStatus('STATUS_HALFTIME')).toBe(true)
+    expect(isHalftimeStatus('half time')).toBe(true)
+    expect(isHalftimeStatus('in_progress')).toBe(false)
+    expect(HALFTIME_ALIASES.has('halftime')).toBe(true)
     expect(isFinalStatus('STATUS_FINAL')).toBe(true)
     expect(isFinalStatus('game over')).toBe(true)
     expect(isPreStartStatus('pre-game')).toBe(true)

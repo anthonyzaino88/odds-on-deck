@@ -11,7 +11,10 @@ run `prisma migrate` in CI or against production from a pull request.
 
 1. Open Supabase → SQL Editor.
 2. Paste `scripts/migrations/008_closing_odds_close_capture_uniq.sql`.
-3. Run it in a planned ops window. The script is safe to re-run.
+3. Run it in a planned ops window. The script is safe to re-run
+   (`IF NOT EXISTS`, report SELECT, exact-duplicate extras only).
+   The DELETE of those extras is **not** undone by the rollback file.
+   Rollback only drops the index; deleted rows stay deleted.
 4. Read the report `SELECT` of colliding `clvclose:` groups (empty is fine).
 5. Confirm:
 

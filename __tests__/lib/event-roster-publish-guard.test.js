@@ -11,6 +11,8 @@ function createChain(result = { data: null, error: null }) {
   chain.gte = jest.fn(passthrough)
   chain.order = jest.fn(passthrough)
   chain.limit = jest.fn(passthrough)
+  chain.ilike = jest.fn(passthrough)
+  chain.not = jest.fn(passthrough)
   chain.maybeSingle = jest.fn(async () => result)
   chain.single = jest.fn(async () => result)
   chain.update = jest.fn(() => chain)
@@ -263,6 +265,96 @@ describe('public NHL persist uses the Published path and roster guard', () => {
     expect(saved).toHaveLength(1)
     expect(saved[0].id).toBe('pv-shadow-hist')
     expect(saved[0].notes).toBe('cohort:shadow-published')
+    expect(inserts).toEqual([])
+  })
+})
+
+describe('Published persist opposite-side lookup ignores auto-save and shadow', () => {
+  const nhlGame = {
+    id: 'VAN_at_NYR_2026-11-02',
+    sport: 'nhl',
+    status: 'scheduled',
+    date: '2026-11-02T00:00:00.000Z',
+  }
+
+  function boeserOver() {
+    return shadowNhl({
+      playerName: 'Brock Boeser',
+      gameId: nhlGame.id,
+      type: 'player_shots_on_goal',
+      pick: 'over',
+      threshold: 2.5,
+      edge: 0.08,
+      qualityScore: 55,
+      propId: 'VAN_at_NYR_2026-11-02-Brock Boeser-player_shots_on_goal-2.5-over',
+    })
+  }
+
+  function oppositeRow(notes) {
+    return {
+      id: 'pv-under',
+      gameIdRef: nhlGame.id,
+      playerName: 'Brock Boeser',
+      propType: 'player_shots_on_goal',
+      threshold: 2.5,
+      prediction: 'under',
+      pick: 'under',
+      source: 'system_generated',
+      sport: 'nhl',
+      notes,
+    }
+  }
+
+  function mockWithOpposite(oppositeRows) {
+    from.mockReset()
+    inserts.length = 0
+    from.mockImplementation((table) => {
+      if (table === 'Game') return createChain({ data: nhlGame, error: null })
+      const chain = createChain({ data: [], error: null })
+      chain.maybeSingle = jest.fn(async () => ({ data: null, error: null }))
+      chain.ilike = jest.fn(() => {
+        chain._notesIlike = true
+        return chain
+      })
+      chain.then = (onFulfilled, onRejected) => {
+        const result = chain._notesIlike
+          ? { data: oppositeRows, error: null }
+          : { data: [], error: null }
+        return Promise.resolve(result).then(onFulfilled, onRejected)
+      }
+      chain.insert = jest.fn((payload) => {
+        inserts.push(payload)
+        return createChain({ data: { id: 'pv-over', ...payload }, error: null })
+      })
+      return chain
+    })
+  }
+
+  test('auto-saved Under does not block a Published Over insert', async () => {
+    mockWithOpposite([oppositeRow('tier:elite,auto-saved')])
+    const saved = await persistPublishedEligibleProps([boeserOver()], {
+      guardPropsByEventRoster: async (rows) => ({ kept: rows, skipped: [] }),
+    })
+    expect(saved).toHaveLength(1)
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0].prediction).toBe('over')
+  })
+
+  test('shadow Under does not block a Published Over insert', async () => {
+    mockWithOpposite([oppositeRow('cohort:shadow-published')])
+    const saved = await persistPublishedEligibleProps([boeserOver()], {
+      guardPropsByEventRoster: async (rows) => ({ kept: rows, skipped: [] }),
+    })
+    expect(saved).toHaveLength(1)
+    expect(inserts).toHaveLength(1)
+  })
+
+  test('existing cohort:published Under skips the opposite Over', async () => {
+    mockWithOpposite([oppositeRow('cohort:published')])
+    const saved = await persistPublishedEligibleProps([boeserOver()], {
+      guardPropsByEventRoster: async (rows) => ({ kept: rows, skipped: [] }),
+    })
+    expect(saved).toHaveLength(0)
     expect(inserts).toEqual([])
   })
 })

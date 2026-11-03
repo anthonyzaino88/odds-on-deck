@@ -42,6 +42,8 @@ describe('S1 closing-price capture contract', () => {
     expect(sql008).toMatch(/ClosingOdds_close_capture_uniq/)
     expect(sql008).toMatch(/id LIKE 'clvclose:%'/)
     expect(sql008).toMatch(/Never deletes a non-duplicate/)
+    expect(sql008).toMatch(/NOT undone by the rollback/)
+    expect(docs008).toMatch(/not\*\* undone by the rollback file/)
     expect(sql008).toMatch(/exact_count = ranked.grp_count/)
     expect(sql008).toMatch(/CREATE UNIQUE INDEX IF NOT EXISTS/)
     expect(sql008).toMatch(/Skipping unique index/)

@@ -293,12 +293,16 @@ describe('getGameDetail sibling resolution', () => {
     expect(detail.odds.find((row) => row.market === 'h2h').priceHome).toBe(-110)
   })
 
-  test('game detail page is not ISR-cached for five minutes', () => {
+  test('game detail page revalidates on a short ISR window and is not force-dynamic', () => {
     const src = readFileSync(join(process.cwd(), 'app/game/[id]/page.js'), 'utf8')
-    expect(src).toMatch(/export const dynamic = 'force-dynamic'/)
-    expect(src).toMatch(/export const revalidate = 0/)
+    expect(src).toMatch(/export const revalidate = 60/)
     expect(src).not.toMatch(/export const revalidate = 300/)
+    expect(src).not.toMatch(/export const revalidate = 0/)
+    expect(src).not.toMatch(/force-dynamic/)
+    expect(src).not.toMatch(/force-no-store/)
     expect(src).toMatch(/isLiveStatus/)
+    expect(src).toMatch(/isHalftimeStatus/)
+    expect(src).toMatch(/isHalftimeStatus\(game.status\) \? 'Halftime'/)
   })
 
 })

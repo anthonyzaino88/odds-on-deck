@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { getGameDetail } from '../../../lib/db.js'
 import { formatEdge, formatOdds, formatProbability } from '../../../lib/implied.js'
 import { isPublishedGameLineSport } from '../../../lib/game-lines.js'
-import { isLiveStatus } from '../../../lib/game-status.js'
+import { isHalftimeStatus, isLiveStatus } from '../../../lib/game-status.js'
 import { format } from 'date-fns'
 import { cn } from '../../../lib/utils'
 import { SportBadge } from '../../../components/ui'
@@ -55,9 +55,7 @@ export async function generateMetadata({ params }) {
   }
 }
 
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
-export const fetchCache = 'force-no-store'
+export const revalidate = 60
 
 export default async function GameDetailPage({ params }) {
   const game = await getGameDetail(params.id)
@@ -244,7 +242,7 @@ export default async function GameDetailPage({ params }) {
                 {(hasNflData || isLiveStatus(game.status)) && (
                   <StatCard
                     title="Quarter"
-                    value={game.nflData?.quarter ? `Q${game.nflData.quarter}` : (isLiveStatus(game.status) ? 'Live' : 'Pre-Game')}
+                    value={isHalftimeStatus(game.status) ? 'Halftime' : (game.nflData?.quarter ? `Q${game.nflData.quarter}` : (isLiveStatus(game.status) ? 'Live' : 'Pre-Game'))}
                     subtitle={game.nflData?.timeLeft || formatGameStatus(game.status)}
                   />
                 )}
@@ -281,7 +279,7 @@ export default async function GameDetailPage({ params }) {
                 )}
                 <StatCard
                   title="Status"
-                  value={isLiveStatus(game.status) ? 'Live' : formatGameStatus(game.status)}
+                  value={isHalftimeStatus(game.status) ? 'Halftime' : (isLiveStatus(game.status) ? 'Live' : formatGameStatus(game.status))}
                   subtitle={isLiveStatus(game.status) ? 'Game in progress' : formatGameStatusSubtitle(game.status)}
                 />
               </>
@@ -780,7 +778,7 @@ export default async function GameDetailPage({ params }) {
               <div>
                 <span className="text-sm font-medium text-slate-400">Status:</span>
                 <span className="ml-2 text-sm text-slate-100 capitalize">
-                  {isLiveStatus(game.status) ? 'Live' : formatGameStatus(game.status)}
+                  {isHalftimeStatus(game.status) ? 'Halftime' : (isLiveStatus(game.status) ? 'Live' : formatGameStatus(game.status))}
                 </span>
               </div>
               <div>
