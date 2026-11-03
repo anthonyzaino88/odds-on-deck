@@ -45,6 +45,18 @@ describe('Published props are recorded when they clear the bar', () => {
     expect(oddsFetch).toMatch(/loadPublishedEligibleForAutoSave/)
     expect(oddsFetch).toMatch(/skipAutoSaveAfterPublishedPrefetchError/)
     expect(oddsFetch).toMatch(/paginateSupabaseSelect/)
+    const autoSaveTop = oddsFetch.slice(
+      oddsFetch.indexOf('async function autoSaveTopPropsForValidation'),
+      oddsFetch.indexOf('async function autoSavePublishedPropsForValidation'),
+    )
+    const publishedPersist = oddsFetch.slice(
+      oddsFetch.indexOf('async function autoSavePublishedPropsForValidation'),
+      oddsFetch.indexOf('async function main()'),
+    )
+    expect(autoSaveTop).toMatch(/skipAutoSaveAfterPublishedPrefetchError/)
+    expect(publishedPersist).toMatch(/persistPublishedEligibleProps/)
+    expect(publishedPersist).not.toMatch(/skipAutoSaveAfterPublishedPrefetchError/)
+    expect(publishedPersist).not.toMatch(/loadPublishedEligibleForAutoSave/)
     expect(oddsFetch).not.toMatch(/\.gte\('qualityScore', 40\)\s*\n\s*\.limit\(200\)/)
     expect(oddsFetch).toMatch(/isPublishedEligibleProp/)
     expect(oddsFetch).toMatch(/persistPublishedEligibleProps/)

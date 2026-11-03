@@ -1543,7 +1543,7 @@ describe('auto-save opposite Published guard', () => {
     expect(logs.join('\n')).toMatch(/timeout/)
   })
 
-  test('prefetch pagination warns when the 20-page cap is hit', async () => {
+  test('prefetch cap fails closed: empty rows plus skip auto-save', async () => {
     const logs = []
     const paginateOpts = []
     const row = boeser('over', { propId: 'p-over' })
@@ -1558,22 +1558,58 @@ describe('auto-save opposite Published guard', () => {
     expect(AUTO_SAVE_PUBLISHED_PREFETCH_MAX_PAGES).toBe(20)
     expect(paginateOpts[0].maxPages).toBe(20)
     expect(result.capped).toBe(true)
-    expect(result.rows).toHaveLength(1)
+    expect(result.rows).toEqual([])
+    expect(result.error).toMatchObject({ message: expect.stringMatching(/20-page cap/) })
+    expect(skipAutoSaveAfterPublishedPrefetchError(result.error, 'nfl', (msg) => logs.push(msg))).toBe(true)
     expect(logs.join('\n')).toMatch(/NFL/)
     expect(logs.join('\n')).toMatch(/20-page cap/)
+    expect(logs.join('\n')).toMatch(/Skipping auto-save for NFL/)
   })
 
-  test('paginateSupabaseSelect stops at maxPages and reports capped', async () => {
-    let pages = 0
+  test('paginateSupabaseSelect reports capped only when a row remains past maxPages', async () => {
+    const ranges = []
     const result = await paginateSupabaseSelect(() => ({
-      range: async () => {
-        pages += 1
-        return { data: [{ id: pages }, { id: `${pages}b` }], error: null }
+      range: async (from, to) => {
+        ranges.push([from, to])
+        return { data: [{ id: from }, { id: `${from}b` }], error: null }
       },
     }), { pageSize: 2, maxPages: 3 })
-    expect(pages).toBe(3)
+    expect(ranges).toEqual([[0, 1], [2, 3], [4, 5], [6, 6]])
     expect(result.rows).toHaveLength(6)
     expect(result.capped).toBe(true)
     expect(result.error).toBeNull()
+  })
+
+  test('paginateSupabaseSelect does not report capped when the last allowed page is exact', async () => {
+    const ranges = []
+    const result = await paginateSupabaseSelect(() => ({
+      range: async (from, to) => {
+        ranges.push([from, to])
+        if (from >= 6) return { data: [], error: null }
+        return { data: [{ id: from }, { id: from + 1 }], error: null }
+      },
+    }), { pageSize: 2, maxPages: 3 })
+    expect(ranges).toEqual([[0, 1], [2, 3], [4, 5], [6, 6]])
+    expect(result.rows).toEqual([
+      { id: 0 }, { id: 1 },
+      { id: 2 }, { id: 3 },
+      { id: 4 }, { id: 5 },
+    ])
+    expect(result.capped).toBe(false)
+    expect(result.error).toBeNull()
+  })
+
+  test('paginateSupabaseSelect skips the extra-row probe when a page is short', async () => {
+    const ranges = []
+    const result = await paginateSupabaseSelect(() => ({
+      range: async (from, to) => {
+        ranges.push([from, to])
+        if (from === 2) return { data: [{ id: 2 }], error: null }
+        return { data: [{ id: from }, { id: from + 1 }], error: null }
+      },
+    }), { pageSize: 2, maxPages: 3 })
+    expect(ranges).toEqual([[0, 1], [2, 3]])
+    expect(result.rows).toHaveLength(3)
+    expect(result.capped).toBe(false)
   })
 })

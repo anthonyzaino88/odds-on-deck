@@ -577,12 +577,17 @@ describe('fetch-fresh-games vanish-retire hook', () => {
   test('morning fetch-fresh-games command applies vanish-retire, not stale', () => {
     const readme = readFileSync(join(process.cwd(), 'operations/README.md'), 'utf8')
     expect(readme).toMatch(/node scripts\/fetch-fresh-games\.js all --apply-vanish/)
+    expect(readme).toMatch(/Vanish-retire writes use `--apply-vanish` only/)
+    expect(readme).toMatch(/never marks\s+vanished scheduled games/)
     const morning = readme.slice(
       readme.indexOf('### Morning Routine'),
       readme.indexOf('# 3. Fetch odds'),
     )
     expect(morning).toMatch(/--apply-vanish/)
     expect(morning).not.toMatch(/--apply-stale/)
+    expect(src).toMatch(/Never use this flag to[\s\S]*mark vanished scheduled games/)
+    expect(src).toMatch(/only flag that marks vanished games/)
+    expect(src).toMatch(/--apply-stale does not retire vanished games/)
   })
 })
 

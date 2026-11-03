@@ -142,8 +142,9 @@ export default async function ValidationDashboard({ searchParams }) {
       <div>
         <h2 className="text-lg font-semibold text-slate-100">Full graded archive</h2>
         <p className="text-sm text-slate-400 mt-1.5 max-w-2xl leading-relaxed">
-          Every tracked prop we grade &mdash; including juice traps, longshots, NHL, and rows that
-          do not meet the published filters. This is the honest bulk record, not the Published card.
+          Every tracked prop we grade &mdash; including juice traps, longshots, and rows that
+          do not meet the published filters. NHL Published rows are on the card above; this is
+          the honest bulk record, not the Published card.
         </p>
       </div>
 

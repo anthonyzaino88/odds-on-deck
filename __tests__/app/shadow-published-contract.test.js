@@ -28,6 +28,29 @@ describe('private NHL shadow-published track stays off Published surfaces', () =
     expect(pkg).toMatch(/"report:shadow-nhl": "node scripts\/report-shadow-nhl\.js"/)
   })
 
+  test('validation and insights show public NHL Published stats like MLB and NFL', () => {
+    const page = read('app/validation/page.js')
+    const insights = read('app/insights/page.js')
+    const card = read('components/PublishedPicksCard.js')
+    const published = read('lib/published-picks.js')
+    const validation = read('lib/validation.js')
+
+    expect(published).toMatch(/export const PUBLISHED_SPORTS = Object\.freeze\(\['mlb', 'nfl', 'nhl'\]\)/)
+    expect(published).toMatch(/sports: PUBLISHED_SPORTS/)
+    expect(validation).toMatch(/\.in\('sport', PUBLISHED_STATS_PREFILTER\.sports\)/)
+    expect(card).toMatch(/MLB \+ NFL \+ NHL/)
+    expect(card).toMatch(/MLB, NFL, and NHL/)
+    expect(page).toMatch(/getPublishedPicksStats/)
+    expect(page).toMatch(/getValidationStats\(\{ \.\.\.statsOpts, sport: 'nhl' \}\)/)
+    expect(page).toMatch(/SportCard sport="nhl"/)
+    expect(page).not.toMatch(/including juice traps, longshots, NHL/)
+    expect(page).toMatch(/NHL Published rows are on the card above/)
+    expect(insights).toMatch(/getValidationStats\(\{ sport: 'nhl' \}\)/)
+    expect(insights).toMatch(/SportPerformance sport="nhl"/)
+    expect(insights).toMatch(/SportPerformance sport="nfl"/)
+    expect(insights).toMatch(/SportPerformance sport="mlb"/)
+  })
+
   test('Published surfaces drop every shadow tag; archive/insights drop shadow-only only', () => {
     const hook = read('lib/homepage-hook.js')
     const picks = read('lib/picks.js')
