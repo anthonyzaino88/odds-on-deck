@@ -25,7 +25,7 @@ async function refreshNHLScores() {
     .from('Game')
     .select('id, espnGameId, homeId, awayId, homeScore, awayScore, status, date, home:Team!Game_homeId_fkey(abbr), away:Team!Game_awayId_fkey(abbr)')
     .eq('sport', 'nhl')
-    .in('status', ['scheduled', 'in_progress'])
+    .in('status', ['scheduled', 'in_progress', 'halftime', 'status_halftime', 'STATUS_HALFTIME', 'half_time'])
     .not('espnGameId', 'is', null)
     .order('date', { ascending: true })
   

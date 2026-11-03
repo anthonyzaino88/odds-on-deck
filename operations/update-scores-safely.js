@@ -31,18 +31,20 @@ const supabase = createScriptSupabaseClient()
 /**
  * Map ESPN status to our clean format (removes status_ prefix)
  */
+const HALFTIME_ALIASES = new Set(['halftime', 'half_time', 'half-time', 'half time'])
+
 function normalizeStatus(status) {
   if (!status) return 'scheduled'
-  
-  // If it's already clean, return as-is
+
   if (typeof status === 'string' && !status.toLowerCase().startsWith('status_')) {
+    const lower = status.toLowerCase()
+    if (HALFTIME_ALIASES.has(lower)) return 'halftime'
     return status
   }
-  
-  // Remove status_ prefix and normalize
+
   let cleanStatus = status.toLowerCase().replace(/^status_/i, '')
-  
-  // Map common variations
+  if (HALFTIME_ALIASES.has(cleanStatus)) return 'halftime'
+
   const statusMap = {
     'in_progress': 'in_progress',
     'in-progress': 'in_progress',
@@ -52,7 +54,7 @@ function normalizeStatus(status) {
     'postponed': 'postponed',
     'delayed': 'delayed'
   }
-  
+
   return statusMap[cleanStatus] || cleanStatus
 }
 

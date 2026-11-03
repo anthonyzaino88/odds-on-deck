@@ -249,8 +249,8 @@ CLOSING_CAPTURE=0 disables the job. --max-calls caps HTTP calls
 markets × regions (us=1) and stops before exceeding, soonest
 kickoff first when --nfl-all. Unknown flags and invalid/missing
 --max-calls / --max-credits / --min-remaining values fail closed.
-ClosingOdds has no unique (game, book, market) key — do not overlap
-capture --apply runs. A unique index is an optional follow-up.
+Close capture is idempotent: deterministic clvclose: ids plus
+ClosingOdds_close_capture_uniq (SQL 008, after exact-duplicate cleanup).
 --min-remaining (default ${CLOSE_CAPTURE_DEFAULT_MIN_REMAINING}) stops when
 Odds API remaining credits fall below the floor.
 Window is T−${CLOSE_CAPTURE_WINDOW_MINUTES}..T−1 (pre-start games only).
@@ -425,7 +425,7 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
   )
   if (args.nflAll) {
     log.log('NFL-all: pending props + h2h/spreads/totals (one call per game)')
-    log.log('Do not overlap --apply runs (ClosingOdds has no unique game/book/market key).')
+    log.log('Close capture is idempotent (clvclose: ids + ClosingOdds_close_capture_uniq).')
   }
   log.log(`Odds API HTTP calls this run: ${plannedCalls}`)
   log.log(`Odds API credits this run: ${plannedCredits} (markets × regions=1)`)

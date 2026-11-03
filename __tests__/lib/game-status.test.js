@@ -39,6 +39,7 @@ describe('game-status buckets', () => {
 
   test('ACTIVE_GAME_STATUSES includes halftime so the updater keeps selecting NFL', () => {
     expect(ACTIVE_GAME_STATUSES).toContain('halftime')
+    expect(ACTIVE_GAME_STATUSES).toContain('Halftime')
     expect(ACTIVE_GAME_STATUSES).toContain('status_halftime')
     expect(ACTIVE_GAME_STATUSES).toContain('STATUS_HALFTIME')
     expect(ACTIVE_GAME_STATUSES).not.toContain('half')
@@ -60,6 +61,21 @@ describe('game-status buckets', () => {
     expect(isStartedOrEndedStatus('warmup')).toBe(true)
     expect(isStartedOrEndedStatus('halftime')).toBe(true)
     expect(isStartedOrEndedStatus('scheduled')).toBe(false)
+  })
+
+  test('live views use isLiveStatus instead of status === in_progress', () => {
+    const files = [
+      'app/game/[id]/page.js',
+      'app/games/page.js',
+      'components/LiveScoreCard.js',
+      'components/LiveScoreDisplay.js',
+      'components/ParlayBuilder.js',
+    ]
+    for (const rel of files) {
+      const src = readFileSync(join(process.cwd(), rel), 'utf8')
+      expect(src).toMatch(/isLiveStatus/)
+      expect(src).not.toMatch(/status === ['"]in_progress['"]/)
+    }
   })
 
   test('ESPN state=post postponed is never FINAL', () => {

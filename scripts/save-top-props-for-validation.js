@@ -8,7 +8,7 @@ config({ path: '.env.local' })
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import crypto from 'crypto'
 import { isJuiceTrap, attachNumBooks } from '../lib/juice-traps.js'
-import { isPublishedEligibleProp } from '../lib/published-picks.js'
+import { filterOppositePlayerPropSides, isPublishedEligibleProp } from '../lib/published-picks.js'
 
 const supabase = createScriptSupabaseClient()
 
@@ -100,12 +100,12 @@ async function saveTopPropsForValidation() {
     const highIds = new Set(highClean.map((prop) => prop.propId))
     const goodClean = (goodProps || []).filter((prop) => !isJuiceTrap(prop) && !eliteIds.has(prop.propId) && !highIds.has(prop.propId)).slice(0, 75)
 
-    const allProps = [
+    const allProps = filterOppositePlayerPropSides([
       ...publishedClean,
       ...eliteClean.filter((prop) => !publishedIds.has(prop.propId)),
       ...highClean.filter((prop) => !publishedIds.has(prop.propId)),
       ...goodClean.filter((prop) => !publishedIds.has(prop.propId)),
-    ]
+    ])
     
     if (allProps.length === 0) {
       console.log('⚠️  No props found to validate')

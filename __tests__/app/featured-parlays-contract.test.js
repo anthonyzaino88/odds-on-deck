@@ -62,6 +62,7 @@ describe('Featured parlays contract — Phase A Published bar', () => {
     expect(generator).not.toMatch(/SHADOW_PUBLISHED_SPORTS/)
     expect(generator).toMatch(/PUBLISHED_STATS_PREFILTER/)
     expect(generator).toMatch(/isFeaturedQualityLeg/)
+    expect(generator).toMatch(/filterOppositePlayerPropSides/)
     expect(generator).toMatch(/\.gt\('gameTime', now\)/)
     expect(generator).toMatch(/\.eq\('isStale', false\)/)
     expect(generator).toMatch(/\.gte\('expiresAt', now\)/)

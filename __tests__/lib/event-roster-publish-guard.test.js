@@ -163,6 +163,33 @@ describe('public NHL persist uses the Published path and roster guard', () => {
     })
   })
 
+  test('records the stronger NHL side when Over and Under of the same line both clear', async () => {
+    const saved = await persistPublishedEligibleProps([
+      shadowNhl({
+        playerName: 'Brock Boeser',
+        type: 'player_shots_on_goal',
+        pick: 'under',
+        threshold: 2.5,
+        edge: 0.04,
+        qualityScore: 42,
+      }),
+      shadowNhl({
+        playerName: 'Brock Boeser',
+        type: 'player_shots_on_goal',
+        pick: 'over',
+        threshold: 2.5,
+        edge: 0.09,
+        qualityScore: 58,
+      }),
+    ], {
+      guardPropsByEventRoster: async (rows) => ({ kept: rows, skipped: [] }),
+    })
+    expect(saved).toHaveLength(1)
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0].playerName).toBe('Brock Boeser')
+    expect(inserts[0].prediction).toBe('over')
+  })
+
   test('records new NHL as cohort:published after roster keep', async () => {
     const saved = await persistPublishedEligibleProps([
       shadowNhl(),

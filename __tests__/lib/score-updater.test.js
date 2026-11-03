@@ -648,5 +648,8 @@ describe('normalizeStatus keeps MLB pre-start aliases', () => {
     expect(normalizeStatus('pre-game')).toBe('pre-game')
     expect(normalizeStatus('warmup')).toBe('warmup')
     expect(normalizeStatus('delayed')).toBe('delayed')
+    expect(normalizeStatus('Halftime')).toBe('halftime')
+    expect(normalizeStatus('half_time')).toBe('halftime')
+    expect(normalizeStatus('STATUS_HALFTIME')).toBe('halftime')
   })
 })

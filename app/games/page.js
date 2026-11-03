@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react'
 import { format } from 'date-fns'
 import { cn } from '../../lib/utils'
 import { SportBadge } from '../../components/ui'
+import { isLiveStatus } from '../../lib/game-status.js'
 
 function SportSectionHeading({ sport, count }) {
   return (
@@ -163,10 +164,7 @@ export default function GamesPage() {
     )
   }
 
-  const liveCount = [...games.mlb, ...games.nfl, ...games.nhl].filter(g => {
-    let s = (g.status || '').toLowerCase().replace(/^status_/i, '').replace(/-/g, '_')
-    return s === 'in_progress' || s === 'halftime' || s === 'half_time'
-  }).length
+  const liveCount = [...games.mlb, ...games.nfl, ...games.nhl].filter((g) => isLiveStatus(g.status)).length
 
   const SPORT_SECTIONS = [
     { key: 'mlb', list: games.mlb },
@@ -284,7 +282,7 @@ function GameCard({ game }) {
   statusNormalized = statusNormalized.replace(/^status_/i, '')
   statusNormalized = statusNormalized.replace(/-/g, '_')
   
-  const isLive = statusNormalized === 'in_progress' || statusNormalized === 'halftime' || statusNormalized === 'half_time'
+  const isLive = isLiveStatus(game.status)
   const isFinal = statusNormalized === 'final'
   const isDelayed = statusNormalized === 'delayed' || statusNormalized === 'rain_delay'
   const isPostponed = statusNormalized === 'postponed'

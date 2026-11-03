@@ -14,6 +14,7 @@ import {
   playerCorrelationKey,
 } from '../../lib/parlay-integrity.js'
 import {
+  filterOppositePlayerPropSides,
   isPublishedEligibleProp,
   TODAYS_BOARD_MIN_PUBLISHED,
 } from '../../lib/published-picks.js'
@@ -197,6 +198,38 @@ describe('Geno-style same-player / same-market conflicts', () => {
     ]
     expect(hasSamePlayerConflict(legs)).toBe(false)
     expect(combinationPassesIntegrity(legs, 'single_game')).toBe(true)
+  })
+
+  test('Featured pool keeps the stronger Over/Under of the same player+market+line', () => {
+    const legs = [
+      mapCachePropToParlayBet(saneProp('Brock Boeser', {
+        type: 'player_shots_on_goal',
+        pick: 'under',
+        threshold: 2.5,
+        edge: 0.04,
+        qualityScore: 42,
+        sport: 'nhl',
+      })),
+      mapCachePropToParlayBet(saneProp('Brock Boeser', {
+        type: 'player_shots_on_goal',
+        pick: 'over',
+        threshold: 2.5,
+        edge: 0.09,
+        qualityScore: 58,
+        sport: 'nhl',
+      })),
+      mapCachePropToParlayBet(saneProp('Quinn Hughes', {
+        type: 'player_shots_on_goal',
+        threshold: 2.5,
+        edge: 0.06,
+        qualityScore: 50,
+        sport: 'nhl',
+      })),
+    ]
+    const kept = filterOppositePlayerPropSides(legs)
+    expect(kept).toHaveLength(2)
+    expect(kept.find((leg) => leg.playerName === 'Brock Boeser').pick).toBe('over')
+    expect(kept.some((leg) => leg.playerName === 'Quinn Hughes')).toBe(true)
   })
 
   test('does not skip integrity when only one combination exists', () => {

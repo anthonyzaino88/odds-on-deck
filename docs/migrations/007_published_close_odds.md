@@ -53,8 +53,8 @@ the existing `ClosingOdds` table. Re-runs skip a row only when `id`
 starts with `clvclose:` (`ClosingOdds.id` is TEXT). `snapshot_at` is
 not used, so a T−30 `snapshot-closing-lines` insert cannot hide the
 true close. Overlapping applies hit the existing primary key (`23505`)
-and are treated as already captured. A unique `(game_id, book, market)`
-index is an optional follow-up. `--max-credits N` caps markets ×
+and are treated as already captured. Close-capture uniqueness on
+`(game_id, book, market)` is SQL 008. `--max-credits N` caps markets ×
 regions.
 Prop closes still use `closeOdds`, `closeLine`, `closeCapturedAt`.
 Dry-run prints planned HTTP/credits and `CALLS_USED` / `CREDITS_USED`.

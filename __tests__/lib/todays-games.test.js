@@ -1,10 +1,13 @@
 process.env.TZ = 'UTC'
 
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import {
   getNFLWeekBounds,
   isGameInNflWeek,
   isHiddenFromTodaysSlate,
   isPriorDayFinal,
+  nflWeekEtDateKeys,
 } from '../../lib/todays-games.js'
 
 describe('today slate hides cancelled games', () => {
@@ -55,5 +58,27 @@ describe('NFL week includes Monday night games when the host is UTC', () => {
 
     expect(isGameInNflWeek(new Date('2026-11-03T01:15:00Z'), week)).toBe(true)
     expect(isGameInNflWeek(new Date('2026-11-04T01:00:00Z'), week)).toBe(false)
+  })
+
+  test('ET date keys stay Thursday–Monday on a UTC host', () => {
+    expect(process.env.TZ).toBe('UTC')
+    expect(nflWeekEtDateKeys(new Date('2026-11-03T01:00:00Z'))).toEqual([
+      '2026-10-29',
+      '2026-10-30',
+      '2026-10-31',
+      '2026-11-01',
+      '2026-11-02',
+    ])
+  })
+})
+
+describe('fetch-fresh-games uses the shared NFL week bounds', () => {
+  test('script imports nflWeekEtDateKeys and does not keep a local-time copy', () => {
+    const src = readFileSync(join(process.cwd(), 'scripts/fetch-fresh-games.js'), 'utf8')
+    expect(src).toMatch(/import \{ nflWeekEtDateKeys \} from '\.\.\/lib\/todays-games\.js'/)
+    expect(src).toMatch(/nflWeekEtDateKeys\(/)
+    expect(src).not.toMatch(/function getNFLWeekBounds/)
+    expect(src).not.toMatch(/referenceDate\.getFullYear\(\)/)
+    expect(src).not.toMatch(/weekStart\.setHours\(0, 0, 0, 0\)/)
   })
 })

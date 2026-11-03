@@ -29,6 +29,8 @@ describe('Published props are recorded when they clear the bar', () => {
     expect(validationSrc).toMatch(/Number\.isFinite\(cachedQuality\)/)
     expect(validationSrc).toMatch(/guardPropsByEventRoster/)
     expect(validationSrc).toMatch(/PUBLISHED_ROSTER_GUARD_SPORTS/)
+    expect(validationSrc).toMatch(/filterOppositePlayerPropSides/)
+    expect(validationSrc).toMatch(/findOppositePublishedValidation/)
     expect(validationSrc).not.toMatch(/source: GAME_LINE_SOURCE[\s\S]{0,200}recordPublishedEligibleProp/)
   })
 
@@ -49,6 +51,7 @@ describe('Published props are recorded when they clear the bar', () => {
 
   test('save-top-props keeps cache qualityScore and includes the Published sweep', () => {
     expect(saveTop).toMatch(/isPublishedEligibleProp/)
+    expect(saveTop).toMatch(/filterOppositePlayerPropSides/)
     expect(saveTop).toMatch(/cohort:published/)
     expect(saveTop).toMatch(/Number\.isFinite\(cachedQuality\)/)
     expect(saveTop).not.toMatch(/qualityScore: calculateQualityScore\(/)
