@@ -1,4 +1,11 @@
-import { isHiddenFromTodaysSlate, isPriorDayFinal } from '../../lib/todays-games.js'
+process.env.TZ = 'UTC'
+
+import {
+  getNFLWeekBounds,
+  isGameInNflWeek,
+  isHiddenFromTodaysSlate,
+  isPriorDayFinal,
+} from '../../lib/todays-games.js'
 
 describe('today slate hides cancelled games', () => {
   test('cancelled and canceled are hidden; live and postponed stay', () => {
@@ -32,5 +39,21 @@ describe('Games This Week hides prior-day finals', () => {
       { status: 'in_progress' },
       { todayEt: '2026-10-31', gameEtDate: '2026-10-29' },
     )).toBe(false)
+  })
+})
+
+describe('NFL week includes Monday night games when the host is UTC', () => {
+  test('8:15 PM ET Monday is in the week; the next ET day is not', () => {
+    expect(process.env.TZ).toBe('UTC')
+
+    // Live CHI @ SEA window: Monday 2026-11-02 8:15 PM ET = 2026-11-03T01:15:00Z
+    const week = getNFLWeekBounds(new Date('2026-11-03T01:00:00Z'))
+    expect(week.mondayKey).toBe('2026-11-02')
+    expect(week.thursdayKey).toBe('2026-10-29')
+    expect(week.monday.toISOString()).toBe('2026-11-03T04:59:59.999Z')
+    expect(week.thursday.toISOString()).toBe('2026-10-29T04:00:00.000Z')
+
+    expect(isGameInNflWeek(new Date('2026-11-03T01:15:00Z'), week)).toBe(true)
+    expect(isGameInNflWeek(new Date('2026-11-04T01:00:00Z'), week)).toBe(false)
   })
 })
