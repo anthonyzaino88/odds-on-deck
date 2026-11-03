@@ -8,19 +8,22 @@ import PlayerPropsFilter from '../../components/PlayerPropsFilter.js'
 import DataFreshness from '../../components/DataFreshness.js'
 import { cn } from '../../lib/utils'
 import { SectionHeading } from '../../components/ui'
+import { PUBLISHED_SPORTS } from '../../lib/published-picks.js'
 
+const SPORT_LABELS = { mlb: 'MLB', nfl: 'NFL' }
 const SPORT_OPTIONS = [
   { value: 'all', label: 'All' },
-  { value: 'mlb', label: 'MLB' },
-  { value: 'nhl', label: 'NHL' },
-  { value: 'nfl', label: 'NFL' },
+  ...PUBLISHED_SPORTS.map((value) => ({
+    value,
+    label: SPORT_LABELS[value] || value.toUpperCase(),
+  })),
 ]
 
 export default function PropsPage() {
   const [props, setProps] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [sportFilter, setSportFilter] = useState('all') // 'all', 'mlb', 'nfl', 'nhl'
+  const [sportFilter, setSportFilter] = useState('all')
 
   useEffect(() => {
     fetchProps()

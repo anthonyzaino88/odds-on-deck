@@ -10,6 +10,7 @@ import {
   summarizeSidesTotals,
   isSidesTotalsPick,
   summarizeYesterdayPublished,
+  selectLastNightPublished,
   todaysBoardSlateState,
   getEtCalendarDayRange,
   pickWhyChip,
@@ -33,6 +34,8 @@ import {
   CLOSE_CAPTURE_SPORTS,
   isShadowPublishedEligibleProp,
   isShadowPublishedCohort,
+  isPublishedCohort,
+  isPublicPropSport,
   isShadowPublishedPick,
   isCloseCaptureEligiblePick,
   filterShadowPublishedPicks,
@@ -776,6 +779,61 @@ describe('summarizeYesterdayPublished', () => {
     ], now)
     expect(yesterday.empty).toBe(true)
     expect(yesterday.line).toBe('No Published grades yesterday.')
+  })
+})
+
+describe('selectLastNightPublished', () => {
+  // Tuesday Nov 3, 2026 16:00 UTC = 11:00am EST. Prior ET day is Mon Nov 2.
+  const now = new Date('2026-11-03T16:00:00.000Z')
+
+  test('uses prior ET slate via publishedSlateInstant, not completedAt', () => {
+    const lastNight = publishedBase({
+      playerName: 'Aaron Judge',
+      notes: PUBLISHED_COHORT_TAG,
+      gameDate: '2026-11-02T23:05:00.000Z',
+      timestamp: '2026-11-02T15:00:00.000Z',
+      completedAt: '2026-11-03T11:10:00.000Z',
+    })
+    const regradedJune = publishedBase({
+      playerName: 'Miguel Vargas',
+      notes: PUBLISHED_COHORT_TAG,
+      gameDate: '2026-06-11T23:10:00.000Z',
+      gameIdRef: 'ATL_at_CHW_2026-06-11',
+      timestamp: '2026-06-11T15:00:00.000Z',
+      completedAt: '2026-11-03T04:00:00.000Z',
+    })
+    const rows = selectLastNightPublished([lastNight, regradedJune], now)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].playerName).toBe('Aaron Judge')
+  })
+
+  test('requires the cohort:published notes tag — eligibility alone is not enough', () => {
+    const tagged = publishedBase({
+      playerName: 'Tagged',
+      notes: `${PUBLISHED_COHORT_TAG} | oddsMarket:batter_hits`,
+      gameDate: '2026-11-02T23:05:00.000Z',
+      completedAt: '2026-11-03T11:10:00.000Z',
+    })
+    const untagged = publishedBase({
+      playerName: 'Miguel Vargas',
+      notes: 'tier:elite,auto-saved',
+      gameDate: '2026-11-02T23:10:00.000Z',
+      gameIdRef: 'ATL_at_CHW_2026-06-11',
+      completedAt: '2026-11-03T04:00:00.000Z',
+    })
+    expect(isPublishedPick(untagged)).toBe(true)
+    expect(isPublishedCohort(untagged)).toBe(false)
+    expect(selectLastNightPublished([tagged, untagged], now).map((row) => row.playerName))
+      .toEqual(['Tagged'])
+  })
+
+  test('does not treat cohort:shadow-published as the Published tag', () => {
+    expect(isPublishedCohort(publishedBase({ notes: PUBLISHED_COHORT_TAG }))).toBe(true)
+    expect(isPublishedCohort(publishedBase({ notes: SHADOW_PUBLISHED_COHORT_TAG }))).toBe(false)
+    expect(isPublishedCohort(publishedBase({ notes: 'tier:elite' }))).toBe(false)
+    expect(isPublicPropSport('mlb')).toBe(true)
+    expect(isPublicPropSport('nfl')).toBe(true)
+    expect(isPublicPropSport('nhl')).toBe(false)
   })
 })
 
