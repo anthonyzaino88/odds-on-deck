@@ -46,16 +46,12 @@ const UNDERPERFORMING_PROP_TYPES = {
   rushing_yards: { accuracy: 34.4, sport: 'nfl', multiplier: 0.8 },
   receiving_yards: { accuracy: 42.4, sport: 'nfl', multiplier: 0.88 },
   rushing_attempts: { accuracy: 41.7, sport: 'nfl', multiplier: 0.85 },
-  player_assists: { accuracy: 41.2, sport: 'nhl', multiplier: 0.85 },
-  player_shots_on_goal: { accuracy: 41.2, sport: 'nhl', multiplier: 0.85 }
 }
 
 // High performing prop types (>52.4% accuracy)
 const HIGH_PERFORMING_PROP_TYPES = {
   pass_attempts: { accuracy: 62.5, sport: 'nfl', multiplier: 1.1 },
-  player_blocked_shots: { accuracy: 56.5, sport: 'nhl', multiplier: 1.08 },
   player_pass_yds: { accuracy: 56.4, sport: 'nfl', multiplier: 1.08 },
-  player_points: { accuracy: 53.3, sport: 'nhl', multiplier: 1.05 }
 }
 
 // Check if prop type is underperforming

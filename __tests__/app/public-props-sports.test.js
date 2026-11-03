@@ -3,6 +3,7 @@ const path = require('path')
 
 const { GET: getProps } = require('../../app/api/props/route.js')
 const { generateSimpleParlays } = require('../../lib/simple-parlay-generator.js')
+const { getTopProps } = require('../../lib/top-props.js')
 const { PUBLISHED_SPORTS } = require('../../lib/published-picks.js')
 
 jest.mock('../../lib/supabase.js', () => ({
@@ -100,6 +101,11 @@ describe('GET /api/props stays on public sports', () => {
     expect(body.props.map((prop) => prop.playerName)).toEqual(['Aaron Judge'])
     expect(body.props.some((prop) => prop.sport === 'nhl')).toBe(false)
   })
+
+  test('getTopProps(nhl) returns nothing and does not query the cache', async () => {
+    await expect(getTopProps('nhl')).resolves.toEqual([])
+    expect(supabase.from).not.toHaveBeenCalled()
+  })
 })
 
 describe('public props / parlay surfaces do not offer NHL', () => {
@@ -110,11 +116,23 @@ describe('public props / parlay surfaces do not offer NHL', () => {
     expect(page).not.toMatch(/label: 'NHL'/)
   })
 
-  test('PlayerPropsFilter does not render an NHL props section', () => {
+  test('PlayerPropsFilter does not render an NHL props section or keep NHL type tables', () => {
     const filter = read('components/PlayerPropsFilter.js')
     expect(filter).not.toMatch(/nhlProps/)
     expect(filter).not.toMatch(/title="NHL Props"/)
     expect(filter).not.toMatch(/key: 'nhl'/)
+    expect(filter).not.toMatch(/sport: 'nhl'/)
+    expect(filter).not.toMatch(/player_shots_on_goal/)
+    expect(filter).not.toMatch(/player_blocked_shots/)
+  })
+
+  test('sport hubs load top props only for public sports', () => {
+    const hub = read('components/SportHub.js')
+    const top = read('lib/top-props.js')
+    expect(hub).toMatch(/getTopProps\(sport/)
+    expect(top).toMatch(/isPublicPropSport/)
+    expect(top).not.toMatch(/VALID_SPORTS/)
+    expect(top).not.toMatch(/'nhl'/)
   })
 
   test('props API uses PUBLISHED_SPORTS and early-returns non-public sports', () => {
