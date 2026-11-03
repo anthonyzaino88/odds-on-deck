@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 /**
- * Record Published-eligible MLB + NFL player props into PropValidation,
- * plus the private NHL shadow-published cohort (same eligibility bar,
- * notes=cohort:shadow-published). Shadow rows never appear on public
- * surfaces.
+ * Record Published-eligible MLB + NFL + NHL player props into
+ * PropValidation (notes=cohort:published). Historical NHL rows tagged
+ * cohort:shadow-published are left unchanged.
  *
  * Reads PlayerPropCache only — does not call The Odds API.
  * Run after the morning odds pull (or any time the public board is up)

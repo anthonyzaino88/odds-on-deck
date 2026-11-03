@@ -118,8 +118,12 @@ describe('isPublishedPick', () => {
     expect(isPublishedPick(publishedBase({ qualityScore: PUBLISHED_MIN_QUALITY }))).toBe(true)
   })
 
-  test('holds NHL off the public published card', () => {
+  test('holds untagged NHL archive off the public published card', () => {
     expect(isPublishedPick(publishedBase({ sport: 'nhl' }))).toBe(false)
+    expect(isPublishedPick(publishedBase({
+      sport: 'nhl',
+      notes: PUBLISHED_COHORT_TAG,
+    }))).toBe(true)
     expect(isPublishedPick(publishedBase({
       sport: 'nfl',
       timestamp: '2026-09-10T16:00:00.000Z',
@@ -173,13 +177,14 @@ describe('isPublishedPick', () => {
 
 describe('matchesPublishedStatsPrefilter', () => {
   test('mirrors the SQL prefilter used by getPublishedPicksStats', () => {
-    expect(PUBLISHED_STATS_PREFILTER.sports).toEqual(['mlb', 'nfl'])
+    expect(PUBLISHED_STATS_PREFILTER.sports).toEqual(['mlb', 'nfl', 'nhl'])
     expect(PUBLISHED_STATS_PREFILTER.minQuality).toBe(PUBLISHED_MIN_QUALITY)
     expect(PUBLISHED_STATS_PREFILTER.edgeGreaterThan).toBe(0)
     expect(PUBLISHED_STATS_PREFILTER.source).toBe(PUBLISHED_SOURCE)
 
     expect(matchesPublishedStatsPrefilter(publishedBase())).toBe(true)
-    expect(matchesPublishedStatsPrefilter(publishedBase({ sport: 'nhl' }))).toBe(false)
+    expect(matchesPublishedStatsPrefilter(publishedBase({ sport: 'nhl' }))).toBe(true)
+    expect(matchesPublishedStatsPrefilter(publishedBase({ sport: 'nba' }))).toBe(false)
     expect(matchesPublishedStatsPrefilter(publishedBase({ edge: 0 }))).toBe(false)
     expect(matchesPublishedStatsPrefilter(publishedBase({ qualityScore: 39.9 }))).toBe(false)
     expect(matchesPublishedStatsPrefilter(publishedBase({ source: 'user_saved' }))).toBe(false)
@@ -499,12 +504,13 @@ describe('isPublishedEligibleProp', () => {
     expect(isPublishedPick({ ...cacheRow, status: 'completed', result: 'correct' })).toBe(false)
   })
 
-  test('still drops juice traps, juice prices, flat edge, low QS, and NHL', () => {
+  test('still drops juice traps, juice prices, flat edge, low QS, and unlisted sports', () => {
     expect(isPublishedEligibleProp(publishedBase({ prediction: 'under', threshold: 0.5 }))).toBe(false)
     expect(isPublishedEligibleProp(publishedBase({ odds: -250 }))).toBe(false)
     expect(isPublishedEligibleProp(publishedBase({ edge: 0 }))).toBe(false)
     expect(isPublishedEligibleProp(publishedBase({ qualityScore: 39 }))).toBe(false)
-    expect(isPublishedEligibleProp(publishedBase({ sport: 'nhl' }))).toBe(false)
+    expect(isPublishedEligibleProp(publishedBase({ sport: 'nhl' }))).toBe(true)
+    expect(isPublishedEligibleProp(publishedBase({ sport: 'nba' }))).toBe(false)
   })
 })
 
@@ -526,7 +532,8 @@ describe('isEditorsBoardFill', () => {
     expect(isEditorsBoardFill(publishedBase({ prediction: 'under', threshold: 0.5 }))).toBe(false)
     expect(isEditorsBoardFill(publishedBase({ odds: 300 }))).toBe(false)
     expect(isEditorsBoardFill(publishedBase({ odds: 1.40 }))).toBe(false)
-    expect(isEditorsBoardFill(publishedBase({ sport: 'nhl' }))).toBe(false)
+    expect(isEditorsBoardFill(publishedBase({ sport: 'nhl' }))).toBe(true)
+    expect(isEditorsBoardFill(publishedBase({ sport: 'nba' }))).toBe(false)
     expect(isEditorsBoardFill(publishedBase({ qualityScore: 39 }))).toBe(false)
   })
 })
@@ -558,11 +565,13 @@ describe('rankEditorsPicks', () => {
       prop('Decimal juice', { odds: 1.40, edge: 0.15, qualityScore: 70 }),
       prop('No edge', { edge: 0, qualityScore: 80 }),
       prop('Low QS', { edge: 0.10, qualityScore: 22 }),
+      prop('NBA', { sport: 'nba', edge: 0.14, qualityScore: 60 }),
       prop('NHL', { sport: 'nhl', edge: 0.14, qualityScore: 60 }),
     ]
 
     const ranked = rankEditorsPicks(rows)
     expect(ranked.map((row) => row.playerName)).toEqual([
+      'NHL',
       'High edge',
       'Tie edge better QS',
       'Tie edge worse QS',
@@ -576,7 +585,7 @@ describe('rankEditorsPicks', () => {
       prop('No Edge', { edge: 0 }),
     ])).toEqual([])
 
-    const one = rankEditorsPicks([prop('Only'), prop('NHL', { sport: 'nhl' })])
+    const one = rankEditorsPicks([prop('Only'), prop('NBA', { sport: 'nba' })])
     expect(one).toHaveLength(1)
     expect(one[0].playerName).toBe('Only')
   })
@@ -623,10 +632,10 @@ describe('selectTodaysBoardRows', () => {
     const noEdge = prop('No Edge', { edge: 0, qualityScore: 55 })
     const lowQs = prop('Low QS', { edge: 0.08, qualityScore: 22 })
     const decimalJuice = prop('Dec Juice', { odds: 1.40, edge: 0.15, qualityScore: 70 })
-    const nhl = prop('NHL', { sport: 'nhl', edge: 0.12, qualityScore: 60 })
+    const nba = prop('NBA', { sport: 'nba', edge: 0.12, qualityScore: 60 })
 
     expect(selectTodaysBoardRows({
-      publishedEligible: [juiceFavorite, juiceTrap, noEdge, lowQs, decimalJuice, nhl],
+      publishedEligible: [juiceFavorite, juiceTrap, noEdge, lowQs, decimalJuice, nba],
     })).toEqual([])
 
     const keep = prop('Keep', { edge: 0.12, odds: 1.91 })
@@ -833,7 +842,8 @@ describe('selectLastNightPublished', () => {
     expect(isPublishedCohort(publishedBase({ notes: 'tier:elite' }))).toBe(false)
     expect(isPublicPropSport('mlb')).toBe(true)
     expect(isPublicPropSport('nfl')).toBe(true)
-    expect(isPublicPropSport('nhl')).toBe(false)
+    expect(isPublicPropSport('nhl')).toBe(true)
+    expect(isPublicPropSport('nba')).toBe(false)
   })
 })
 
@@ -895,7 +905,7 @@ describe('toPublishedValidationFields', () => {
     expect(publishedPropId({ propId: 'yelich-tb-15' })).toBe('yelich-tb-15')
   })
 
-  test('rejects edge-0 juice, juice traps, game lines, NHL, and low QS', () => {
+  test('rejects edge-0 juice, juice traps, game lines, unlisted sports, and low QS', () => {
     const keep = {
       propId: 'p1',
       gameId: 'g1',
@@ -916,7 +926,11 @@ describe('toPublishedValidationFields', () => {
       pick: 'NYY',
       source: 'game_line',
     })).toBeNull()
-    expect(toPublishedValidationFields({ ...keep, sport: 'nhl' })).toBeNull()
+    expect(toPublishedValidationFields({ ...keep, sport: 'nba' })).toBeNull()
+    expect(toPublishedValidationFields({ ...keep, sport: 'nhl' })).toMatchObject({
+      sport: 'nhl',
+      notes: PUBLISHED_COHORT_TAG,
+    })
     expect(toPublishedValidationFields({ ...keep, qualityScore: 39 })).toBeNull()
     expect(toPublishedValidationFields({ ...keep, odds: -250 })).toBeNull()
   })
@@ -986,6 +1000,16 @@ describe('publishedValidationWritePlan', () => {
       gameIdRef: 'other-game',
       playerName: 'Planted',
     })).toBe('skip_foreign')
+    expect(publishedValidationWritePlan({
+      status: 'pending',
+      source: PUBLISHED_SOURCE,
+      notes: SHADOW_PUBLISHED_COHORT_TAG,
+    })).toBe('skip_shadow')
+    expect(publishedValidationWritePlan({
+      status: 'pending',
+      source: PUBLISHED_SOURCE,
+      notes: SHADOW_PUBLISHED_COHORT_TAG,
+    }, { shadow: true })).toBe('update')
     expect(publishedValidationWritePlan({ status: 'pending', source: 'parlay_leg' })).toBe('skip_foreign')
     expect(publishedValidationWritePlan({ status: 'pending', source: 'api_generated' })).toBe('skip_foreign')
     expect(publishedValidationWritePlan({ status: 'pending' })).toBe('skip_foreign')
@@ -1020,8 +1044,8 @@ describe('shadow published NHL cohort', () => {
     propId: 'matthews-sog-25',
   }
 
-  test('keeps the public sport list locked and adds a distinct NHL shadow list', () => {
-    expect(PUBLISHED_SPORTS).toEqual(['mlb', 'nfl'])
+  test('keeps NHL on the public sport list and a distinct historical shadow list', () => {
+    expect(PUBLISHED_SPORTS).toEqual(['mlb', 'nfl', 'nhl'])
     expect(SHADOW_PUBLISHED_SPORTS).toEqual(['nhl'])
     expect(CLOSE_CAPTURE_SPORTS).toEqual(['mlb', 'nfl', 'nhl'])
     expect(SHADOW_PUBLISHED_COHORT_TAG).toBe('cohort:shadow-published')
@@ -1031,9 +1055,10 @@ describe('shadow published NHL cohort', () => {
     expect(SHADOW_PUBLISHED_STATS_PREFILTER.minQuality).toBe(PUBLISHED_MIN_QUALITY)
   })
 
-  test('applies the identical Published bar to NHL, only swapping the sport list', () => {
-    expect(isPublishedEligibleProp(nhlKeep)).toBe(false)
+  test('applies the identical Published bar to NHL; shadow tag stays off the public card', () => {
+    expect(isPublishedEligibleProp(nhlKeep)).toBe(true)
     expect(isPublishedPick(nhlKeep)).toBe(false)
+    expect(isPublishedPick({ ...nhlKeep, notes: PUBLISHED_COHORT_TAG })).toBe(true)
     expect(isShadowPublishedEligibleProp(nhlKeep)).toBe(true)
     expect(isShadowPublishedPick(nhlKeep)).toBe(true)
     expect(isShadowPublishedEligibleProp({ ...nhlKeep, edge: 0 })).toBe(false)
@@ -1067,22 +1092,29 @@ describe('shadow published NHL cohort', () => {
     expect(isShadowPublishedCohort(publishedBase({ notes: PUBLISHED_COHORT_TAG }))).toBe(false)
   })
 
-  test('persist payload tags shadow NHL and still rejects the public persist path', () => {
-    expect(toPublishedValidationFields(nhlKeep)).toBeNull()
-    const fields = toShadowPublishedValidationFields(nhlKeep)
-    expect(fields).toMatchObject({
+  test('new NHL persist payload uses the public Published tag', () => {
+    expect(toPublishedValidationFields(nhlKeep)).toMatchObject({
       sport: 'nhl',
       source: PUBLISHED_SOURCE,
-      notes: SHADOW_PUBLISHED_COHORT_TAG,
+      notes: PUBLISHED_COHORT_TAG,
       qualityScore: 44,
       edge: 0.05,
       status: 'pending',
     })
+    const shadowFields = toShadowPublishedValidationFields(nhlKeep)
+    expect(shadowFields).toMatchObject({
+      sport: 'nhl',
+      notes: SHADOW_PUBLISHED_COHORT_TAG,
+    })
   })
 
-  test('close capture includes Published plus tagged shadow, not untagged NHL archive', () => {
+  test('close capture includes published NHL and tagged shadow, not untagged NHL archive', () => {
     expect(isCloseCaptureEligiblePick(publishedBase({ status: 'pending' }))).toBe(true)
     expect(isCloseCaptureEligiblePick(nhlKeep)).toBe(true)
+    expect(isCloseCaptureEligiblePick({
+      ...nhlKeep,
+      notes: PUBLISHED_COHORT_TAG,
+    })).toBe(true)
     expect(isCloseCaptureEligiblePick({
       ...nhlKeep,
       notes: 'tier:elite',

@@ -31,7 +31,6 @@ jest.mock('../../lib/supabase-admin.js', () => ({
 
 import {
   persistPublishedEligibleProps,
-  persistShadowPublishedEligibleProps,
 } from '../../lib/validation.js'
 import { ROSTER_SKIP_REASONS } from '../../lib/event-roster-eligibility.js'
 import {
@@ -139,7 +138,7 @@ describe('Published persist applies the event-roster guard', () => {
   })
 })
 
-describe('shadow NHL persist uses the same roster guard and stays private', () => {
+describe('public NHL persist uses the Published path and roster guard', () => {
   beforeEach(() => {
     inserts.length = 0
     from.mockReset()
@@ -158,26 +157,26 @@ describe('shadow NHL persist uses the same roster guard and stays private', () =
       const chain = createChain({ data: null, error: null })
       chain.insert = jest.fn((payload) => {
         inserts.push(payload)
-        return createChain({ data: { id: 'pv-shadow', ...payload }, error: null })
+        return createChain({ data: { id: 'pv-nhl', ...payload }, error: null })
       })
       return chain
     })
   })
 
-  test('records shadow-published notes, not public Published, after roster keep', async () => {
-    const saved = await persistShadowPublishedEligibleProps([
+  test('records new NHL as cohort:published after roster keep', async () => {
+    const saved = await persistPublishedEligibleProps([
       shadowNhl(),
     ], {
       guardPropsByEventRoster: async (rows) => ({ kept: rows, skipped: [] }),
     })
     expect(saved).toHaveLength(1)
-    expect(inserts[0].notes).toMatch(/cohort:shadow-published/)
-    expect(inserts[0].notes).not.toMatch(/cohort:published[^-]/)
+    expect(inserts[0].notes).toMatch(/cohort:published/)
+    expect(inserts[0].notes).not.toMatch(/shadow-published/)
     expect(inserts[0].sport).toBe('nhl')
   })
 
-  test('does not persist a shadow NHL prop when the roster is unavailable', async () => {
-    const saved = await persistShadowPublishedEligibleProps([
+  test('does not persist a public NHL prop when the roster is unavailable', async () => {
+    const saved = await persistPublishedEligibleProps([
       shadowNhl({ playerName: 'Connor McDavid' }),
     ], {
       loadGame: async () => ({
@@ -195,6 +194,48 @@ describe('shadow NHL persist uses the same roster guard and stays private', () =
       error: () => {},
     })
     expect([...saved]).toEqual([])
+    expect(inserts).toEqual([])
+  })
+
+  test('leaves an existing shadow-tagged NHL row unchanged', async () => {
+    const existing = {
+      id: 'pv-shadow-hist',
+      status: 'pending',
+      source: 'system_generated',
+      notes: 'cohort:shadow-published',
+      sport: 'nhl',
+      playerName: 'Jack Hughes',
+    }
+    from.mockImplementation((table) => {
+      if (table === 'Game') {
+        return createChain({
+          data: {
+            id: 'NYR_at_NJD_2026-11-02',
+            sport: 'nhl',
+            status: 'scheduled',
+            date: '2026-11-02T00:00:00.000Z',
+          },
+          error: null,
+        })
+      }
+      const chain = createChain({ data: existing, error: null })
+      chain.update = jest.fn(() => {
+        throw new Error('must not rewrite historical shadow rows')
+      })
+      chain.insert = jest.fn(() => {
+        throw new Error('must not insert over historical shadow rows')
+      })
+      return chain
+    })
+
+    const saved = await persistPublishedEligibleProps([
+      shadowNhl(),
+    ], {
+      guardPropsByEventRoster: async (rows) => ({ kept: rows, skipped: [] }),
+    })
+    expect(saved).toHaveLength(1)
+    expect(saved[0].id).toBe('pv-shadow-hist')
+    expect(saved[0].notes).toBe('cohort:shadow-published')
     expect(inserts).toEqual([])
   })
 })

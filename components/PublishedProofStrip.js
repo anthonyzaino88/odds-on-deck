@@ -40,7 +40,7 @@ export default function PublishedProofStrip({ stats, yesterday }) {
               Published track
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              MLB + NFL · ROI first, then units, sample, and average odds
+              MLB + NFL + NHL · ROI first, then units, sample, and average odds
             </p>
           </div>
           <Link

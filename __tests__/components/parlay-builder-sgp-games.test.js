@@ -43,9 +43,9 @@ describe('ParlayBuilder SGP game list', () => {
     expect(nextParlayBuilderGameId([], mlbNoon.id)).toBe('')
   })
 
-  test('NHL games stay off the public builder list, including mixed', () => {
-    expect(parlayBuilderGamesForSport(cache, 'nhl')).toEqual([])
-    expect(parlayBuilderGamesForSport(cache, 'mixed').map((g) => g.sport)).toEqual(['mlb', 'mlb', 'nfl'])
-    expect(parlayBuilderGamesForSport(cache, 'mixed').some((g) => g.sport === 'nhl')).toBe(false)
+  test('NHL games are on the public builder list, including mixed', () => {
+    expect(parlayBuilderGamesForSport(cache, 'nhl').map((g) => g.id)).toEqual([nhlPre.id])
+    expect(parlayBuilderGamesForSport(cache, 'mixed').map((g) => g.sport)).toEqual(['mlb', 'mlb', 'nfl', 'nhl'])
+    expect(parlayBuilderGamesForSport(cache, 'mixed').some((g) => g.sport === 'nhl')).toBe(true)
   })
 })

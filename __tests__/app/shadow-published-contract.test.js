@@ -4,23 +4,23 @@ const path = require('path')
 const read = (rel) => fs.readFileSync(path.join(__dirname, '../..', rel), 'utf8')
 
 describe('private NHL shadow-published track stays off Published surfaces', () => {
-  test('PUBLISHED_SPORTS stays mlb+nfl; shadow is a distinct NHL cohort', () => {
+  test('PUBLISHED_SPORTS includes nhl; shadow stays a distinct historical NHL cohort', () => {
     const published = read('lib/published-picks.js')
-    expect(published).toMatch(/export const PUBLISHED_SPORTS = Object\.freeze\(\['mlb', 'nfl'\]\)/)
+    expect(published).toMatch(/export const PUBLISHED_SPORTS = Object\.freeze\(\['mlb', 'nfl', 'nhl'\]\)/)
     expect(published).toMatch(/export const SHADOW_PUBLISHED_SPORTS = Object\.freeze\(\['nhl'\]\)/)
     expect(published).toMatch(/export const SHADOW_PUBLISHED_COHORT_TAG = 'cohort:shadow-published'/)
     expect(published).toMatch(/applyShadowPublishedNotesExclusion/)
     expect(published).toMatch(/isShadowPublishedEligibleProp/)
+    expect(published).toMatch(/skip_shadow/)
   })
 
-  test('record:published persists shadow in the same run; no extra ops script required', () => {
+  test('record:published writes new NHL as Published; shadow persist is not in that sweep', () => {
     const validation = read('lib/validation.js')
     const record = read('scripts/record-published-props.js')
     const pkg = read('package.json')
-    expect(validation).toMatch(/export async function persistShadowPublishedEligibleFromCache/)
-    expect(validation).toMatch(/persistShadowPublishedEligibleFromCache\(shared\)/)
-    expect(validation).toMatch(/SHADOW_PUBLISHED_STATS_PREFILTER\.sports/)
-    expect(validation).toMatch(/SHADOW_ROSTER_GUARD_SPORTS/)
+    expect(validation).not.toMatch(/persistShadowPublishedEligibleFromCache/)
+    expect(validation).not.toMatch(/persistShadowPublishedEligibleProps/)
+    expect(validation).toMatch(/skip_shadow/)
     expect(validation).toMatch(/guardPropsByEventRoster/)
     expect(record).toMatch(/persistPublishedEligibleFromCache/)
     expect(record).toMatch(/cohort:shadow-published/)
@@ -192,7 +192,8 @@ describe('private NHL shadow-published track stays off Published surfaces', () =
     expect(capture).toMatch(/CLOSE_CAPTURE_SPORTS/)
     expect(capture).toMatch(/isCloseCaptureEligiblePick/)
     expect(capture).toMatch(/closeCaptureJobPriority/)
-    expect(capture).toMatch(/shares this --max-calls budget/)
+    expect(capture).toMatch(/NHL shares this --max-calls budget/)
+    expect(capture).toMatch(/NFL jobs run first/)
     expect(report).toMatch(/Never writes/)
     expect(report).toMatch(/Never calls The Odds API/)
     expect(report).toMatch(/ilike\('notes', `%\$\{SHADOW_PUBLISHED_COHORT_TAG\}%`\)/)

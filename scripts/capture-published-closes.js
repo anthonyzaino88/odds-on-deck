@@ -6,7 +6,9 @@
  * still has Published or shadow-published picks without closeOdds,
  * markets restricted to those picks. Never re-runs morning fetch-live-odds.
  * Writes only where closeOdds IS NULL. Requires the secret key.
- * Shadow NHL shares this job's window, guards, and --max-calls budget.
+ * NHL (published or historical shadow-tagged) shares this job's window,
+ * guards, and --max-calls budget. NFL jobs run first so a busy NHL
+ * slate cannot exhaust the cap before later NFL closes.
  *
  * --nfl-all (opt-in): also capture every pending NFL prop without a close
  * (Published bar ignored) and merge h2h/spreads/totals onto that same
@@ -227,8 +229,9 @@ export async function runCapturePublishedCloses({
     log.log(`Usage: node scripts/capture-published-closes.js [--dry-run|--apply] [--nfl-all] [--max-calls N] [--max-credits N] [--min-remaining N]
 
 Dry-run (default): list in-window Published and shadow-published picks
-missing a close. Shadow NHL shares this --max-calls budget (Published
-jobs run first). --apply or CLV_APPLY=1: one Odds API call per
+missing a close. NHL shares this --max-calls budget; NFL jobs run first
+so a busy NHL slate cannot exhaust the cap before later NFL closes.
+--apply or CLV_APPLY=1: one Odds API call per
 oddsApiEventId, write closeOdds only where closeOdds IS NULL. Requires
 ODDS_API_KEY + SUPABASE_SECRET_KEY (SUPABASE_REQUIRE_SECRET_KEY=1).
          Do not run from CI. Anon/public keys are refused.

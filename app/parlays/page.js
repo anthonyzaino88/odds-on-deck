@@ -8,6 +8,7 @@ import ParlayHistory from '../../components/ParlayHistory.js'
 import { SportBadge, BookBadge } from '../../components/ui'
 import { formatAmericanOdds } from '../../lib/odds-units.js'
 import { dedupeFeaturedPageCards } from '../../lib/featured-parlays.js'
+import { PUBLISHED_SPORTS } from '../../lib/published-picks.js'
 
 function formatOdds(odds) {
   return formatAmericanOdds(odds) || '+100'
@@ -87,7 +88,7 @@ function ParlayOfTheDay({ onFeaturedReady }) {
 
   useEffect(() => {
     async function fetchFeatured() {
-      const sports = ['mlb', 'nfl']
+      const sports = [...PUBLISHED_SPORTS]
       const results = []
 
       await Promise.all(sports.flatMap(s => [
@@ -185,7 +186,7 @@ export default function ParlaysPage() {
         </Link>
         <h1 className="text-xl font-semibold text-slate-100">Parlay Builder</h1>
         <p className="text-sm text-slate-400 mt-1.5 max-w-2xl leading-relaxed">
-          Featured snaps Published-eligible 3-leg MLB/NFL cards onto a graded track.
+          Featured snaps Published-eligible 3-leg MLB/NFL/NHL cards onto a graded track.
           The builder below stays exploratory &mdash; those combinations are not the Featured cohort.
         </p>
       </div>
@@ -208,7 +209,7 @@ export default function ParlaysPage() {
       <div className="rounded-[4px] border border-white/[0.06] bg-surface p-4">
         <h4 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-2">How It Works</h4>
         <ul className="text-sm text-slate-400 space-y-1.5">
-          <li>&bull; <span className="text-slate-200 font-medium">Featured Parlays</span> are 3-leg MLB/NFL cards from Published-eligible props only. Empty when the slate is thin</li>
+          <li>&bull; <span className="text-slate-200 font-medium">Featured Parlays</span> are 3-leg MLB/NFL/NHL cards from Published-eligible props only. Empty when the slate is thin</li>
           <li>&bull; <span className="text-slate-200 font-medium">Build Your Own</span> by selecting sport, strategy, and leg count below</li>
           <li>&bull; <span className="text-slate-200 font-medium">Same-Game Parlays (SGPs)</span> stack multiple props from a single game</li>
           <li>&bull; <span className="text-slate-200 font-medium">Featured track</span> persists only Featured-cleared cards and grades them when legs settle</li>

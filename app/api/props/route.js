@@ -18,7 +18,7 @@ export async function GET(request) {
     const gameId = searchParams.get('gameId') // Optional: filter by specific game
     const limit = clampPropsLimit(searchParams.get('limit'))
 
-    // NHL (and any non-public sport) is private shadow — never serve it.
+    // Sports outside PUBLISHED_SPORTS are not served on the public API.
     if (sport && !isPublicPropSport(sport)) {
       return NextResponse.json({ success: true, props: [], count: 0 })
     }
