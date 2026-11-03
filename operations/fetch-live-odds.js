@@ -29,9 +29,10 @@ import {
 import { calculateQualityScore } from '../lib/quality-score.js'
 import { attachNumBooks } from '../lib/juice-traps.js'
 import {
-  isPublishedEligibleProp,
+  loadPublishedEligibleForAutoSave,
   selectAutoSaveValidationProps,
 } from '../lib/published-picks.js'
+import { paginateSupabaseSelect } from '../lib/unplayed-game-grades.js'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -1363,17 +1364,11 @@ async function autoSaveTopPropsForValidation(sport) {
     return
   }
 
-  const { data: publishedCandidates } = await supabase
-    .from('PlayerPropCache')
-    .select('*')
-    .eq('sport', sport)
-    .eq('isStale', false)
-    .gte('expiresAt', now)
-    .gt('edge', 0)
-    .gte('qualityScore', 40)
-    .limit(200)
-
-  const publishedUpcoming = (publishedCandidates || []).filter((prop) => isPublishedEligibleProp(prop))
+  const { rows: publishedUpcoming } = await loadPublishedEligibleForAutoSave(supabase, {
+    sport,
+    now,
+    paginate: paginateSupabaseSelect,
+  })
   const topProps = selectAutoSaveValidationProps(candidates, publishedUpcoming)
 
   if (!topProps || topProps.length === 0) {

@@ -23,6 +23,8 @@ import {
   isHomepageYesterdayPublished,
   isPublishedOppositeBlocker,
   selectAutoSaveValidationProps,
+  publishedEligibleAutoSaveCacheQuery,
+  loadPublishedEligibleForAutoSave,
   publishedSlateInstant,
   publishedValidationWritePlan,
   PUBLISHED_COHORT_TAG,
@@ -1468,5 +1470,55 @@ describe('auto-save opposite Published guard', () => {
     })
     const kept = selectAutoSaveValidationProps([tierUnder], [publishedOver])
     expect(kept).toEqual([])
+  })
+
+  test('eligible prefetch orders by qualityScore then propId and paginates past 200', async () => {
+    const calls = []
+    const chain = {
+      select(...args) { calls.push(['select', args]); return chain },
+      eq(...args) { calls.push(['eq', args]); return chain },
+      gte(...args) { calls.push(['gte', args]); return chain },
+      gt(...args) { calls.push(['gt', args]); return chain },
+      order(...args) { calls.push(['order', args]); return chain },
+      limit(...args) { calls.push(['limit', args]); return chain },
+    }
+    const client = { from(table) { calls.push(['from', [table]]); return chain } }
+
+    publishedEligibleAutoSaveCacheQuery(client, {
+      sport: 'nhl',
+      now: '2026-11-03T15:00:00.000Z',
+    })
+    expect(calls.filter((call) => call[0] === 'order')).toEqual([
+      ['order', ['qualityScore', { ascending: false }]],
+      ['order', ['propId', { ascending: true }]],
+    ])
+    expect(calls.some((call) => call[0] === 'limit')).toBe(false)
+
+    const pageOne = Array.from({ length: 200 }, (_, i) => boeser('over', {
+      playerName: `PageOne ${i}`,
+      propId: `p1-${String(i).padStart(3, '0')}`,
+      qualityScore: 50,
+    }))
+    const latePublishedOver = boeser('over', {
+      propId: 'p2-boeser-over',
+      qualityScore: 41,
+      notes: PUBLISHED_COHORT_TAG,
+    })
+    const { rows } = await loadPublishedEligibleForAutoSave(client, {
+      sport: 'nhl',
+      now: '2026-11-03T15:00:00.000Z',
+      paginate: async () => ({ rows: [...pageOne, latePublishedOver], error: null }),
+    })
+    expect(rows).toHaveLength(201)
+    expect(rows[200].propId).toBe('p2-boeser-over')
+
+    const tierUnder = boeser('under', {
+      edge: 0.12,
+      qualityScore: 48,
+      probability: 0.62,
+      odds: -250,
+      notes: 'tier:elite,auto-saved',
+    })
+    expect(selectAutoSaveValidationProps([tierUnder], rows)).toEqual([])
   })
 })
