@@ -59,6 +59,7 @@ import {
   skipAutoSaveAfterPublishedPrefetchError,
 } from '../lib/published-picks.js'
 import { paginateSupabaseSelect } from '../lib/unplayed-game-grades.js'
+import { applyInjuryAvailability, loadInjurySnapshot } from '../lib/injury-availability.js'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -1591,12 +1592,24 @@ async function savePlayerProps(gameProps, sport) {
     }
   }
   
-  console.log(`    📊 Prepared ${allPropsToInsert.length} props for insertion (${skipped} skipped)`)
+  const injurySnapshot = await loadInjurySnapshot({ supabase, log: console })
+  const availability = applyInjuryAvailability(
+    allPropsToInsert.map((prop) => ({ ...prop, sport })),
+    injurySnapshot,
+    { log: console },
+  )
+  if (availability.skipped.length) {
+    console.log(`    📌 Injury/starter: skipped ${availability.skipped.length} cached prop(s)`)
+    skipped += availability.skipped.length
+  }
+  const propsToInsert = availability.kept.map(({ availabilityFlags, ...row }) => row)
+
+  console.log(`    📊 Prepared ${propsToInsert.length} props for insertion (${skipped} skipped)`)
   
   // BATCH INSERT in chunks of 500 (Supabase limit)
   const BATCH_SIZE = 500
-  for (let i = 0; i < allPropsToInsert.length; i += BATCH_SIZE) {
-    const batch = allPropsToInsert.slice(i, i + BATCH_SIZE)
+  for (let i = 0; i < propsToInsert.length; i += BATCH_SIZE) {
+    const batch = propsToInsert.slice(i, i + BATCH_SIZE)
     
     try {
       const { error } = await supabase
@@ -1627,8 +1640,8 @@ async function savePlayerProps(gameProps, sport) {
       }
       
       // Progress indicator
-      const progress = Math.min(i + BATCH_SIZE, allPropsToInsert.length)
-      console.log(`    💾 Saved ${progress}/${allPropsToInsert.length} props...`)
+      const progress = Math.min(i + BATCH_SIZE, propsToInsert.length)
+      console.log(`    💾 Saved ${progress}/${propsToInsert.length} props...`)
       
     } catch (batchError) {
       console.error(`    ❌ Batch error: ${batchError.message}`)
@@ -1672,7 +1685,9 @@ async function autoSaveTopPropsForValidation(sport) {
     paginate: paginateSupabaseSelect,
   })
   if (skipAutoSaveAfterPublishedPrefetchError(publishedError, sport)) return
-  const topProps = selectAutoSaveValidationProps(candidates, publishedUpcoming)
+  const selected = selectAutoSaveValidationProps(candidates, publishedUpcoming)
+  const injurySnapshot = await loadInjurySnapshot({ supabase, log: console })
+  const topProps = applyInjuryAvailability(selected, injurySnapshot, { log: console }).kept
 
   if (!topProps || topProps.length === 0) {
     console.log(`  ℹ️ No high-quality props found to save for validation`)
@@ -1733,7 +1748,7 @@ async function autoSaveTopPropsForValidation(sport) {
         status: 'pending',
         sport: prop.sport,
         timestamp: new Date().toISOString(),
-        notes: `tier:${tier},auto-saved`
+        notes: [ `tier:${tier},auto-saved`, ...(prop.availabilityFlags || []) ].join(',')
       }, prop)
       
       const { error: saveError } = await supabase

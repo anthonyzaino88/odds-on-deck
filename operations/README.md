@@ -31,6 +31,14 @@ node scripts/reconcile-games.js --sport mlb
 # Later, after morning review: node scripts/fetch-fresh-games.js all --reconcile
 # Then enable writes: node scripts/fetch-fresh-games.js all --reconcile --apply
 
+# 2c. ESPN injuries + NHL starting goalies (free JSON; zero Odds API credits)
+# APPLY 009_injury_report.sql once in the SQL Editor before the first persist.
+# Missing tables: WARN and continue. Footer INJURIES_STATUS=ok|partial|failed (exit 0).
+# Any value other than ok is WARN in the morning report.
+# Writes during :05–:15 ET are allowed (8:09 morning job). Same exemption
+# as fetch-fresh-games Game upserts (`ignoreQuietPeriod`). Do not no-op this.
+node scripts/fetch-injuries.js
+
 # 3. Fetch odds with proper gameTime mapping
 node scripts/fetch-live-odds.js all --cache-fresh
 # Footer prints ODDS_BUDGET_STATUS=ok|floor|daily_cap|monthly_cap|probe_failed (exit 0).
@@ -332,6 +340,53 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 SUPABASE_SECRET_KEY=your_service_role_key  # Required for write operations!
 ODDS_API_KEY=your_odds_api_key
 ```
+
+### ESPN injuries + NHL starting goalies
+
+`scripts/fetch-injuries.js` pulls ESPN public injuries for NFL and NHL
+(`site.api.espn.com/.../injuries`) and NHL probable/confirmed starters
+from the ESPN scoreboard / game summary. If ESPN has no (or incomplete)
+goalie data, it falls back to NHL's free `api-web.nhle.com`
+(`/v1/score/{date}` and `/v1/gamecenter/{id}/landing`,
+`matchup.goalieComparison`). Zero Odds API credits. Timeouts and retries;
+no new npm dependencies.
+
+Apply `scripts/migrations/009_injury_report.sql` once in the SQL Editor
+(creates `InjuryReport` and `NhlStartingGoalie`, RLS on, no anon policies).
+Do not run it from CI. If the tables are missing, the script logs WARN
+and continues; persist/auto-save skip the filter the same way.
+
+Footer (always exit 0):
+
+```
+INJURIES_STATUS=ok|partial|failed
+INJURIES_NFL=<n> INJURIES_NHL=<n> STARTERS_NHL=<n>
+```
+
+Any status other than `ok` is WARN in the morning report.
+
+Writes during `:05–:15` ET are allowed — this is the 8:09 morning
+snapshot, same exemption class as `fetch-fresh-games` Game upserts
+(`ignoreQuietPeriod`). Do not add a quiet-period no-op here.
+
+A league is replaced only when it parsed **>0** rows (goalies: rows
+covering the scoreboard / slate teams). Empty or malformed ESPN JSON
+keeps existing rows and sets `INJURIES_STATUS=partial` — it does not
+wipe. Upsert stamps `fetchedAt` with a run timestamp, then deletes
+older rows for that date+sport whose `teamAbbr` is in the new set
+(`fetchedAt < runStamp`). A team ESPN omitted keeps its earlier rows.
+An upsert failure skips prune. `INJURIES_STATUS=partial` when the NHL
+goalie fallback fails or a league parse is empty.
+
+Cache insert, Published persist, and auto-save skip Out / IR / Doubtful
+and NHL **confirmed**-starter backups. Name matches are scoped to the
+prop `gameId` home/away teams (PlayerPropCache has no team). Unresolved
+teams or two injury hits FLAG (`injury:questionable` / `injury:ambiguous`)
+instead of skip. Questionable players and unconfirmed starters are
+flagged on `PropValidation.notes`. If today's snapshot is empty the
+filter logs `injury filter skipped (no rows today)`. NHL sides/totals
+are not published today; the same unconfirmed-starter flag applies if a
+game-line row is passed in. Grading and CLV math are unchanged.
 
 ### Odds API credit budget
 
