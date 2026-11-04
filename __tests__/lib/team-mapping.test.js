@@ -89,6 +89,11 @@ describe('NFL full team names', () => {
     expect(resolveNflTeamCode('kc')).toBe('KC')
     expect(resolveNflTeamCode('Philadelphia Eagles')).toBe('PHI')
     expect(resolveNflTeamCode('NFL_PHI')).toBe('PHI')
+    expect(resolveNflTeamCode('LA')).toBe('LAR')
+    expect(resolveNflTeamCode('LAR')).toBe('LAR')
+    expect(resolveNflTeamCode('WAS')).toBe('WSH')
+    expect(resolveNflTeamCode('WSH')).toBe('WSH')
+    expect(resolveNflTeamCode('Washington Commanders')).toBe('WSH')
   })
 })
 
@@ -96,6 +101,8 @@ describe('NHL team codes', () => {
   test('names and feed aliases map onto ESPN abbreviations', () => {
     expect(resolveNhlTeamCode('Vegas Golden Knights')).toBe('VGK')
     expect(resolveNhlTeamCode('Utah Hockey Club')).toBe('UTA')
+    expect(resolveNhlTeamCode('UTAH')).toBe('UTA')
+    expect(resolveNhlTeamCode('UTA')).toBe('UTA')
     expect(resolveNhlTeamCode('ARI')).toBe('UTA')
     expect(resolveNhlTeamCode('NJ')).toBe('NJD')
     expect(resolveNhlTeamCode('LA')).toBe('LAK')

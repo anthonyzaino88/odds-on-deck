@@ -369,10 +369,13 @@ Writes during `:05–:15` ET are allowed — this is the 8:09 morning
 snapshot, same exemption class as `fetch-fresh-games` Game upserts
 (`ignoreQuietPeriod`). Do not add a quiet-period no-op here.
 
-Each successful league fetch **replaces** that ET day's rows (delete
-then upsert) so a midday upgrade cannot stay Out. NHL starter rows for
-the day are replaced when the scoreboard or NHL fallback returns a
-payload. `INJURIES_STATUS=partial` when the NHL goalie fallback fails.
+A league is replaced only when it parsed **>0** rows (goalies: rows
+covering the scoreboard / slate teams). Empty or malformed ESPN JSON
+keeps existing rows and sets `INJURIES_STATUS=partial` — it does not
+wipe. Order is upsert the new rows first, then delete that day's
+league rows whose id is not in the new set. An upsert failure leaves
+existing rows in place. `INJURIES_STATUS=partial` when the NHL goalie
+fallback fails or a league parse is empty.
 
 Cache insert, Published persist, and auto-save skip Out / IR / Doubtful
 and NHL **confirmed**-starter backups. Name matches are scoped to the

@@ -186,7 +186,7 @@ describe('applyInjuryAvailability', () => {
     const scoped = applyInjuryAvailability([bufProp], { injuries, goalies: [] })
     expect(scoped.skipped).toEqual([])
     expect(scoped.kept).toHaveLength(1)
-    expect(scoped.kept[0].availabilityFlags || []).not.toContain(INJURY_AMBIGUOUS_FLAG)
+    expect(scoped.kept[0].availabilityFlags).toContain(INJURY_AMBIGUOUS_FLAG)
 
     const unresolved = applyInjuryAvailability(
       [{ playerName: 'Josh Allen', sport: 'nfl', type: 'passing_yards' }],
@@ -200,6 +200,21 @@ describe('applyInjuryAvailability', () => {
       { injuries, goalies: [] },
     )
     expect(jaxGame.skipped.map((row) => row.playerName)).toEqual(['Josh Allen'])
+  })
+
+  test('Out Keller on UTA_at_COL is skipped including UTAH alias', () => {
+    const injuries = [
+      { sport: 'nhl', teamAbbr: 'UTAH', playerName: 'Clayton Keller', status: 'Out' },
+    ]
+    const skipped = applyInjuryAvailability([
+      { playerName: 'Clayton Keller', sport: 'nhl', gameId: 'UTA_at_COL_2026-11-04', type: 'points' },
+    ], { injuries, goalies: [] })
+    expect(skipped.skipped.map((row) => row.playerName)).toEqual(['Clayton Keller'])
+
+    const utahId = applyInjuryAvailability([
+      { playerName: 'Clayton Keller', sport: 'nhl', gameId: 'UTAH_at_COL_2026-11-04', type: 'points' },
+    ], { injuries: [{ ...injuries[0], teamAbbr: 'UTA' }], goalies: [] })
+    expect(utahId.skipped.map((row) => row.playerName)).toEqual(['Clayton Keller'])
   })
 
   test('emits injury filter skipped when the snapshot has no rows today', () => {
@@ -255,27 +270,38 @@ describe('graceful degradation', () => {
     expect(lines.join('\n')).toMatch(/not persisted/)
   })
 
-  test('replaces that ET day per league before upsert so a midday upgrade does not stay Out', async () => {
-    const deleted = []
-    const upserts = []
-    const chainFor = (table) => {
-      const filters = {}
-      const chain = {}
-      chain.delete = () => chain
-      chain.eq = (key, value) => {
-        filters[key] = value
+  function writeClient(ops, { upsertError = null } = {}) {
+    return {
+      from: (table) => {
+        const filters = {}
+        const chain = {}
+        chain.upsert = async (rows) => {
+          ops.push({ op: 'upsert', table, rows })
+          return { error: upsertError }
+        }
+        chain.delete = () => {
+          chain._delete = true
+          return chain
+        }
+        chain.eq = (key, value) => {
+          filters[key] = value
+          return chain
+        }
+        chain.not = (column, operator, value) => {
+          filters.not = [column, operator, value]
+          return chain
+        }
+        chain.then = (ok, bad) => {
+          if (chain._delete) ops.push({ op: 'delete', table, ...filters })
+          return Promise.resolve({ error: null }).then(ok, bad)
+        }
         return chain
-      }
-      chain.upsert = async (rows) => {
-        upserts.push({ table, rows })
-        return { error: null }
-      }
-      chain.then = (ok, bad) => {
-        deleted.push({ table, ...filters })
-        return Promise.resolve({ error: null }).then(ok, bad)
-      }
-      return chain
+      },
     }
+  }
+
+  test('upserts first then prunes ids not in the new set', async () => {
+    const ops = []
     await persistInjurySnapshot({
       asOfDate: '2026-11-04',
       injuries: [{
@@ -290,13 +316,50 @@ describe('graceful degradation', () => {
       goalies: [],
     }, {
       replace: { nflInjuries: true, nhlInjuries: false, goalies: false },
-      supabase: { from: (table) => chainFor(table) },
+      supabase: writeClient(ops),
     })
-    expect(deleted).toEqual([
-      { table: 'InjuryReport', asOfDate: '2026-11-04', sport: 'nfl' },
-    ])
-    expect(upserts).toHaveLength(1)
-    expect(upserts[0].rows[0].playerName).toBe('Travis Kelce')
+    expect(ops.map((row) => row.op)).toEqual(['upsert', 'delete'])
+    expect(ops[0].rows[0].playerName).toBe('Travis Kelce')
+    expect(ops[1].sport).toBe('nfl')
+    expect(ops[1].not[2]).toContain('inj:nfl:2026-11-04:KC:travis-kelce')
+  })
+
+  test('empty payload does not delete existing rows', async () => {
+    const ops = []
+    const result = await persistInjurySnapshot({
+      asOfDate: '2026-11-04',
+      injuries: [],
+      goalies: [],
+    }, {
+      replace: { nflInjuries: true, nhlInjuries: true, goalies: true },
+      supabase: writeClient(ops),
+    })
+    expect(ops).toEqual([])
+    expect(result.persisted).toBe(true)
+  })
+
+  test('upsert failure retains existing rows (no delete)', async () => {
+    const ops = []
+    const result = await persistInjurySnapshot({
+      asOfDate: '2026-11-04',
+      injuries: [{
+        id: 'inj:nfl:2026-11-04:KC:x',
+        sport: 'nfl',
+        teamAbbr: 'KC',
+        playerName: 'X',
+        status: 'Out',
+        asOfDate: '2026-11-04',
+        fetchedAt: '2026-11-04T16:00:00.000Z',
+      }],
+      goalies: [],
+    }, {
+      log: { log() {}, warn() {} },
+      replace: { nflInjuries: true, nhlInjuries: false, goalies: false },
+      supabase: writeClient(ops, { upsertError: { message: 'write failed' } }),
+    })
+    expect(ops.map((row) => row.op)).toEqual(['upsert'])
+    expect(result.persisted).toBe(false)
+    expect(result.retained).toBe(true)
   })
 })
 
@@ -319,6 +382,16 @@ describe('fetchJsonWithRetry', () => {
 })
 
 describe('runFetchInjuries', () => {
+  const nhlOneInjury = {
+    injuries: [{
+      team: { abbreviation: 'TOR' },
+      injuries: [{
+        status: 'DTD',
+        athlete: { displayName: 'Auston Matthews', position: { abbreviation: 'C' } },
+      }],
+    }],
+  }
+
   test('parses fixtures, persists, and prints INJURIES_STATUS=ok', async () => {
     const logs = []
     const upserts = { InjuryReport: [], NhlStartingGoalie: [] }
@@ -333,7 +406,7 @@ describe('runFetchInjuries', () => {
           return { ok: true, json: async () => nfl }
         }
         if (href.includes('/hockey/nhl/injuries')) {
-          return { ok: true, json: async () => ({ injuries: [] }) }
+          return { ok: true, json: async () => nhlOneInjury }
         }
         if (href.includes('/hockey/nhl/scoreboard')) {
           return { ok: true, json: async () => board }
@@ -343,7 +416,7 @@ describe('runFetchInjuries', () => {
       supabase: {
         from: (table) => ({
           upsert: async (rows) => {
-            upserts[table] = rows
+            upserts[table] = (upserts[table] || []).concat(rows)
             return { error: null }
           },
         }),
@@ -352,12 +425,68 @@ describe('runFetchInjuries', () => {
     expect(result.status).toBe('ok')
     expect(result.exitCode).toBe(0)
     expect(result.counts.nflInjuries).toBe(4)
+    expect(result.counts.nhlInjuries).toBe(1)
     expect(result.counts.goalies).toBe(2)
-    expect(upserts.InjuryReport).toHaveLength(4)
+    expect(upserts.InjuryReport).toHaveLength(5)
     expect(upserts.NhlStartingGoalie).toHaveLength(2)
     expect(logs.join('\n')).toMatch(/INJURIES_STATUS=ok/)
     expect(logs.join('\n')).not.toMatch(/ODDS_API_KEY/)
     expect(logs.join('\n')).not.toMatch(/secret/)
+  })
+
+  test('empty or malformed ESPN payloads keep existing rows and are partial', async () => {
+    const logs = []
+    const ops = []
+    const empty = await runFetchInjuries({
+      now: new Date('2026-11-04T16:00:00.000Z'),
+      log: { log: (msg) => logs.push(msg), warn: (msg) => logs.push(msg) },
+      retries: 0,
+      fetchImpl: async () => ({ ok: true, json: async () => ({}) }),
+      supabase: {
+        from: (table) => {
+          const chain = {
+            upsert: async (rows) => {
+              ops.push({ op: 'upsert', table, rows })
+              return { error: null }
+            },
+            delete: () => {
+              ops.push({ op: 'delete', table })
+              return chain
+            },
+            eq: () => chain,
+            not: () => chain,
+            then: (ok, bad) => Promise.resolve({ error: null }).then(ok, bad),
+          }
+          return chain
+        },
+      },
+    })
+    expect(empty.status).toBe('partial')
+    expect(empty.exitCode).toBe(0)
+    expect(ops).toEqual([])
+    expect(logs.join('\n')).toMatch(/INJURIES_STATUS=partial/)
+
+    const malformed = await runFetchInjuries({
+      now: new Date('2026-11-04T16:00:00.000Z'),
+      log: { log() {}, warn() {} },
+      retries: 0,
+      fetchImpl: async () => ({ ok: true, json: async () => ({ injuries: 'nope', events: 1 }) }),
+      supabase: {
+        from: () => ({
+          upsert: async () => {
+            ops.push({ op: 'upsert' })
+            return { error: null }
+          },
+          delete: () => {
+            ops.push({ op: 'delete' })
+            return { eq: () => ({ not: async () => ({ error: null }) }) }
+          },
+        }),
+      },
+    })
+    expect(malformed.status).toBe('partial')
+    expect(malformed.counts.nflInjuries).toBe(0)
+    expect(ops).toEqual([])
   })
 
   test('falls back to NHL api-web when ESPN scoreboard has no goalies', async () => {
@@ -368,8 +497,11 @@ describe('runFetchInjuries', () => {
       log: { log: (msg) => logs.push(msg), warn: (msg) => logs.push(msg) },
       fetchImpl: async (url) => {
         const href = String(url)
-        if (href.includes('/football/nfl/injuries') || href.includes('/hockey/nhl/injuries')) {
-          return { ok: true, json: async () => ({ injuries: [] }) }
+        if (href.includes('/football/nfl/injuries')) {
+          return { ok: true, json: async () => loadJson('espn-nfl-injuries.json') }
+        }
+        if (href.includes('/hockey/nhl/injuries')) {
+          return { ok: true, json: async () => nhlOneInjury }
         }
         if (href.includes('/hockey/nhl/scoreboard')) {
           return { ok: true, json: async () => ({ events: [] }) }

@@ -161,7 +161,7 @@ describe('Published persist applies the event-roster guard', () => {
     })
     expect(saved).toHaveLength(1)
     expect(inserts[0].playerName).toBe('Josh Allen')
-    expect(inserts[0].notes).not.toMatch(/injury:ambiguous/)
+    expect(inserts[0].notes).toMatch(/injury:ambiguous/)
   })
 
   test('fails closed when ESPN roster fetch fails, without writing', async () => {
