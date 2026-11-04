@@ -5,6 +5,12 @@
  * Free public JSON only (site.api.espn.com, api-web.nhle.com).
  * Zero Odds API credits. Always exits 0.
  *
+ * Quiet period: this script WRITES during :05–:15 ET. The 8:09 morning
+ * job is inside that window. Same exemption class as fetch-fresh-games
+ * Game upserts (`ignoreQuietPeriod`). Do not no-op this snapshot or the
+ * morning routine will skip injuries. :05–:15 still applies to
+ * record:mlb-window / close-capture / reconcile --apply.
+ *
  * Usage:
  *   node scripts/fetch-injuries.js
  *

@@ -11,6 +11,7 @@ import {
   mlbTeamCodesEqual,
   resolveMlbTeamCode,
   resolveNflTeamCode,
+  parseGameIdTeams,
   resolveNhlTeamCode,
   resolveSportTeamCode,
   teamSelectionMatches,
@@ -101,5 +102,18 @@ describe('NHL team codes', () => {
     expect(resolveNhlTeamCode('WAS')).toBe('WSH')
     expect(resolveSportTeamCode('nhl', 'Tampa Bay Lightning')).toBe('TBL')
     expect(resolveSportTeamCode('nfl', 'Kansas City Chiefs')).toBe('KC')
+  })
+
+  test('parseGameIdTeams reads AWAY_at_HOME_YYYY-MM-DD', () => {
+    expect(parseGameIdTeams('BUF_at_MIA_2026-11-04')).toEqual({
+      away: 'BUF',
+      home: 'MIA',
+      date: '2026-11-04',
+    })
+    expect(parseGameIdTeams('NYR_at_NJD_2026-11-04_g2')).toMatchObject({
+      away: 'NYR',
+      home: 'NJD',
+    })
+    expect(parseGameIdTeams('not-a-game')).toEqual({ away: '', home: '', date: '' })
   })
 })

@@ -10,6 +10,8 @@ import {
   applyInjuryAvailability,
   fetchJsonWithRetry,
   formatInjuriesStatus,
+  INJURY_AMBIGUOUS_FLAG,
+  INJURY_FILTER_EMPTY_LINE,
   isMissingInjuryTableError,
   isNhlGoaliePropType,
   loadInjurySnapshot,
@@ -138,22 +140,77 @@ describe('applyInjuryAvailability', () => {
     expect(result.kept[0].availabilityFlags).toContain('starter:unconfirmed')
   })
 
-  test('NHL goalie props keep the starter, skip the backup, flag unconfirmed', () => {
+  test('NHL goalie props skip backup only when the starter is confirmed', () => {
     expect(isNhlGoaliePropType('saves')).toBe(true)
     expect(isNhlGoaliePropType('player_total_saves')).toBe(true)
     expect(isNhlGoaliePropType('points')).toBe(false)
-    const result = applyInjuryAvailability([
+    const probable = applyInjuryAvailability([
       { playerName: 'Igor Shesterkin', sport: 'nhl', team: 'NYR', type: 'saves' },
       { playerName: 'Jonathan Quick', sport: 'nhl', team: 'NYR', type: 'saves' },
       { playerName: 'Jacob Markstrom', sport: 'nhl', team: 'NJD', type: 'saves' },
       { playerName: 'Jack Hughes', sport: 'nhl', team: 'NJD', type: 'points' },
     ], snapshot)
-    expect(result.skipped.some((row) => row.playerName === 'Jonathan Quick')).toBe(true)
-    const igor = result.kept.find((row) => row.playerName === 'Igor Shesterkin')
+    expect(probable.skipped.some((row) => row.playerName === 'Jonathan Quick')).toBe(false)
+    const igor = probable.kept.find((row) => row.playerName === 'Igor Shesterkin')
     expect(igor.availabilityFlags).toContain('starter:unconfirmed')
-    const markstrom = result.kept.find((row) => row.playerName === 'Jacob Markstrom')
+    const quick = probable.kept.find((row) => row.playerName === 'Jonathan Quick')
+    expect(quick.availabilityFlags).toContain('starter:unconfirmed')
+    const markstrom = probable.kept.find((row) => row.playerName === 'Jacob Markstrom')
     expect(markstrom.availabilityFlags || []).not.toContain('starter:unconfirmed')
-    expect(result.kept.some((row) => row.playerName === 'Jack Hughes')).toBe(true)
+    expect(probable.kept.some((row) => row.playerName === 'Jack Hughes')).toBe(true)
+
+    const confirmedSnapshot = {
+      ...snapshot,
+      goalies: snapshot.goalies.map((row) => (
+        row.teamAbbr === 'NYR' ? { ...row, confirmed: true } : row
+      )),
+    }
+    const confirmed = applyInjuryAvailability([
+      { playerName: 'Jonathan Quick', sport: 'nhl', team: 'NYR', type: 'saves' },
+      { playerName: 'Igor Shesterkin', sport: 'nhl', team: 'NYR', type: 'saves' },
+    ], confirmedSnapshot)
+    expect(confirmed.skipped.some((row) => row.playerName === 'Jonathan Quick')).toBe(true)
+    expect(confirmed.kept.some((row) => row.playerName === 'Igor Shesterkin')).toBe(true)
+  })
+
+  test('Josh Allen BUF is not skipped as Out because of JAX Josh Allen', () => {
+    const injuries = [
+      { sport: 'nfl', teamAbbr: 'JAX', playerName: 'Josh Allen', status: 'Out' },
+    ]
+    const bufProp = {
+      playerName: 'Josh Allen',
+      sport: 'nfl',
+      gameId: 'BUF_at_MIA_2026-11-04',
+      type: 'passing_yards',
+    }
+    const scoped = applyInjuryAvailability([bufProp], { injuries, goalies: [] })
+    expect(scoped.skipped).toEqual([])
+    expect(scoped.kept).toHaveLength(1)
+    expect(scoped.kept[0].availabilityFlags || []).not.toContain(INJURY_AMBIGUOUS_FLAG)
+
+    const unresolved = applyInjuryAvailability(
+      [{ playerName: 'Josh Allen', sport: 'nfl', type: 'passing_yards' }],
+      { injuries, goalies: [] },
+    )
+    expect(unresolved.skipped).toEqual([])
+    expect(unresolved.kept[0].availabilityFlags).toContain(INJURY_AMBIGUOUS_FLAG)
+
+    const jaxGame = applyInjuryAvailability(
+      [{ playerName: 'Josh Allen', sport: 'nfl', gameId: 'JAX_at_IND_2026-11-04', type: 'passing_yards' }],
+      { injuries, goalies: [] },
+    )
+    expect(jaxGame.skipped.map((row) => row.playerName)).toEqual(['Josh Allen'])
+  })
+
+  test('emits injury filter skipped when the snapshot has no rows today', () => {
+    const lines = []
+    const result = applyInjuryAvailability(
+      [{ playerName: 'Josh Allen', sport: 'nfl', gameId: 'BUF_at_MIA_2026-11-04' }],
+      { injuries: [], goalies: [] },
+      { log: (msg) => lines.push(msg) },
+    )
+    expect(result.kept).toHaveLength(1)
+    expect(lines.join('\n')).toContain(INJURY_FILTER_EMPTY_LINE)
   })
 })
 
@@ -196,6 +253,50 @@ describe('graceful degradation', () => {
     expect(result.tableMissing).toBe(true)
     expect(result.persisted).toBe(false)
     expect(lines.join('\n')).toMatch(/not persisted/)
+  })
+
+  test('replaces that ET day per league before upsert so a midday upgrade does not stay Out', async () => {
+    const deleted = []
+    const upserts = []
+    const chainFor = (table) => {
+      const filters = {}
+      const chain = {}
+      chain.delete = () => chain
+      chain.eq = (key, value) => {
+        filters[key] = value
+        return chain
+      }
+      chain.upsert = async (rows) => {
+        upserts.push({ table, rows })
+        return { error: null }
+      }
+      chain.then = (ok, bad) => {
+        deleted.push({ table, ...filters })
+        return Promise.resolve({ error: null }).then(ok, bad)
+      }
+      return chain
+    }
+    await persistInjurySnapshot({
+      asOfDate: '2026-11-04',
+      injuries: [{
+        id: 'inj:nfl:2026-11-04:KC:travis-kelce',
+        sport: 'nfl',
+        teamAbbr: 'KC',
+        playerName: 'Travis Kelce',
+        status: 'Questionable',
+        asOfDate: '2026-11-04',
+        fetchedAt: '2026-11-04T16:00:00.000Z',
+      }],
+      goalies: [],
+    }, {
+      replace: { nflInjuries: true, nhlInjuries: false, goalies: false },
+      supabase: { from: (table) => chainFor(table) },
+    })
+    expect(deleted).toEqual([
+      { table: 'InjuryReport', asOfDate: '2026-11-04', sport: 'nfl' },
+    ])
+    expect(upserts).toHaveLength(1)
+    expect(upserts[0].rows[0].playerName).toBe('Travis Kelce')
   })
 })
 
@@ -297,6 +398,43 @@ describe('runFetchInjuries', () => {
     expect(logs.join('\n')).toMatch(/INJURIES_STATUS=ok/)
   })
 
+  test('goalie fallback failure is INJURIES_STATUS=partial', async () => {
+    const logs = []
+    const result = await runFetchInjuries({
+      now: new Date('2026-11-04T16:00:00.000Z'),
+      log: { log: (msg) => logs.push(msg), warn: (msg) => logs.push(msg) },
+      retries: 0,
+      fetchImpl: async (url) => {
+        const href = String(url)
+        if (href.includes('/football/nfl/injuries') || href.includes('/hockey/nhl/injuries')) {
+          return { ok: true, json: async () => ({ injuries: [] }) }
+        }
+        if (href.includes('/hockey/nhl/scoreboard')) {
+          return {
+            ok: true,
+            json: async () => ({
+              events: [{
+                id: '401802099',
+                competitions: [{
+                  competitors: [
+                    { homeAway: 'away', team: { abbreviation: 'TOR' } },
+                    { homeAway: 'home', team: { abbreviation: 'BOS' } },
+                  ],
+                }],
+              }],
+            }),
+          }
+        }
+        return { ok: false, status: 500, json: async () => ({}) }
+      },
+      supabase: { from: () => ({ upsert: async () => ({ error: null }) }) },
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.status).toBe('partial')
+    expect(result.counts.goalies).toBe(0)
+    expect(logs.join('\n')).toMatch(/INJURIES_STATUS=partial/)
+  })
+
   test('all feed failures still exit 0 with INJURIES_STATUS=failed', async () => {
     const logs = []
     const result = await runFetchInjuries({
@@ -318,8 +456,11 @@ describe('ops wiring', () => {
     expect(readme).toMatch(/fetch-injuries\.js/)
     expect(readme).toMatch(/INJURIES_STATUS=ok\|partial\|failed/)
     expect(readme).toMatch(/009_injury_report\.sql/)
+    expect(readme).toMatch(/ignoreQuietPeriod/)
+    expect(readme).toMatch(/injury filter skipped \(no rows today\)/)
     const src = readFileSync(join(process.cwd(), 'scripts/fetch-injuries.js'), 'utf8')
     expect(src).toMatch(/INJURIES_STATUS/)
+    expect(src).toMatch(/ignoreQuietPeriod/)
     expect(src).not.toMatch(/ODDS_API_KEY/)
     expect(formatInjuriesStatus('partial')).toBe('INJURIES_STATUS=partial')
   })

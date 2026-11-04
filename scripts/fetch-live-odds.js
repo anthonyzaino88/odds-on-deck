@@ -1596,6 +1596,7 @@ async function savePlayerProps(gameProps, sport) {
   const availability = applyInjuryAvailability(
     allPropsToInsert.map((prop) => ({ ...prop, sport })),
     injurySnapshot,
+    { log: console },
   )
   if (availability.skipped.length) {
     console.log(`    📌 Injury/starter: skipped ${availability.skipped.length} cached prop(s)`)
@@ -1686,7 +1687,7 @@ async function autoSaveTopPropsForValidation(sport) {
   if (skipAutoSaveAfterPublishedPrefetchError(publishedError, sport)) return
   const selected = selectAutoSaveValidationProps(candidates, publishedUpcoming)
   const injurySnapshot = await loadInjurySnapshot({ supabase, log: console })
-  const topProps = applyInjuryAvailability(selected, injurySnapshot).kept
+  const topProps = applyInjuryAvailability(selected, injurySnapshot, { log: console }).kept
 
   if (!topProps || topProps.length === 0) {
     console.log(`  ℹ️ No high-quality props found to save for validation`)

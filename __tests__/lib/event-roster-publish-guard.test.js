@@ -143,6 +143,27 @@ describe('Published persist applies the event-roster guard', () => {
     expect(inserts[0].notes).toMatch(/injury:questionable/)
   })
 
+  test('Josh Allen BUF is not skipped as Out because of JAX Josh Allen', async () => {
+    const saved = await persistPublishedEligibleProps([
+      publishedNfl({
+        playerName: 'Josh Allen',
+        gameId: 'BUF_at_MIA_2026-11-04',
+      }),
+    ], {
+      guardPropsByEventRoster: async (rows) => ({ kept: rows, skipped: [] }),
+      injurySnapshot: {
+        injuries: [
+          { sport: 'nfl', teamAbbr: 'JAX', playerName: 'Josh Allen', status: 'Out' },
+        ],
+        goalies: [],
+      },
+      log: () => {},
+    })
+    expect(saved).toHaveLength(1)
+    expect(inserts[0].playerName).toBe('Josh Allen')
+    expect(inserts[0].notes).not.toMatch(/injury:ambiguous/)
+  })
+
   test('fails closed when ESPN roster fetch fails, without writing', async () => {
     const saved = await persistPublishedEligibleProps([
       publishedNfl({ playerName: 'Malik Nabers' }),

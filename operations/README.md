@@ -35,6 +35,8 @@ node scripts/reconcile-games.js --sport mlb
 # APPLY 009_injury_report.sql once in the SQL Editor before the first persist.
 # Missing tables: WARN and continue. Footer INJURIES_STATUS=ok|partial|failed (exit 0).
 # Any value other than ok is WARN in the morning report.
+# Writes during :05–:15 ET are allowed (8:09 morning job). Same exemption
+# as fetch-fresh-games Game upserts (`ignoreQuietPeriod`). Do not no-op this.
 node scripts/fetch-injuries.js
 
 # 3. Fetch odds with proper gameTime mapping
@@ -363,12 +365,24 @@ INJURIES_NFL=<n> INJURIES_NHL=<n> STARTERS_NHL=<n>
 
 Any status other than `ok` is WARN in the morning report.
 
+Writes during `:05–:15` ET are allowed — this is the 8:09 morning
+snapshot, same exemption class as `fetch-fresh-games` Game upserts
+(`ignoreQuietPeriod`). Do not add a quiet-period no-op here.
+
+Each successful league fetch **replaces** that ET day's rows (delete
+then upsert) so a midday upgrade cannot stay Out. NHL starter rows for
+the day are replaced when the scoreboard or NHL fallback returns a
+payload. `INJURIES_STATUS=partial` when the NHL goalie fallback fails.
+
 Cache insert, Published persist, and auto-save skip Out / IR / Doubtful
-and NHL backup goalies. Questionable players and unconfirmed starters
-are flagged on `PropValidation.notes` (`injury:questionable`,
-`starter:unconfirmed`). NHL sides/totals are not published today; the
-same unconfirmed-starter flag applies if a game-line row is passed in.
-Grading and CLV math are unchanged.
+and NHL **confirmed**-starter backups. Name matches are scoped to the
+prop `gameId` home/away teams (PlayerPropCache has no team). Unresolved
+teams or two injury hits FLAG (`injury:questionable` / `injury:ambiguous`)
+instead of skip. Questionable players and unconfirmed starters are
+flagged on `PropValidation.notes`. If today's snapshot is empty the
+filter logs `injury filter skipped (no rows today)`. NHL sides/totals
+are not published today; the same unconfirmed-starter flag applies if a
+game-line row is passed in. Grading and CLV math are unchanged.
 
 ### Odds API credit budget
 
