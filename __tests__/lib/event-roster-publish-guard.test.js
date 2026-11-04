@@ -122,6 +122,27 @@ describe('Published persist applies the event-roster guard', () => {
     expect(inserts[0].notes).toMatch(/cohort:published/)
   })
 
+  test('injury snapshot skips Out players and flags Questionable on notes', async () => {
+    const saved = await persistPublishedEligibleProps([
+      publishedNfl({ playerName: 'Isiah Pacheco', team: 'KC' }),
+      publishedNfl({ playerName: 'Travis Kelce', team: 'KC' }),
+    ], {
+      guardPropsByEventRoster: async (rows) => ({ kept: rows, skipped: [] }),
+      injurySnapshot: {
+        injuries: [
+          { sport: 'nfl', teamAbbr: 'KC', playerName: 'Isiah Pacheco', status: 'Out' },
+          { sport: 'nfl', teamAbbr: 'KC', playerName: 'Travis Kelce', status: 'Questionable' },
+        ],
+        goalies: [],
+      },
+      log: () => {},
+    })
+    expect(saved).toHaveLength(1)
+    expect(inserts.some((row) => row.playerName === 'Isiah Pacheco')).toBe(false)
+    expect(inserts[0].playerName).toBe('Travis Kelce')
+    expect(inserts[0].notes).toMatch(/injury:questionable/)
+  })
+
   test('fails closed when ESPN roster fetch fails, without writing', async () => {
     const saved = await persistPublishedEligibleProps([
       publishedNfl({ playerName: 'Malik Nabers' }),

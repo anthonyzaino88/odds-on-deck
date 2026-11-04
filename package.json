@@ -27,6 +27,7 @@
     "record:mlb-window": "node scripts/record-mlb-window-props.js",
     "record:featured": "node scripts/record-featured-parlays.js",
     "record:game-lines": "node scripts/record-game-lines.js",
+    "fetch:injuries": "node scripts/fetch-injuries.js",
     "fetch:team-performance": "node scripts/fetch-team-performance-data.js",
     "calculate:game-edges": "node scripts/calculate-game-edges.js",
     "ops:morning-edges": "node scripts/ensure-prisma-client.js && node scripts/fetch-team-performance-data.js && node scripts/calculate-game-edges.js",

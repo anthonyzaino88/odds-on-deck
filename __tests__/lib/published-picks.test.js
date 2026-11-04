@@ -956,6 +956,23 @@ describe('toPublishedValidationFields', () => {
     expect(publishedPropId({ propId: 'yelich-tb-15' })).toBe('yelich-tb-15')
   })
 
+  test('appends availability flags onto Published notes without changing the cohort', () => {
+    const fields = toPublishedValidationFields({
+      propId: 'kelce-1',
+      gameId: 'game-kc',
+      playerName: 'Travis Kelce',
+      type: 'receiving_yards',
+      pick: 'over',
+      threshold: 54.5,
+      odds: -110,
+      edge: 0.05,
+      qualityScore: 44,
+      sport: 'nfl',
+      availabilityFlags: ['injury:questionable'],
+    })
+    expect(fields.notes).toBe('cohort:published | injury:questionable')
+  })
+
   test('rejects edge-0 juice, juice traps, game lines, unlisted sports, and low QS', () => {
     const keep = {
       propId: 'p1',

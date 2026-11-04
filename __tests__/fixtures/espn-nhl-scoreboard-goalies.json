@@ -1,0 +1,43 @@
+{
+  "events": [
+    {
+      "id": "401802001",
+      "competitions": [
+        {
+          "competitors": [
+            {
+              "homeAway": "away",
+              "team": { "abbreviation": "NYR" },
+              "probables": [
+                {
+                  "name": "probableStartingGoalie",
+                  "athlete": {
+                    "id": "3069266",
+                    "displayName": "Igor Shesterkin",
+                    "position": { "abbreviation": "G" }
+                  },
+                  "status": { "type": { "name": "PROBABLE" } }
+                }
+              ]
+            },
+            {
+              "homeAway": "home",
+              "team": { "abbreviation": "NJD" },
+              "probables": [
+                {
+                  "name": "confirmedStartingGoalie",
+                  "athlete": {
+                    "id": "3151322",
+                    "displayName": "Jacob Markstrom",
+                    "position": { "abbreviation": "G" }
+                  },
+                  "status": { "type": { "name": "CONFIRMED" } }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -31,6 +31,12 @@ node scripts/reconcile-games.js --sport mlb
 # Later, after morning review: node scripts/fetch-fresh-games.js all --reconcile
 # Then enable writes: node scripts/fetch-fresh-games.js all --reconcile --apply
 
+# 2c. ESPN injuries + NHL starting goalies (free JSON; zero Odds API credits)
+# APPLY 009_injury_report.sql once in the SQL Editor before the first persist.
+# Missing tables: WARN and continue. Footer INJURIES_STATUS=ok|partial|failed (exit 0).
+# Any value other than ok is WARN in the morning report.
+node scripts/fetch-injuries.js
+
 # 3. Fetch odds with proper gameTime mapping
 node scripts/fetch-live-odds.js all --cache-fresh
 # Footer prints ODDS_BUDGET_STATUS=ok|floor|daily_cap|monthly_cap|probe_failed (exit 0).
@@ -332,6 +338,37 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 SUPABASE_SECRET_KEY=your_service_role_key  # Required for write operations!
 ODDS_API_KEY=your_odds_api_key
 ```
+
+### ESPN injuries + NHL starting goalies
+
+`scripts/fetch-injuries.js` pulls ESPN public injuries for NFL and NHL
+(`site.api.espn.com/.../injuries`) and NHL probable/confirmed starters
+from the ESPN scoreboard / game summary. If ESPN has no (or incomplete)
+goalie data, it falls back to NHL's free `api-web.nhle.com`
+(`/v1/score/{date}` and `/v1/gamecenter/{id}/landing`,
+`matchup.goalieComparison`). Zero Odds API credits. Timeouts and retries;
+no new npm dependencies.
+
+Apply `scripts/migrations/009_injury_report.sql` once in the SQL Editor
+(creates `InjuryReport` and `NhlStartingGoalie`, RLS on, no anon policies).
+Do not run it from CI. If the tables are missing, the script logs WARN
+and continues; persist/auto-save skip the filter the same way.
+
+Footer (always exit 0):
+
+```
+INJURIES_STATUS=ok|partial|failed
+INJURIES_NFL=<n> INJURIES_NHL=<n> STARTERS_NHL=<n>
+```
+
+Any status other than `ok` is WARN in the morning report.
+
+Cache insert, Published persist, and auto-save skip Out / IR / Doubtful
+and NHL backup goalies. Questionable players and unconfirmed starters
+are flagged on `PropValidation.notes` (`injury:questionable`,
+`starter:unconfirmed`). NHL sides/totals are not published today; the
+same unconfirmed-starter flag applies if a game-line row is passed in.
+Grading and CLV math are unchanged.
 
 ### Odds API credit budget
 

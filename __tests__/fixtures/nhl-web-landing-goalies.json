@@ -1,0 +1,11 @@
+{
+  "id": 2024020123,
+  "awayTeam": { "abbrev": "TOR" },
+  "homeTeam": { "abbrev": "BOS" },
+  "matchup": {
+    "goalieComparison": {
+      "awayTeam": [{ "playerId": 8479361, "name": { "default": "Anthony Stolarz" } }],
+      "homeTeam": [{ "playerId": 8471695, "name": { "default": "Jeremy Swayman" } }]
+    }
+  }
+}

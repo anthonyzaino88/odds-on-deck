@@ -632,3 +632,43 @@ model PlayerPropCache {
   @@index([gameId])
   @@map("PlayerPropCache")
 }
+
+// ESPN injury snapshot (scripts/migrations/009_injury_report.sql). Apply SQL manually.
+model InjuryReport {
+  id         String   @id
+  sport      String
+  teamAbbr   String
+  playerName String
+  playerId   String?
+  status     String
+  statusCode String?
+  position   String?
+  comment    String?
+  source     String   @default("espn")
+  asOfDate   String
+  fetchedAt  DateTime
+
+  @@index([sport, asOfDate])
+  @@index([sport, teamAbbr, asOfDate])
+  @@map("InjuryReport")
+}
+
+// NHL confirmed/probable starter (009). ESPN first, NHL api-web fallback.
+model NhlStartingGoalie {
+  id           String   @id
+  gameId       String?
+  espnEventId  String?
+  nhlGameId    String?
+  teamAbbr     String
+  opponentAbbr String?
+  playerName   String
+  playerId     String?
+  confirmed    Boolean  @default(false)
+  source       String
+  asOfDate     String
+  fetchedAt    DateTime
+
+  @@index([asOfDate])
+  @@index([teamAbbr, asOfDate])
+  @@map("NhlStartingGoalie")
+}

@@ -1,0 +1,30 @@
+{
+  "injuries": [
+    {
+      "id": "12",
+      "displayName": "Kansas City Chiefs",
+      "team": { "id": "12", "abbreviation": "KC", "displayName": "Kansas City Chiefs" },
+      "injuries": [
+        {
+          "status": "Out",
+          "athlete": { "id": "3139477", "displayName": "Isiah Pacheco", "position": { "abbreviation": "RB" } },
+          "details": { "fantasyStatus": { "abbreviation": "O", "description": "Out" }, "type": "Knee" }
+        },
+        {
+          "status": "Doubtful",
+          "athlete": { "id": "4040715", "displayName": "Rashee Rice", "position": { "abbreviation": "WR" } },
+          "details": { "fantasyStatus": { "abbreviation": "D", "description": "Doubtful" } }
+        },
+        {
+          "status": "Questionable",
+          "athlete": { "id": "3116406", "displayName": "Travis Kelce", "position": { "abbreviation": "TE" } },
+          "details": { "fantasyStatus": { "abbreviation": "Q", "description": "Questionable" } }
+        },
+        {
+          "status": "IR",
+          "athlete": { "displayName": "Juju Smith-Schuster", "position": { "abbreviation": "WR" } }
+        }
+      ]
+    }
+  ]
+}

@@ -11,6 +11,8 @@ import {
   mlbTeamCodesEqual,
   resolveMlbTeamCode,
   resolveNflTeamCode,
+  resolveNhlTeamCode,
+  resolveSportTeamCode,
   teamSelectionMatches,
 } from '../../lib/team-mapping.js'
 
@@ -86,5 +88,18 @@ describe('NFL full team names', () => {
     expect(resolveNflTeamCode('kc')).toBe('KC')
     expect(resolveNflTeamCode('Philadelphia Eagles')).toBe('PHI')
     expect(resolveNflTeamCode('NFL_PHI')).toBe('PHI')
+  })
+})
+
+describe('NHL team codes', () => {
+  test('names and feed aliases map onto ESPN abbreviations', () => {
+    expect(resolveNhlTeamCode('Vegas Golden Knights')).toBe('VGK')
+    expect(resolveNhlTeamCode('Utah Hockey Club')).toBe('UTA')
+    expect(resolveNhlTeamCode('ARI')).toBe('UTA')
+    expect(resolveNhlTeamCode('NJ')).toBe('NJD')
+    expect(resolveNhlTeamCode('LA')).toBe('LAK')
+    expect(resolveNhlTeamCode('WAS')).toBe('WSH')
+    expect(resolveSportTeamCode('nhl', 'Tampa Bay Lightning')).toBe('TBL')
+    expect(resolveSportTeamCode('nfl', 'Kansas City Chiefs')).toBe('KC')
   })
 })
