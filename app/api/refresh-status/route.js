@@ -5,6 +5,7 @@ import { canRefresh, API_CONFIG } from '../../../lib/api-usage-manager'
 import { supabase } from '../../../lib/supabase.js'
 import { isUsableSupabase } from '../../../lib/supabase-admin.js'
 import { parseStoredGameDate } from '../../../lib/score-updater.js'
+import { isMissingLineShopQuoteColumnError } from '../../../lib/line-shopping.js'
 import { NextResponse } from 'next/server'
 
 /**
@@ -31,17 +32,48 @@ export async function getLatestGameLastUpdate(client = supabase) {
 }
 
 /**
+ * Newest PlayerPropCache.quoteUpdatedAt. Prefers book last_update age
+ * over live-score Game.lastUpdate. Missing SQL 010 → null (caller falls
+ * back to Game.lastUpdate).
+ */
+export async function getLatestQuoteUpdatedAt(client = supabase) {
+  if (!isUsableSupabase(client)) return null
+
+  const { data, error } = await client
+    .from('PlayerPropCache')
+    .select('quoteUpdatedAt')
+    .not('quoteUpdatedAt', 'is', null)
+    .order('quoteUpdatedAt', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    if (isMissingLineShopQuoteColumnError(error)) return null
+    return null
+  }
+  if (!data?.quoteUpdatedAt) return null
+  const parsed = parseStoredGameDate(data.quoteUpdatedAt)
+  if (parsed) return parsed.toISOString()
+  const ms = Date.parse(data.quoteUpdatedAt)
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null
+}
+
+/**
  * API endpoint to check if a refresh is allowed based on cooldown.
- * lastRefreshTime is derived from the DB, not the in-memory cooldown clock.
+ * lastRefreshTime prefers quote age, then Game.lastUpdate.
  */
 export async function GET() {
   try {
     const status = canRefresh()
-    const lastRefreshTime = await getLatestGameLastUpdate()
+    const quoteUpdatedAt = await getLatestQuoteUpdatedAt()
+    const gameUpdatedAt = quoteUpdatedAt ? null : await getLatestGameLastUpdate()
+    const lastRefreshTime = quoteUpdatedAt || gameUpdatedAt
 
     return NextResponse.json({
       ...status,
       lastRefreshTime,
+      quoteUpdatedAt,
+      freshnessSource: quoteUpdatedAt ? 'quotes' : (gameUpdatedAt ? 'game' : null),
       cooldownMinutes: API_CONFIG.REFRESH_COOLDOWN_MINUTES
     })
   } catch (error) {

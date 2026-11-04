@@ -69,8 +69,8 @@ export default function PropsPage() {
           <h1 className="text-xl font-semibold text-slate-100 tracking-tight">Player Props</h1>
         </div>
         <p className="text-sm text-slate-400 max-w-2xl leading-relaxed">
-          Compare prop lines across 10+ sportsbooks side-by-side. See the best available
-          number and how it stacks up against the market.
+          Compare the best available price against vig-removed consensus. We show
+          the number of books that actually posted the line, and flag stale quotes.
         </p>
         <div className="mt-2">
           <DataFreshness />
@@ -189,9 +189,10 @@ export default function PropsPage() {
       <div className="mt-8">
         <SectionHeading title="How This Page Works" />
         <p className="text-sm text-slate-400 leading-relaxed max-w-3xl">
-          Player props are pulled in real time from 10+ sportsbooks via The Odds API. Each prop
-          is shown with the best available number, the bookmaker offering it, and how it compares
-          to the rest of the market. Sort and filter to surface the comparisons that matter most.
+          Player props are fetched once each morning from US sportsbooks via The Odds API. Each
+          prop shows the best stored number, the book offering it, the book count we actually
+          saw, and how that price compares to consensus. Expand the ladder only when a quote
+          snapshot was stored — we do not invent a 10+ book shop.
         </p>
       </div>
     </div>

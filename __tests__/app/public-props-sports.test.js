@@ -4,7 +4,7 @@ const path = require('path')
 const { GET: getProps } = require('../../app/api/props/route.js')
 const { generateSimpleParlays } = require('../../lib/simple-parlay-generator.js')
 const { getTopProps } = require('../../lib/top-props.js')
-const { PUBLISHED_SPORTS } = require('../../lib/published-picks.js')
+const { PUBLISHED_SPORTS, SHADOW_PUBLISHED_COHORT_TAG } = require('../../lib/published-picks.js')
 
 jest.mock('../../lib/supabase.js', () => ({
   isSupabaseAdminConfigured: jest.fn(() => true),
@@ -72,6 +72,9 @@ describe('GET /api/props stays on public sports', () => {
     expect(body.success).toBe(true)
     expect(body.count).toBe(1)
     expect(body.props.map((prop) => prop.playerName)).toEqual(['Auston Matthews'])
+    expect(body.props[0].quotes).toBeNull()
+    expect(body.props[0].numBooks).toBeNull()
+    expect(body.props[0].bestBook).toBeNull()
   })
 
   test('unlisted sport returns nothing', async () => {
@@ -120,6 +123,51 @@ describe('GET /api/props stays on public sports', () => {
     expect(body.count).toBe(2)
     expect(body.props.map((prop) => prop.playerName)).toEqual(['Aaron Judge', 'Auston Matthews'])
     expect(body.props.some((prop) => prop.sport === 'nhl')).toBe(true)
+  })
+
+  test('returns shop fields, hides a null ladder, and drops shadow NHL', async () => {
+    const captured = { ins: [], eqs: [] }
+    supabase.from.mockReturnValue(thenableQuery([
+      {
+        propId: 'mlb-shop',
+        gameId: 'NYY_at_BOS_2026-11-04',
+        playerName: 'Aaron Judge',
+        type: 'batter_hits',
+        pick: 'over',
+        threshold: 1.5,
+        odds: 2.10,
+        probability: 0.52,
+        edge: 0.03,
+        sport: 'mlb',
+        bookmaker: 'DraftKings',
+        numBooks: 2,
+        gameTime: '2026-11-04T23:00:00.000Z',
+        quotes: [
+          { book: 'FanDuel', decimal: 2.00, american: 100, lastUpdate: '2026-11-04T17:00:00.000Z' },
+          { book: 'DraftKings', decimal: 2.10, american: 110, lastUpdate: '2026-11-04T17:05:00.000Z' },
+        ],
+      },
+      {
+        propId: 'nhl-shadow',
+        gameId: 'BOS_at_TOR_2026-11-04',
+        playerName: 'Private Shadow',
+        type: 'player_shots_on_goal',
+        pick: 'over',
+        threshold: 3.5,
+        odds: 1.91,
+        sport: 'nhl',
+        notes: SHADOW_PUBLISHED_COHORT_TAG,
+      },
+    ], captured))
+
+    const res = await getProps(new Request('http://localhost/api/props'))
+    const body = await res.json()
+    expect(body.props.map((prop) => prop.playerName)).toEqual(['Aaron Judge'])
+    expect(body.props[0].bestBook).toBe('DraftKings')
+    expect(body.props[0].numBooks).toBe(2)
+    expect(body.props[0].quotes).toHaveLength(2)
+    expect(body.props[0].consensusOdds).toBeCloseTo(1 / 0.52, 5)
+    expect(body.count).toBe(1)
   })
 
   test('getTopProps(nhl) queries the cache', async () => {
@@ -174,7 +222,20 @@ describe('public props / parlay surfaces offer NHL', () => {
     const route = read('app/api/props/route.js')
     expect(route).toMatch(/PUBLISHED_SPORTS/)
     expect(route).toMatch(/isPublicPropSport/)
+    expect(route).toMatch(/isShadowPublishedCohort/)
+    expect(route).toMatch(/toPublicPropsApiRow/)
     expect(route).toMatch(/\.in\('sport', PUBLISHED_SPORTS\)/)
+  })
+
+  test('public shop copy does not claim 10+ sportsbooks', () => {
+    for (const rel of ['app/props/page.js', 'components/HomeMarketing.js', 'lib/glossary.js']) {
+      const src = read(rel)
+      expect(src).not.toMatch(/10\+ sportsbooks/)
+      expect(src).not.toMatch(/10\+ books/)
+    }
+    const filter = read('components/PlayerPropsFilter.js')
+    expect(filter).toMatch(/Array\.isArray\(prop\.quotes\) && prop\.quotes\.length > 0/)
+    expect(read('components/DataFreshness.js')).toMatch(/Quotes as of/)
   })
 
   test('parlay explorer uses public sports including NHL', () => {

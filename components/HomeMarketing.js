@@ -53,7 +53,7 @@ export default function HomeMarketing() {
           Most tools show you one book&apos;s odds. We show you <span className="text-slate-100 font-medium">all of them</span> &mdash; in one place, with the math already done.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <FeatureCard title="Line Shopping" description="See odds from 10+ sportsbooks for the same prop, side-by-side. When one book has a better number, it's obvious at a glance." />
+          <FeatureCard title="Line Shopping" description="See the best available price against vig-removed consensus, plus how many books actually posted the number. Expand the per-book ladder when that morning snapshot is stored." />
           <FeatureCard title="Vig-Free Probabilities" description="We strip the sportsbook margin from every line so you see the real market-implied probability." />
           <FeatureCard title="Sortable Quality Score" description="Combines line deviation from market consensus and the number of books offering each prop. Surfaces unusual lines worth a closer look." />
           <FeatureCard title="Full Transparency" description="Every prop is tracked against actual game results. Hit rate and record update automatically — no hidden losses." />
@@ -66,7 +66,7 @@ export default function HomeMarketing() {
         <SectionHeading title="How It Works" />
         <div className="space-y-5">
           <StepCard number="1" title="We pull today's games from ESPN and league APIs" description="Every morning we fetch the full slate — schedules, probable pitchers, matchup context — for MLB, NHL, and NFL." />
-          <StepCard number="2" title="Live odds are pulled from 10+ sportsbooks" description="Moneylines, spreads, totals, and player prop markets pulled in real time. You see what DraftKings, FanDuel, BetMGM, BetRivers, and others are posting — all in one place." />
+          <StepCard number="2" title="US sportsbook odds are fetched once each morning" description="Moneylines, spreads, totals, and player props from the US region. You see the best stored number, how it compares to consensus, and quote age — not a live all-day shop." />
           <StepCard number="3" title="We strip the vig and surface the comparison" description="For each line we remove the sportsbook margin to reveal the real market-implied probability, then show how each book's number compares to consensus." />
           <StepCard number="4" title="Outlier lines are flagged for a closer look" description="Props where one book's price differs meaningfully from the rest move to the top. You decide whether they're worth tracking." />
           <StepCard number="5" title="Every tracked prop is graded after the game" description="When the box score is final, we pull official stats and grade every prop. Hit rate and record update automatically." />

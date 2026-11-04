@@ -3,7 +3,12 @@
 import { NextResponse } from 'next/server'
 import { isSupabaseAdminConfigured, supabase } from '../../../lib/supabase.js'
 import { clampPropsLimit } from '../../../lib/api-limits.js'
-import { PUBLISHED_SPORTS, isPublicPropSport } from '../../../lib/published-picks.js'
+import {
+  PUBLISHED_SPORTS,
+  isPublicPropSport,
+  isShadowPublishedCohort,
+} from '../../../lib/published-picks.js'
+import { toPublicPropsApiRow } from '../../../lib/line-shopping.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -64,30 +69,12 @@ export async function GET(request) {
 
     const props = (data || [])
       .filter(prop => isPublicPropSport(prop.sport))
+      .filter(prop => !isShadowPublishedCohort(prop))
       .filter(prop => {
         if (!prop.odds) return true
         return prop.odds >= MIN_DECIMAL_ODDS && prop.odds <= MAX_DECIMAL_ODDS
       })
-      .map(prop => ({
-        propId: prop.propId,
-        gameId: prop.gameId,
-        playerName: prop.playerName,
-        team: prop.team,
-        type: prop.type,
-        pick: prop.pick,
-        threshold: prop.threshold,
-        odds: prop.odds,
-        probability: prop.probability || 0.5,
-        edge: prop.edge || 0,
-        confidence: prop.confidence || 'low',
-        qualityScore: prop.qualityScore || 0,
-        sport: prop.sport,
-        category: prop.category,
-        reasoning: prop.reasoning,
-        projection: prop.projection,
-        bookmaker: prop.bookmaker,
-        gameTime: prop.gameTime
-      }))
+      .map(prop => toPublicPropsApiRow(prop))
     
     return NextResponse.json({
       success: true,
@@ -103,6 +90,3 @@ export async function GET(request) {
     )
   }
 }
-
-
-

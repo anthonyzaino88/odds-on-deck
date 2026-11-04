@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 
 export default function DataFreshness() {
   const [lastRefresh, setLastRefresh] = useState(null)
+  const [source, setSource] = useState(null)
 
   useEffect(() => {
     async function check() {
@@ -13,6 +14,7 @@ export default function DataFreshness() {
           const data = await res.json()
           if (data.lastRefreshTime) {
             setLastRefresh(new Date(data.lastRefreshTime))
+            setSource(data.freshnessSource || null)
           }
         }
       } catch {
@@ -37,13 +39,15 @@ export default function DataFreshness() {
     label = lastRefresh.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
   }
 
+  const prefix = source === 'quotes' ? 'Quotes as of' : 'Data updated'
+
   return (
     <span
       className="inline-flex items-center gap-1.5 text-xs text-slate-500"
       suppressHydrationWarning
     >
       <span className={`w-1.5 h-1.5 rounded-full ${diffMin < 60 ? 'bg-green-500' : 'bg-yellow-500'}`} />
-      Data updated {label}
+      {prefix} {label}
     </span>
   )
 }
