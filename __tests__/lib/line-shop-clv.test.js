@@ -75,6 +75,7 @@ describe('line shopping must not change CLV math', () => {
     expect(validationSrc).toMatch(/writeWithOptionalEntryBook/)
     const publishedSrc = readFileSync(join(process.cwd(), 'lib/published-picks.js'), 'utf8')
     expect(publishedSrc).toMatch(/attachEntryBook/)
-    expect(publishedSrc).toMatch(/if \(fields\.entryBook\) patch\.entryBook = fields\.entryBook/)
+    expect(publishedSrc).toMatch(/publishedOddsChanged/)
+    expect(publishedSrc).toMatch(/patch\.entryBook = null/)
   })
 })

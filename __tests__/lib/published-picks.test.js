@@ -1295,6 +1295,53 @@ describe('shadow published NHL cohort', () => {
     expect(unlocked.notes).toBe('tier:elite,auto-saved | cohort:shadow-published')
   })
 
+  test('clears entryBook when unlocked odds change and the new snapshot has no book', () => {
+    const existing = {
+      ...nhlKeep,
+      status: 'pending',
+      notes: PUBLISHED_COHORT_TAG,
+      odds: -110,
+      entryBook: 'DraftKings',
+      closeOdds: null,
+      closeCapturedAt: null,
+    }
+    const withBook = toPublishedValidationFields({
+      ...nhlKeep,
+      pick: 'over',
+      odds: -125,
+      bookmaker: 'FanDuel',
+    })
+    const withoutBook = toPublishedValidationFields({
+      ...nhlKeep,
+      pick: 'over',
+      odds: -125,
+    })
+    expect(withoutBook.entryBook).toBeUndefined()
+
+    const cleared = publishedValidationUpdateFields(existing, withoutBook, { status: 'scheduled' })
+    expect(cleared.odds).toBe(-125)
+    expect(cleared.entryBook).toBeNull()
+
+    const retagged = publishedValidationUpdateFields(existing, withBook, { status: 'scheduled' })
+    expect(retagged.entryBook).toBe('FanDuel')
+
+    const sameOdds = publishedValidationUpdateFields(
+      existing,
+      toPublishedValidationFields({ ...nhlKeep, pick: 'over', odds: -110 }),
+      { status: 'scheduled' },
+    )
+    expect(sameOdds.odds).toBe(-110)
+    expect(sameOdds.entryBook).toBeUndefined()
+
+    const locked = publishedValidationUpdateFields(
+      { ...existing, closeOdds: -108 },
+      withoutBook,
+      { status: 'scheduled' },
+    )
+    expect(locked.odds).toBeUndefined()
+    expect(locked.entryBook).toBeUndefined()
+  })
+
   test('auto-saved+tagged NHL stays in the archive; shadow-only rows do not', () => {
     const tagged = {
       ...nhlKeep,
