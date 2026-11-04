@@ -213,7 +213,7 @@ export default function ParlaysPage() {
           <li>&bull; <span className="text-slate-200 font-medium">Build Your Own</span> by selecting sport, strategy, and leg count below</li>
           <li>&bull; <span className="text-slate-200 font-medium">Same-Game Parlays (SGPs)</span> stack multiple props from a single game</li>
           <li>&bull; <span className="text-slate-200 font-medium">Featured track</span> persists only Featured-cleared cards and grades them when legs settle</li>
-          <li>&bull; <span className="text-slate-200 font-medium">Every leg</span> uses the sharpest line from 10+ sportsbooks</li>
+          <li>&bull; <span className="text-slate-200 font-medium">Every leg</span> uses the best stored morning line from the books that actually posted it</li>
         </ul>
       </div>
     </div>

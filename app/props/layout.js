@@ -5,10 +5,10 @@ export const metadata = {
     canonical: 'https://oddsondeck.com/props',
   },
   title: 'Player Props — Rankings & Edge Detection',
-  description: 'Real-time player prop rankings for MLB, NFL, and NHL. Find mispriced lines, compare odds across sportsbooks, and spot edges with data-driven analysis.',
+  description: 'Daily morning player prop rankings for MLB, NFL, and NHL. Compare the best stored number against consensus, with the as-of time shown on the board.',
   openGraph: {
     title: 'Player Props — Rankings & Edge Detection | Odds on Deck',
-    description: 'Real-time player prop rankings. Find mispriced lines and spot edges with data-driven analysis.',
+    description: 'Daily morning player prop rankings. Best stored number vs consensus, with the as-of time on the board.',
     images: [OG_IMAGE],
   },
 }

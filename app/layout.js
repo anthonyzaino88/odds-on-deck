@@ -8,7 +8,7 @@ import { Analytics } from '@vercel/analytics/next'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 import { OG_IMAGE, SITE_NAME, SITE_URL } from '../lib/site-meta'
 
-const SITE_DESCRIPTION = 'Data-driven sports betting analytics for MLB, NFL & NHL. Real-time odds tracking, player prop rankings, edge detection, parlay generator, and transparent validation — all powered by math, not gut feelings.'
+const SITE_DESCRIPTION = 'Data-driven sports betting analytics for MLB, NFL & NHL. Daily morning odds snapshots, player prop rankings, edge detection, parlay generator, and transparent validation — all powered by math, not gut feelings.'
 
 export const metadata = {
   metadataBase: new URL(SITE_URL),
@@ -21,7 +21,7 @@ export const metadata = {
     'sports betting analytics', 'player props', 'MLB betting', 'NFL betting', 'NHL betting',
     'betting edge', 'odds comparison', 'parlay generator', 'DFS optimizer',
     'implied probability', 'sports betting tools', 'prop betting', 'betting validation',
-    'real-time odds', 'line shopping', 'sports analytics',
+    'daily morning odds', 'line shopping', 'sports analytics',
   ],
   authors: [{ name: SITE_NAME }],
   creator: SITE_NAME,

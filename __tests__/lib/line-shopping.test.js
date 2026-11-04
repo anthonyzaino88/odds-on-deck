@@ -17,6 +17,7 @@ import {
   resetEntryBookColumnCache,
   resetLineShopQuoteColumnCache,
   toPublicPropShop,
+  toPublicPropsApiRow,
   toPublicShopQuotes,
   upsertPlayerPropCacheWithOptionalQuotes,
   usableDecimalPrice,
@@ -248,9 +249,18 @@ describe('public shop mapping', () => {
       edge: 0.04,
     })
     expect(shop.quotes).toBeNull()
+    expect(shop.staleQuotes).toBe(false)
     expect(shop.numBooks).toBeNull()
     expect(shop.bestBook).toBe('FanDuel')
     expect(shop.consensusOdds).toBeCloseTo(consensusOddsFromProbability(0.55), 8)
+    expect(toPublicPropsApiRow({
+      propId: 'p1',
+      odds: 1.91,
+      bookmaker: 'FanDuel',
+      probability: 0.55,
+      edge: 0.04,
+      sport: 'mlb',
+    }).quotes).toBeNull()
   })
 
   test('marks stale quotes and uses real quote length for numBooks', () => {
@@ -270,6 +280,7 @@ describe('public shop mapping', () => {
     expect(publicNumBooks(shop)).toBe(2)
     expect(shop.quotes[0].stale).toBe(false)
     expect(shop.quotes[1].stale).toBe(true)
+    expect(shop.staleQuotes).toBe(true)
   })
 })
 

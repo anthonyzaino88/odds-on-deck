@@ -36,6 +36,62 @@ function decimalToAmerican(decimalOdds) {
   return `${Math.round(-100 / (d - 1))}`
 }
 
+function formatAmerican(value) {
+  if (value == null || !Number.isFinite(Number(value))) return null
+  const n = Math.round(Number(value))
+  return n > 0 ? `+${n}` : `${n}`
+}
+
+function formatQuoteAge(ageMs) {
+  if (ageMs == null || !Number.isFinite(ageMs)) return 'age unknown'
+  const min = Math.floor(ageMs / 60000)
+  if (min < 1) return 'just now'
+  if (min < 60) return `${min}m ago`
+  return `${Math.floor(min / 60)}h ago`
+}
+
+function LineShopMeta({ prop }) {
+  const quotes = Array.isArray(prop.quotes) && prop.quotes.length > 0 ? prop.quotes : null
+  const books = typeof prop.numBooks === 'number' && prop.numBooks > 0 ? prop.numBooks : null
+  const consensus = formatAmerican(prop.consensusAmerican)
+    || (prop.consensusOdds ? decimalToAmerican(prop.consensusOdds) : null)
+
+  return (
+    <>
+      {books != null && (
+        <span className="text-[10px] text-slate-500 tabular-nums font-mono">{books}-book</span>
+      )}
+      {consensus && (
+        <span className="text-[10px] text-slate-500 tabular-nums font-mono">vs cons {consensus}</span>
+      )}
+      {prop.staleQuotes && (
+        <span className="text-[10px] font-medium text-amber-400">stale</span>
+      )}
+      {quotes && (
+        <details
+          className="text-[10px] text-slate-500"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <summary className="cursor-pointer text-slate-400 hover:text-slate-200">
+            {books != null ? `${books}-book ladder` : 'Book ladder'}
+          </summary>
+          <ul className="mt-1 space-y-0.5 text-slate-500">
+            {quotes.map((quote) => (
+              <li key={`${quote.book}-${quote.decimal}`} className="tabular-nums font-mono">
+                {quote.book || 'Unknown'}{' '}
+                {formatAmerican(quote.american) || decimalToAmerican(quote.decimal) || '—'}
+                {' · '}
+                {formatQuoteAge(quote.ageMs)}
+                {quote.stale ? ' · stale' : ''}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </>
+  )
+}
+
 // Helper to get/set saved props in localStorage
 const SAVED_PROPS_KEY = 'odds_on_deck_saved_props'
 
@@ -400,6 +456,7 @@ function PlayerPropCard({ prop, rank }) {
             <BookBadge book={prop.bookmaker} />
             <ConfidenceBadge confidence={prop.confidence} />
             {prop.edge > 0.01 && <EdgeBadge edge={prop.edge * 100} />}
+            <LineShopMeta prop={prop} />
           </div>
           {prop.projection > 0 && (
             <div className="text-[10px] text-slate-600 mt-1 tabular-nums">
@@ -504,6 +561,7 @@ function PropRow({ prop }) {
           <BookBadge book={prop.bookmaker} />
           <ConfidenceBadge confidence={prop.confidence} />
           {prop.edge > 0.01 && <EdgeBadge edge={prop.edge * 100} />}
+          <LineShopMeta prop={prop} />
         </div>
       </Link>
       <div className="flex items-center gap-3 shrink-0">
