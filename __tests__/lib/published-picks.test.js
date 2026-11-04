@@ -935,6 +935,7 @@ describe('toPublishedValidationFields', () => {
       sport: 'mlb',
       numBooks: 4,
       projection: 1.8,
+      bookmaker: 'DraftKings',
     })
     expect(fields).toMatchObject({
       propId: 'yelich-tb-15',
@@ -951,6 +952,7 @@ describe('toPublishedValidationFields', () => {
       status: 'pending',
       sport: 'mlb',
       numBooks: 4,
+      entryBook: 'DraftKings',
     })
     expect(fields.source).not.toBe('game_line')
     expect(publishedPropId({ propId: 'yelich-tb-15' })).toBe('yelich-tb-15')
@@ -1238,9 +1240,11 @@ describe('shadow published NHL cohort', () => {
       probability: 0.55,
       edge: 0.06,
       qualityScore: 50,
+      bookmaker: 'FanDuel',
     }, {
       notes: SHADOW_PUBLISHED_COHORT_TAG,
     })
+    expect(fields.entryBook).toBe('FanDuel')
     expect(shouldLockPublishedRecordedPrice({ closeOdds: -108 }, { status: 'scheduled' })).toBe(true)
     expect(shouldLockPublishedRecordedPrice({ closeCapturedAt: '2026-10-29T00:00:00Z' }, {})).toBe(true)
     expect(shouldLockPublishedRecordedPrice({ odds: -110 }, { status: 'in_progress' })).toBe(true)
@@ -1271,6 +1275,7 @@ describe('shadow published NHL cohort', () => {
     }
     const locked = publishedValidationUpdateFields(existing, fields, { status: 'scheduled' }, { shadow: true })
     expect(locked.odds).toBeUndefined()
+    expect(locked.entryBook).toBeUndefined()
     expect(locked.threshold).toBeUndefined()
     expect(locked.prediction).toBeUndefined()
     expect(locked.probability).toBeUndefined()
@@ -1285,6 +1290,7 @@ describe('shadow published NHL cohort', () => {
       { shadow: true },
     )
     expect(unlocked.odds).toBe(-125)
+    expect(unlocked.entryBook).toBe('FanDuel')
     expect(unlocked.threshold).toBe(3.5)
     expect(unlocked.notes).toBe('tier:elite,auto-saved | cohort:shadow-published')
   })

@@ -23,6 +23,7 @@ describe('Published props are recorded when they clear the bar', () => {
     expect(validationSrc).toMatch(/toPublishedValidationFields/)
     expect(validationSrc).toMatch(/publishedValidationWritePlan/)
     expect(validationSrc).toMatch(/publishedValidationUpdateFields/)
+    expect(validationSrc).toMatch(/writeWithOptionalEntryBook/)
     expect(validationSrc).toMatch(/publishedPersistNotes/)
     expect(validationSrc).toMatch(/skip_foreign/)
     expect(validationSrc).toMatch(/will not adopt or relabel/)
