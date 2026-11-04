@@ -167,6 +167,17 @@ function mockClient({
             closingOdds.push(...list)
             return Promise.resolve({ data: list, error: null })
           },
+          upsert(rows) {
+            const list = Array.isArray(rows) ? rows : [rows]
+            if (closingInsert) return closingInsert(list, { closingOdds, closingInserts, upsert: true })
+            for (const row of list) {
+              const idx = closingOdds.findIndex((existing) => existing.id === row.id)
+              if (idx >= 0) closingOdds[idx] = { ...closingOdds[idx], ...row }
+              else closingOdds.push(row)
+              closingInserts.push(row)
+            }
+            return Promise.resolve({ data: list, error: null })
+          },
         }
         return query
       }
@@ -281,11 +292,12 @@ describe('runCapturePublishedCloses', () => {
       apiKey: 'test-key',
       log,
     })
-    expect(result).toMatchObject({ exitCode: 0, calls: 0, skippedQuiet: true })
+    expect(result).toMatchObject({ exitCode: 0, calls: 0, skippedQuiet: true, captureStatus: 'partial' })
     expect(fetchEventOdds).not.toHaveBeenCalled()
     expect(createClient).not.toHaveBeenCalled()
     expect(log.lines[0]).toBe('MODE: APPLY')
     expect(log.lines.join('\n')).toMatch(/quiet period/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_STATUS=partial/)
   })
 
   test('dry-run lists in-window picks and never fetches or writes', async () => {
@@ -381,7 +393,8 @@ describe('runCapturePublishedCloses', () => {
       apiKey: 'test-key',
       log: memoryLog(),
     })
-    expect(apply.exitCode).toBe(1)
+    expect(apply.exitCode).toBe(0)
+    expect(apply.captureStatus).toBe('failed')
     expect(apply.closeColumnsMissing).toBe(true)
     expect(fetchEventOdds).not.toHaveBeenCalled()
 
@@ -451,15 +464,47 @@ describe('runCapturePublishedCloses', () => {
     expect(probeQuota).toHaveBeenCalledTimes(1)
   })
 
-  test('skips games that start within the final minute', async () => {
-    const result = await runCapturePublishedCloses({
+  test('near-start pass includes T−2 games and excludes exact T−1', async () => {
+    const included = await runCapturePublishedCloses({
       argv: [],
-      now: new Date('2026-07-15T23:09:00.000Z'),
-      createClient: () => mockClient(),
+      now: new Date('2026-07-15T23:38:00.000Z'),
+      createClient: () => mockClient({
+        games: [windowGame({ date: '2026-07-15T23:40:00.000Z' })],
+      }),
+      log: memoryLog(),
+    })
+    expect(included).toMatchObject({ exitCode: 0, calls: 0 })
+    expect(included.openPicks || []).toHaveLength(1)
+    expect(included.captureJobs?.[0]?.pass).toBe('near-start')
+
+    const excluded = await runCapturePublishedCloses({
+      argv: [],
+      now: new Date('2026-07-15T23:39:00.000Z'),
+      createClient: () => mockClient({
+        games: [windowGame({ date: '2026-07-15T23:40:00.000Z' })],
+      }),
+      log: memoryLog(),
+    })
+    expect(excluded.openPicks || []).toHaveLength(0)
+    expect(excluded.captureJobs || []).toHaveLength(0)
+  })
+
+  test('empty window costs 0 Odds API credits and does not probe', async () => {
+    const fetchEventOdds = jest.fn()
+    const probeQuota = jest.fn()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({ games: [] }),
+      fetchEventOdds,
+      probeQuota,
+      apiKey: 'test-key',
       log: memoryLog(),
     })
     expect(result).toMatchObject({ exitCode: 0, calls: 0 })
-    expect(result.openPicks || []).toHaveLength(0)
+    expect(result.creditsUsed ?? 0).toBe(0)
+    expect(probeQuota).not.toHaveBeenCalled()
+    expect(fetchEventOdds).not.toHaveBeenCalled()
   })
 
   test('skips live, final, and postponed games even when the start is in-window', async () => {
@@ -619,7 +664,8 @@ describe('runCapturePublishedCloses', () => {
       apiKey: 'odds-api-key-should-never-print',
       log,
     })
-    expect(result.exitCode).toBe(1)
+    expect(result.exitCode).toBe(0)
+    expect(result.captureStatus).toBe('failed')
     expect(result.missingSecret).toBe(true)
     expect(factory).not.toHaveBeenCalled()
     const printed = log.lines.join('\n')
@@ -681,7 +727,7 @@ describe('runCapturePublishedCloses', () => {
     expect(log.lines[0]).toBe('MODE: APPLY')
   })
 
-  test('invalid --max-calls or --min-remaining exits 1 before any work', async () => {
+  test('invalid --max-calls or --min-remaining exits 0 with CLOSE_CAPTURE_STATUS=failed', async () => {
     const createClient = jest.fn()
     const fetchEventOdds = jest.fn()
     for (const argv of [['--max-calls', 'abc'], ['--max-calls'], ['--min-remaining', '-1'], ['--max-credits', 'nope']]) {
@@ -693,15 +739,17 @@ describe('runCapturePublishedCloses', () => {
         fetchEventOdds,
         log,
       })
-      expect(result.exitCode).toBe(1)
+      expect(result.exitCode).toBe(0)
+      expect(result.captureStatus).toBe('failed')
       expect(result.invalidFlags?.length).toBeGreaterThan(0)
       expect(log.lines.join('\n')).toMatch(/Invalid or missing value/)
+      expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_STATUS=failed/)
     }
     expect(createClient).not.toHaveBeenCalled()
     expect(fetchEventOdds).not.toHaveBeenCalled()
   })
 
-  test('unknown flags and stray positionals exit 1', async () => {
+  test('unknown flags and stray positionals exit 0 with CLOSE_CAPTURE_STATUS=failed', async () => {
     const log = memoryLog()
     const result = await runCapturePublishedCloses({
       argv: ['--apply', '3'],
@@ -710,9 +758,11 @@ describe('runCapturePublishedCloses', () => {
       fetchEventOdds: jest.fn(),
       log,
     })
-    expect(result.exitCode).toBe(1)
+    expect(result.exitCode).toBe(0)
+    expect(result.captureStatus).toBe('failed')
     expect(result.unknown).toEqual(['3'])
     expect(log.lines.join('\n')).toMatch(/Unknown argument/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_STATUS=failed/)
   })
 
   test('0-row closeOdds update logs skipped instead of success', async () => {
@@ -805,7 +855,8 @@ describe('runCapturePublishedCloses', () => {
       apiKey: 'odds-api-key-should-never-print',
       log,
     })
-    expect(result.exitCode).toBe(1)
+    expect(result.exitCode).toBe(0)
+    expect(result.captureStatus).toBe('failed')
     expect(factory).not.toHaveBeenCalled()
     const printed = log.lines.join('\n')
     expect(printed).toMatch(/publishable/)
@@ -833,7 +884,8 @@ describe('runCapturePublishedCloses', () => {
       fetchEventOdds: jest.fn(),
       log,
     })
-    expect(result.exitCode).toBe(1)
+    expect(result.exitCode).toBe(0)
+    expect(result.captureStatus).toBe('failed')
     expect(factory).not.toHaveBeenCalled()
     expect(log.lines.join('\n')).toMatch(/publishable|anon|service_role/)
     expect(log.lines.join('\n')).not.toMatch(anonJwt)
@@ -880,7 +932,8 @@ describe('runCapturePublishedCloses', () => {
       apiKey: '',
       log: memoryLog(),
     })
-    expect(result.exitCode).toBe(1)
+    expect(result.exitCode).toBe(0)
+    expect(result.captureStatus).toBe('failed')
     expect(fetchEventOdds).not.toHaveBeenCalled()
   })
 
@@ -1548,5 +1601,303 @@ describe('runCapturePublishedCloses', () => {
     expect(parseCaptureClosesArgs([]).minRemaining).toBe(50)
     expect(parseCaptureClosesArgs(['--max-calls', '10']).maxCalls).toBe(10)
     expect(parseCaptureClosesArgs(['--max-calls', '20']).maxCalls).toBe(20)
+  })
+
+  test('prints CLOSE_CAPTURE_STATUS and counts and always exits 0', async () => {
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: [],
+      now: IN_WINDOW,
+      createClient: () => mockClient(),
+      fetchEventOdds: jest.fn(),
+      log,
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.captureStatus).toBe('ok')
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_STATUS=ok/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_CAPTURED=0/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_BUDGET=/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_QUIET=/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_WINDOW=/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_CREDITS=0/)
+    expect(log.lines.join('\n')).not.toMatch(/test-key/)
+  })
+
+  test('near-start pass overwrites an existing Published close', async () => {
+    const updates = []
+    const log = memoryLog()
+    const fetchEventOdds = jest.fn(async () => ({
+      data: {
+        commence_time: '2026-07-15T23:10:00.000Z',
+        bookmakers: [{
+          title: 'FanDuel',
+          last_update: '2026-07-15T23:01:00.000Z',
+          markets: [{
+            key: 'batter_hits',
+            last_update: '2026-07-15T23:01:00.000Z',
+            outcomes: [
+              { name: 'Over', description: 'Vinnie Pasquantino', point: 0.5, price: -125 },
+            ],
+          }],
+        }],
+      },
+      quota: { remaining: 18000, used: 2000, last: 1 },
+    }))
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: new Date('2026-07-15T23:02:00.000Z'),
+      createClient: () => mockClient({
+        picks: [publishedPick({
+          closeOdds: -110,
+          closeCapturedAt: '2026-07-15T22:46:00.000Z',
+        })],
+        updates,
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.captureJobs?.[0]?.pass).toBe('near-start')
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(result.updates).toHaveLength(1)
+    expect(updates[0]).toMatchObject({ closeOdds: -125, closeLine: 0.5, closeNumBooks: 1 })
+    expect(log.lines.join('\n')).toMatch(/books=1/)
+  })
+
+  test('near-start skips overwrite when payload commence_time is within 60s', async () => {
+    const updates = []
+    const log = memoryLog()
+    const fetchEventOdds = jest.fn(async () => ({
+      data: {
+        commence_time: '2026-07-15T23:02:30.000Z',
+        bookmakers: [{
+          title: 'FanDuel',
+          markets: [{
+            key: 'batter_hits',
+            outcomes: [
+              { name: 'Over', description: 'Vinnie Pasquantino', point: 0.5, price: -125 },
+            ],
+          }],
+        }],
+      },
+      quota: { remaining: 18000, used: 2000, last: 1 },
+    }))
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: new Date('2026-07-15T23:02:00.000Z'),
+      createClient: () => mockClient({
+        picks: [publishedPick({
+          closeOdds: -110,
+          closeCapturedAt: '2026-07-15T22:46:00.000Z',
+        })],
+        updates,
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.captureJobs?.[0]?.pass).toBe('near-start')
+    expect(result.updates).toHaveLength(0)
+    expect(updates).toHaveLength(0)
+    expect(log.lines.join('\n')).toMatch(/commence_time within 60s of now/)
+  })
+
+  test('near-start skips overwrite when quote last_update is at or after commence_time', async () => {
+    const updates = []
+    const log = memoryLog()
+    const fetchEventOdds = jest.fn(async () => ({
+      data: {
+        commence_time: '2026-07-15T23:10:00.000Z',
+        bookmakers: [{
+          title: 'FanDuel',
+          last_update: '2026-07-15T23:10:00.000Z',
+          markets: [{
+            key: 'batter_hits',
+            last_update: '2026-07-15T23:10:00.000Z',
+            outcomes: [
+              { name: 'Over', description: 'Vinnie Pasquantino', point: 0.5, price: -125 },
+            ],
+          }],
+        }],
+      },
+      quota: { remaining: 18000, used: 2000, last: 1 },
+    }))
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: new Date('2026-07-15T23:02:00.000Z'),
+      createClient: () => mockClient({
+        picks: [publishedPick({
+          closeOdds: -110,
+          closeCapturedAt: '2026-07-15T22:46:00.000Z',
+        })],
+        updates,
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.captureJobs?.[0]?.pass).toBe('near-start')
+    expect(result.updates).toHaveLength(0)
+    expect(updates).toHaveLength(0)
+    expect(log.lines.join('\n')).toMatch(/quote last_update at or after commence_time/)
+  })
+
+  test('a :00 ET run re-checks quiet and stops at :05 before writes', async () => {
+    let fetched = false
+    const updates = []
+    const log = memoryLog()
+    const fetchEventOdds = jest.fn(async () => {
+      fetched = true
+      return {
+        data: {
+          bookmakers: [{
+            title: 'FanDuel',
+            markets: [{
+              key: 'batter_hits',
+              outcomes: [
+                { name: 'Over', description: 'Vinnie Pasquantino', point: 0.5, price: -118 },
+              ],
+            }],
+          }],
+        },
+        quota: { remaining: 18000, used: 2000, last: 1 },
+      }
+    })
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      clock: () => (fetched
+        ? new Date('2026-07-15T20:05:00.000Z')
+        : new Date('2026-07-15T20:00:00.000Z')),
+      createClient: () => mockClient({
+        games: [windowGame({ date: '2026-07-15T20:25:00.000Z' })],
+        updates,
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(updates).toHaveLength(0)
+    expect(result.updates).toHaveLength(0)
+    expect(result.skippedQuiet).toBe(true)
+    expect(result.captureStatus).toBe('partial')
+    expect(result.skippedQuietCount).toBeGreaterThan(0)
+    expect(result.skippedBudgetCount).toBe(0)
+    expect(log.lines.join('\n')).toMatch(/stopping before further writes/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_STATUS=partial/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_QUIET=[1-9]/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_BUDGET=0/)
+  })
+
+  test('does not start a paid fetch after :04:30 ET and counts it as partial/skipped', async () => {
+    const fetchEventOdds = jest.fn()
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: new Date('2026-07-15T20:04:30.000Z'),
+      createClient: () => mockClient({
+        games: [windowGame({ date: '2026-07-15T20:25:00.000Z' })],
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(result.updates).toHaveLength(0)
+    expect(result.skippedQuiet).toBe(true)
+    expect(result.captureStatus).toBe('partial')
+    expect(result.skippedQuietCount).toBeGreaterThan(0)
+    expect(result.skippedBudgetCount).toBe(0)
+    expect(log.lines.join('\n')).toMatch(/:04:30 ET/)
+    expect(log.lines.join('\n')).toMatch(/quiet :05 would block/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_STATUS=partial/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_QUIET=[1-9]/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_BUDGET=0/)
+  })
+
+  test('near-start nfl-all skips game-line overwrite when commence_time is missing or unparseable', async () => {
+    const now = new Date('2026-07-15T23:02:00.000Z')
+    const game = nflWindowGame({ date: '2026-07-15T23:10:00.000Z' })
+    const pick = publishedPick({
+      id: 'pv-kelce',
+      gameIdRef: game.id,
+      playerName: 'Travis Kelce',
+      propType: 'player_receptions',
+      threshold: 5.5,
+      sport: 'nfl',
+      closeOdds: -110,
+      closeCapturedAt: '2026-07-15T22:46:00.000Z',
+    })
+    const run = async (eventData) => {
+      const closingInserts = []
+      const updates = []
+      const log = memoryLog()
+      const result = await runCapturePublishedCloses({
+        argv: ['--apply', '--nfl-all'],
+        now,
+        createClient: () => mockClient({
+          games: [game],
+          picks: [pick],
+          updates,
+          closingInserts,
+        }),
+        fetchEventOdds: async () => ({
+          data: eventData,
+          quota: { remaining: 18000, used: 2000, last: 1 },
+        }),
+        probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+        apiKey: 'test-key',
+        log,
+      })
+      return { result, closingInserts, updates, log }
+    }
+
+    const missing = await run(nflEventOdds())
+    expect(missing.result.captureJobs?.[0]?.pass).toBe('near-start')
+    expect(missing.closingInserts).toHaveLength(0)
+    expect(missing.updates).toHaveLength(0)
+    expect(missing.log.lines.join('\n')).toMatch(/near-start game-line overwrite: commence_time missing\/unparseable/)
+
+    const bad = await run({ ...nflEventOdds(), commence_time: 'nope' })
+    expect(bad.closingInserts).toHaveLength(0)
+    expect(bad.updates).toHaveLength(0)
+    expect(bad.log.lines.join('\n')).toMatch(/near-start game-line overwrite: commence_time missing\/unparseable/)
+  })
+
+  test('ODDS_CLOSE_CAPTURE_DAILY_CAP skips further event fetches', async () => {
+    const fetchEventOdds = jest.fn()
+    const log = memoryLog()
+    const budget = createOddsApiBudget({
+      persist: false,
+      now: IN_WINDOW,
+      log,
+      env: {
+        ODDS_CLOSE_CAPTURE_RESERVE: '200',
+        ODDS_CLOSE_CAPTURE_DAILY_CAP: '40',
+      },
+      state: { days: { '2026-07-15': { credits: 80, calls: 40, closeCaptures: 40 } } },
+      purpose: 'close-capture',
+    })
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      createClient: () => mockClient(),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log,
+      budget,
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.skippedBudgetCount).toBeGreaterThan(0)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_BUDGET=/)
+    expect(log.lines.join('\n')).not.toMatch(/test-key/)
   })
 })

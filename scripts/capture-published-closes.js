@@ -2,13 +2,24 @@
 /**
  * Capture the last available Published-pick price before first pitch.
  *
- * Quota-aware: one Odds API event-odds call per oddsApiEventId that
- * still has Published or shadow-published picks without closeOdds,
- * markets restricted to those picks. Never re-runs morning fetch-live-odds.
- * Writes only where closeOdds IS NULL. Requires the secret key.
- * NHL (published or historical shadow-tagged) shares this job's window,
- * guards, and --max-calls budget. NFL jobs run first so a busy NHL
- * slate cannot exhaust the cap before later NFL closes.
+ * Two passes in one run:
+ *   early      T−window..T−nearStart (default T−35..T−10) — first close
+ *   near-start T−nearStart..T−1 (default T−10..T−1) — overwrite/upsert
+ *
+ * Quota-aware: one Odds API event-odds call per oddsApiEventId,
+ * markets restricted to Published (or shadow-published) picks. Never re-runs morning fetch-live-odds.
+ * Early pass writes where closeOdds
+ * IS NULL. Near-start upserts the later close on ClosingOdds.id
+ * (deterministic clvclose: primary key; onConflict: id — does not
+ * rely on SQL 008) and overwrites PropValidation close fields.
+ * Requires the secret key. Daily event-odds captures are
+ * capped (default 40, ODDS_CLOSE_CAPTURE_DAILY_CAP) and still gated
+ * by lib/odds-api-budget.js including ODDS_CLOSE_CAPTURE_RESERVE.
+ * NHL (published or historical shadow-tagged) is included via
+ * isCloseCaptureEligiblePick (inside isTargetedCloseCapturePick) and
+ * shares this job's window, guards, and --max-calls budget. NFL jobs
+ * run first (closeCaptureJobPriority) so a busy NHL slate cannot
+ * exhaust the cap before later NFL closes.
  *
  * --nfl-all (opt-in): also capture every pending NFL prop without a close
  * (Published bar ignored) and merge h2h/spreads/totals onto that same
@@ -25,6 +36,9 @@
  *   CLV_APPLY=1 node scripts/capture-published-closes.js
  *
  * Schedule at :16 and :46 ET after record-mlb-window-props.
+ * That cadence covers the early pass; it misses most T−10..T−1
+ * kickoffs (see operations/README.md for TZ=America/New_York
+ * 0,4,16,26,36,46,56 8-22 * * *). Empty window costs 0 credits.
  * No-ops during :05–:15 ET. CLOSING_CAPTURE=0 disables.
  * Uses createScriptSupabaseClient with SUPABASE_REQUIRE_SECRET_KEY=1.
  * Do not run --apply from CI.
@@ -43,35 +57,45 @@ import { paginateSupabaseSelect } from '../lib/unplayed-game-grades.js'
 import {
   CLOSE_CAPTURE_SPORTS,
   PUBLISHED_STATS_PREFILTER,
-  isCloseCaptureEligiblePick,
 } from '../lib/published-picks.js'
 import { isMissingColumnError } from '../lib/grade-audit.js'
 import {
-  CLOSE_CAPTURE_WINDOW_MINUTES,
+  CLOSE_CAPTURE_PASS_NEAR_START,
+  CLOSE_CAPTURE_RECOMMENDED_CRON,
+  CLOSE_CAPTURE_ROUTINE_MINUTES,
+  CLOSE_CAPTURE_STATUS_FAILED,
+  CLOSE_CAPTURE_STATUS_OK,
+  CLOSE_CAPTURE_STATUS_PARTIAL,
   applyPublishedCloseUpdate,
   buildEventOddsUrl,
   capturedNflGameLineGameIds,
-  closeCaptureJobPriority,
+  classifyCloseCaptureGames,
   closeCapturePayload,
+  closeCaptureRegionCount,
+  closeCaptureRoutineMissesNearStart,
   closeUpdateRowCount,
   CLOSE_CAPTURE_DEFAULT_MIN_REMAINING,
   flattenEventOddsQuotes,
   formatCallsUsed,
+  formatCloseCaptureCounts,
+  formatCloseCaptureStatus,
   formatCreditsUsed,
   formatGameLineCloseCounts,
   gameLineClosesForCaptureJob,
   groupCaptureJobsByOddsApiEventId,
-  hasCloseAlready,
   includeNflWindowGamesForGameLines,
-  isCloseCaptureCandidate,
   isNflSport,
   isOpsWriteQuietPeriod,
   isTargetedCloseCapturePick,
+  shouldSkipLiveCloseOverwrite,
+  shouldSkipPaidCloseCaptureFetch,
   loadExistingClosingOdds,
   marketsForCaptureJob,
   matchClosingQuote,
   oddsApiSportKey,
+  parseCloseCaptureRegions,
   probeOddsApiQuota,
+  readCloseCaptureWindowConfig,
   resetClosingOddsWriteGuard,
   selectCloseCaptureJobsWithinBudget,
   sortCloseCaptureJobs,
@@ -226,6 +250,7 @@ export async function runCapturePublishedCloses({
   argv = process.argv.slice(2),
   createClient = createScriptSupabaseClient,
   now = new Date(),
+  clock,
   fetchEventOdds = defaultFetchEventOdds,
   probeQuota = probeOddsApiQuota,
   apiKey = process.env.ODDS_API_KEY,
@@ -234,15 +259,53 @@ export async function runCapturePublishedCloses({
   budget,
 } = {}) {
   resetClosingOddsWriteGuard()
+  const nowFn = typeof clock === 'function'
+    ? clock
+    : () => (now instanceof Date ? now : new Date(now))
+  const startedAt = nowFn()
   const args = parseCaptureClosesArgs(argv, env)
+  const windowOpts = readCloseCaptureWindowConfig(env)
+  const regions = parseCloseCaptureRegions(env)
+  const regionCount = closeCaptureRegionCount(regions)
   const oddsBudget = budget || createOddsApiBudget({
     env,
-    now,
+    now: startedAt,
     log,
     apiKey,
     purpose: 'close-capture',
   })
   const done = (result) => {
+    const captured = result.captured ?? (result.updates?.length || 0)
+    const skippedBudget = result.skippedBudgetCount
+      ?? ((result.skippedBudget || result.skippedMaxCalls || result.skippedMaxCredits
+        || result.skippedQuota || oddsBudget.status() === 'close_cap')
+        ? Number(result.skippedBudgetCount) || 0
+        : 0)
+    const skippedQuietCount = Number(result.skippedQuietCount) || 0
+    const skippedWindow = result.skippedWindow ?? 0
+    const credits = result.creditsUsed ?? 0
+    let captureStatus = result.captureStatus
+    if (!captureStatus) {
+      if (result.unknown || result.invalidFlags || result.missingSecret
+        || (result.closeColumnsMissing && args.apply) || result.missingKey) {
+        captureStatus = CLOSE_CAPTURE_STATUS_FAILED
+      } else if (result.fetchErrors || result.writeErrors || result.skippedQuiet) {
+        captureStatus = CLOSE_CAPTURE_STATUS_PARTIAL
+      } else {
+        captureStatus = CLOSE_CAPTURE_STATUS_OK
+      }
+    }
+    log.log(formatCloseCaptureStatus(captureStatus))
+    log.log(formatCloseCaptureCounts({
+      captured,
+      skippedBudget,
+      skippedQuiet: skippedQuietCount,
+      skippedWindow,
+      credits,
+    }))
+    if (captureStatus !== CLOSE_CAPTURE_STATUS_OK) {
+      log.log(`⚠️ ${formatCloseCaptureStatus(captureStatus)} — treat as WARN in routine reports (exit 0)`)
+    }
     emitOddsBudgetStatus(oddsBudget.status(), log)
     log.log(formatOddsCreditsUsed(oddsBudget.runCredits()))
     log.log(formatOddsCreditsRemaining(oddsBudget.remaining()))
@@ -250,65 +313,94 @@ export async function runCapturePublishedCloses({
       log.log(formatCreditsUsed(result.creditsUsed ?? 0))
     }
     log.log(formatCallsUsed(result.calls ?? 0))
-    return result
+    return {
+      ...result,
+      exitCode: 0,
+      captureStatus,
+      captured,
+      skippedBudgetCount: skippedBudget,
+      skippedQuietCount,
+      skippedWindow,
+      creditsUsed: credits,
+    }
   }
   if (args.help) {
     log.log(`Usage: node scripts/capture-published-closes.js [--dry-run|--apply] [--nfl-all] [--max-calls N] [--max-credits N] [--min-remaining N]
 
-Dry-run (default): list in-window Published and shadow-published picks
-missing a close. NHL shares this --max-calls budget; NFL jobs run first
-so a busy NHL slate cannot exhaust the cap before later NFL closes.
---apply or CLV_APPLY=1: one Odds API call per
-oddsApiEventId, write closeOdds only where closeOdds IS NULL. Requires
-ODDS_API_KEY + SUPABASE_SECRET_KEY (SUPABASE_REQUIRE_SECRET_KEY=1).
+Dry-run (default): list in-window Published and shadow-published picks.
+NHL shares this --max-calls budget; NFL jobs run first so a busy NHL
+slate cannot exhaust the cap before later NFL closes.
+--apply or CLV_APPLY=1: one Odds API call per oddsApiEventId.
+Early pass writes closeOdds only where closeOdds IS NULL. Near-start
+pass overwrites that close and upserts clvclose: ClosingOdds rows.
+Requires ODDS_API_KEY + SUPABASE_SECRET_KEY (SUPABASE_REQUIRE_SECRET_KEY=1).
          Do not run from CI. Anon/public keys are refused.
 --nfl-all: also target every pending NFL prop without a close
 (Published bar ignored) and merge h2h/spreads/totals onto that same
 per-game call. Prop markets also request the matching *_alternate
 key so alternate-line picks can match the exact recorded threshold.
-Game-line closes write to ClosingOdds (no duplicates).
-Absent --nfl-all, behavior is unchanged. NHL visibility is unchanged.
+Game-line closes write to ClosingOdds. Near-start upserts on id
+(ClosingOdds TEXT PK / onConflict: id) — no duplicates. SQL 008 is
+not required for that upsert.
+Absent --nfl-all, only Published picks' markets are requested.
 PowerShell: prefer npm run capture:published-closes:apply or
             npm run capture:published-closes:nfl-all:apply.
             $env:CLV_APPLY=1 stays set for later plain runs.
 CLOSING_CAPTURE=0 disables the job. --max-calls caps HTTP calls
 (including the /v4/sports quota probe). --max-credits caps
-markets × regions (us=1) and stops before exceeding, soonest
-kickoff first when --nfl-all. Unknown flags and invalid/missing
---max-calls / --max-credits / --min-remaining values fail closed.
-Close capture is idempotent: deterministic clvclose: ids plus
-ClosingOdds_close_capture_uniq (SQL 008, after exact-duplicate cleanup).
+markets × regions and stops before exceeding, soonest
+kickoff first when --nfl-all. ODDS_CLOSE_CAPTURE_DAILY_CAP
+(default 40) caps paid event-odds captures per ET day.
+Unknown flags and invalid/missing --max-calls / --max-credits /
+--min-remaining values fail closed (status=failed, exit 0).
 --min-remaining (default ${CLOSE_CAPTURE_DEFAULT_MIN_REMAINING}) stops when
 Odds API remaining credits fall below the floor.
-Window is T−${CLOSE_CAPTURE_WINDOW_MINUTES}..T−1 (pre-start games only).
-No-ops during :05–:15 ET. Schedule at :16 and :46 ET, after
-record-mlb-window-props. London NFL 9:30 AM ET games are missed
-if this job only runs in the 11–22 ET MLB window.
-Dry-run prints planned HTTP calls including the quota check,
-plus planned credits. Every run prints CALLS_USED=<n> (actual
-HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
-    return done({ exitCode: 0, updates: [], calls: 0, help: true })
+Windows: early T−${windowOpts.windowMinutes}..T−${windowOpts.nearStartMinutes};
+near-start T−${windowOpts.nearStartMinutes}..T−1 (pre-start only).
+No-ops during :05–:15 ET; a :00/:04 run re-checks before each write
+and stops at :05. Does not start a paid fetch after :04:30 ET.
+Schedule TZ=America/New_York
+${CLOSE_CAPTURE_RECOMMENDED_CRON} after record-mlb-window-props
+during 11–22. Empty window costs 0 credits (no Odds API calls).
+:16/:46 11–22 misses :11–:16 kickoffs and London NFL 9:30 AM ET.
+Every run prints CLOSE_CAPTURE_STATUS=ok|partial|failed and
+CLOSE_CAPTURE_CAPTURED / CLOSE_CAPTURE_SKIPPED_BUDGET /
+CLOSE_CAPTURE_SKIPPED_QUIET / CLOSE_CAPTURE_SKIPPED_WINDOW / CREDITS
+(SKIPPED_BUDGET is cap/exhaustion only) and exits 0. Dry-run prints
+planned HTTP calls including the quota
+check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
+    return done({ updates: [], calls: 0, help: true })
   }
 
   if (args.unknown.length) {
     log.error(`❌ Unknown argument(s): ${args.unknown.join(' ')}`)
-    return done({ exitCode: 1, updates: [], calls: 0, unknown: args.unknown })
+    return done({
+      updates: [],
+      calls: 0,
+      unknown: args.unknown,
+      captureStatus: CLOSE_CAPTURE_STATUS_FAILED,
+    })
   }
   if (args.invalidFlags.length) {
     log.error(`❌ Invalid or missing value for ${args.invalidFlags.join(', ')}`)
-    return done({ exitCode: 1, updates: [], calls: 0, invalidFlags: args.invalidFlags })
+    return done({
+      updates: [],
+      calls: 0,
+      invalidFlags: args.invalidFlags,
+      captureStatus: CLOSE_CAPTURE_STATUS_FAILED,
+    })
   }
 
   log.log(formatCaptureModeBanner(args.apply))
 
   if (args.disabled) {
     log.log('⏸️  CLOSING_CAPTURE=0 — close capture disabled.')
-    return done({ exitCode: 0, updates: [], calls: 0, skippedDisabled: true })
+    return done({ updates: [], calls: 0, skippedDisabled: true })
   }
 
-  if (isOpsWriteQuietPeriod(now)) {
+  if (isOpsWriteQuietPeriod(startedAt)) {
     log.log('⏸️  Ops quiet period (:05–:15 ET) — no close capture writes or Odds API calls.')
-    return done({ exitCode: 0, updates: [], calls: 0, skippedQuiet: true })
+    return done({ updates: [], calls: 0, skippedQuiet: true })
   }
 
   let supabase
@@ -317,27 +409,48 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
     supabase = createClient(captureSupabaseEnv(env))
   } catch (error) {
     log.error(`❌ ${error.message}`)
-    return done({ exitCode: 1, updates: [], calls: 0, missingSecret: true })
+    return done({
+      updates: [],
+      calls: 0,
+      missingSecret: true,
+      captureStatus: CLOSE_CAPTURE_STATUS_FAILED,
+    })
   }
-  const horizon = new Date(now.getTime() + CLOSE_CAPTURE_WINDOW_MINUTES * 60 * 1000)
+  const horizon = new Date(startedAt.getTime() + windowOpts.windowMinutes * 60 * 1000)
 
   const { data: games, error: gameError } = await supabase
     .from('Game')
     .select(GAME_SELECT)
     .in('sport', CLOSE_CAPTURE_SPORTS)
-    .gte('date', now.toISOString())
+    .gte('date', startedAt.toISOString())
     .lte('date', horizon.toISOString())
 
   if (gameError) {
     log.error(`❌ Game query failed: ${gameError.message}`)
-    return done({ exitCode: 1, updates: [], calls: 0 })
+    return done({
+      updates: [],
+      calls: 0,
+      captureStatus: CLOSE_CAPTURE_STATUS_FAILED,
+    })
   }
 
-  const windowGames = (games || []).filter((game) => isCloseCaptureCandidate(game, now))
+  const classified = classifyCloseCaptureGames(games || [], startedAt, windowOpts)
+  const windowGames = [...classified.early, ...classified.nearStart]
   const gamesById = new Map(windowGames.map((game) => [game.id, game]))
+  const passByGameId = new Map([
+    ...classified.early.map((game) => [game.id, 'early']),
+    ...classified.nearStart.map((game) => [game.id, CLOSE_CAPTURE_PASS_NEAR_START]),
+  ])
+  const skippedWindow = classified.skippedWindow.length
   if (windowGames.length === 0) {
     log.log('✅ No games in the close-capture window.')
-    return done({ exitCode: 0, updates: [], calls: 0, openPicks: [], windowGames: [] })
+    return done({
+      updates: [],
+      calls: 0,
+      openPicks: [],
+      windowGames: [],
+      skippedWindow,
+    })
   }
 
   async function loadPublishedPicks(select) {
@@ -387,20 +500,31 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
 
   if (pickPage.error) {
     log.error(`❌ Pick query failed: ${pickPage.error.message}`)
-    return done({ exitCode: 1, updates: [], calls: 0, closeColumnsMissing })
+    return done({
+      updates: [],
+      calls: 0,
+      closeColumnsMissing,
+      skippedWindow,
+      captureStatus: CLOSE_CAPTURE_STATUS_FAILED,
+    })
   }
 
   if (closeColumnsMissing && args.apply) {
     log.error('❌ --apply needs 007 SQL (closeOdds columns). Dry-run still works.')
-    return done({ exitCode: 1, updates: [], calls: 0, closeColumnsMissing })
+    return done({
+      updates: [],
+      calls: 0,
+      closeColumnsMissing,
+      skippedWindow,
+      captureStatus: CLOSE_CAPTURE_STATUS_FAILED,
+    })
   }
 
-  const openPicks = (pickPage.rows || []).filter((row) => (
-    (args.nflAll
-      ? isTargetedCloseCapturePick(row, { nflAll: true })
-      : isCloseCaptureEligiblePick(row) && !hasCloseAlready(row))
-    && gamesById.has(row.gameIdRef)
-  ))
+  const openPicks = (pickPage.rows || []).filter((row) => {
+    if (!gamesById.has(row.gameIdRef)) return false
+    const overwrite = passByGameId.get(row.gameIdRef) === CLOSE_CAPTURE_PASS_NEAR_START
+    return isTargetedCloseCapturePick(row, { nflAll: args.nflAll, overwrite })
+  })
 
   let existingClosingOdds = []
   if (args.nflAll) {
@@ -413,11 +537,11 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
     }
   }
   const capturedGameIds = capturedNflGameLineGameIds(
-    windowGames.filter((game) => isNflSport(game.sport)),
+    classified.early.filter((game) => isNflSport(game.sport)),
     existingClosingOdds,
   )
 
-  const byGame = includeNflWindowGamesForGameLines(new Map(), windowGames, {
+  const byGame = includeNflWindowGamesForGameLines(new Map(), classified.early, {
     nflAll: args.nflAll,
     capturedGameIds,
   })
@@ -427,65 +551,102 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
     byGame.set(pick.gameIdRef, list)
   }
 
-  const allJobs = sortCloseCaptureJobs(
-    groupCaptureJobsByOddsApiEventId(byGame, gamesById),
-    { nflAll: args.nflAll },
-  )
+  const groupedJobs = groupCaptureJobsByOddsApiEventId(byGame, gamesById).map((job) => ({
+    ...job,
+    pass: (job.gameIds || [job.gameId]).some(
+      (id) => passByGameId.get(id) === CLOSE_CAPTURE_PASS_NEAR_START,
+    )
+      ? CLOSE_CAPTURE_PASS_NEAR_START
+      : 'early',
+  }))
+  const allJobs = sortCloseCaptureJobs(groupedJobs, { nflAll: args.nflAll })
+  const remainingCaptures = oddsBudget.remainingCloseCaptures?.()
   const budgeted = selectCloseCaptureJobsWithinBudget(allJobs, {
     nflAll: args.nflAll,
     maxCalls: args.maxCalls,
     maxCredits: args.maxCredits,
+    maxCaptures: remainingCaptures,
+    regions,
     gameLinesCapturedByGameId: capturedGameIds,
   })
   const captureJobs = budgeted.jobs
   const plannedCalls = budgeted.plannedCalls
   const plannedCredits = budgeted.plannedCredits
+  const skippedBudgetCount = Math.max(0, allJobs.filter((job) => job.eventId).length - captureJobs.length)
 
   log.log('\n📸 PUBLISHED CLOSE CAPTURE')
   log.log('='.repeat(60))
-  log.log(`Window: ${CLOSE_CAPTURE_WINDOW_MINUTES} minutes before first pitch (T−1 floor, pre-start only)`)
-  log.log(`Games in window: ${windowGames.length}`)
+  log.log(
+    `Windows: early T−${windowOpts.windowMinutes}..T−${windowOpts.nearStartMinutes}; `
+    + `near-start T−${windowOpts.nearStartMinutes}..T−1 (pre-start only)`,
+  )
+  log.log(`Games in window: ${windowGames.length} (early=${classified.early.length} near-start=${classified.nearStart.length})`)
+  if (closeCaptureRoutineMissesNearStart({
+    routineMinutes: CLOSE_CAPTURE_ROUTINE_MINUTES,
+    nearStartMinutes: windowOpts.nearStartMinutes,
+    minLeadMinutes: windowOpts.nearStartMinLeadMinutes,
+  })) {
+    log.log(
+      `⚠️ :16/:46 ET cadence misses most T−10..T−1 kickoffs (:11–:16 quiet). `
+      + `Recommended: TZ=America/New_York ${CLOSE_CAPTURE_RECOMMENDED_CRON}`,
+    )
+  }
   log.log(
     args.nflAll
-      ? `Published + shadow + pending NFL props missing close: ${openPicks.length}`
-      : `Published + shadow picks missing close: ${openPicks.length}`,
+      ? `Published + shadow + pending NFL props in window: ${openPicks.length}`
+      : `Published + shadow picks in window: ${openPicks.length}`,
   )
   if (args.nflAll) {
     log.log('NFL-all: pending props + h2h/spreads/totals (one call per game)')
-    log.log('Close capture is idempotent (clvclose: ids + ClosingOdds_close_capture_uniq).')
+    log.log('Near-start upserts clvclose: rows on id (ClosingOdds PK / onConflict: id); no duplicates.')
   }
   log.log(`Odds API HTTP calls this run: ${plannedCalls}`)
-  log.log(`Odds API credits this run: ${plannedCredits} (markets × regions=1)`)
-  log.log('1 HTTP call per game. Credits = markets × regions (us=1), not the morning 10-market slate.')
+  log.log(`Odds API credits this run: ${plannedCredits} (markets × regions=${regionCount})`)
+  log.log(`Daily capture cap remaining: ${remainingCaptures ?? '?'} (ODDS_CLOSE_CAPTURE_DAILY_CAP)`)
+  log.log(`1 HTTP call per game. Credits = markets × regions (${regions.join(',')}), not the morning 10-market slate.`)
 
   if (captureJobs.length === 0) {
     if (args.maxCalls != null && args.maxCalls <= 0) {
       log.log(`⏸️  --max-calls ${args.maxCalls} reached. No Odds API calls.`)
       return done({
-        exitCode: 0,
         updates: [],
         calls: 0,
         creditsUsed: 0,
         plannedCalls,
         plannedCredits,
         skippedMaxCalls: true,
+        skippedBudgetCount,
+        skippedWindow,
       })
     }
     if (args.maxCredits != null && args.maxCredits <= 0) {
       log.log(`⏸️  --max-credits ${args.maxCredits} reached. No Odds API calls.`)
       return done({
-        exitCode: 0,
         updates: [],
         calls: 0,
         creditsUsed: 0,
         plannedCalls,
         plannedCredits,
         skippedMaxCredits: true,
+        skippedBudgetCount,
+        skippedWindow,
+      })
+    }
+    if (remainingCaptures != null && remainingCaptures <= 0) {
+      log.log(`⏸️  ODDS_CLOSE_CAPTURE_DAILY_CAP reached. No Odds API calls.`)
+      return done({
+        updates: [],
+        calls: 0,
+        creditsUsed: 0,
+        plannedCalls,
+        plannedCredits,
+        skippedBudget: true,
+        skippedBudgetCount,
+        skippedWindow,
       })
     }
     log.log('✅ Nothing to capture.')
     return done({
-      exitCode: 0,
       updates: [],
       calls: 0,
       creditsUsed: 0,
@@ -493,23 +654,26 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
       plannedCredits,
       openPicks,
       captureJobs,
+      skippedBudgetCount,
+      skippedWindow,
     })
   }
 
   if (args.dryRun) {
     for (const job of captureJobs) {
       log.log(
-        `  would fetch ${job.gameIds.join(',')}  event=${job.eventId || 'UNMAPPED'}  `
+        `  would fetch ${job.gameIds.join(',')}  pass=${job.pass || 'early'}  event=${job.eventId || 'UNMAPPED'}  `
         + `markets=${(job.markets || marketsForCaptureJob(job, {
           nflAll: args.nflAll,
-          gameLinesCaptured: capturedGameIds.has(job.gameId),
+          gameLinesCaptured: job.pass === CLOSE_CAPTURE_PASS_NEAR_START
+            ? false
+            : capturedGameIds.has(job.gameId),
         })).join(',') || '—'}  `
         + `picks=${job.picks.length}  credits=${job.creditCost ?? ''}`,
       )
     }
     log.log('\n💡 Dry-run only. Pass --apply after 007 SQL to write closes.')
     return done({
-      exitCode: 0,
       updates: [],
       calls: 0,
       creditsUsed: 0,
@@ -518,31 +682,43 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
       openPicks,
       byGame,
       captureJobs,
+      skippedBudgetCount,
+      skippedWindow,
     })
   }
 
   if (!apiKey) {
     log.error('❌ ODDS_API_KEY missing. Dry-run does not need it; --apply does.')
-    return done({ exitCode: 1, updates: [], calls: 0 })
+    return done({
+      updates: [],
+      calls: 0,
+      missingKey: true,
+      skippedWindow,
+      captureStatus: CLOSE_CAPTURE_STATUS_FAILED,
+    })
   }
 
   const updates = []
   let calls = 0
   let creditsUsed = 0
   let lastQuota = { remaining: null, used: null, last: null }
+  let fetchErrors = 0
+  let writeErrors = 0
+  let skippedBudgetDuringRun = 0
   if (args.maxCalls != null && args.maxCalls <= 0) {
     log.log(`⏸️  --max-calls ${args.maxCalls} reached. No Odds API calls.`)
     return done({
-      exitCode: 0,
       updates: [],
       calls: 0,
       creditsUsed: 0,
       skippedMaxCalls: true,
+      skippedBudgetCount,
+      skippedWindow,
     })
   }
   try {
     lastQuota = await probeQuota({ apiKey }) || lastQuota
-    oddsBudget.record(lastQuota, { credits: lastQuota.last ?? 0 })
+    oddsBudget.record(lastQuota, { credits: lastQuota.last ?? 0, isProbe: true })
     calls += 1
   } catch (error) {
     calls += 1
@@ -553,104 +729,172 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
       `⏸️  Odds API remaining ${lastQuota.remaining} < min-remaining ${args.minRemaining}. `
       + 'No event-odds calls.',
     )
-    return done({ exitCode: 0, updates: [], calls, lastQuota, skippedQuota: true })
+    return done({
+      updates: [],
+      calls,
+      lastQuota,
+      skippedQuota: true,
+      skippedBudgetCount: skippedBudgetCount || captureJobs.length,
+      skippedWindow,
+    })
   }
   if (oddsBudget.status() !== ODDS_BUDGET_OK) {
     log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
     const warn = formatOddsBudgetWarnLine(oddsBudget.status())
     if (warn) log.log(warn)
     return done({
-      exitCode: 0,
       updates: [],
       calls,
       creditsUsed: 0,
       lastQuota,
       skippedBudget: true,
+      skippedBudgetCount: skippedBudgetCount || captureJobs.length,
+      skippedWindow,
     })
   }
 
   const gameLineWrites = []
-  for (const job of captureJobs) {
+  let skippedQuietDuringRun = false
+  let skippedQuietCount = 0
+  const markQuietStop = (jobIndex) => {
+    skippedQuietDuringRun = true
+    skippedQuietCount += captureJobs.length - jobIndex
+  }
+  for (let jobIndex = 0; jobIndex < captureJobs.length; jobIndex += 1) {
+    const job = captureJobs[jobIndex]
+    if (isOpsWriteQuietPeriod(nowFn())) {
+      log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
+      markQuietStop(jobIndex)
+      break
+    }
+    if (shouldSkipPaidCloseCaptureFetch(nowFn())) {
+      log.log('⏸️  After :04:30 ET — not starting a paid fetch that quiet :05 would block.')
+      markQuietStop(jobIndex)
+      break
+    }
     const game = job.game
     const sportKey = oddsApiSportKey(game?.sport)
     const label = job.gameIds.join(',')
+    const overwrite = job.pass === CLOSE_CAPTURE_PASS_NEAR_START
     if (!job.eventId || !sportKey) {
       log.log(`  skip ${label}: no Odds API event id`)
       continue
     }
     const markets = job.markets || marketsForCaptureJob(job, {
       nflAll: args.nflAll,
-      gameLinesCaptured: capturedGameIds.has(job.gameId),
+      gameLinesCaptured: overwrite ? false : capturedGameIds.has(job.gameId),
     })
     if (markets.length === 0) {
       log.log(`  skip ${label}: no mapped markets`)
       continue
     }
+    const jobCredits = job.creditCost ?? (markets.length * regionCount)
     if (args.maxCalls != null && calls >= args.maxCalls) {
       log.log(`⏸️  --max-calls ${args.maxCalls} reached. Stopping.`)
+      skippedBudgetDuringRun += 1
       break
     }
-    if (args.maxCredits != null && creditsUsed + markets.length > args.maxCredits) {
+    if (args.maxCredits != null && creditsUsed + jobCredits > args.maxCredits) {
       log.log(`⏸️  --max-credits ${args.maxCredits} reached. Stopping.`)
+      skippedBudgetDuringRun += 1
       break
     }
     if (lastQuota.remaining != null && lastQuota.remaining < args.minRemaining) {
       log.log(
         `⏸️  Odds API remaining ${lastQuota.remaining} < min-remaining ${args.minRemaining}. Stopping.`,
       )
+      skippedBudgetDuringRun += 1
       break
     }
-    if (!oddsBudget.allow(markets.length)) {
+    if (!oddsBudget.allow(jobCredits, { captures: 1 })) {
       log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
       const warn = formatOddsBudgetWarnLine(oddsBudget.status())
       if (warn) log.log(warn)
+      skippedBudgetDuringRun += 1
       break
     }
 
+    if (shouldSkipPaidCloseCaptureFetch(nowFn())) {
+      log.log(
+        `⏸️  skipped ${label} paid fetch after :04:30 ET (quiet :05 would block the write)`,
+      )
+      markQuietStop(jobIndex)
+      break
+    }
     const url = buildEventOddsUrl({
       sportKey,
       eventId: job.eventId,
       markets,
       apiKey,
+      regions,
     })
     calls += 1
-    creditsUsed += markets.length
+    creditsUsed += jobCredits
     let payload
     try {
-      payload = await fetchEventOdds({ url })
+      payload = await fetchEventOdds({
+        url,
+        budget: oddsBudget,
+        estimatedCredits: jobCredits,
+        apiKey,
+      })
       if (payload?.skipped) {
         log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
         const warn = formatOddsBudgetWarnLine(oddsBudget.status())
         if (warn) log.log(warn)
+        skippedBudgetDuringRun += 1
         break
       }
       if (payload?.quota) lastQuota = payload.quota
-      oddsBudget.record(payload?.quota || {}, { credits: payload?.quota?.last ?? markets.length })
+      if (!payload?.budgetRecorded) {
+        oddsBudget.record(payload?.quota || {}, {
+          credits: payload?.quota?.last ?? jobCredits,
+          captures: 1,
+        })
+      }
     } catch (error) {
+      fetchErrors += 1
       log.error(`  ❌ ${label}: ${error.message}`)
       continue
     }
 
     if (args.nflAll && isNflSport(game?.sport)) {
-      const gameLineRows = gameLineClosesForCaptureJob(job, payload.data, now, { log })
-      const writtenLines = await writeGameLineCloses(supabase, gameLineRows, {
-        gamesById,
-      })
-      if (writtenLines.error) {
-        const failedNote = writtenLines.failed
-          ? ` (${writtenLines.failed} row(s) not captured)`
-          : ''
-        log.error(`  ❌ ClosingOdds ${label}: ${writtenLines.error.message}${failedNote}`)
-      }
-      log.log(formatGameLineCloseCounts({
-        label,
-        proposed: gameLineRows.length,
-        inserted: writtenLines.inserted,
-        skipped: writtenLines.skipped,
-        failed: writtenLines.failed,
-      }))
-      if (writtenLines.inserted > 0) {
-        gameLineWrites.push(...(writtenLines.rows || []))
+      const liveSkip = overwrite
+        ? shouldSkipLiveCloseOverwrite({ payload: payload.data, now: nowFn() })
+        : null
+      if (liveSkip) {
+        log.log(`  skipped ${label} near-start game-line overwrite: ${liveSkip}`)
+      } else {
+        const gameLineRows = gameLineClosesForCaptureJob(job, payload.data, nowFn(), {
+          log,
+          skipLiveOverwrite: overwrite,
+        })
+        if (isOpsWriteQuietPeriod(nowFn())) {
+          log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
+          markQuietStop(jobIndex)
+          break
+        }
+        const writtenLines = await writeGameLineCloses(supabase, gameLineRows, {
+          gamesById,
+          overwrite,
+        })
+        if (writtenLines.error) {
+          writeErrors += 1
+          const failedNote = writtenLines.failed
+            ? ` (${writtenLines.failed} row(s) not captured)`
+            : ''
+          log.error(`  ❌ ClosingOdds ${label}: ${writtenLines.error.message}${failedNote}`)
+        }
+        log.log(formatGameLineCloseCounts({
+          label,
+          proposed: gameLineRows.length,
+          inserted: writtenLines.inserted,
+          skipped: writtenLines.skipped,
+          failed: writtenLines.failed,
+        }))
+        if (writtenLines.inserted > 0) {
+          gameLineWrites.push(...(writtenLines.rows || []))
+        }
       }
     }
 
@@ -661,34 +905,57 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
         log.log(`  no quote ${pick.id} ${pick.playerName} ${pick.propType}`)
         continue
       }
-      const patch = closeCapturePayload(quote, now)
+      const liveSkip = overwrite
+        ? shouldSkipLiveCloseOverwrite({ payload: payload.data, quote, now: nowFn() })
+        : null
+      if (liveSkip) {
+        log.log(`  skipped ${pick.id} near-start overwrite: ${liveSkip}`)
+        continue
+      }
+      const patch = closeCapturePayload(quote, nowFn())
       if (!patch || patch.closeOdds == null) {
         log.log(`  skipped ${pick.id} unconvertible close price`)
         continue
+      }
+      if (isOpsWriteQuietPeriod(nowFn())) {
+        log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
+        markQuietStop(jobIndex)
+        break
       }
       const write = await updateWithOptionalCloseOdds(
         (body) => applyPublishedCloseUpdate(
           supabase.from('PropValidation'),
           pick.id,
           body,
+          { overwrite },
         ),
         patch,
       )
       if (write?.error) {
+        writeErrors += 1
         log.error(`  ❌ write ${pick.id}: ${write.error.message}`)
         continue
       }
       const written = closeUpdateRowCount(write)
       if (written === 0) {
-        log.log(`  skipped ${pick.id} already captured (closeOdds present)`)
+        log.log(
+          overwrite
+            ? `  skipped ${pick.id} close not written (overwrite matched 0 rows)`
+            : `  skipped ${pick.id} already captured (closeOdds present)`,
+        )
         continue
       }
-      updates.push({ id: pick.id, ...patch })
+      updates.push({ id: pick.id, ...patch, pass: job.pass })
+      const booksNote = overwrite && patch.closeNumBooks != null
+        ? `, books=${patch.closeNumBooks}`
+        : ''
       log.log(
         `  ✅ ${pick.id} ${pick.playerName} ${pick.propType} `
-        + `recorded ${pick.odds} → close ${patch.closeOdds} (${quote.book})`,
+        + `${overwrite ? 'updated' : 'recorded'} ${pick.odds} → close ${patch.closeOdds} `
+        + `(${quote.book}${booksNote})`,
       )
     }
+    if (skippedQuietDuringRun) break
   }
 
   if (lastQuota.remaining != null) {
@@ -696,7 +963,6 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
   }
   log.log(`Captured ${updates.length} close(s) with ${calls} HTTP call(s).`)
   return done({
-    exitCode: 0,
     updates,
     calls,
     creditsUsed,
@@ -704,6 +970,13 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
     plannedCalls,
     plannedCredits,
     gameLineWrites,
+    captureJobs,
+    fetchErrors,
+    writeErrors,
+    skippedBudgetCount: skippedBudgetCount + skippedBudgetDuringRun,
+    skippedWindow,
+    skippedQuiet: skippedQuietDuringRun || undefined,
+    skippedQuietCount,
   })
 }
 
@@ -720,7 +993,9 @@ if (invokedDirectly()) {
     process.exit(result.exitCode)
   }).catch((error) => {
     console.error('Fatal:', error)
+    console.log(formatCloseCaptureStatus(CLOSE_CAPTURE_STATUS_FAILED))
+    console.log(formatCloseCaptureCounts({}))
     console.log(formatCallsUsed(0))
-    process.exit(1)
+    process.exit(0)
   })
 }
