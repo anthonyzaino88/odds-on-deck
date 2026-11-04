@@ -71,7 +71,6 @@ import {
   marketsForCaptureJob,
   matchClosingQuote,
   oddsApiSportKey,
-  parseOddsApiQuota,
   probeOddsApiQuota,
   resetClosingOddsWriteGuard,
   selectCloseCaptureJobsWithinBudget,
@@ -79,6 +78,16 @@ import {
   updateWithOptionalCloseOdds,
   writeGameLineCloses,
 } from '../lib/closing-line.js'
+import {
+  createOddsApiBudget,
+  emitOddsBudgetStatus,
+  fetchOddsApiJson,
+  formatOddsBudgetStatus,
+  formatOddsBudgetWarnLine,
+  formatOddsCreditsRemaining,
+  formatOddsCreditsUsed,
+  ODDS_BUDGET_OK,
+} from '../lib/odds-api-budget.js'
 
 config({ path: '.env.local' })
 
@@ -192,18 +201,25 @@ export function parseCaptureClosesArgs(argv = [], env = process.env) {
   }
 }
 
-async function defaultFetchEventOdds({ url, fetchImpl = fetch }) {
-  const response = await fetchImpl(url, {
-    headers: { 'User-Agent': 'OddsOnDeck/1.0' },
+async function defaultFetchEventOdds({
+  url,
+  fetchImpl = fetch,
+  budget,
+  estimatedCredits,
+  apiKey,
+} = {}) {
+  const result = await fetchOddsApiJson(url, {
+    fetchImpl,
+    budget,
+    estimatedCredits,
+    apiKey,
   })
-  const quota = parseOddsApiQuota(response.headers)
-  if (!response.ok) {
-    const text = await response.text()
-    const error = new Error(`Odds API ${response.status}: ${text}`)
-    error.quota = quota
-    throw error
+  return {
+    data: result.data,
+    quota: result.quota,
+    skipped: result.skipped,
+    budgetRecorded: result.budgetRecorded,
   }
-  return { data: await response.json(), quota }
 }
 
 export async function runCapturePublishedCloses({
@@ -215,10 +231,21 @@ export async function runCapturePublishedCloses({
   apiKey = process.env.ODDS_API_KEY,
   env = process.env,
   log = console,
+  budget,
 } = {}) {
   resetClosingOddsWriteGuard()
   const args = parseCaptureClosesArgs(argv, env)
+  const oddsBudget = budget || createOddsApiBudget({
+    env,
+    now,
+    log,
+    apiKey,
+    purpose: 'close-capture',
+  })
   const done = (result) => {
+    emitOddsBudgetStatus(oddsBudget.status(), log)
+    log.log(formatOddsCreditsUsed(oddsBudget.runCredits()))
+    log.log(formatOddsCreditsRemaining(oddsBudget.remaining()))
     if (result.plannedCredits != null || result.creditsUsed != null) {
       log.log(formatCreditsUsed(result.creditsUsed ?? 0))
     }
@@ -502,7 +529,7 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
   const updates = []
   let calls = 0
   let creditsUsed = 0
-  let lastQuota = { remaining: null, used: null }
+  let lastQuota = { remaining: null, used: null, last: null }
   if (args.maxCalls != null && args.maxCalls <= 0) {
     log.log(`⏸️  --max-calls ${args.maxCalls} reached. No Odds API calls.`)
     return done({
@@ -515,6 +542,7 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
   }
   try {
     lastQuota = await probeQuota({ apiKey }) || lastQuota
+    oddsBudget.record(lastQuota, { credits: lastQuota.last ?? 0 })
     calls += 1
   } catch (error) {
     calls += 1
@@ -526,6 +554,19 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
       + 'No event-odds calls.',
     )
     return done({ exitCode: 0, updates: [], calls, lastQuota, skippedQuota: true })
+  }
+  if (oddsBudget.status() !== ODDS_BUDGET_OK) {
+    log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
+    const warn = formatOddsBudgetWarnLine(oddsBudget.status())
+    if (warn) log.log(warn)
+    return done({
+      exitCode: 0,
+      updates: [],
+      calls,
+      creditsUsed: 0,
+      lastQuota,
+      skippedBudget: true,
+    })
   }
 
   const gameLineWrites = []
@@ -559,6 +600,12 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
       )
       break
     }
+    if (!oddsBudget.allow(markets.length)) {
+      log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
+      const warn = formatOddsBudgetWarnLine(oddsBudget.status())
+      if (warn) log.log(warn)
+      break
+    }
 
     const url = buildEventOddsUrl({
       sportKey,
@@ -571,7 +618,14 @@ HTTP calls) and CREDITS_USED=<n> when credits were budgeted.`)
     let payload
     try {
       payload = await fetchEventOdds({ url })
-      if (payload.quota) lastQuota = payload.quota
+      if (payload?.skipped) {
+        log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
+        const warn = formatOddsBudgetWarnLine(oddsBudget.status())
+        if (warn) log.log(warn)
+        break
+      }
+      if (payload?.quota) lastQuota = payload.quota
+      oddsBudget.record(payload?.quota || {}, { credits: payload?.quota?.last ?? markets.length })
     } catch (error) {
       log.error(`  ❌ ${label}: ${error.message}`)
       continue

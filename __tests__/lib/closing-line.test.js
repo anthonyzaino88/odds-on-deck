@@ -711,10 +711,15 @@ describe('close write payload and missing-column retry', () => {
     expect(hasCloseAlready({ closeOdds: null, closeCapturedAt: null })).toBe(false)
   })
 
-  test('parseOddsApiQuota reads remaining credits', () => {
+  test('parseOddsApiQuota reads remaining, used, and last credits', () => {
     expect(parseOddsApiQuota({
-      get: (name) => (name === 'x-requests-remaining' ? '18420' : '1580'),
-    })).toEqual({ remaining: 18420, used: 1580 })
+      get: (name) => ({
+        'x-requests-remaining': '18420',
+        'x-requests-used': '1580',
+        'x-requests-last': '5',
+      }[name] || null),
+    })).toEqual({ remaining: 18420, used: 1580, last: 5 })
+    expect(parseOddsApiQuota(null)).toEqual({ remaining: null, used: null, last: null })
     expect(buildSportsQuotaProbeUrl('k')).toBe(
       'https://api.the-odds-api.com/v4/sports?apiKey=k',
     )

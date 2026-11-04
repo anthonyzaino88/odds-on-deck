@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import {
@@ -12,6 +13,9 @@ import {
   resolvePropLanding,
   gamesEligibleForPropSave,
   propSaveDecision,
+  propsCacheMaxAgeMs,
+  DEFAULT_NFL_ADJACENT_PROPS_TTL_MS,
+  nflAdjacentPropsTtlMs,
 } from '../../lib/live-odds-landing.js'
 
 function parseSelectColumns(select) {
@@ -201,6 +205,77 @@ describe('resolvePropLanding', () => {
       now: new Date('2026-09-24T12:00:00.000Z'),
     })
     expect(landing.gameTime).toBe('2026-09-23T17:05:00.000Z')
+  })
+})
+
+describe('propsCacheMaxAgeMs', () => {
+  const now = new Date('2026-11-04T13:09:00.000Z') // 8:09 AM ET
+  const todayTtl = 8 * 60 * 60 * 1000
+
+  test('non-NFL and today NFL keep the midnight-ET clamp', () => {
+    expect(propsCacheMaxAgeMs({
+      sport: 'mlb',
+      gameInstant: '2026-11-03T23:00:00.000Z',
+      now,
+      todayMaxAgeMs: todayTtl,
+    })).toBe(todayTtl)
+    expect(propsCacheMaxAgeMs({
+      sport: 'nfl',
+      gameInstant: '2026-11-04T17:00:00.000Z',
+      now,
+      todayMaxAgeMs: todayTtl,
+    })).toBe(todayTtl)
+  })
+
+  test('adjacent-day NFL uses the configurable TTL', () => {
+    expect(propsCacheMaxAgeMs({
+      sport: 'nfl',
+      gameInstant: '2026-11-03T23:15:00.000Z',
+      now,
+      todayMaxAgeMs: todayTtl,
+    })).toBe(DEFAULT_NFL_ADJACENT_PROPS_TTL_MS)
+    expect(nflAdjacentPropsTtlMs({ ODDS_NFL_ADJACENT_PROPS_TTL_HOURS: '36' }))
+      .toBe(36 * 60 * 60 * 1000)
+  })
+
+  test('SNF zoneless Game.date keeps Sunday TTL under TZ=America/New_York', () => {
+    const script = `
+      import { propsCacheMaxAgeMs, DEFAULT_NFL_ADJACENT_PROPS_TTL_MS } from './lib/live-odds-landing.js'
+      const todayTtl = 8 * 60 * 60 * 1000
+      const now = new Date('2026-11-08T17:00:00.000Z')
+      const snf = '2026-11-09T01:20:00'
+      const ttl = propsCacheMaxAgeMs({
+        sport: 'nfl',
+        gameInstant: snf,
+        now,
+        todayMaxAgeMs: todayTtl,
+      })
+      const et = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/New_York',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      })
+      console.log(JSON.stringify({
+        ttl,
+        todayTtl,
+        adjacent: DEFAULT_NFL_ADJACENT_PROPS_TTL_MS,
+        bareEtDay: et.format(new Date(snf)),
+        tz: process.env.TZ,
+      }))
+    `
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: join(__dirname, '../..'),
+      env: { ...process.env, TZ: 'America/New_York' },
+      encoding: 'utf8',
+    })
+    expect(result.status).toBe(0)
+    expect(result.stderr || '').not.toMatch(/Error/)
+    const parsed = JSON.parse(result.stdout.trim().split('\n').filter(Boolean).at(-1))
+    expect(parsed.tz).toBe('America/New_York')
+    expect(parsed.bareEtDay).toBe('2026-11-09')
+    expect(parsed.ttl).toBe(parsed.todayTtl)
+    expect(parsed.ttl).not.toBe(parsed.adjacent)
   })
 })
 
