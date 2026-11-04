@@ -31,7 +31,7 @@ import {
   estimateCreditsFromOddsEndpoint,
   fetchOddsApiJson,
   formatOddsBudgetStatus,
-  refreshOddsApiQuota,
+  runOddsQuotaProbe,
 } from '../lib/odds-api-budget.js'
 import { calculateQualityScore } from '../lib/quality-score.js'
 import { attachNumBooks } from '../lib/juice-traps.js'
@@ -1504,15 +1504,11 @@ async function main() {
 
   try {
     const budget = getOddsBudget()
-    try {
-      await refreshOddsApiQuota({
-        apiKey: ODDS_API_KEY,
-        budget,
-        log: console,
-      })
-    } catch (error) {
-      console.log(`⚠️ Quota probe failed (${error.message}); continuing without a pre-check.`)
-    }
+    await runOddsQuotaProbe({
+      apiKey: ODDS_API_KEY,
+      budget,
+      log: console,
+    })
 
     const sports = sport === 'all' ? Object.keys(SPORTS) : [sport]
     

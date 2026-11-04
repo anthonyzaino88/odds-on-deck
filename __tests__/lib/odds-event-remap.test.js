@@ -155,7 +155,7 @@ describe('fetch-live-odds wiring', () => {
     expect(src).toMatch(/nflAdjacentPropsTtlMs/)
     expect(src).toMatch(/createOddsApiBudget/)
     expect(src).toMatch(/fetchOddsApiJson/)
-    expect(src).toMatch(/refreshOddsApiQuota/)
+    expect(src).toMatch(/runOddsQuotaProbe/)
     expect(src).toMatch(/formatOddsBudgetStatus/)
     expect(src).toMatch(/getOddsBudget\(\)\.logSummary\(\)/)
     expect(src).not.toMatch(/console\.(log|error)\(`https:\/\/api\.the-odds-api\.com/)

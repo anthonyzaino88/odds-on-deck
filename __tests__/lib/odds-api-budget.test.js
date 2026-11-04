@@ -4,6 +4,7 @@ import {
   DEFAULT_CLOSE_CAPTURE_RESERVE,
   DEFAULT_DAILY_CREDIT_CAP,
   DEFAULT_MONTHLY_CREDIT_CAP,
+  DEFAULT_PROBE_FAIL_CREDIT_CAP,
   DEFAULT_REMAINING_FLOOR,
   createOddsApiBudget,
   estimateCreditsFromOddsEndpoint,
@@ -16,6 +17,7 @@ import {
   redactOddsApiKey,
   refreshOddsApiQuota,
   resolveOddsBudgetPath,
+  runOddsQuotaProbe,
   stripOddsApiKeyFromUrl,
 } from '../../lib/odds-api-budget.js'
 
@@ -104,6 +106,7 @@ describe('readOddsBudgetConfig', () => {
       monthlyCap: DEFAULT_MONTHLY_CREDIT_CAP,
       remainingFloor: DEFAULT_REMAINING_FLOOR,
       closeCaptureReserve: DEFAULT_CLOSE_CAPTURE_RESERVE,
+      probeFailCreditCap: DEFAULT_PROBE_FAIL_CREDIT_CAP,
       persistPath: '.local/odds-api-budget.json',
     })
     expect(parseEnvNonNegInt('nope', 7)).toBe(7)
@@ -112,12 +115,14 @@ describe('readOddsBudgetConfig', () => {
       ODDS_MONTHLY_CREDIT_CAP: '9000',
       ODDS_REMAINING_FLOOR: '4000',
       ODDS_CLOSE_CAPTURE_RESERVE: '50',
+      ODDS_PROBE_FAIL_CREDIT_CAP: '75',
       ODDS_BUDGET_PATH: '/tmp/budget.json',
     })).toMatchObject({
       dailyCap: 200,
       monthlyCap: 9000,
       remainingFloor: 4000,
       closeCaptureReserve: 50,
+      probeFailCreditCap: 75,
       persistPath: '/tmp/budget.json',
     })
   })
@@ -392,6 +397,51 @@ describe('fetchOddsApiJson', () => {
     expect(budget.allow(5)).toBe(true)
   })
 
+  test('probe failure without today headers fail-closes at ODDS_PROBE_FAIL_CREDIT_CAP', async () => {
+    const logs = []
+    const budget = createOddsApiBudget({
+      persist: false,
+      now: NOON_ET,
+      purpose: 'fetch',
+      env: { ODDS_CLOSE_CAPTURE_RESERVE: '0', ODDS_PROBE_FAIL_CREDIT_CAP: '100' },
+      log: { log: (msg) => logs.push(msg), warn: (msg) => logs.push(msg) },
+    })
+    const result = await runOddsQuotaProbe({
+      apiKey: 'secret-key-value',
+      budget,
+      fetchImpl: async () => { throw new Error('ECONNRESET secret-key-value') },
+      log: { log: (msg) => logs.push(msg), warn: (msg) => logs.push(msg) },
+    })
+    expect(result.probeFailed).toBe(true)
+    expect(budget.status()).toBe('probe_failed')
+    expect(budget.hasFreshQuota()).toBe(false)
+    expect(budget.allow(100)).toBe(true)
+    expect(budget.allow(101)).toBe(false)
+    expect(logs.join('\n')).toMatch(/ODDS_BUDGET_STATUS=probe_failed/)
+    expect(logs.join('\n')).toMatch(/treat as WARN/)
+    expect(logs.join('\n')).not.toMatch(/secret-key-value/)
+  })
+
+  test('probe failure keeps today headers and does not set probe_failed', async () => {
+    const budget = createOddsApiBudget({
+      persist: false,
+      now: NOON_ET,
+      env: { ODDS_CLOSE_CAPTURE_RESERVE: '0' },
+      log: { log() {} },
+      state: { lastRemaining: 18000, lastUsed: 100, quotaDay: '2026-11-04' },
+    })
+    const result = await runOddsQuotaProbe({
+      apiKey: 'k',
+      budget,
+      fetchImpl: async () => { throw new Error('timeout') },
+      log: { log() {} },
+    })
+    expect(result.probeFailed).toBe(true)
+    expect(budget.markProbeFailed()).toBe(false)
+    expect(budget.status()).toBe('ok')
+    expect(budget.allow(5)).toBe(true)
+  })
+
   test('always issues the 0-credit /v4/sports probe even when leftover remaining is under the floor', async () => {
     const budget = createOddsApiBudget({
       persist: false,
@@ -418,6 +468,43 @@ describe('fetchOddsApiJson', () => {
     expect(budget.status()).toBe('ok')
     expect(budget.allow(5)).toBe(true)
   })
+
+  test('non-probe /scores or /events with a 0 estimate cannot bypass the floor', async () => {
+    const budget = createOddsApiBudget({
+      persist: false,
+      now: NOON_ET,
+      env: { ODDS_CLOSE_CAPTURE_RESERVE: '0' },
+      log: { log() {} },
+      state: { lastRemaining: 2500, lastUsed: 1000, quotaDay: '2026-11-04' },
+    })
+    expect(budget.status()).toBe('floor')
+    const fetchImpl = jest.fn(async () => ({
+      ok: true,
+      headers: headerMap({}),
+      json: async () => [],
+      text: async () => '',
+    }))
+    const skipped = await fetchOddsApiJson(
+      'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/scores?daysFrom=1&apiKey=secret',
+      { budget, fetchImpl, estimatedCredits: 0, log: { log() {} } },
+    )
+    expect(skipped.skipped).toBe(true)
+    expect(skipped.status).toBe('floor')
+    expect(fetchImpl).not.toHaveBeenCalled()
+
+    const probe = await fetchOddsApiJson(
+      'https://api.the-odds-api.com/v4/sports?apiKey=secret',
+      {
+        budget,
+        fetchImpl,
+        estimatedCredits: 0,
+        isProbe: true,
+        log: { log() {} },
+      },
+    )
+    expect(probe.skipped).toBe(false)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('ops docs and script wiring', () => {
@@ -427,8 +514,9 @@ describe('ops docs and script wiring', () => {
     expect(readme).toMatch(/ODDS_MONTHLY_CREDIT_CAP/)
     expect(readme).toMatch(/ODDS_REMAINING_FLOOR/)
     expect(readme).toMatch(/ODDS_CLOSE_CAPTURE_RESERVE/)
+    expect(readme).toMatch(/ODDS_PROBE_FAIL_CREDIT_CAP/)
     expect(readme).toMatch(/ODDS_NFL_ADJACENT_PROPS_TTL_HOURS/)
-    expect(readme).toMatch(/ODDS_BUDGET_STATUS=ok\|floor\|daily_cap\|monthly_cap/)
+    expect(readme).toMatch(/ODDS_BUDGET_STATUS=ok\|floor\|daily_cap\|monthly_cap\|probe_failed/)
     expect(readme).toMatch(/ODDS_CREDITS_USED/)
     expect(readme).toMatch(/ODDS_CREDITS_REMAINING/)
     expect(readme).toMatch(/\.local\/odds-api-budget\.json/)
@@ -440,7 +528,11 @@ describe('ops docs and script wiring', () => {
     const src = readFileSync(join(process.cwd(), 'scripts/fetch-live-odds.js'), 'utf8')
     expect(src).toMatch(/select\('id, oddsApiEventId, date'\)/)
     expect(src).toMatch(/propsCacheMaxAgeMs/)
-    expect(src).toMatch(/refreshOddsApiQuota/)
+    expect(src).toMatch(/runOddsQuotaProbe/)
     expect(src).toMatch(/purpose: 'fetch'/)
+    expect(src).not.toMatch(/continuing without a pre-check/)
+    const ops = readFileSync(join(process.cwd(), 'operations/fetch-live-odds.js'), 'utf8')
+    expect(ops).toMatch(/runOddsQuotaProbe/)
+    expect(ops).not.toMatch(/continuing without a pre-check/)
   })
 })
