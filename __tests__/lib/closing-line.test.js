@@ -1,7 +1,9 @@
 import {
   CLOSE_CAPTURE_MIN_LEAD_MINUTES,
+  CLOSE_CAPTURE_NEAR_START_MIN_LEAD_MINUTES,
   CLOSE_CAPTURE_NEAR_START_MINUTES,
   CLOSE_CAPTURE_PROPOSED_ROUTINE_MINUTES,
+  CLOSE_CAPTURE_RECOMMENDED_CRON,
   CLOSE_CAPTURE_ROUTINE_MINUTES,
   CLOSE_CAPTURE_WINDOW_MINUTES,
   applyPublishedCloseUpdate,
@@ -62,6 +64,7 @@ import {
   updateWithOptionalCloseOdds,
   withoutCloseOddsFields,
   writeGameLineCloses,
+  shouldSkipLiveCloseOverwrite,
   filterNewClosingOddsRows,
   formatCallsUsed,
   gameLineClosesFromEventOdds,
@@ -246,28 +249,31 @@ describe('quiet period and close window', () => {
     expect(CLOSE_CAPTURE_WINDOW_MINUTES).toBe(35)
     expect(CLOSE_CAPTURE_MIN_LEAD_MINUTES).toBe(1)
     expect(CLOSE_CAPTURE_NEAR_START_MINUTES).toBe(10)
+    expect(CLOSE_CAPTURE_NEAR_START_MIN_LEAD_MINUTES).toBe(1)
   })
 
-  test('closeCapturePassForGame splits early T−35..T−10 from near-start T−10..T−0', () => {
+  test('closeCapturePassForGame splits early T−35..T−10 from near-start T−10..T−1', () => {
     const now = new Date('2026-07-15T22:00:00.000Z')
     expect(closeCapturePassForGame({ date: '2026-07-15T22:35:00.000Z', status: 'scheduled' }, now)).toBe('early')
     expect(closeCapturePassForGame({ date: '2026-07-15T22:11:00.000Z', status: 'scheduled' }, now)).toBe('early')
     expect(closeCapturePassForGame({ date: '2026-07-15T22:10:00.000Z', status: 'scheduled' }, now)).toBe('near-start')
-    expect(closeCapturePassForGame({ date: '2026-07-15T22:01:00.000Z', status: 'scheduled' }, now)).toBe('near-start')
+    expect(closeCapturePassForGame({ date: '2026-07-15T22:01:00.001Z', status: 'scheduled' }, now)).toBe('near-start')
+    expect(closeCapturePassForGame({ date: '2026-07-15T22:01:00.000Z', status: 'scheduled' }, now)).toBe(null)
     expect(closeCapturePassForGame({ date: now.toISOString(), status: 'scheduled' }, now)).toBe(null)
     expect(isCloseCaptureCandidate({ date: '2026-07-15T22:05:00.000Z', status: 'scheduled' }, now)).toBe(true)
     expect(isCloseCaptureCandidate({ date: '2026-07-15T22:05:00.000Z', status: 'in_progress' }, now)).toBe(false)
   })
 
-  test(':16/:46 ET misses most near-start kickoffs; every-10-minute cron covers more', () => {
+  test(':16/:46 ET misses most near-start kickoffs; recommended 8–22 cron covers morning games', () => {
+    expect(CLOSE_CAPTURE_RECOMMENDED_CRON).toBe('0,16,26,36,46,56 8-22 * * *')
     expect(closeCaptureRoutineMissesNearStart({
       routineMinutes: CLOSE_CAPTURE_ROUTINE_MINUTES,
     })).toBe(true)
     const current = nearStartKickoffMinutesCoveredByRoutine({
       routineMinutes: CLOSE_CAPTURE_ROUTINE_MINUTES,
     })
-    expect(current).toEqual([...Array(10)].map((_, i) => 17 + i).concat(
-      [...Array(10)].map((_, i) => 47 + i),
+    expect(current).toEqual([...Array(9)].map((_, i) => 18 + i).concat(
+      [...Array(9)].map((_, i) => 48 + i),
     ))
     expect(closeCaptureRoutineMissesNearStart({
       routineMinutes: CLOSE_CAPTURE_PROPOSED_ROUTINE_MINUTES,
@@ -276,7 +282,10 @@ describe('quiet period and close window', () => {
       routineMinutes: CLOSE_CAPTURE_PROPOSED_ROUTINE_MINUTES,
     })
     expect(proposed.length).toBeGreaterThan(current.length)
+    expect(proposed).not.toContain(11)
     expect(proposed).not.toContain(12)
+    expect(proposed).not.toContain(16)
+    expect(proposed).not.toContain(17)
     expect(formatCloseCaptureStatus('ok')).toBe('CLOSE_CAPTURE_STATUS=ok')
     expect(formatCloseCaptureCounts({
       captured: 3,
@@ -795,6 +804,46 @@ describe('close write payload and missing-column retry', () => {
     expect(hasCloseAlready({ closeOdds: -110, closeCapturedAt: null })).toBe(true)
     expect(hasCloseAlready({ closeOdds: null, closeCapturedAt: '2026-07-15T22:00:00Z' })).toBe(true)
     expect(hasCloseAlready({ closeOdds: null, closeCapturedAt: null })).toBe(false)
+  })
+
+  test('shouldSkipLiveCloseOverwrite uses commence_time and quote last_update', () => {
+    const now = new Date('2026-07-15T22:00:00.000Z')
+    expect(shouldSkipLiveCloseOverwrite({
+      payload: { commence_time: '2026-07-15T22:00:30.000Z' },
+      now,
+    })).toBe('commence_time within 60s of now')
+    expect(shouldSkipLiveCloseOverwrite({
+      payload: { commence_time: '2026-07-15T22:00:00.000Z' },
+      now,
+    })).toBe('commence_time within 60s of now')
+    expect(shouldSkipLiveCloseOverwrite({
+      payload: { commence_time: '2026-07-15T21:59:00.000Z' },
+      now,
+    })).toBe('commence_time within 60s of now')
+    expect(shouldSkipLiveCloseOverwrite({
+      payload: { commence_time: '2026-07-15T22:01:01.000Z' },
+      now,
+    })).toBeNull()
+    expect(shouldSkipLiveCloseOverwrite({
+      payload: { commence_time: '2026-07-15T22:10:00.000Z' },
+      quote: { last_update: '2026-07-15T22:10:00.000Z' },
+      now,
+    })).toBe('quote last_update at or after commence_time')
+    expect(shouldSkipLiveCloseOverwrite({
+      payload: { commence_time: '2026-07-15T22:10:00.000Z' },
+      quote: { last_update: '2026-07-15T22:10:01.000Z' },
+      now,
+    })).toBe('quote last_update at or after commence_time')
+    expect(shouldSkipLiveCloseOverwrite({
+      payload: { commence_time: '2026-07-15T22:10:00.000Z' },
+      quote: { last_update: '2026-07-15T22:09:59.000Z' },
+      now,
+    })).toBeNull()
+    expect(shouldSkipLiveCloseOverwrite({ payload: {}, quote: {}, now })).toBeNull()
+    expect(shouldSkipLiveCloseOverwrite({
+      payload: { commence_time: '2026-07-15T22:10:00.000Z' },
+      now,
+    })).toBeNull()
   })
 
   test('parseOddsApiQuota reads remaining, used, and last credits', () => {

@@ -198,12 +198,31 @@ Morning ops status (required):
 6. Include those cleanup fields in the morning report every time.
 ```
 
-### Hourly MLB record + close capture (:16 and :46 ET)
+### Hourly MLB record + close capture
 
 Do **not** add this to the :09 ET job. `:05–:15` is a no-write window.
+A `:00` run re-checks the quiet window before each write and stops
+at `:05` ET.
 
-**One task**, record first, then capture. Hours **11–22 ET** regular
-season (**12–22** postseason). After `007_published_close_odds.sql`:
+**One task**, record first, then capture. After
+`007_published_close_odds.sql`. The **:16/:46 11–22 ET** laptop
+task still records MLB window props; close capture should use the
+recommended cron below (08:56–22:56) so London 9:30 AM ET NFL is
+not missed.
+
+**Recommended cron** (`TZ=America/New_York`):
+
+```
+0,16,26,36,46,56 8-22 * * *
+```
+
+That is `CLOSE_CAPTURE_RECOMMENDED_CRON`. Empty window is a 0-credit
+no-op (no `/v4/sports` probe, no event-odds calls), so a generic
+08:56 start is cheap on days with no morning games. A day-aware
+08:56-only-when-London-plays schedule is optional, not required.
+
+Hours **11–22 ET** regular season (**12–22** postseason) still wrap
+`record-mlb-window-props`. After that SQL:
 
 ```bash
 node scripts/record-mlb-window-props.js
@@ -245,25 +264,28 @@ only):
 - **Early:** T−35..T−10 (env `CLOSE_CAPTURE_WINDOW_MINUTES` /
   `CLOSE_CAPTURE_NEAR_START_MINUTES`). First close. Writes
   `closeOdds` only where it is NULL.
-- **Near-start:** T−10..T−0. Overwrites the Published close and
-  upserts `clvclose:` `ClosingOdds` rows on `id` (SQL 008 unique
-  index on `lower(game_id), lower(book), lower(market)`). Never
-  inserts a duplicate.
+- **Near-start:** T−10..T−1 (min lead 1 minute). Overwrites the
+  Published close and upserts `clvclose:` `ClosingOdds` rows on
+  `id` (`ClosingOdds` TEXT PK, `onConflict: id`). SQL 008's partial
+  unique index is extra protection, not required for that upsert.
+  Skip the overwrite when Odds API `commence_time` is within 60s of
+  now or the quote `last_update` is at/after `commence_time`, so a
+  live in-play price cannot replace a good close.
 
 Only Published (and shadow-published) picks' markets are requested
 unless `--nfl-all`. One Odds API call per `oddsApiEventId`. Requires
 `SUPABASE_SECRET_KEY` (`SUPABASE_REQUIRE_SECRET_KEY=1`; anon refused).
-London NFL 9:30 AM ET games are missed on this 11–22 clock.
 
 The laptop task at **:16 and :46 ET (11:16–22:46)** covers the
-early pass (35 minutes, interval 30 < window 35). It **misses most**
-T−10..T−0 kickoffs** — only start minutes :17–:26 and :47–:56 fall
-in the near-start window at those run times. Quiet :05–:15 ET cannot
-host a run.
+early pass (35 minutes, interval 30 < window 35). It **misses most
+T−10..T−1 kickoffs** — with min lead 1, only start minutes :18–:26
+and :48–:56 fall in the near-start window at those run times. Quiet
+`:05–:15` ET cannot host a run, so **:11–:16 kickoffs miss
+near-start**. An 11:00 start also misses morning games (London NFL
+9:30 AM ET); 08:56 is T−34 (early pass) and 09:26 is near-start.
 
-**Proposed cron** (still skip quiet :05–:15): every 10 minutes at
-`:00,:16,:26,:36,:46,:56` ET, 11:00–22:56 ET. That covers 50 of 60
-kickoff minutes; :11–:16 still miss because of the quiet window.
+**Recommended cron** (still skip quiet `:05–:15`; empty window costs
+0 credits): `TZ=America/New_York` + `0,16,26,36,46,56 8-22 * * *`.
 
 Footer (always **exit 0**):
 
@@ -300,14 +322,17 @@ book + market. A row counts as already captured only if `id` starts
 with `clvclose:`. `snapshot_at` is ignored — `snapshot-closing-lines`
 stamps insert time, so a T−30 snapshot must not block the true close.
 `ClosingOdds.id` is TEXT (Prisma `String`, SQL `TEXT PRIMARY KEY`).
-Deterministic `clvclose:` ids are the primary key; overlapping applies
-hit `23505` on `ClosingOdds_pkey` or `ClosingOdds_close_capture_uniq`
-(SQL 008). A batch unique violation is retried row-by-row so only
-the duplicate is treated as already captured and the other rows still
-insert. Message-only "duplicate" strings are not treated as captured.
+Deterministic `clvclose:` ids are the primary key; `onConflict: id`
+upserts on that PK. Overlapping applies hit `23505` on
+`ClosingOdds_pkey` (or `ClosingOdds_close_capture_uniq` / SQL 008 as
+extra protection). A batch unique violation is retried row-by-row so
+only the duplicate is treated as already captured and the other rows
+still insert. Message-only "duplicate" strings are not treated as
+captured.
 
-Close capture is idempotent after SQL 008. T−30 snapshot rows are
-outside the partial unique index. If a fetch returns no book for a market, one
+Close capture is idempotent via the `clvclose:` primary key. T−30
+snapshot rows are outside SQL 008's partial unique index. If a fetch
+returns no book for a market, one
 `book=attempted` `clvclose:` row marks that market so the game is not
 refetched every run.
 
