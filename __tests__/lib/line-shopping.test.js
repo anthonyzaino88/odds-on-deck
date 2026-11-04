@@ -220,10 +220,19 @@ describe('PlayerPropCache quote persist', () => {
   test('isMissingLineShopQuoteColumnError is PGRST204 / 42703 for quote columns', () => {
     expect(isMissingLineShopQuoteColumnError({ code: 'PGRST204', message: "Could not find the 'quotes' column" })).toBe(true)
     expect(isMissingLineShopQuoteColumnError({ code: '42703', message: 'column quoteUpdatedAt does not exist' })).toBe(true)
+    expect(isMissingLineShopQuoteColumnError({ code: 'PGRST204' })).toBe(true)
     expect(isMissingLineShopQuoteColumnError({ code: '42501', message: 'permission denied' })).toBe(false)
     expect(isMissingLineShopQuoteColumnError({
       code: '23502',
       message: 'null value in column "quotes" violates not-null constraint',
+    })).toBe(false)
+    expect(isMissingLineShopQuoteColumnError({
+      code: 'PGRST204',
+      message: "Could not find the 'commence_time' column of 'Odds' in the schema cache",
+    })).toBe(false)
+    expect(isMissingEntryBookColumnError({
+      code: 'PGRST204',
+      message: "Could not find the 'closeOdds' column of 'PropValidation'",
     })).toBe(false)
   })
 })
