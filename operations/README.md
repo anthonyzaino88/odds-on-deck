@@ -329,6 +329,44 @@ SUPABASE_SECRET_KEY=your_service_role_key  # Required for write operations!
 ODDS_API_KEY=your_odds_api_key
 ```
 
+### Odds API credit budget
+
+`fetch-live-odds.js` and `capture-published-closes.js` share `lib/odds-api-budget.js`.
+Every Odds API response is read for `x-requests-remaining`, `x-requests-used`,
+and `x-requests-last`. Each run logs credits used and remaining. The API key
+is never logged.
+
+Daily usage is persisted at `.local/odds-api-budget.json` (gitignored). The
+Odds API only reports month-to-date remaining/used; there is no daily header,
+so a small local ledger is the right place — same class of laptop-only file
+as the research JSONL archives. Override the path with `ODDS_BUDGET_PATH`.
+This is not a production DB write.
+
+| Env | Default | Meaning |
+| --- | --- | --- |
+| `ODDS_DAILY_CREDIT_CAP` | `1500` | Stop before the next call would exceed today's ET credits |
+| `ODDS_MONTHLY_CREDIT_CAP` | `17000` (or `ODDS_API_QUOTA` if set) | Stop before month-to-date `x-requests-used` would exceed |
+| `ODDS_REMAINING_FLOOR` | `3000` | Stop when remaining would fall under this |
+| `ODDS_NFL_ADJACENT_PROPS_TTL_HOURS` | `48` | Skip refetching NFL props for games not on today's ET date when cache is this fresh |
+| `ODDS_BUDGET_PATH` | `.local/odds-api-budget.json` | Ledger path |
+
+When a cap or the floor would be crossed, further Odds API calls are skipped
+and the process exits **0**. Footer lines:
+
+```
+ODDS_BUDGET_STATUS=ok|floor|daily_cap|monthly_cap
+ODDS_CREDITS_USED=<n>
+ODDS_CREDITS_REMAINING=<n|unknown>
+```
+
+Close capture still uses its existing `--max-calls` / `--max-credits` /
+`--min-remaining` (default 50) HTTP/credit flags. The budget guard is an
+extra layer and does not change those values.
+
+Today's NFL props still use the midnight-ET cache clamp. Adjacent-day NFL
+games in the fetch window reuse a fresh PlayerPropCache row for that game
+instead of burning another 5-market event-odds call.
+
 ## ⚠️ Key Points
 
 1. **Run `clear-stale-props.js` FIRST every day** - prevents yesterday's props from showing
