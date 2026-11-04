@@ -88,6 +88,7 @@ import {
   isOpsWriteQuietPeriod,
   isTargetedCloseCapturePick,
   shouldSkipLiveCloseOverwrite,
+  shouldSkipPaidCloseCaptureFetch,
   loadExistingClosingOdds,
   marketsForCaptureJob,
   matchClosingQuote,
@@ -353,8 +354,9 @@ Unknown flags and invalid/missing --max-calls / --max-credits /
 Odds API remaining credits fall below the floor.
 Windows: early T−${windowOpts.windowMinutes}..T−${windowOpts.nearStartMinutes};
 near-start T−${windowOpts.nearStartMinutes}..T−1 (pre-start only).
-No-ops during :05–:15 ET; a :00 run re-checks before each write
-and stops at :05. Schedule TZ=America/New_York
+No-ops during :05–:15 ET; a :00/:04 run re-checks before each write
+and stops at :05. Does not start a paid fetch after :04:30 ET.
+Schedule TZ=America/New_York
 ${CLOSE_CAPTURE_RECOMMENDED_CRON} after record-mlb-window-props
 during 11–22. Empty window costs 0 credits (no Odds API calls).
 :16/:46 11–22 misses :11–:16 kickoffs and London NFL 9:30 AM ET.
@@ -748,10 +750,18 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
 
   const gameLineWrites = []
   let skippedQuietDuringRun = false
-  for (const job of captureJobs) {
+  for (let jobIndex = 0; jobIndex < captureJobs.length; jobIndex += 1) {
+    const job = captureJobs[jobIndex]
     if (isOpsWriteQuietPeriod(nowFn())) {
       log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
       skippedQuietDuringRun = true
+      skippedBudgetDuringRun += captureJobs.length - jobIndex
+      break
+    }
+    if (shouldSkipPaidCloseCaptureFetch(nowFn())) {
+      log.log('⏸️  After :04:30 ET — not starting a paid fetch that quiet :05 would block.')
+      skippedQuietDuringRun = true
+      skippedBudgetDuringRun += captureJobs.length - jobIndex
       break
     }
     const game = job.game
@@ -796,6 +806,14 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       break
     }
 
+    if (shouldSkipPaidCloseCaptureFetch(nowFn())) {
+      log.log(
+        `⏸️  skipped ${label} paid fetch after :04:30 ET (quiet :05 would block the write)`,
+      )
+      skippedQuietDuringRun = true
+      skippedBudgetDuringRun += captureJobs.length - jobIndex
+      break
+    }
     const url = buildEventOddsUrl({
       sportKey,
       eventId: job.eventId,

@@ -25,6 +25,8 @@ import {
   hasCloseAlready,
   isCloseCaptureCandidate,
   isOpsWriteQuietPeriod,
+  shouldSkipPaidCloseCaptureFetch,
+  CLOSE_CAPTURE_PAID_FETCH_CUTOFF_SECOND,
   marketsForPublishedPicks,
   marketsForCaptureJob,
   marketsForQuoteMatch,
@@ -234,6 +236,15 @@ describe('quiet period and close window', () => {
     expect(isOpsWriteQuietPeriod(new Date('2026-07-15T16:15:00.000Z'))).toBe(true)
     expect(isOpsWriteQuietPeriod(new Date('2026-07-15T16:16:00.000Z'))).toBe(false)
     expect(isOpsWriteQuietPeriod(new Date('2026-07-15T16:04:00.000Z'))).toBe(false)
+  })
+
+  test('shouldSkipPaidCloseCaptureFetch is true at/after :04:30 ET and false before', () => {
+    expect(CLOSE_CAPTURE_PAID_FETCH_CUTOFF_SECOND).toBe(30)
+    expect(shouldSkipPaidCloseCaptureFetch(new Date('2026-07-15T20:04:29.000Z'))).toBe(false)
+    expect(shouldSkipPaidCloseCaptureFetch(new Date('2026-07-15T20:04:30.000Z'))).toBe(true)
+    expect(shouldSkipPaidCloseCaptureFetch(new Date('2026-07-15T20:04:45.000Z'))).toBe(true)
+    expect(shouldSkipPaidCloseCaptureFetch(new Date('2026-07-15T20:05:00.000Z'))).toBe(false)
+    expect(shouldSkipPaidCloseCaptureFetch(new Date('2026-07-15T20:00:00.000Z'))).toBe(false)
   })
 
   test('gameIsInCloseWindow is T−35 inclusive through T−1 exclusive', () => {

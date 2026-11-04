@@ -202,8 +202,9 @@ Morning ops status (required):
 
 Do **not** add this to the :09 ET job. `:05–:15` is a no-write window.
 A `:00` or `:04` run re-checks the quiet window before each write
-and stops at `:05` ET. A run stopped by quiet prints
-`CLOSE_CAPTURE_STATUS=partial`.
+and stops at `:05` ET. It does not start a paid event-odds fetch
+after `:04:30` ET (so `:05` cannot waste a credit). A run stopped
+by quiet or that fetch cutoff prints `CLOSE_CAPTURE_STATUS=partial`.
 
 **One task**, record first, then capture. After
 `007_published_close_odds.sql`. The **:16/:46 11–22 ET** laptop
@@ -282,13 +283,13 @@ The laptop task at **:16 and :46 ET (11:16–22:46)** covers the
 early pass (35 minutes, interval 30 < window 35). It **misses most
 T−10..T−1 kickoffs** — with min lead 1, only start minutes :18–:26
 and :48–:56 fall in the near-start window at those run times. Quiet
-`:05–:15` ET cannot host a run. A **:04** run covers **:05–:14
-kickoffs** and stops writing at `:05`. Remaining near-start gaps
-are **:15–:17** and **:27 / :37 / :47 / :57** — those still get
-their close from the **early pass** (~T−15 or later, e.g. `:00`
-for `:15–:17`, `:16` for `:27`). An 11:00 start also misses morning
-games (London NFL 9:30 AM ET); 08:56 is T−34 (early pass) and 09:26
-is near-start.
+`:05–:15` ET cannot host a run. A **:04** run covers **:06–:14
+kickoffs** and stops writing at `:05`. **:05** kickoffs are covered
+by **:56 / :00**. Remaining near-start gaps are **:15–:17** and
+**:27 / :37 / :47 / :57** — those still get their close from the
+**early pass** (~T−15 or later, e.g. `:00` for `:15–:17`, `:16`
+for `:27`). An 11:00 start also misses morning games (London NFL
+9:30 AM ET); 08:56 is T−34 (early pass) and 09:26 is near-start.
 
 **Recommended cron** (still skip quiet `:05–:15`; empty window costs
 0 credits): `TZ=America/New_York` + `0,4,16,26,36,46,56 8-22 * * *`.

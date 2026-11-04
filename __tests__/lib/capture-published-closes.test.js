@@ -1789,6 +1789,31 @@ describe('runCapturePublishedCloses', () => {
     expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_STATUS=partial/)
   })
 
+  test('does not start a paid fetch after :04:30 ET and counts it as partial/skipped', async () => {
+    const fetchEventOdds = jest.fn()
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: new Date('2026-07-15T20:04:30.000Z'),
+      createClient: () => mockClient({
+        games: [windowGame({ date: '2026-07-15T20:25:00.000Z' })],
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(result.updates).toHaveLength(0)
+    expect(result.skippedQuiet).toBe(true)
+    expect(result.captureStatus).toBe('partial')
+    expect(result.skippedBudgetCount).toBeGreaterThan(0)
+    expect(log.lines.join('\n')).toMatch(/:04:30 ET/)
+    expect(log.lines.join('\n')).toMatch(/quiet :05 would block/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_STATUS=partial/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_BUDGET=[1-9]/)
+  })
+
   test('near-start nfl-all skips game-line overwrite when commence_time is missing or unparseable', async () => {
     const now = new Date('2026-07-15T23:02:00.000Z')
     const game = nflWindowGame({ date: '2026-07-15T23:10:00.000Z' })
