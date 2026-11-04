@@ -201,8 +201,9 @@ Morning ops status (required):
 ### Hourly MLB record + close capture
 
 Do **not** add this to the :09 ET job. `:05–:15` is a no-write window.
-A `:00` run re-checks the quiet window before each write and stops
-at `:05` ET.
+A `:00` or `:04` run re-checks the quiet window before each write
+and stops at `:05` ET. A run stopped by quiet prints
+`CLOSE_CAPTURE_STATUS=partial`.
 
 **One task**, record first, then capture. After
 `007_published_close_odds.sql`. The **:16/:46 11–22 ET** laptop
@@ -213,7 +214,7 @@ not missed.
 **Recommended cron** (`TZ=America/New_York`):
 
 ```
-0,16,26,36,46,56 8-22 * * *
+0,4,16,26,36,46,56 8-22 * * *
 ```
 
 That is `CLOSE_CAPTURE_RECOMMENDED_CRON`. Empty window is a 0-credit
@@ -268,9 +269,10 @@ only):
   Published close and upserts `clvclose:` `ClosingOdds` rows on
   `id` (`ClosingOdds` TEXT PK, `onConflict: id`). SQL 008's partial
   unique index is extra protection, not required for that upsert.
-  Skip the overwrite when Odds API `commence_time` is within 60s of
-  now or the quote `last_update` is at/after `commence_time`, so a
-  live in-play price cannot replace a good close.
+  Skip the overwrite when Odds API `commence_time` is missing or
+  unparseable, within 60s of now, or the quote `last_update` is
+  at/after `commence_time`, so a live in-play price cannot replace
+  a good close.
 
 Only Published (and shadow-published) picks' markets are requested
 unless `--nfl-all`. One Odds API call per `oddsApiEventId`. Requires
@@ -280,12 +282,16 @@ The laptop task at **:16 and :46 ET (11:16–22:46)** covers the
 early pass (35 minutes, interval 30 < window 35). It **misses most
 T−10..T−1 kickoffs** — with min lead 1, only start minutes :18–:26
 and :48–:56 fall in the near-start window at those run times. Quiet
-`:05–:15` ET cannot host a run, so **:11–:16 kickoffs miss
-near-start**. An 11:00 start also misses morning games (London NFL
-9:30 AM ET); 08:56 is T−34 (early pass) and 09:26 is near-start.
+`:05–:15` ET cannot host a run. A **:04** run covers **:05–:14
+kickoffs** and stops writing at `:05`. Remaining near-start gaps
+are **:15–:17** and **:27 / :37 / :47 / :57** — those still get
+their close from the **early pass** (~T−15 or later, e.g. `:00`
+for `:15–:17`, `:16` for `:27`). An 11:00 start also misses morning
+games (London NFL 9:30 AM ET); 08:56 is T−34 (early pass) and 09:26
+is near-start.
 
 **Recommended cron** (still skip quiet `:05–:15`; empty window costs
-0 credits): `TZ=America/New_York` + `0,16,26,36,46,56 8-22 * * *`.
+0 credits): `TZ=America/New_York` + `0,4,16,26,36,46,56 8-22 * * *`.
 
 Footer (always **exit 0**):
 

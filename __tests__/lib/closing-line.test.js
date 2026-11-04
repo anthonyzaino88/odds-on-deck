@@ -265,7 +265,8 @@ describe('quiet period and close window', () => {
   })
 
   test(':16/:46 ET misses most near-start kickoffs; recommended 8–22 cron covers morning games', () => {
-    expect(CLOSE_CAPTURE_RECOMMENDED_CRON).toBe('0,16,26,36,46,56 8-22 * * *')
+    expect(CLOSE_CAPTURE_RECOMMENDED_CRON).toBe('0,4,16,26,36,46,56 8-22 * * *')
+    expect(CLOSE_CAPTURE_PROPOSED_ROUTINE_MINUTES).toEqual([0, 4, 16, 26, 36, 46, 56])
     expect(closeCaptureRoutineMissesNearStart({
       routineMinutes: CLOSE_CAPTURE_ROUTINE_MINUTES,
     })).toBe(true)
@@ -282,10 +283,14 @@ describe('quiet period and close window', () => {
       routineMinutes: CLOSE_CAPTURE_PROPOSED_ROUTINE_MINUTES,
     })
     expect(proposed.length).toBeGreaterThan(current.length)
-    expect(proposed).not.toContain(11)
-    expect(proposed).not.toContain(12)
+    expect(proposed).toEqual(expect.arrayContaining([5, 6, 11, 12, 14]))
+    expect(proposed).not.toContain(15)
     expect(proposed).not.toContain(16)
     expect(proposed).not.toContain(17)
+    expect(proposed).not.toContain(27)
+    expect(proposed).not.toContain(37)
+    expect(proposed).not.toContain(47)
+    expect(proposed).not.toContain(57)
     expect(formatCloseCaptureStatus('ok')).toBe('CLOSE_CAPTURE_STATUS=ok')
     expect(formatCloseCaptureCounts({
       captured: 3,
@@ -839,7 +844,12 @@ describe('close write payload and missing-column retry', () => {
       quote: { last_update: '2026-07-15T22:09:59.000Z' },
       now,
     })).toBeNull()
-    expect(shouldSkipLiveCloseOverwrite({ payload: {}, quote: {}, now })).toBeNull()
+    expect(shouldSkipLiveCloseOverwrite({ payload: {}, quote: {}, now }))
+      .toBe('commence_time missing/unparseable')
+    expect(shouldSkipLiveCloseOverwrite({
+      payload: { commence_time: 'nope' },
+      now,
+    })).toBe('commence_time missing/unparseable')
     expect(shouldSkipLiveCloseOverwrite({
       payload: { commence_time: '2026-07-15T22:10:00.000Z' },
       now,

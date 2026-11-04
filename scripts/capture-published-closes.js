@@ -38,7 +38,7 @@
  * Schedule at :16 and :46 ET after record-mlb-window-props.
  * That cadence covers the early pass; it misses most T−10..T−1
  * kickoffs (see operations/README.md for TZ=America/New_York
- * 0,16,26,36,46,56 8-22 * * *). Empty window costs 0 credits.
+ * 0,4,16,26,36,46,56 8-22 * * *). Empty window costs 0 credits.
  * No-ops during :05–:15 ET. CLOSING_CAPTURE=0 disables.
  * Uses createScriptSupabaseClient with SUPABASE_REQUIRE_SECRET_KEY=1.
  * Do not run --apply from CI.
@@ -287,7 +287,7 @@ export async function runCapturePublishedCloses({
       if (result.unknown || result.invalidFlags || result.missingSecret
         || (result.closeColumnsMissing && args.apply) || result.missingKey) {
         captureStatus = CLOSE_CAPTURE_STATUS_FAILED
-      } else if (result.fetchErrors || result.writeErrors) {
+      } else if (result.fetchErrors || result.writeErrors || result.skippedQuiet) {
         captureStatus = CLOSE_CAPTURE_STATUS_PARTIAL
       } else {
         captureStatus = CLOSE_CAPTURE_STATUS_OK

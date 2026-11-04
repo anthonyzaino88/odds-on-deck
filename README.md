@@ -216,7 +216,7 @@ npm run capture:published-closes:nfl-all:apply
 # Or: node scripts/capture-published-closes.js --nfl-all --dry-run
 #     node scripts/capture-published-closes.js --nfl-all --apply --max-calls 8 --max-credits 24
 # Close capture is idempotent (clvclose: ids; onConflict id uses the TEXT PK).
-# Recommended cron: TZ=America/New_York 0,16,26,36,46,56 8-22 * * *
+# Recommended cron: TZ=America/New_York 0,4,16,26,36,46,56 8-22 * * *
 # Empty window costs 0 Odds API credits.
 
 # Export

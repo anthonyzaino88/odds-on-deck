@@ -292,11 +292,12 @@ describe('runCapturePublishedCloses', () => {
       apiKey: 'test-key',
       log,
     })
-    expect(result).toMatchObject({ exitCode: 0, calls: 0, skippedQuiet: true })
+    expect(result).toMatchObject({ exitCode: 0, calls: 0, skippedQuiet: true, captureStatus: 'partial' })
     expect(fetchEventOdds).not.toHaveBeenCalled()
     expect(createClient).not.toHaveBeenCalled()
     expect(log.lines[0]).toBe('MODE: APPLY')
     expect(log.lines.join('\n')).toMatch(/quiet period/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_STATUS=partial/)
   })
 
   test('dry-run lists in-window picks and never fetches or writes', async () => {
@@ -1783,7 +1784,58 @@ describe('runCapturePublishedCloses', () => {
     expect(updates).toHaveLength(0)
     expect(result.updates).toHaveLength(0)
     expect(result.skippedQuiet).toBe(true)
+    expect(result.captureStatus).toBe('partial')
     expect(log.lines.join('\n')).toMatch(/stopping before further writes/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_STATUS=partial/)
+  })
+
+  test('near-start nfl-all skips game-line overwrite when commence_time is missing or unparseable', async () => {
+    const now = new Date('2026-07-15T23:02:00.000Z')
+    const game = nflWindowGame({ date: '2026-07-15T23:10:00.000Z' })
+    const pick = publishedPick({
+      id: 'pv-kelce',
+      gameIdRef: game.id,
+      playerName: 'Travis Kelce',
+      propType: 'player_receptions',
+      threshold: 5.5,
+      sport: 'nfl',
+      closeOdds: -110,
+      closeCapturedAt: '2026-07-15T22:46:00.000Z',
+    })
+    const run = async (eventData) => {
+      const closingInserts = []
+      const updates = []
+      const log = memoryLog()
+      const result = await runCapturePublishedCloses({
+        argv: ['--apply', '--nfl-all'],
+        now,
+        createClient: () => mockClient({
+          games: [game],
+          picks: [pick],
+          updates,
+          closingInserts,
+        }),
+        fetchEventOdds: async () => ({
+          data: eventData,
+          quota: { remaining: 18000, used: 2000, last: 1 },
+        }),
+        probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+        apiKey: 'test-key',
+        log,
+      })
+      return { result, closingInserts, updates, log }
+    }
+
+    const missing = await run(nflEventOdds())
+    expect(missing.result.captureJobs?.[0]?.pass).toBe('near-start')
+    expect(missing.closingInserts).toHaveLength(0)
+    expect(missing.updates).toHaveLength(0)
+    expect(missing.log.lines.join('\n')).toMatch(/near-start game-line overwrite: commence_time missing\/unparseable/)
+
+    const bad = await run({ ...nflEventOdds(), commence_time: 'nope' })
+    expect(bad.closingInserts).toHaveLength(0)
+    expect(bad.updates).toHaveLength(0)
+    expect(bad.log.lines.join('\n')).toMatch(/near-start game-line overwrite: commence_time missing\/unparseable/)
   })
 
   test('ODDS_CLOSE_CAPTURE_DAILY_CAP skips further event fetches', async () => {
