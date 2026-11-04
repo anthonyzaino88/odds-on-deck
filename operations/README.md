@@ -33,6 +33,8 @@ node scripts/reconcile-games.js --sport mlb
 
 # 3. Fetch odds with proper gameTime mapping
 node scripts/fetch-live-odds.js all --cache-fresh
+# Footer prints ODDS_BUDGET_STATUS=ok|floor|daily_cap|monthly_cap (exit 0).
+# Any value other than ok is WARN in the morning report.
 
 # 4. REQUIRED: refresh team performance BEFORE calculate-game-edges
 # Writes present ESPN season fields only. Failed/empty sport fetches leave
@@ -198,6 +200,8 @@ season (**12–22** postseason). After `007_published_close_odds.sql`:
 ```bash
 node scripts/record-mlb-window-props.js
 node scripts/capture-published-closes.js --apply
+# Footer prints ODDS_BUDGET_STATUS=ok|floor|daily_cap|monthly_cap (exit 0).
+# Any value other than ok is WARN in the hourly report — do not treat exit 0 as all-clear.
 # postseason (12–22 ET):
 node scripts/record-mlb-window-props.js --postseason
 node scripts/capture-published-closes.js --apply
@@ -347,11 +351,17 @@ This is not a production DB write.
 | `ODDS_DAILY_CREDIT_CAP` | `1500` | Stop before the next call would exceed today's ET credits |
 | `ODDS_MONTHLY_CREDIT_CAP` | `17000` (or `ODDS_API_QUOTA` if set) | Stop before month-to-date `x-requests-used` would exceed |
 | `ODDS_REMAINING_FLOOR` | `3000` | Stop when remaining would fall under this |
+| `ODDS_CLOSE_CAPTURE_RESERVE` | `200` | Credits `fetch-live-odds` holds back each ET day so close capture is not starved |
 | `ODDS_NFL_ADJACENT_PROPS_TTL_HOURS` | `48` | Skip refetching NFL props for games not on today's ET date when cache is this fresh |
-| `ODDS_BUDGET_PATH` | `.local/odds-api-budget.json` | Ledger path |
+| `ODDS_BUDGET_PATH` | `.local/odds-api-budget.json` | Ledger path, resolved from the repo root (not the working directory) |
 
 When a cap or the floor would be crossed, further Odds API calls are skipped
-and the process exits **0**. Footer lines:
+and the process exits **0**. Treat any `ODDS_BUDGET_STATUS` other than `ok` as
+**WARN** in routine morning and hourly reports — exit 0 is not an all-clear.
+Each run starts with a free `/v4/sports` probe so leftover remaining/used
+from a previous ET day cannot block today.
+
+Footer lines:
 
 ```
 ODDS_BUDGET_STATUS=ok|floor|daily_cap|monthly_cap
@@ -359,9 +369,17 @@ ODDS_CREDITS_USED=<n>
 ODDS_CREDITS_REMAINING=<n|unknown>
 ```
 
+If status is not `ok`, a second line is printed:
+
+```
+⚠️ ODDS_BUDGET_STATUS=<value> — treat as WARN in routine reports (exit 0)
+```
+
 Close capture still uses its existing `--max-calls` / `--max-credits` /
 `--min-remaining` (default 50) HTTP/credit flags. The budget guard is an
-extra layer and does not change those values.
+extra layer and does not change those values. Morning fetch subtracts
+`ODDS_CLOSE_CAPTURE_RESERVE` from the daily cap so a heavy slate cannot
+spend the last ~200 credits before hourly close capture.
 
 Today's NFL props still use the midnight-ET cache clamp. Adjacent-day NFL
 games in the fetch window reuse a fresh PlayerPropCache row for that game

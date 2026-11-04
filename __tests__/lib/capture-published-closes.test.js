@@ -1466,32 +1466,80 @@ describe('runCapturePublishedCloses', () => {
     expect(log.lines.join('\n')).toMatch(/no quote pv-stafford/)
   })
 
-  test('budget floor skips Odds API calls and exits 0 without changing --max-calls', async () => {
+  test('budget floor probes /v4/sports first then skips paid calls and exits 0', async () => {
     const fetchEventOdds = jest.fn()
     const log = memoryLog()
+    const probeQuota = jest.fn(async () => ({ remaining: 2500, used: 1000, last: 0 }))
     const budget = createOddsApiBudget({
       persist: false,
+      now: IN_WINDOW,
       log,
-      state: { lastRemaining: 2500, lastUsed: 1000 },
+      env: { ODDS_CLOSE_CAPTURE_RESERVE: '0' },
+      state: { lastRemaining: 2500, lastUsed: 1000, quotaDay: '2026-07-14' },
+      purpose: 'close-capture',
     })
     const result = await runCapturePublishedCloses({
       argv: ['--apply', '--max-calls', '10'],
       now: IN_WINDOW,
       createClient: () => mockClient(),
       fetchEventOdds,
-      probeQuota: jest.fn(),
+      probeQuota,
       apiKey: 'secret-key-value',
       log,
       budget,
     })
     expect(result.exitCode).toBe(0)
     expect(result.skippedBudget).toBe(true)
-    expect(result.calls).toBe(0)
+    expect(result.calls).toBe(1)
+    expect(probeQuota).toHaveBeenCalledTimes(1)
     expect(fetchEventOdds).not.toHaveBeenCalled()
     expect(log.lines.join('\n')).toMatch(/ODDS_BUDGET_STATUS=floor/)
+    expect(log.lines.join('\n')).toMatch(/treat as WARN/)
     expect(log.lines.join('\n')).not.toMatch(/secret-key-value/)
     expect(parseCaptureClosesArgs(['--max-calls', '10']).maxCalls).toBe(10)
     expect(parseCaptureClosesArgs([]).maxCalls).toBeNull()
+  })
+
+  test('close capture recovers after a prior-day floor once the probe shows quota reset', async () => {
+    const fetchEventOdds = jest.fn(async () => ({
+      data: {
+        bookmakers: [{
+          title: 'FanDuel',
+          markets: [{
+            key: 'batter_hits',
+            outcomes: [
+              { name: 'Over', description: 'Vinnie Pasquantino', point: 0.5, price: -118 },
+            ],
+          }],
+        }],
+      },
+      quota: { remaining: 17999, used: 101, last: 1 },
+    }))
+    const probeQuota = jest.fn(async () => ({ remaining: 18000, used: 100, last: 0 }))
+    const budget = createOddsApiBudget({
+      persist: false,
+      now: IN_WINDOW,
+      log: memoryLog(),
+      env: { ODDS_CLOSE_CAPTURE_RESERVE: '0' },
+      state: { lastRemaining: 2500, lastUsed: 17000, quotaDay: '2026-07-14' },
+      purpose: 'close-capture',
+    })
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      createClient: () => mockClient(),
+      fetchEventOdds,
+      probeQuota,
+      apiKey: 'test-key',
+      log: memoryLog(),
+      budget,
+    })
+    expect(probeQuota).toHaveBeenCalledTimes(1)
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(result.skippedBudget).toBeUndefined()
+    expect(result.exitCode).toBe(0)
+    expect(result.calls).toBe(2)
+    expect(budget.status()).toBe('ok')
   })
 
   test('close-capture --max-calls / --max-credits / --min-remaining defaults are unchanged', () => {

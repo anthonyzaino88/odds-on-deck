@@ -39,6 +39,7 @@ import {
   estimateCreditsFromOddsEndpoint,
   fetchOddsApiJson,
   formatOddsBudgetStatus,
+  refreshOddsApiQuota,
 } from '../lib/odds-api-budget.js'
 import { applyEventRemap, planEventRemap, shouldCheckPropsCache } from '../lib/odds-event-remap.js'
 import { isCancelledGameStatus } from '../lib/game-grade-eligibility.js'
@@ -98,6 +99,7 @@ function getOddsBudget() {
       env: process.env,
       log: console,
       apiKey: ODDS_API_KEY,
+      purpose: 'fetch',
     })
   }
   return oddsBudget
@@ -1805,8 +1807,19 @@ async function main() {
     console.error('   Get one at https://the-odds-api.com/clients/dashboard')
     process.exit(1)
   }
-  
+
   try {
+    const budget = getOddsBudget()
+    try {
+      await refreshOddsApiQuota({
+        apiKey: ODDS_API_KEY,
+        budget,
+        log: console,
+      })
+    } catch (error) {
+      console.log(`⚠️ Quota probe failed (${error.message}); continuing without a pre-check.`)
+    }
+
     const sports = sport === 'all' ? Object.keys(SPORTS) : [sport]
     
     for (const s of sports) {
