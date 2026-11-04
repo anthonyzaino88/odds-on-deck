@@ -60,6 +60,11 @@ import {
 } from '../lib/published-picks.js'
 import { paginateSupabaseSelect } from '../lib/unplayed-game-grades.js'
 import { applyInjuryAvailability, loadInjurySnapshot } from '../lib/injury-availability.js'
+import {
+  buildLineShoppingEdges,
+  withLineShopQuoteFields,
+  writePlayerPropCacheRows,
+} from '../lib/line-shopping.js'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -1257,92 +1262,6 @@ function calculateOurProbability(pick, threshold, impliedProb) {
 }
 
 /**
- * Build a real edge calculation using cross-bookmaker line shopping.
- *
- * For each unique prop (player/market/threshold/pick) we:
- *   1. Collect decimal odds from every bookmaker
- *   2. Remove vig by pairing Over/Under from the same book
- *   3. Compute the market consensus (average vig-free probability)
- *   4. Pick the best available price (highest decimal odds)
- *   5. Edge = how much better the best price is vs. market consensus
- *
- * Returns a Map keyed by "playerName|market|threshold|pick" with the
- * best-odds entry enriched with real edge and vig-free probability.
- */
-function buildLineShoppingEdges(gameProps) {
-  // Accumulate every bookmaker's price for each unique prop
-  // key: "playerName|market.key|threshold|pick"
-  const propMap = new Map()
-
-  for (const { gameId, props } of gameProps) {
-    for (const bookmaker of props.bookmakers || []) {
-      for (const market of bookmaker.markets || []) {
-        for (const outcome of market.outcomes || []) {
-          const playerName = outcome.description || outcome.name
-          const line = outcome.point ?? (market.description ? parseFloat(market.description) : null)
-          const price = outcome.price
-          const pick = (outcome.name || '').toLowerCase()
-          if (!playerName || line == null || !price || !['over', 'under'].includes(pick)) continue
-
-          const baseKey = `${gameId}|${playerName}|${market.key}|${line}`
-          const fullKey = `${baseKey}|${pick}`
-
-          if (!propMap.has(fullKey)) {
-            propMap.set(fullKey, { baseKey, pick, prices: [], playerName, market: market.key, threshold: line })
-          }
-          propMap.get(fullKey).prices.push({ price, book: bookmaker.title })
-        }
-      }
-    }
-  }
-
-  // For vig removal we need Over/Under pairs from the same book
-  const edgeMap = new Map()
-
-  for (const [key, entry] of propMap) {
-    const oppositeKey = `${entry.baseKey}|${entry.pick === 'over' ? 'under' : 'over'}`
-    const opposite = propMap.get(oppositeKey)
-
-    // Vig-free probability: pair Over/Under from each book
-    const vigFreeProbabilities = []
-    for (const { price, book } of entry.prices) {
-      const counterpart = opposite?.prices.find(p => p.book === book)
-      if (counterpart) {
-        const totalImplied = (1 / price) + (1 / counterpart.price)
-        const vigFree = (1 / price) / totalImplied
-        vigFreeProbabilities.push(vigFree)
-      } else {
-        // No pair from same book — use raw implied with a small vig adjustment (~4.5%)
-        vigFreeProbabilities.push((1 / price) * 0.955)
-      }
-    }
-
-    if (vigFreeProbabilities.length === 0) continue
-
-    const consensusProb = vigFreeProbabilities.reduce((a, b) => a + b, 0) / vigFreeProbabilities.length
-
-    // Best available price = highest decimal odds (best payout)
-    const bestEntry = entry.prices.reduce((best, cur) => cur.price > best.price ? cur : best)
-    const bestImplied = 1 / bestEntry.price
-
-    // Edge: how much better the best price is compared to market consensus
-    // If consensus says 55% chance but the best book prices it as 50% → 10% edge
-    const edge = consensusProb > 0 ? (consensusProb - bestImplied) / consensusProb : 0
-
-    edgeMap.set(key, {
-      bestPrice: bestEntry.price,
-      bestBook: bestEntry.book,
-      consensusProb,
-      vigFreeProb: consensusProb,
-      edge: Math.max(0, edge),
-      numBooks: entry.prices.length
-    })
-  }
-
-  return edgeMap
-}
-
-/**
  * Get confidence level based on probability (how likely to hit)
  * NOT based on edge - edge is about value, confidence is about likelihood
  * 
@@ -1561,7 +1480,7 @@ async function savePlayerProps(gameProps, sport) {
               category = market.key.startsWith('pitcher_') ? 'pitching' : 'batting'
             }
 
-            allPropsToInsert.push({
+            allPropsToInsert.push(withLineShopQuoteFields({
               id: generateId(),
               propId,
               gameId: ourGameId,
@@ -1582,7 +1501,7 @@ async function savePlayerProps(gameProps, sport) {
               fetchedAt: new Date().toISOString(),
               expiresAt: new Date(Date.now() + CACHE_DURATION.PROPS).toISOString(),
               isStale: false
-            })
+            }, lineShop))
           }
         }
       }
@@ -1612,20 +1531,13 @@ async function savePlayerProps(gameProps, sport) {
     const batch = propsToInsert.slice(i, i + BATCH_SIZE)
     
     try {
-      const { error } = await supabase
-        .from('PlayerPropCache')
-        .upsert(batch, { 
-          onConflict: 'propId',
-          ignoreDuplicates: false 
-        })
+      const { error } = await writePlayerPropCacheRows(supabase, batch, 'upsert')
       
       if (error) {
         // Try individual inserts for this batch if upsert fails
         console.log(`    ⚠️  Batch upsert failed, trying individual inserts...`)
         for (const prop of batch) {
-          const { error: insertError } = await supabase
-            .from('PlayerPropCache')
-            .insert(prop)
+          const { error: insertError } = await writePlayerPropCacheRows(supabase, [prop], 'insert')
           
           if (insertError) {
             if (!insertError.code?.includes('23505')) {

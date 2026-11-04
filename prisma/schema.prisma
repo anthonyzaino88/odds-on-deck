@@ -621,6 +621,10 @@ model PlayerPropCache {
   projection      Float?
   bookmaker       String?
   gameTime        DateTime
+
+  // Line-shop ladder (scripts/migrations/010_line_shop_quotes.sql). Apply SQL manually.
+  quotes          Json?     // [{ book, american, decimal, lastUpdate }]
+  quoteUpdatedAt  DateTime? // newest book last_update on this snapshot
   
   // Cache management
   fetchedAt       DateTime @default(now())
