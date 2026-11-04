@@ -233,11 +233,63 @@ $env:CLV_APPLY=1; node scripts/capture-published-closes.js
 
 Kill switch: `CLOSING_CAPTURE=0`. Caps: `--max-calls N` (includes the
 `/v4/sports` quota probe; `--max-calls 0` skips it),
-`--min-remaining N` (default 50). Close window is **35 minutes**
-(T−35..T−1, pre-start games only). One Odds API call per
-`oddsApiEventId`. Writes only where `closeOdds IS NULL`. Requires
+`--min-remaining N` (default 50), `ODDS_CLOSE_CAPTURE_DAILY_CAP`
+(default **40** paid event-odds captures per ET day). Close capture
+is still gated by `lib/odds-api-budget.js`, including
+`ODDS_CLOSE_CAPTURE_RESERVE`. Credits = markets × regions
+(`ODDS_CLOSE_CAPTURE_REGIONS`, default `us` = 1).
+
+Two passes in the same `capture-published-closes.js` run (pre-start
+only):
+
+- **Early:** T−35..T−10 (env `CLOSE_CAPTURE_WINDOW_MINUTES` /
+  `CLOSE_CAPTURE_NEAR_START_MINUTES`). First close. Writes
+  `closeOdds` only where it is NULL.
+- **Near-start:** T−10..T−0. Overwrites the Published close and
+  upserts `clvclose:` `ClosingOdds` rows on `id` (SQL 008 unique
+  index on `lower(game_id), lower(book), lower(market)`). Never
+  inserts a duplicate.
+
+Only Published (and shadow-published) picks' markets are requested
+unless `--nfl-all`. One Odds API call per `oddsApiEventId`. Requires
 `SUPABASE_SECRET_KEY` (`SUPABASE_REQUIRE_SECRET_KEY=1`; anon refused).
 London NFL 9:30 AM ET games are missed on this 11–22 clock.
+
+The laptop task at **:16 and :46 ET (11:16–22:46)** covers the
+early pass (35 minutes, interval 30 < window 35). It **misses most**
+T−10..T−0 kickoffs** — only start minutes :17–:26 and :47–:56 fall
+in the near-start window at those run times. Quiet :05–:15 ET cannot
+host a run.
+
+**Proposed cron** (still skip quiet :05–:15): every 10 minutes at
+`:00,:16,:26,:36,:46,:56` ET, 11:00–22:56 ET. That covers 50 of 60
+kickoff minutes; :11–:16 still miss because of the quiet window.
+
+Footer (always **exit 0**):
+
+```
+CLOSE_CAPTURE_STATUS=ok|partial|failed
+CLOSE_CAPTURE_CAPTURED=<n> CLOSE_CAPTURE_SKIPPED_BUDGET=<n> CLOSE_CAPTURE_SKIPPED_WINDOW=<n> CLOSE_CAPTURE_CREDITS=<n>
+```
+
+Any status other than `ok` is WARN in the hourly report.
+
+### Close-capture monthly credit estimate
+
+Cap is 40 event-odds **captures**/ET day (not the morning 10-market
+slate). Credits = markets × regions (typically 2–4 Published markets,
+`regions=us` → 1).
+
+| Assumption | Credits / day | Credits / 30-day month |
+| --- | --- | --- |
+| Typical MLB (8–12 games, one pass) | ~20–40 | ~600–1,200 |
+| Hit the 40-capture cap at 3 markets | 120 | 3,600 |
+| Plus NFL Sunday (second near-start pass on some games) | +20–40 | +80–160 / month |
+
+`ODDS_CLOSE_CAPTURE_RESERVE` default 200 still holds morning fetch
+below the daily cap so this job is not starved. 40 captures × 5
+markets = 200 credits, inside that reserve. CLV math and grading
+are unchanged.
 
 `--nfl-all` is opt-in. With it, every pending NFL prop in the window
 that still has no close is targeted (Published bar ignored), and each
@@ -407,6 +459,7 @@ This is not a production DB write.
 | `ODDS_MONTHLY_CREDIT_CAP` | `17000` (or `ODDS_API_QUOTA` if set) | Stop before month-to-date `x-requests-used` would exceed |
 | `ODDS_REMAINING_FLOOR` | `3000` | Stop when remaining would fall under this |
 | `ODDS_CLOSE_CAPTURE_RESERVE` | `200` | Credits `fetch-live-odds` holds back each ET day so close capture is not starved |
+| `ODDS_CLOSE_CAPTURE_DAILY_CAP` | `40` | Paid close-capture event-odds fetches allowed per ET day (both passes) |
 | `ODDS_PROBE_FAIL_CREDIT_CAP` | `100` | If `/v4/sports` fails and there are no quota headers from today, cap this run at this many credits |
 | `ODDS_NFL_ADJACENT_PROPS_TTL_HOURS` | `48` | Skip refetching NFL props for games not on today's ET date when cache is this fresh |
 | `ODDS_BUDGET_PATH` | `.local/odds-api-budget.json` | Ledger path, resolved from the repo root (not the working directory) |
@@ -424,7 +477,7 @@ as usual.
 Footer lines:
 
 ```
-ODDS_BUDGET_STATUS=ok|floor|daily_cap|monthly_cap|probe_failed
+ODDS_BUDGET_STATUS=ok|floor|daily_cap|monthly_cap|probe_failed|close_cap
 ODDS_CREDITS_USED=<n>
 ODDS_CREDITS_REMAINING=<n|unknown>
 ```
@@ -436,10 +489,12 @@ If status is not `ok`, a second line is printed:
 ```
 
 Close capture still uses its existing `--max-calls` / `--max-credits` /
-`--min-remaining` (default 50) HTTP/credit flags. The budget guard is an
-extra layer and does not change those values. Morning fetch subtracts
+`--min-remaining` (default 50) HTTP/credit flags plus
+`ODDS_CLOSE_CAPTURE_DAILY_CAP` (default 40 captures). The budget guard is an
+extra layer. Morning fetch subtracts
 `ODDS_CLOSE_CAPTURE_RESERVE` from the daily cap so a heavy slate cannot
-spend the last ~200 credits before hourly close capture.
+spend the last ~200 credits before hourly close capture. Hitting the
+40-capture cap sets `ODDS_BUDGET_STATUS=close_cap`.
 
 Today's NFL props still use the midnight-ET cache clamp. Adjacent-day NFL
 games in the fetch window reuse a fresh PlayerPropCache row for that game

@@ -1,8 +1,16 @@
 import {
   CLOSE_CAPTURE_MIN_LEAD_MINUTES,
+  CLOSE_CAPTURE_NEAR_START_MINUTES,
+  CLOSE_CAPTURE_PROPOSED_ROUTINE_MINUTES,
+  CLOSE_CAPTURE_ROUTINE_MINUTES,
   CLOSE_CAPTURE_WINDOW_MINUTES,
-  CLOSE_ODDS_FIELDS,
   applyPublishedCloseUpdate,
+  closeCapturePassForGame,
+  closeCaptureRoutineMissesNearStart,
+  formatCloseCaptureCounts,
+  formatCloseCaptureStatus,
+  nearStartKickoffMinutesCoveredByRoutine,
+  CLOSE_ODDS_FIELDS,
   buildEventOddsUrl,
   closeCapturePayload,
   closeUpdateRowCount,
@@ -237,6 +245,45 @@ describe('quiet period and close window', () => {
     expect(gameIsInCloseWindow({ date: now.toISOString() }, now)).toBe(false)
     expect(CLOSE_CAPTURE_WINDOW_MINUTES).toBe(35)
     expect(CLOSE_CAPTURE_MIN_LEAD_MINUTES).toBe(1)
+    expect(CLOSE_CAPTURE_NEAR_START_MINUTES).toBe(10)
+  })
+
+  test('closeCapturePassForGame splits early T−35..T−10 from near-start T−10..T−0', () => {
+    const now = new Date('2026-07-15T22:00:00.000Z')
+    expect(closeCapturePassForGame({ date: '2026-07-15T22:35:00.000Z', status: 'scheduled' }, now)).toBe('early')
+    expect(closeCapturePassForGame({ date: '2026-07-15T22:11:00.000Z', status: 'scheduled' }, now)).toBe('early')
+    expect(closeCapturePassForGame({ date: '2026-07-15T22:10:00.000Z', status: 'scheduled' }, now)).toBe('near-start')
+    expect(closeCapturePassForGame({ date: '2026-07-15T22:01:00.000Z', status: 'scheduled' }, now)).toBe('near-start')
+    expect(closeCapturePassForGame({ date: now.toISOString(), status: 'scheduled' }, now)).toBe(null)
+    expect(isCloseCaptureCandidate({ date: '2026-07-15T22:05:00.000Z', status: 'scheduled' }, now)).toBe(true)
+    expect(isCloseCaptureCandidate({ date: '2026-07-15T22:05:00.000Z', status: 'in_progress' }, now)).toBe(false)
+  })
+
+  test(':16/:46 ET misses most near-start kickoffs; every-10-minute cron covers more', () => {
+    expect(closeCaptureRoutineMissesNearStart({
+      routineMinutes: CLOSE_CAPTURE_ROUTINE_MINUTES,
+    })).toBe(true)
+    const current = nearStartKickoffMinutesCoveredByRoutine({
+      routineMinutes: CLOSE_CAPTURE_ROUTINE_MINUTES,
+    })
+    expect(current).toEqual([...Array(10)].map((_, i) => 17 + i).concat(
+      [...Array(10)].map((_, i) => 47 + i),
+    ))
+    expect(closeCaptureRoutineMissesNearStart({
+      routineMinutes: CLOSE_CAPTURE_PROPOSED_ROUTINE_MINUTES,
+    })).toBe(true)
+    const proposed = nearStartKickoffMinutesCoveredByRoutine({
+      routineMinutes: CLOSE_CAPTURE_PROPOSED_ROUTINE_MINUTES,
+    })
+    expect(proposed.length).toBeGreaterThan(current.length)
+    expect(proposed).not.toContain(12)
+    expect(formatCloseCaptureStatus('ok')).toBe('CLOSE_CAPTURE_STATUS=ok')
+    expect(formatCloseCaptureCounts({
+      captured: 3,
+      skippedBudget: 1,
+      skippedWindow: 2,
+      credits: 6,
+    })).toBe('CLOSE_CAPTURE_CAPTURED=3 CLOSE_CAPTURE_SKIPPED_BUDGET=1 CLOSE_CAPTURE_SKIPPED_WINDOW=2 CLOSE_CAPTURE_CREDITS=6')
   })
 
   test('isCloseCaptureCandidate requires a pre-start status and the window', () => {
@@ -351,6 +398,15 @@ describe('event-id dedupe and conditional close write', () => {
     expect(isTargetedCloseCapturePick(pendingNfl)).toBe(false)
     expect(isTargetedCloseCapturePick(pendingNfl, { nflAll: true })).toBe(true)
     expect(isTargetedCloseCapturePick(publishedNfl)).toBe(true)
+    expect(isTargetedCloseCapturePick({
+      ...publishedNfl,
+      closeOdds: -110,
+    })).toBe(false)
+    expect(isTargetedCloseCapturePick({
+      ...publishedNfl,
+      closeOdds: -110,
+    }, { overwrite: true })).toBe(true)
+    expect(isTargetedCloseCapturePick(pendingNfl, { nflAll: true, overwrite: true })).toBe(false)
     expect(isTargetedCloseCapturePick(nhlArchive, { nflAll: true })).toBe(false)
     expect(isTargetedCloseCapturePick({
       ...pendingNfl,
@@ -412,6 +468,36 @@ describe('event-id dedupe and conditional close write', () => {
     ])
     expect(closeUpdateRowCount({ data: [], error: null })).toBe(0)
     expect(closeUpdateRowCount({ data: [{ id: 'pv-1' }], error: null })).toBe(1)
+  })
+
+  test('applyPublishedCloseUpdate overwrite skips the closeOdds IS NULL guard', () => {
+    const calls = []
+    const table = {
+      update(body) {
+        calls.push(['update', body])
+        return {
+          eq(col, val) {
+            calls.push(['eq', col, val])
+            return {
+              is(col2, val2) {
+                calls.push(['is', col2, val2])
+                return this
+              },
+              select(cols) {
+                calls.push(['select', cols])
+                return { error: null, data: [{ id: 'pv-1' }] }
+              },
+            }
+          },
+        }
+      },
+    }
+    applyPublishedCloseUpdate(table, 'pv-1', { closeOdds: -105 }, { overwrite: true })
+    expect(calls).toEqual([
+      ['update', { closeOdds: -105 }],
+      ['eq', 'id', 'pv-1'],
+      ['select', 'id'],
+    ])
   })
 })
 
@@ -910,6 +996,57 @@ describe('NFL game-line ClosingOdds writes', () => {
     expect(second.skipped).toBe(4)
     expect(inserts).toHaveLength(4)
     expect(filterNewClosingOddsRows(proposed, existing)).toEqual([])
+  })
+
+  test('writeGameLineCloses overwrite upserts the same clvclose: id and never inserts a duplicate', async () => {
+    const rowsById = new Map()
+    const upserts = []
+    const supabase = {
+      from(table) {
+        expect(table).toBe('ClosingOdds')
+        return {
+          select() { return this },
+          in() { return Promise.resolve({ data: [...rowsById.values()], error: null }) },
+          insert() { throw new Error('overwrite must upsert, not insert') },
+          upsert(next) {
+            upserts.push(...next)
+            for (const row of next) rowsById.set(row.id, row)
+            return Promise.resolve({ data: next, error: null })
+          },
+        }
+      },
+    }
+    const first = gameLineClosesFromEventOdds(eventData, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+    })
+    await writeGameLineCloses(supabase, first, { overwrite: true })
+    const later = gameLineClosesFromEventOdds({
+      ...eventData,
+      bookmakers: [{
+        ...eventData.bookmakers[0],
+        markets: eventData.bookmakers[0].markets.map((market) => (
+          market.key === 'h2h'
+            ? {
+              ...market,
+              outcomes: market.outcomes.map((outcome) => (
+                outcome.name === 'Kansas City Chiefs'
+                  ? { ...outcome, price: -160 }
+                  : outcome
+              )),
+            }
+            : market
+        )),
+      }],
+    }, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T23:05:00.000Z'),
+    })
+    const second = await writeGameLineCloses(supabase, later, { overwrite: true })
+    expect(second.upserted).toBe(true)
+    const h2hId = closeCaptureRowId('KC_at_BUF', 'FanDuel', 'h2h')
+    expect([...rowsById.values()].filter((row) => row.id === h2hId)).toHaveLength(1)
+    expect(rowsById.get(h2hId).price_home).toBe(-160)
   })
 
   test('early snapshot-closing-lines rows do not count as already captured', () => {

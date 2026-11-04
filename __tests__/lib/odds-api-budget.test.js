@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  DEFAULT_CLOSE_CAPTURE_DAILY_CAP,
   DEFAULT_CLOSE_CAPTURE_RESERVE,
   DEFAULT_DAILY_CREDIT_CAP,
   DEFAULT_MONTHLY_CREDIT_CAP,
@@ -106,15 +107,18 @@ describe('readOddsBudgetConfig', () => {
       monthlyCap: DEFAULT_MONTHLY_CREDIT_CAP,
       remainingFloor: DEFAULT_REMAINING_FLOOR,
       closeCaptureReserve: DEFAULT_CLOSE_CAPTURE_RESERVE,
+      closeCaptureDailyCap: DEFAULT_CLOSE_CAPTURE_DAILY_CAP,
       probeFailCreditCap: DEFAULT_PROBE_FAIL_CREDIT_CAP,
       persistPath: '.local/odds-api-budget.json',
     })
+    expect(DEFAULT_CLOSE_CAPTURE_DAILY_CAP).toBe(40)
     expect(parseEnvNonNegInt('nope', 7)).toBe(7)
     expect(readOddsBudgetConfig({
       ODDS_DAILY_CREDIT_CAP: '200',
       ODDS_MONTHLY_CREDIT_CAP: '9000',
       ODDS_REMAINING_FLOOR: '4000',
       ODDS_CLOSE_CAPTURE_RESERVE: '50',
+      ODDS_CLOSE_CAPTURE_DAILY_CAP: '40',
       ODDS_PROBE_FAIL_CREDIT_CAP: '75',
       ODDS_BUDGET_PATH: '/tmp/budget.json',
     })).toMatchObject({
@@ -122,6 +126,7 @@ describe('readOddsBudgetConfig', () => {
       monthlyCap: 9000,
       remainingFloor: 4000,
       closeCaptureReserve: 50,
+      closeCaptureDailyCap: 40,
       probeFailCreditCap: 75,
       persistPath: '/tmp/budget.json',
     })
@@ -225,6 +230,27 @@ describe('createOddsApiBudget', () => {
     expect(closeBudget.allow(50)).toBe(true)
     expect(closeBudget.allow(201)).toBe(false)
     expect(closeBudget.status()).toBe('daily_cap')
+  })
+
+  test('close-capture daily cap is 40 event fetches and still honors the reserve', () => {
+    const budget = createOddsApiBudget({
+      persist: false,
+      now: NOON_ET,
+      purpose: 'close-capture',
+      env: {
+        ODDS_DAILY_CREDIT_CAP: '1500',
+        ODDS_CLOSE_CAPTURE_RESERVE: '200',
+        ODDS_CLOSE_CAPTURE_DAILY_CAP: '40',
+      },
+      log: { log() {} },
+      state: { days: { '2026-11-04': { credits: 10, calls: 10, closeCaptures: 39 } } },
+    })
+    expect(budget.remainingCloseCaptures()).toBe(1)
+    expect(budget.allow(3, { captures: 1 })).toBe(true)
+    budget.record({ remaining: 18000, used: 2000, last: 3 }, { captures: 1 })
+    expect(budget.todayCloseCaptures()).toBe(40)
+    expect(budget.allow(1, { captures: 1 })).toBe(false)
+    expect(budget.status()).toBe('close_cap')
   })
 
   test('merges concurrent ledger writes via pid tmp + rename', () => {
@@ -529,9 +555,10 @@ describe('ops docs and script wiring', () => {
     expect(readme).toMatch(/ODDS_MONTHLY_CREDIT_CAP/)
     expect(readme).toMatch(/ODDS_REMAINING_FLOOR/)
     expect(readme).toMatch(/ODDS_CLOSE_CAPTURE_RESERVE/)
+    expect(readme).toMatch(/ODDS_CLOSE_CAPTURE_DAILY_CAP/)
     expect(readme).toMatch(/ODDS_PROBE_FAIL_CREDIT_CAP/)
     expect(readme).toMatch(/ODDS_NFL_ADJACENT_PROPS_TTL_HOURS/)
-    expect(readme).toMatch(/ODDS_BUDGET_STATUS=ok\|floor\|daily_cap\|monthly_cap\|probe_failed/)
+    expect(readme).toMatch(/ODDS_BUDGET_STATUS=ok\|floor\|daily_cap\|monthly_cap\|probe_failed\|close_cap/)
     expect(readme).toMatch(/ODDS_CREDITS_USED/)
     expect(readme).toMatch(/ODDS_CREDITS_REMAINING/)
     expect(readme).toMatch(/\.local\/odds-api-budget\.json/)
