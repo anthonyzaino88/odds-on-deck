@@ -287,6 +287,14 @@ describe('graceful degradation', () => {
           filters[key] = value
           return chain
         }
+        chain.in = (key, value) => {
+          filters.in = { ...(filters.in || {}), [key]: value }
+          return chain
+        }
+        chain.lt = (key, value) => {
+          filters.lt = { ...(filters.lt || {}), [key]: value }
+          return chain
+        }
         chain.not = (column, operator, value) => {
           filters.not = [column, operator, value]
           return chain
@@ -300,7 +308,44 @@ describe('graceful degradation', () => {
     }
   }
 
-  test('upserts first then prunes ids not in the new set', async () => {
+  test('stamps fetchedAt then prunes older rows for teams in the new set', async () => {
+    const ops = []
+    const runStamp = '2026-11-04T18:00:00.000Z'
+    await persistInjurySnapshot({
+      asOfDate: '2026-11-04',
+      injuries: [{
+        id: 'inj:nfl:2026-11-04:KC:travis-kelce',
+        sport: 'nfl',
+        teamAbbr: 'KC',
+        playerName: 'Travis Kelce',
+        status: 'Questionable',
+        asOfDate: '2026-11-04',
+        fetchedAt: '2026-11-04T16:00:00.000Z',
+      }, {
+        id: 'inj:nfl:2026-11-04:KC:isiah-pacheco',
+        sport: 'nfl',
+        teamAbbr: 'KC',
+        playerName: 'Isiah Pacheco',
+        status: 'Out',
+        asOfDate: '2026-11-04',
+        fetchedAt: '2026-11-04T16:00:00.000Z',
+      }],
+      goalies: [],
+    }, {
+      runStamp,
+      replace: { nflInjuries: true, nhlInjuries: false, goalies: false },
+      supabase: writeClient(ops),
+    })
+    expect(ops.map((row) => row.op)).toEqual(['upsert', 'delete'])
+    expect(ops[0].rows.every((row) => row.fetchedAt === runStamp)).toBe(true)
+    expect(ops[1].sport).toBe('nfl')
+    expect(ops[1].asOfDate).toBe('2026-11-04')
+    expect(ops[1].in.teamAbbr).toEqual(['KC'])
+    expect(ops[1].lt.fetchedAt).toBe(runStamp)
+    expect(ops[1].not).toBeUndefined()
+  })
+
+  test('prune does not touch a team ESPN omitted from this payload', async () => {
     const ops = []
     await persistInjurySnapshot({
       asOfDate: '2026-11-04',
@@ -315,13 +360,45 @@ describe('graceful degradation', () => {
       }],
       goalies: [],
     }, {
+      runStamp: '2026-11-04T18:00:00.000Z',
       replace: { nflInjuries: true, nhlInjuries: false, goalies: false },
       supabase: writeClient(ops),
     })
+    const prune = ops.find((row) => row.op === 'delete')
+    expect(prune.in.teamAbbr).toEqual(['KC'])
+    expect(prune.in.teamAbbr).not.toContain('PHI')
+    expect(prune.in.teamAbbr).not.toContain('BUF')
+  })
+
+  test('goalie prune is team-scoped by run stamp (no id not-in)', async () => {
+    const ops = []
+    const runStamp = '2026-11-04T18:00:00.000Z'
+    await persistInjurySnapshot({
+      asOfDate: '2026-11-04',
+      injuries: [],
+      goalies: [{
+        id: 'goalie:2026-11-04:TOR',
+        teamAbbr: 'TOR',
+        playerName: 'Joseph Woll',
+        role: 'starter',
+        confirmed: true,
+        asOfDate: '2026-11-04',
+        fetchedAt: '2026-11-04T16:00:00.000Z',
+      }],
+    }, {
+      runStamp,
+      replace: { nflInjuries: false, nhlInjuries: false, goalies: true },
+      supabase: writeClient(ops),
+    })
     expect(ops.map((row) => row.op)).toEqual(['upsert', 'delete'])
-    expect(ops[0].rows[0].playerName).toBe('Travis Kelce')
-    expect(ops[1].sport).toBe('nfl')
-    expect(ops[1].not[2]).toContain('inj:nfl:2026-11-04:KC:travis-kelce')
+    expect(ops[0].table).toBe('NhlStartingGoalie')
+    expect(ops[0].rows[0].fetchedAt).toBe(runStamp)
+    expect(ops[1].table).toBe('NhlStartingGoalie')
+    expect(ops[1].asOfDate).toBe('2026-11-04')
+    expect(ops[1].sport).toBeUndefined()
+    expect(ops[1].in.teamAbbr).toEqual(['TOR'])
+    expect(ops[1].lt.fetchedAt).toBe(runStamp)
+    expect(ops[1].not).toBeUndefined()
   })
 
   test('empty payload does not delete existing rows', async () => {
@@ -590,6 +667,9 @@ describe('ops wiring', () => {
     expect(readme).toMatch(/009_injury_report\.sql/)
     expect(readme).toMatch(/ignoreQuietPeriod/)
     expect(readme).toMatch(/injury filter skipped \(no rows today\)/)
+    expect(readme).toMatch(/teamAbbr/)
+    expect(readme).toMatch(/fetchedAt/)
+    expect(readme).not.toMatch(/id is not in the new set/)
     const src = readFileSync(join(process.cwd(), 'scripts/fetch-injuries.js'), 'utf8')
     expect(src).toMatch(/INJURIES_STATUS/)
     expect(src).toMatch(/ignoreQuietPeriod/)
