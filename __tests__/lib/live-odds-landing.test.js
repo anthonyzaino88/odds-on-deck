@@ -12,6 +12,9 @@ import {
   resolvePropLanding,
   gamesEligibleForPropSave,
   propSaveDecision,
+  propsCacheMaxAgeMs,
+  DEFAULT_NFL_ADJACENT_PROPS_TTL_MS,
+  nflAdjacentPropsTtlMs,
 } from '../../lib/live-odds-landing.js'
 
 function parseSelectColumns(select) {
@@ -201,6 +204,37 @@ describe('resolvePropLanding', () => {
       now: new Date('2026-09-24T12:00:00.000Z'),
     })
     expect(landing.gameTime).toBe('2026-09-23T17:05:00.000Z')
+  })
+})
+
+describe('propsCacheMaxAgeMs', () => {
+  const now = new Date('2026-11-04T13:09:00.000Z') // 8:09 AM ET
+  const todayTtl = 8 * 60 * 60 * 1000
+
+  test('non-NFL and today NFL keep the midnight-ET clamp', () => {
+    expect(propsCacheMaxAgeMs({
+      sport: 'mlb',
+      gameInstant: '2026-11-03T23:00:00.000Z',
+      now,
+      todayMaxAgeMs: todayTtl,
+    })).toBe(todayTtl)
+    expect(propsCacheMaxAgeMs({
+      sport: 'nfl',
+      gameInstant: '2026-11-04T17:00:00.000Z',
+      now,
+      todayMaxAgeMs: todayTtl,
+    })).toBe(todayTtl)
+  })
+
+  test('adjacent-day NFL uses the configurable TTL', () => {
+    expect(propsCacheMaxAgeMs({
+      sport: 'nfl',
+      gameInstant: '2026-11-03T23:15:00.000Z',
+      now,
+      todayMaxAgeMs: todayTtl,
+    })).toBe(DEFAULT_NFL_ADJACENT_PROPS_TTL_MS)
+    expect(nflAdjacentPropsTtlMs({ ODDS_NFL_ADJACENT_PROPS_TTL_HOURS: '36' }))
+      .toBe(36 * 60 * 60 * 1000)
   })
 })
 

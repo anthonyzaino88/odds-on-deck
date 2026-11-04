@@ -26,6 +26,12 @@ import {
   resolvePropLanding,
   resolveTeamNameFallback,
 } from '../lib/live-odds-landing.js'
+import {
+  createOddsApiBudget,
+  estimateCreditsFromOddsEndpoint,
+  fetchOddsApiJson,
+  formatOddsBudgetStatus,
+} from '../lib/odds-api-budget.js'
 import { calculateQualityScore } from '../lib/quality-score.js'
 import { attachNumBooks } from '../lib/juice-traps.js'
 import {
@@ -66,7 +72,18 @@ async function oddsTableHasCommenceTime() {
 
 const ODDS_API_KEY = process.env.ODDS_API_KEY
 const RATE_LIMIT_DELAY = 1000  // 1 second between API calls
-const MONTHLY_QUOTA = parseInt(process.env.ODDS_API_QUOTA) || 20000  // Default to 20k for paid plans
+let oddsBudget = null
+
+function getOddsBudget() {
+  if (!oddsBudget) {
+    oddsBudget = createOddsApiBudget({
+      env: process.env,
+      log: console,
+      apiKey: ODDS_API_KEY,
+    })
+  }
+  return oddsBudget
+}
 const CACHE_DURATION = {
   MONEYLINE: 60 * 60 * 1000,      // 1 hour
   SPREADS: 60 * 60 * 1000,        // 1 hour
@@ -420,30 +437,32 @@ async function sleep(ms) {
 }
 
 async function callOddsAPI(endpoint) {
+  const budget = getOddsBudget()
+  const estimatedCredits = estimateCreditsFromOddsEndpoint(endpoint)
+  if (!budget.allow(estimatedCredits)) {
+    console.log(`  ⏸️  ${formatOddsBudgetStatus(budget.status())}`)
+    return null
+  }
+
   apiCallsToday++
   console.log(`  📡 API Call #${apiCallsToday}: ${endpoint}`)
-  
-  // Check rate limit
-  if (apiCallsToday > MONTHLY_QUOTA) {
-    throw new Error(`⚠️  API QUOTA EXCEEDED! (${MONTHLY_QUOTA} calls/month)`)
-  }
-  
-  // Rate limiting
+
   if (apiCallsToday > 1) {
     await sleep(RATE_LIMIT_DELAY)
   }
-  
-  const url = `https://api.the-odds-api.com${endpoint}&apiKey=${ODDS_API_KEY}`
-  
+
+  const joiner = String(endpoint).includes('?') ? '&' : '?'
+  const url = `https://api.the-odds-api.com${endpoint}${joiner}apiKey=${ODDS_API_KEY}`
+
   try {
-    const response = await fetch(url)
-    if (!response.ok) {
-      const text = await response.text()
-      throw new Error(`API Error ${response.status}: ${text}`)
-    }
-    
-    const data = await response.json()
-    return data
+    const result = await fetchOddsApiJson(url, {
+      budget,
+      estimatedCredits,
+      log: console,
+      apiKey: ODDS_API_KEY,
+    })
+    if (result.skipped) return null
+    return result.data
   } catch (error) {
     console.error(`  ❌ API Error: ${error.message}`)
     throw error
@@ -575,6 +594,10 @@ async function fetchGameOdds(sport, date, ignoreCache = false) {
     const params = `?regions=us&markets=h2h,spreads,totals&dateFormat=iso`
     
     const oddsData = await callOddsAPI(endpoint + params)
+    if (!oddsData) {
+      console.log(`  ⏸️  Game-odds fetch skipped (${formatOddsBudgetStatus(getOddsBudget().status())})`)
+      return []
+    }
     const games = Array.isArray(oddsData) ? oddsData : []
     
     console.log(`  ✅ Fetched ${games.length} games with odds`)
@@ -1076,7 +1099,11 @@ async function fetchPlayerProps(sport, date, oddsGames) {
         const params = `?regions=us&markets=${marketsParam}&dateFormat=iso`
         
         const propsData = await callOddsAPI(endpoint + params)
-        
+        if (!propsData) {
+          console.log(`  ⏸️  Remaining prop fetches skipped (${formatOddsBudgetStatus(getOddsBudget().status())})`)
+          break
+        }
+
         allProps.push({ 
           gameId: eventId, 
           homeTeam: game.home_team || '',
@@ -1495,11 +1522,12 @@ async function main() {
     
     console.log('\n' + '='.repeat(60))
     console.log(`✅ Complete! API calls used: ${apiCallsToday}`)
-    console.log(`📊 Remaining quota: ~${MONTHLY_QUOTA - apiCallsToday} calls this month (${MONTHLY_QUOTA} total)`)
+    getOddsBudget().logSummary()
     console.log('='.repeat(60))
     
   } catch (error) {
     console.error('\n❌ Fatal error:', error.message)
+    getOddsBudget().logSummary()
     process.exit(1)
   }
 }

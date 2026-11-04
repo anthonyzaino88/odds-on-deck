@@ -9,6 +9,7 @@ import {
   parseCaptureClosesArgs,
   runCapturePublishedCloses,
 } from '../../scripts/capture-published-closes.js'
+import { createOddsApiBudget } from '../../lib/odds-api-budget.js'
 
 function memoryLog() {
   const lines = []
@@ -1463,5 +1464,41 @@ describe('runCapturePublishedCloses', () => {
     expect(result.updates).toHaveLength(0)
     expect(updates).toHaveLength(0)
     expect(log.lines.join('\n')).toMatch(/no quote pv-stafford/)
+  })
+
+  test('budget floor skips Odds API calls and exits 0 without changing --max-calls', async () => {
+    const fetchEventOdds = jest.fn()
+    const log = memoryLog()
+    const budget = createOddsApiBudget({
+      persist: false,
+      log,
+      state: { lastRemaining: 2500, lastUsed: 1000 },
+    })
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--max-calls', '10'],
+      now: IN_WINDOW,
+      createClient: () => mockClient(),
+      fetchEventOdds,
+      probeQuota: jest.fn(),
+      apiKey: 'secret-key-value',
+      log,
+      budget,
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.skippedBudget).toBe(true)
+    expect(result.calls).toBe(0)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(log.lines.join('\n')).toMatch(/ODDS_BUDGET_STATUS=floor/)
+    expect(log.lines.join('\n')).not.toMatch(/secret-key-value/)
+    expect(parseCaptureClosesArgs(['--max-calls', '10']).maxCalls).toBe(10)
+    expect(parseCaptureClosesArgs([]).maxCalls).toBeNull()
+  })
+
+  test('close-capture --max-calls / --max-credits / --min-remaining defaults are unchanged', () => {
+    expect(parseCaptureClosesArgs([]).maxCalls).toBeNull()
+    expect(parseCaptureClosesArgs([]).maxCredits).toBeNull()
+    expect(parseCaptureClosesArgs([]).minRemaining).toBe(50)
+    expect(parseCaptureClosesArgs(['--max-calls', '10']).maxCalls).toBe(10)
+    expect(parseCaptureClosesArgs(['--max-calls', '20']).maxCalls).toBe(20)
   })
 })
