@@ -39,7 +39,7 @@ export default function DataFreshness() {
     label = lastRefresh.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
   }
 
-  const prefix = source === 'quotes' ? 'Quotes as of' : 'Data updated'
+  const prefix = source === 'quotes' ? 'Quotes as of' : 'Odds as of'
 
   return (
     <span

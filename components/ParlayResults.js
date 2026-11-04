@@ -115,7 +115,7 @@ export default function ParlayResults({ generatedParlays = null }) {
               <span className="text-xs ml-1 text-slate-500">(+550 = bet $100 to win $550)</span>
             </div>
             <div className="pt-2 mt-2 border-t border-white/[0.06] text-slate-500">
-              Tip: Each leg is selected from the best available line across 10+ sportsbooks. Higher combined win chance means a safer parlay.
+              Tip: Each leg uses the best stored morning line, not a live all-day shop. Quote age is on the board. Higher combined win chance means a safer parlay.
             </div>
           </div>
         </div>

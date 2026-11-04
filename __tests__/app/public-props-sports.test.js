@@ -227,15 +227,31 @@ describe('public props / parlay surfaces offer NHL', () => {
     expect(route).toMatch(/\.in\('sport', PUBLISHED_SPORTS\)/)
   })
 
-  test('public shop copy does not claim 10+ sportsbooks', () => {
-    for (const rel of ['app/props/page.js', 'components/HomeMarketing.js', 'lib/glossary.js']) {
+  test('public shop copy does not claim 10+ sportsbooks or real-time odds', () => {
+    const copyFiles = [
+      'app/props/page.js',
+      'app/parlays/page.js',
+      'app/layout.js',
+      'app/props/layout.js',
+      'app/games/layout.js',
+      'components/HomeMarketing.js',
+      'components/ParlayBuilder.js',
+      'components/ParlayResults.js',
+      'lib/glossary.js',
+    ]
+    for (const rel of copyFiles) {
       const src = read(rel)
       expect(src).not.toMatch(/10\+ sportsbooks/)
       expect(src).not.toMatch(/10\+ books/)
+      expect(src).not.toMatch(/all of them/)
+      expect(src).not.toMatch(/Real-time/)
+      expect(src).not.toMatch(/real-time odds/)
     }
     const filter = read('components/PlayerPropsFilter.js')
     expect(filter).toMatch(/Array\.isArray\(prop\.quotes\) && prop\.quotes\.length > 0/)
     expect(read('components/DataFreshness.js')).toMatch(/Quotes as of/)
+    expect(read('app/api/refresh-status/route.js')).toMatch(/getLatestOddsFreshness/)
+    expect(read('app/api/refresh-status/route.js')).toMatch(/console\.error\('getLatestOddsFreshness:/)
   })
 
   test('parlay explorer uses public sports including NHL', () => {

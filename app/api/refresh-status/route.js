@@ -8,6 +8,13 @@ import { parseStoredGameDate } from '../../../lib/score-updater.js'
 import { isMissingLineShopQuoteColumnError } from '../../../lib/line-shopping.js'
 import { NextResponse } from 'next/server'
 
+/** After PGRST204 / 42703 on quoteUpdatedAt, later polls select fetchedAt only. */
+let quoteUpdatedAtColumnMissing = false
+
+export function resetQuoteFreshnessColumnCache() {
+  quoteUpdatedAtColumnMissing = false
+}
+
 /**
  * Most recent Game.lastUpdate. In-memory LAST_REFRESH_TIME is per
  * serverless instance and resets on every cold start, so it is meaningless
@@ -31,49 +38,79 @@ export async function getLatestGameLastUpdate(client = supabase) {
   return parseStoredGameDate(data.lastUpdate)?.toISOString() ?? null
 }
 
-/**
- * Newest PlayerPropCache.quoteUpdatedAt. Prefers book last_update age
- * over live-score Game.lastUpdate. Missing SQL 010 → null (caller falls
- * back to Game.lastUpdate).
- */
-export async function getLatestQuoteUpdatedAt(client = supabase) {
-  if (!isUsableSupabase(client)) return null
+function isoFromStamp(value) {
+  if (!value) return null
+  const parsed = parseStoredGameDate(value)
+  if (parsed) return parsed.toISOString()
+  const ms = Date.parse(value)
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null
+}
 
-  const { data, error } = await client
+function playerPropCacheFreshnessQuery(client, columns) {
+  return client
     .from('PlayerPropCache')
-    .select('quoteUpdatedAt')
-    .not('quoteUpdatedAt', 'is', null)
-    .order('quoteUpdatedAt', { ascending: false })
+    .select(columns)
+    .not('fetchedAt', 'is', null)
+    .order('fetchedAt', { ascending: false })
     .limit(1)
     .maybeSingle()
+}
+
+/**
+ * One PlayerPropCache poll: prefer quoteUpdatedAt (book last_update), else
+ * fetchedAt (morning fetch). Missing SQL 010 degrades to fetchedAt after
+ * one retry; other errors are logged and do not fall through to Game.
+ */
+export async function getLatestOddsFreshness(client = supabase) {
+  const empty = { lastRefreshTime: null, quoteUpdatedAt: null, freshnessSource: null }
+  if (!isUsableSupabase(client)) return empty
+
+  const columns = quoteUpdatedAtColumnMissing ? 'fetchedAt' : 'quoteUpdatedAt, fetchedAt'
+  const { data, error } = await playerPropCacheFreshnessQuery(client, columns)
 
   if (error) {
-    if (isMissingLineShopQuoteColumnError(error)) return null
-    return null
+    if (!quoteUpdatedAtColumnMissing && isMissingLineShopQuoteColumnError(error)) {
+      quoteUpdatedAtColumnMissing = true
+      return getLatestOddsFreshness(client)
+    }
+    console.error('getLatestOddsFreshness:', error)
+    return empty
   }
-  if (!data?.quoteUpdatedAt) return null
-  const parsed = parseStoredGameDate(data.quoteUpdatedAt)
-  if (parsed) return parsed.toISOString()
-  const ms = Date.parse(data.quoteUpdatedAt)
-  return Number.isFinite(ms) ? new Date(ms).toISOString() : null
+
+  const quoteUpdatedAt = isoFromStamp(data?.quoteUpdatedAt)
+  const fetchedAt = isoFromStamp(data?.fetchedAt)
+  if (quoteUpdatedAt) {
+    return { lastRefreshTime: quoteUpdatedAt, quoteUpdatedAt, freshnessSource: 'quotes' }
+  }
+  if (fetchedAt) {
+    return { lastRefreshTime: fetchedAt, quoteUpdatedAt: null, freshnessSource: 'cache' }
+  }
+  return empty
+}
+
+/**
+ * Newest PlayerPropCache.quoteUpdatedAt. Missing SQL 010 → null.
+ * Other PostgREST errors are logged and return null.
+ */
+export async function getLatestQuoteUpdatedAt(client = supabase) {
+  const freshness = await getLatestOddsFreshness(client)
+  return freshness.quoteUpdatedAt
 }
 
 /**
  * API endpoint to check if a refresh is allowed based on cooldown.
- * lastRefreshTime prefers quote age, then Game.lastUpdate.
+ * lastRefreshTime is the morning odds as-of time (quote, else cache fetch).
  */
 export async function GET() {
   try {
     const status = canRefresh()
-    const quoteUpdatedAt = await getLatestQuoteUpdatedAt()
-    const gameUpdatedAt = quoteUpdatedAt ? null : await getLatestGameLastUpdate()
-    const lastRefreshTime = quoteUpdatedAt || gameUpdatedAt
+    const freshness = await getLatestOddsFreshness()
 
     return NextResponse.json({
       ...status,
-      lastRefreshTime,
-      quoteUpdatedAt,
-      freshnessSource: quoteUpdatedAt ? 'quotes' : (gameUpdatedAt ? 'game' : null),
+      lastRefreshTime: freshness.lastRefreshTime,
+      quoteUpdatedAt: freshness.quoteUpdatedAt,
+      freshnessSource: freshness.freshnessSource,
       cooldownMinutes: API_CONFIG.REFRESH_COOLDOWN_MINUTES
     })
   } catch (error) {

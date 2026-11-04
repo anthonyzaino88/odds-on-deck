@@ -50,7 +50,7 @@ export default function HomeMarketing() {
       <section className="mb-10">
         <SectionHeading title="What This Is For" />
         <p className="text-sm text-slate-400 mb-4 max-w-2xl">
-          Most tools show you one book&apos;s odds. We show you <span className="text-slate-100 font-medium">all of them</span> &mdash; in one place, with the math already done.
+          Most tools show you one book&apos;s odds. We show the <span className="text-slate-100 font-medium">best stored morning number</span> against consensus, with the as-of time on the board.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <FeatureCard title="Line Shopping" description="See the best available price against vig-removed consensus, plus how many books actually posted the number. Expand the per-book ladder when that morning snapshot is stored." />

@@ -132,7 +132,7 @@ export default function ParlayBuilder({ onGenerate }) {
         Build Your Parlay
       </h2>
       <p className="text-sm text-slate-400 mt-1.5 mb-5">
-        We combine the best available lines across 10+ sportsbooks into optimized parlays.
+        We combine the best stored morning lines from the books that posted each leg.
       </p>
 
       <div className="space-y-5">
