@@ -505,6 +505,21 @@ describe('fetchOddsApiJson', () => {
     expect(probe.skipped).toBe(false)
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
+
+  test('non-probe 0-credit estimate counts as 1 under probe_failed', () => {
+    const budget = createOddsApiBudget({
+      persist: false,
+      now: NOON_ET,
+      purpose: 'fetch',
+      env: { ODDS_CLOSE_CAPTURE_RESERVE: '0', ODDS_PROBE_FAIL_CREDIT_CAP: '100' },
+      log: { log() {} },
+      state: { days: { '2026-11-04': { credits: 100, calls: 4 } } },
+    })
+    expect(budget.markProbeFailed()).toBe(true)
+    expect(budget.status()).toBe('probe_failed')
+    expect(budget.allow(0)).toBe(false)
+    expect(budget.allow(1)).toBe(false)
+  })
 })
 
 describe('ops docs and script wiring', () => {
