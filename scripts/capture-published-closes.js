@@ -281,6 +281,7 @@ export async function runCapturePublishedCloses({
         || result.skippedQuota || oddsBudget.status() === 'close_cap')
         ? Number(result.skippedBudgetCount) || 0
         : 0)
+    const skippedQuietCount = Number(result.skippedQuietCount) || 0
     const skippedWindow = result.skippedWindow ?? 0
     const credits = result.creditsUsed ?? 0
     let captureStatus = result.captureStatus
@@ -298,6 +299,7 @@ export async function runCapturePublishedCloses({
     log.log(formatCloseCaptureCounts({
       captured,
       skippedBudget,
+      skippedQuiet: skippedQuietCount,
       skippedWindow,
       credits,
     }))
@@ -317,6 +319,7 @@ export async function runCapturePublishedCloses({
       captureStatus,
       captured,
       skippedBudgetCount: skippedBudget,
+      skippedQuietCount,
       skippedWindow,
       creditsUsed: credits,
     }
@@ -361,8 +364,10 @@ ${CLOSE_CAPTURE_RECOMMENDED_CRON} after record-mlb-window-props
 during 11–22. Empty window costs 0 credits (no Odds API calls).
 :16/:46 11–22 misses :11–:16 kickoffs and London NFL 9:30 AM ET.
 Every run prints CLOSE_CAPTURE_STATUS=ok|partial|failed and
-CLOSE_CAPTURE_CAPTURED / SKIPPED_BUDGET / SKIPPED_WINDOW / CREDITS
-and exits 0. Dry-run prints planned HTTP calls including the quota
+CLOSE_CAPTURE_CAPTURED / CLOSE_CAPTURE_SKIPPED_BUDGET /
+CLOSE_CAPTURE_SKIPPED_QUIET / CLOSE_CAPTURE_SKIPPED_WINDOW / CREDITS
+(SKIPPED_BUDGET is cap/exhaustion only) and exits 0. Dry-run prints
+planned HTTP calls including the quota
 check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     return done({ updates: [], calls: 0, help: true })
   }
@@ -750,18 +755,21 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
 
   const gameLineWrites = []
   let skippedQuietDuringRun = false
+  let skippedQuietCount = 0
+  const markQuietStop = (jobIndex) => {
+    skippedQuietDuringRun = true
+    skippedQuietCount += captureJobs.length - jobIndex
+  }
   for (let jobIndex = 0; jobIndex < captureJobs.length; jobIndex += 1) {
     const job = captureJobs[jobIndex]
     if (isOpsWriteQuietPeriod(nowFn())) {
       log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
-      skippedQuietDuringRun = true
-      skippedBudgetDuringRun += captureJobs.length - jobIndex
+      markQuietStop(jobIndex)
       break
     }
     if (shouldSkipPaidCloseCaptureFetch(nowFn())) {
       log.log('⏸️  After :04:30 ET — not starting a paid fetch that quiet :05 would block.')
-      skippedQuietDuringRun = true
-      skippedBudgetDuringRun += captureJobs.length - jobIndex
+      markQuietStop(jobIndex)
       break
     }
     const game = job.game
@@ -810,8 +818,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       log.log(
         `⏸️  skipped ${label} paid fetch after :04:30 ET (quiet :05 would block the write)`,
       )
-      skippedQuietDuringRun = true
-      skippedBudgetDuringRun += captureJobs.length - jobIndex
+      markQuietStop(jobIndex)
       break
     }
     const url = buildEventOddsUrl({
@@ -864,7 +871,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
         })
         if (isOpsWriteQuietPeriod(nowFn())) {
           log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
-          skippedQuietDuringRun = true
+          markQuietStop(jobIndex)
           break
         }
         const writtenLines = await writeGameLineCloses(supabase, gameLineRows, {
@@ -912,7 +919,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       }
       if (isOpsWriteQuietPeriod(nowFn())) {
         log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
-        skippedQuietDuringRun = true
+        markQuietStop(jobIndex)
         break
       }
       const write = await updateWithOptionalCloseOdds(
@@ -969,6 +976,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     skippedBudgetCount: skippedBudgetCount + skippedBudgetDuringRun,
     skippedWindow,
     skippedQuiet: skippedQuietDuringRun || undefined,
+    skippedQuietCount,
   })
 }
 

@@ -71,6 +71,8 @@ describe('S1 closing-price capture contract', () => {
     expect(ops).toMatch(/35 minutes/)
     expect(ops).toMatch(/:16 and :46 ET/)
     expect(ops).toMatch(/CLOSE_CAPTURE_STATUS=ok\|partial\|failed/)
+    expect(ops).toMatch(/CLOSE_CAPTURE_SKIPPED_QUIET=<n>/)
+    expect(captureSrc).toMatch(/CLOSE_CAPTURE_SKIPPED_QUIET/)
     expect(ops).toMatch(/ODDS_CLOSE_CAPTURE_DAILY_CAP/)
     expect(ops).toMatch(/T−10/)
     expect(ops).toMatch(/0,4,16,26,36,46,56 8-22 \* \* \*/)

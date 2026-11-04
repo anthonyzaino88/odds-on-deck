@@ -1617,6 +1617,7 @@ describe('runCapturePublishedCloses', () => {
     expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_STATUS=ok/)
     expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_CAPTURED=0/)
     expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_BUDGET=/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_QUIET=/)
     expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_WINDOW=/)
     expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_CREDITS=0/)
     expect(log.lines.join('\n')).not.toMatch(/test-key/)
@@ -1785,8 +1786,12 @@ describe('runCapturePublishedCloses', () => {
     expect(result.updates).toHaveLength(0)
     expect(result.skippedQuiet).toBe(true)
     expect(result.captureStatus).toBe('partial')
+    expect(result.skippedQuietCount).toBeGreaterThan(0)
+    expect(result.skippedBudgetCount).toBe(0)
     expect(log.lines.join('\n')).toMatch(/stopping before further writes/)
     expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_STATUS=partial/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_QUIET=[1-9]/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_BUDGET=0/)
   })
 
   test('does not start a paid fetch after :04:30 ET and counts it as partial/skipped', async () => {
@@ -1807,11 +1812,13 @@ describe('runCapturePublishedCloses', () => {
     expect(result.updates).toHaveLength(0)
     expect(result.skippedQuiet).toBe(true)
     expect(result.captureStatus).toBe('partial')
-    expect(result.skippedBudgetCount).toBeGreaterThan(0)
+    expect(result.skippedQuietCount).toBeGreaterThan(0)
+    expect(result.skippedBudgetCount).toBe(0)
     expect(log.lines.join('\n')).toMatch(/:04:30 ET/)
     expect(log.lines.join('\n')).toMatch(/quiet :05 would block/)
     expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_STATUS=partial/)
-    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_BUDGET=[1-9]/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_QUIET=[1-9]/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_BUDGET=0/)
   })
 
   test('near-start nfl-all skips game-line overwrite when commence_time is missing or unparseable', async () => {

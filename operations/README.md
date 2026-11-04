@@ -203,8 +203,10 @@ Morning ops status (required):
 Do **not** add this to the :09 ET job. `:05–:15` is a no-write window.
 A `:00` or `:04` run re-checks the quiet window before each write
 and stops at `:05` ET. It does not start a paid event-odds fetch
-after `:04:30` ET (so `:05` cannot waste a credit). A run stopped
-by quiet or that fetch cutoff prints `CLOSE_CAPTURE_STATUS=partial`.
+after `:04:30` ET (so `:05` cannot waste a credit). A run stopped by quiet or that fetch cutoff prints
+`CLOSE_CAPTURE_STATUS=partial` and `CLOSE_CAPTURE_SKIPPED_QUIET=<n>`
+for remaining jobs. `CLOSE_CAPTURE_SKIPPED_BUDGET` is only
+budget/cap exhaustion.
 
 **One task**, record first, then capture. After
 `007_published_close_odds.sql`. The **:16/:46 11–22 ET** laptop
@@ -298,7 +300,7 @@ Footer (always **exit 0**):
 
 ```
 CLOSE_CAPTURE_STATUS=ok|partial|failed
-CLOSE_CAPTURE_CAPTURED=<n> CLOSE_CAPTURE_SKIPPED_BUDGET=<n> CLOSE_CAPTURE_SKIPPED_WINDOW=<n> CLOSE_CAPTURE_CREDITS=<n>
+CLOSE_CAPTURE_CAPTURED=<n> CLOSE_CAPTURE_SKIPPED_BUDGET=<n> CLOSE_CAPTURE_SKIPPED_QUIET=<n> CLOSE_CAPTURE_SKIPPED_WINDOW=<n> CLOSE_CAPTURE_CREDITS=<n>
 ```
 
 Any status other than `ok` is WARN in the hourly report.

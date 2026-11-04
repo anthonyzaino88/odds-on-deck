@@ -306,9 +306,10 @@ describe('quiet period and close window', () => {
     expect(formatCloseCaptureCounts({
       captured: 3,
       skippedBudget: 1,
+      skippedQuiet: 4,
       skippedWindow: 2,
       credits: 6,
-    })).toBe('CLOSE_CAPTURE_CAPTURED=3 CLOSE_CAPTURE_SKIPPED_BUDGET=1 CLOSE_CAPTURE_SKIPPED_WINDOW=2 CLOSE_CAPTURE_CREDITS=6')
+    })).toBe('CLOSE_CAPTURE_CAPTURED=3 CLOSE_CAPTURE_SKIPPED_BUDGET=1 CLOSE_CAPTURE_SKIPPED_QUIET=4 CLOSE_CAPTURE_SKIPPED_WINDOW=2 CLOSE_CAPTURE_CREDITS=6')
   })
 
   test('isCloseCaptureCandidate requires a pre-start status and the window', () => {
