@@ -34,6 +34,7 @@
     "cleanup:featured-dupes": "node scripts/cleanup-duplicate-featured-parlays.js",
     "report:featured-game-mismatch": "node scripts/report-featured-game-mismatch.js",
     "report:final-score-mismatch": "node scripts/report-final-score-mismatch.js",
+    "report:mlb-legacy-abbr": "node scripts/report-mlb-legacy-abbr.js",
     "report:odds-format": "node scripts/report-odds-format-ambiguity.js",
     "report:unplayed-grades": "node scripts/report-unplayed-game-grades.js",
     "preview:legacy-nfl": "node scripts/preview-legacy-nfl-published.js",

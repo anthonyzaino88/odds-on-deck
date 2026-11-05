@@ -10,6 +10,7 @@ import {
   classifyEspnScoreboardPayload,
   countNotNeededRetiresSince,
   espnDateParamToKey,
+  applyCancelledMarks,
   formatVanishedCancelLog,
   formatVanishedRetireLog,
   isIfNecessaryGameId,
@@ -598,6 +599,91 @@ describe('runRetireVanishedFromFetch apply', () => {
     expect(supabase.ops[0].payload.status).toBe('cancelled')
   })
 
+  test('applyCancelledMarks refuses :05–:15 ET unless ignoreQuietPeriod', async () => {
+    const ghost = row('CHW_at_HOU_2026-10-30_if_necessary')
+    const plan = planVanishedFromFetch({
+      dbRows: [ghost],
+      fetchedGames: [],
+      coverageByDate: { [TODAY]: 'empty' },
+      todayEt: TOMORROW,
+    })
+    const quiet = PAST_NOW
+    const refusedClient = createApplySupabase({ data: [{ id: ghost.id }] })
+    const warns = []
+    const refused = await applyCancelledMarks(refusedClient, plan, {
+      now: quiet,
+      ignoreQuietPeriod: false,
+      logger: { warn: (...args) => warns.push(args.join(' ')), error() {} },
+    })
+    expect(refused).toMatchObject({ refused: true, reason: 'ops_quiet_period' })
+    expect(refused.applied).toEqual([])
+    expect(refusedClient.ops).toEqual([])
+    expect(warns.some((line) => line.includes('quiet window'))).toBe(true)
+
+    const allowedClient = createApplySupabase({ data: [{ id: ghost.id }] })
+    const allowed = await applyCancelledMarks(allowedClient, plan, {
+      now: quiet,
+      ignoreQuietPeriod: true,
+      logger: { warn() {}, error() {} },
+    })
+    expect(allowed.refused).toBeUndefined()
+    expect(allowed.applied).toEqual([{ id: ghost.id, status: 'cancelled' }])
+
+    const runClient = createApplySupabase({ data: [{ id: ghost.id }] })
+    const run = await runRetireVanishedFromFetch({
+      sport: 'mlb',
+      fetchedGames: [],
+      coverageByDate: { [TODAY]: 'empty' },
+      dbRows: [ghost],
+      supabase: runClient,
+      apply: true,
+      ignoreQuietPeriod: false,
+      now: quiet,
+      logger: { log() {}, warn() {}, error() {} },
+    })
+    expect(run.refused).toBe(true)
+    expect(run.applied).toEqual([])
+    expect(runClient.ops).toEqual([])
+  })
+
+  test('cancels still write and log after the daily retire cap aborts retires', async () => {
+    const retire = row('TB_at_MIL_2026-10-30')
+    const cancel = row('CHW_at_HOU_2026-10-30_if_necessary')
+    const supabase = createApplySupabase({
+      alreadyToday: VANISH_DAILY_MAX_RETIRES,
+      data: [{ id: cancel.id }],
+    })
+    const logs = []
+    const result = await runRetireVanishedFromFetch({
+      sport: 'mlb',
+      fetchedGames: [
+        fetched('LAD_at_NYY_2026-10-30'),
+        fetched('SEA_at_HOU_2026-10-30'),
+      ],
+      coverageByDate: { [TODAY]: 'ok' },
+      dbRows: [
+        retire,
+        row('LAD_at_NYY_2026-10-30'),
+        row('SEA_at_HOU_2026-10-30'),
+        cancel,
+      ],
+      supabase,
+      apply: true,
+      ignoreQuietPeriod: true,
+      now: PAST_NOW,
+      logger: {
+        log: (...args) => logs.push(args.join(' ')),
+        warn: (...args) => logs.push(args.join(' ')),
+        error: (...args) => logs.push(args.join(' ')),
+      },
+    })
+    expect(result.actions.some((action) => action.action === 'retire_not_needed')).toBe(true)
+    expect(result.aborts.some((abort) => abort.reason === 'daily_cap_exceeded')).toBe(true)
+    expect(result.applied).toEqual([{ id: cancel.id, status: 'cancelled' }])
+    expect(supabase.ops[0].payload.status).toBe('cancelled')
+    expect(logs.some((line) => line.includes('vanish-cancel continuing after retire writes aborted'))).toBe(true)
+  })
+
   test('daily retire cap aborts apply when 5 games already retired this ET day', async () => {
     const supabase = createApplySupabase({ alreadyToday: VANISH_DAILY_MAX_RETIRES })
     const warns = []
@@ -685,7 +771,10 @@ describe('fetch-fresh-games vanish-retire hook', () => {
     expect(src).toMatch(/--apply-vanish/)
     expect(src).toMatch(/applyVanish/)
     expect(src).toMatch(/apply:\s*Boolean\(applyVanish\)/)
-    expect(readFileSync(join(process.cwd(), 'lib/retire-vanished-games.js'), 'utf8')).not.toMatch(/\.delete\s*\(/)
+    const vanishSrc = readFileSync(join(process.cwd(), 'lib/retire-vanished-games.js'), 'utf8')
+    expect(vanishSrc).not.toMatch(/\.delete\s*\(/)
+    expect(vanishSrc).toMatch(/applyCancelledMarks[\s\S]*ignoreQuietPeriod/)
+    expect(vanishSrc).toMatch(/Refuse vanish-cancel during ops quiet window/)
   })
 
   test('morning fetch-fresh-games command applies vanish-retire, not stale', () => {
