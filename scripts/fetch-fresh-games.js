@@ -39,6 +39,7 @@
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import { createGameId, espnEventSeasonYear, canonicalizeMlbAbbr } from '../lib/team-mapping.js'
+import { nflSeasonYearFromDate, resolveNflGameSeason } from '../lib/nfl-season.js'
 import {
   espnHomeAwayCompetitors,
   mapEspnTypeState,
@@ -407,7 +408,9 @@ async function fetchGamesFromESPN(sport, date) {
         homeScore: parseEspnScore(home?.score, { status: gameStatus }),
         awayScore: parseEspnScore(away?.score, { status: gameStatus }),
         espnGameId: event.id, // Store original ESPN ID separately
-        season: espnEventSeasonYear(event),
+        season: sport.toLowerCase() === 'nfl'
+          ? resolveNflGameSeason({ event, date: gameDate })
+          : espnEventSeasonYear(event),
         _homeTeam: home?.team,
         _awayTeam: away?.team
       }
@@ -728,7 +731,11 @@ async function saveToSupabase(sport, games, { logPossibleFlips = false } = {}) {
           espnGameId: g.espnGameId
         }
         if (g.mlbGameId) obj.mlbGameId = g.mlbGameId
-        if (g.season) obj.season = g.season
+        if (g.sport === 'nfl') {
+          obj.season = g.season || nflSeasonYearFromDate(g.date)
+        } else if (g.season) {
+          obj.season = g.season
+        }
         return obj
       })
     
