@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   DEFAULT_CLOSE_CAPTURE_DAILY_CAP,
@@ -573,8 +573,6 @@ describe('ops docs and script wiring', () => {
     expect(src).toMatch(/runOddsQuotaProbe/)
     expect(src).toMatch(/purpose: 'fetch'/)
     expect(src).not.toMatch(/continuing without a pre-check/)
-    const ops = readFileSync(join(process.cwd(), 'operations/fetch-live-odds.js'), 'utf8')
-    expect(ops).toMatch(/runOddsQuotaProbe/)
-    expect(ops).not.toMatch(/continuing without a pre-check/)
+    expect(existsSync(join(process.cwd(), 'operations/fetch-live-odds.js'))).toBe(false)
   })
 })

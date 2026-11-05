@@ -140,9 +140,11 @@ If-necessary postseason ghosts (for example TB @ MIL after the World Series)
 are the main target. Dual-source MLB flip/ghost reconcile remains available
 as an extra dry-run (`--reconcile`, writes with `--reconcile --apply`).
 
-When `--apply-vanish` writes, vanish-retire ignores the `:05–:15` ET quiet
-window (`ignoreQuietPeriod: true`) because this script already upserts Game
-rows in that window; `--reconcile --apply` still refuses it. `oddsApiEventId`
+When `--apply-vanish` writes, vanish-retire and vanish-cancel both honor
+`ignoreQuietPeriod`. `fetch-fresh-games` sets that flag (`true`) because
+the morning job already upserts Game rows in the `:05–:15` ET window;
+`--reconcile --apply` and a cancel apply without the exemption still
+refuse it. `oddsApiEventId`
 is not cleared. Caps: 5 retires per plan, 5 per ET day across sports
 (counted via `Game.lastUpdate` on `not_needed` rows), 30% when a date has
 5+ candidates, and on smaller dates more than 1 retire or 50% or more
@@ -695,7 +697,8 @@ scripts/
 ├── update-scores-safely.js     # Live score updates (FREE)
 ├── calculate-game-edges.js     # Calculate edges (requires secret key)
 ├── check-validation-status.js  # Check validation results
-└── find-real-value-props.js    # Line shopping for real edges
+├── report-final-score-mismatch.js # Read-only stored vs ESPN final-score check
+└── report-mlb-legacy-abbr.js   # Read-only OAK/CWS leftover counts (no writes)
 ```
 
 ## 🔗 Related Docs
@@ -703,3 +706,4 @@ scripts/
 - `DAILY_OPERATIONS.md` - Full daily workflow guide
 - `DAILY_QUICK_START.md` - Quick copy-paste commands
 - `VALIDATION_SYSTEM_GUIDE.md` - Validation details
+- `docs/mlb-ath-chw-backfill.md` - OAK/CWS leftover report + Anthony-only SQL

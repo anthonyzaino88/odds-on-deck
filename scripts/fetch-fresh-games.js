@@ -20,7 +20,8 @@
  *   --apply-vanish Write vanish-retire updates (status=not_needed). Detection
  *                 always runs after each sport upsert; dry-run / report is
  *                 default. This is the only flag that marks vanished games
- *                 not_needed.
+ *                 not_needed. Future unplayed if-necessary MLB slots with no
+ *                 picks may retire; others are marked cancelled and logged.
  *
  * After each sport upsert, scheduled games missing from a fully covered
  * source date are reported (and with --apply-vanish marked not_needed,
@@ -349,11 +350,18 @@ async function fetchGamesFromESPN(sport, date) {
           'STATUS_IN_PROGRESS': 'in_progress',
           'STATUS_FINAL': 'final',
           'STATUS_FINAL_OVERTIME': 'final',
-          'STATUS_END_PERIOD': 'in_progress'
+          'STATUS_END_PERIOD': 'in_progress',
+          'STATUS_HALFTIME': 'halftime',
         }
         const typeId = event.status?.type?.id?.toString()
         const typeName = event.status?.type?.name
-        gameStatus = statusMap[typeId] || statusMap[typeName] || 'scheduled'
+        const typeDetail = event.status?.type?.detail || ''
+        if (String(typeName || '').toUpperCase().includes('HALFTIME')
+          || String(typeDetail).toLowerCase().includes('halftime')) {
+          gameStatus = 'halftime'
+        } else {
+          gameStatus = statusMap[typeId] || statusMap[typeName] || 'scheduled'
+        }
       } else if (sport === 'nfl') {
         // NFL status mapping
         const statusMap = {

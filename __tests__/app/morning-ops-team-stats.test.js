@@ -65,6 +65,7 @@ describe('morning ops team-stats refresh', () => {
   test('calculate-game-edges writes NHL model inputs on the existing payload column', () => {
     const script = read('scripts/calculate-game-edges.js')
     expect(script).toMatch(/toNhlEdgeSnapshotInsert/)
+    expect(script).toMatch(/Skipping NHL pick — no real edge/)
     expect(script).toMatch(/from '\.\.\/lib\/edge-nfl-nhl\.js'/)
     expect(script).not.toMatch(/modelRun: 'nfl-nhl-v0\.1\.0'/)
 

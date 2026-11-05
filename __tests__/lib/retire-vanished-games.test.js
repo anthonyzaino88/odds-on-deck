@@ -10,7 +10,10 @@ import {
   classifyEspnScoreboardPayload,
   countNotNeededRetiresSince,
   espnDateParamToKey,
+  applyCancelledMarks,
+  formatVanishedCancelLog,
   formatVanishedRetireLog,
+  isIfNecessaryGameId,
   markCoverageUnavailable,
   overallFetchState,
   planVanishedFromFetch,
@@ -384,6 +387,80 @@ describe('countNotNeededRetiresSince', () => {
   })
 })
 
+describe('if-necessary vanish matching', () => {
+  test('isIfNecessaryGameId reads the stored suffix', () => {
+    expect(isIfNecessaryGameId('CHW_at_HOU_2026-10-30_if_necessary')).toBe(true)
+    expect(isIfNecessaryGameId('CHW_at_HOU_2026-10-30')).toBe(false)
+  })
+
+  test('if-necessary slot is not present just because the main pair is on the slate', () => {
+    const ghost = row('CHW_at_HOU_2026-10-30_if_necessary')
+    const plan = planVanishedFromFetch({
+      dbRows: [ghost],
+      fetchedGames: [fetched('CHW_at_HOU_2026-10-30')],
+      coverageByDate: { [TODAY]: 'ok' },
+      todayEt: TODAY,
+    })
+    expect(plan.actions.find((action) => action.id === ghost.id)).toMatchObject({
+      action: 'retire_not_needed',
+      reason: VANISH_RETIRE_REASON,
+    })
+  })
+
+  test('if-necessary slot stays when the source still has that suffix', () => {
+    const keep = row('CHW_at_HOU_2026-10-30_if_necessary')
+    const plan = planVanishedFromFetch({
+      dbRows: [keep],
+      fetchedGames: [fetched('CHW_at_HOU_2026-10-30_if_necessary')],
+      coverageByDate: { [TODAY]: 'ok' },
+      todayEt: TODAY,
+    })
+    expect(plan.actions.filter((action) => action.id === keep.id)).toEqual([])
+  })
+
+  test('past vanished if-necessary without picks is marked cancelled', () => {
+    const ghost = row('CHW_at_HOU_2026-10-30_if_necessary')
+    const plan = planVanishedFromFetch({
+      dbRows: [ghost],
+      fetchedGames: [],
+      coverageByDate: { [TODAY]: 'empty' },
+      todayEt: TOMORROW,
+    })
+    expect(plan.actions[0]).toMatchObject({
+      action: 'mark_cancelled',
+      reason: 'vanished_if_necessary_past',
+    })
+    expect(formatVanishedCancelLog(plan.actions[0], 'mlb')).toMatch(/CHW_at_HOU_2026-10-30_if_necessary/)
+  })
+
+  test('vanished if-necessary with picks is marked cancelled instead of retired', () => {
+    const ghost = row('CHW_at_HOU_2026-10-30_if_necessary', {
+      dependents: {
+        propValidation: 1,
+        propValidationPending: 0,
+        propValidationGraded: 0,
+        propValidationPublished: 1,
+        parlayLeg: 0,
+        parlayLegPending: 0,
+        playerPropCache: 0,
+        odds: 0,
+        edgeSnapshot: 0,
+      },
+    })
+    const plan = planVanishedFromFetch({
+      dbRows: [ghost],
+      fetchedGames: [fetched('CHW_at_HOU_2026-10-30')],
+      coverageByDate: { [TODAY]: 'ok' },
+      todayEt: TODAY,
+    })
+    expect(plan.actions[0]).toMatchObject({
+      action: 'mark_cancelled',
+      reason: 'vanished_if_necessary_has_picks',
+    })
+    expect(plan.actions[0].action).not.toBe('retire_not_needed')
+  })
+})
+
 describe('runRetireVanishedFromFetch apply', () => {
   function createApplySupabase({
     data = [{ id: 'TB_at_MIL_2026-10-30' }],
@@ -484,6 +561,129 @@ describe('runRetireVanishedFromFetch apply', () => {
     expect(logs.some((line) => line.includes('would retire TB_at_MIL_2026-10-30'))).toBe(true)
   })
 
+  test('apply marks vanished if-necessary cancelled; dry-run writes nothing', async () => {
+    const ghost = row('CHW_at_HOU_2026-10-30_if_necessary')
+    const dry = createApplySupabase({ data: [{ id: ghost.id }] })
+    const dryLogs = []
+    const dryResult = await runRetireVanishedFromFetch({
+      sport: 'mlb',
+      fetchedGames: [],
+      coverageByDate: { [TODAY]: 'empty' },
+      dbRows: [ghost],
+      supabase: dry,
+      apply: false,
+      now: PAST_NOW,
+      logger: {
+        log: (...args) => dryLogs.push(args.join(' ')),
+        warn: (...args) => dryLogs.push(args.join(' ')),
+        error: (...args) => dryLogs.push(args.join(' ')),
+      },
+    })
+    expect(dryResult.dryRun).toBe(true)
+    expect(dry.ops).toEqual([])
+    expect(dryLogs.some((line) => line.includes('would mark CHW_at_HOU_2026-10-30_if_necessary cancelled'))).toBe(true)
+
+    const supabase = createApplySupabase({ data: [{ id: ghost.id }] })
+    const result = await runRetireVanishedFromFetch({
+      sport: 'mlb',
+      fetchedGames: [],
+      coverageByDate: { [TODAY]: 'empty' },
+      dbRows: [ghost],
+      supabase,
+      apply: true,
+      ignoreQuietPeriod: true,
+      now: PAST_NOW,
+      logger: { log() {}, warn() {}, error() {} },
+    })
+    expect(result.applied).toEqual([{ id: ghost.id, status: 'cancelled' }])
+    expect(supabase.ops[0].payload.status).toBe('cancelled')
+  })
+
+  test('applyCancelledMarks refuses :05–:15 ET unless ignoreQuietPeriod', async () => {
+    const ghost = row('CHW_at_HOU_2026-10-30_if_necessary')
+    const plan = planVanishedFromFetch({
+      dbRows: [ghost],
+      fetchedGames: [],
+      coverageByDate: { [TODAY]: 'empty' },
+      todayEt: TOMORROW,
+    })
+    const quiet = PAST_NOW
+    const refusedClient = createApplySupabase({ data: [{ id: ghost.id }] })
+    const warns = []
+    const refused = await applyCancelledMarks(refusedClient, plan, {
+      now: quiet,
+      ignoreQuietPeriod: false,
+      logger: { warn: (...args) => warns.push(args.join(' ')), error() {} },
+    })
+    expect(refused).toMatchObject({ refused: true, reason: 'ops_quiet_period' })
+    expect(refused.applied).toEqual([])
+    expect(refusedClient.ops).toEqual([])
+    expect(warns.some((line) => line.includes('quiet window'))).toBe(true)
+
+    const allowedClient = createApplySupabase({ data: [{ id: ghost.id }] })
+    const allowed = await applyCancelledMarks(allowedClient, plan, {
+      now: quiet,
+      ignoreQuietPeriod: true,
+      logger: { warn() {}, error() {} },
+    })
+    expect(allowed.refused).toBeUndefined()
+    expect(allowed.applied).toEqual([{ id: ghost.id, status: 'cancelled' }])
+
+    const runClient = createApplySupabase({ data: [{ id: ghost.id }] })
+    const run = await runRetireVanishedFromFetch({
+      sport: 'mlb',
+      fetchedGames: [],
+      coverageByDate: { [TODAY]: 'empty' },
+      dbRows: [ghost],
+      supabase: runClient,
+      apply: true,
+      ignoreQuietPeriod: false,
+      now: quiet,
+      logger: { log() {}, warn() {}, error() {} },
+    })
+    expect(run.refused).toBe(true)
+    expect(run.applied).toEqual([])
+    expect(runClient.ops).toEqual([])
+  })
+
+  test('cancels still write and log after the daily retire cap aborts retires', async () => {
+    const retire = row('TB_at_MIL_2026-10-30')
+    const cancel = row('CHW_at_HOU_2026-10-30_if_necessary')
+    const supabase = createApplySupabase({
+      alreadyToday: VANISH_DAILY_MAX_RETIRES,
+      data: [{ id: cancel.id }],
+    })
+    const logs = []
+    const result = await runRetireVanishedFromFetch({
+      sport: 'mlb',
+      fetchedGames: [
+        fetched('LAD_at_NYY_2026-10-30'),
+        fetched('SEA_at_HOU_2026-10-30'),
+      ],
+      coverageByDate: { [TODAY]: 'ok' },
+      dbRows: [
+        retire,
+        row('LAD_at_NYY_2026-10-30'),
+        row('SEA_at_HOU_2026-10-30'),
+        cancel,
+      ],
+      supabase,
+      apply: true,
+      ignoreQuietPeriod: true,
+      now: PAST_NOW,
+      logger: {
+        log: (...args) => logs.push(args.join(' ')),
+        warn: (...args) => logs.push(args.join(' ')),
+        error: (...args) => logs.push(args.join(' ')),
+      },
+    })
+    expect(result.actions.some((action) => action.action === 'retire_not_needed')).toBe(true)
+    expect(result.aborts.some((abort) => abort.reason === 'daily_cap_exceeded')).toBe(true)
+    expect(result.applied).toEqual([{ id: cancel.id, status: 'cancelled' }])
+    expect(supabase.ops[0].payload.status).toBe('cancelled')
+    expect(logs.some((line) => line.includes('vanish-cancel continuing after retire writes aborted'))).toBe(true)
+  })
+
   test('daily retire cap aborts apply when 5 games already retired this ET day', async () => {
     const supabase = createApplySupabase({ alreadyToday: VANISH_DAILY_MAX_RETIRES })
     const warns = []
@@ -571,7 +771,10 @@ describe('fetch-fresh-games vanish-retire hook', () => {
     expect(src).toMatch(/--apply-vanish/)
     expect(src).toMatch(/applyVanish/)
     expect(src).toMatch(/apply:\s*Boolean\(applyVanish\)/)
-    expect(readFileSync(join(process.cwd(), 'lib/retire-vanished-games.js'), 'utf8')).not.toMatch(/\.delete\s*\(/)
+    const vanishSrc = readFileSync(join(process.cwd(), 'lib/retire-vanished-games.js'), 'utf8')
+    expect(vanishSrc).not.toMatch(/\.delete\s*\(/)
+    expect(vanishSrc).toMatch(/applyCancelledMarks[\s\S]*ignoreQuietPeriod/)
+    expect(vanishSrc).toMatch(/Refuse vanish-cancel during ops quiet window/)
   })
 
   test('morning fetch-fresh-games command applies vanish-retire, not stale', () => {

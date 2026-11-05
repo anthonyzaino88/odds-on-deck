@@ -2,7 +2,6 @@ const fs = require('fs')
 const path = require('path')
 
 const oddsFetch = fs.readFileSync(path.join(__dirname, '../../scripts/fetch-live-odds.js'), 'utf8')
-const opsOddsFetch = fs.readFileSync(path.join(__dirname, '../../operations/fetch-live-odds.js'), 'utf8')
 const saveTop = fs.readFileSync(path.join(__dirname, '../../scripts/save-top-props-for-validation.js'), 'utf8')
 const recordScript = fs.readFileSync(path.join(__dirname, '../../scripts/record-published-props.js'), 'utf8')
 const validationSrc = fs.readFileSync(path.join(__dirname, '../../lib/validation.js'), 'utf8')
@@ -67,14 +66,8 @@ describe('Published props are recorded when they clear the bar', () => {
     expect(oddsFetch).toMatch(/resolvePropLanding/)
     expect(oddsFetch).toMatch(/oddsInsertPayload/)
     expect(oddsFetch).not.toMatch(/if all are mapped, fall back to closest-date mapped game/)
-    expect(opsOddsFetch).toMatch(/resolveTeamNameFallback/)
-    expect(opsOddsFetch).toMatch(/selectAutoSaveValidationProps/)
-    expect(opsOddsFetch).toMatch(/loadPublishedEligibleForAutoSave/)
-    expect(opsOddsFetch).toMatch(/skipAutoSaveAfterPublishedPrefetchError/)
-    expect(opsOddsFetch).toMatch(/paginateSupabaseSelect/)
-    expect(opsOddsFetch).not.toMatch(/\.gte\('qualityScore', 40\)\s*\n\s*\.limit\(200\)/)
-    expect(opsOddsFetch).toMatch(/findGameByTeamNames\([^)]*game\.id\)/)
     expect(oddsFetch).toMatch(/findGameByTeamNames\([^)]*game\.id\)/)
+    expect(fs.existsSync(path.join(__dirname, '../../operations/fetch-live-odds.js'))).toBe(false)
   })
 
   test('save-top-props keeps cache qualityScore and includes the Published sweep', () => {

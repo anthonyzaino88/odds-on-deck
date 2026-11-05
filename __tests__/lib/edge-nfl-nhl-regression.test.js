@@ -382,6 +382,34 @@ describe('NHL equal-strength and minimum-GP guards', () => {
     expect(result.modelRun).not.toBe('nfl-nhl-v0.1.0')
   })
 
+  test('EDM@ANA equal strengths skip the flat ~54/46 home-ice pick', () => {
+    const result = calculateNHLEdges({
+      sport: 'nhl',
+      home: freshTeam({
+        abbr: 'ANA',
+        last10Record: '6-4',
+        gamesPlayed: 20,
+        avgPointsLast10: 3.1,
+        avgPointsAllowedLast10: 3.1,
+      }),
+      away: freshTeam({
+        abbr: 'EDM',
+        last10Record: '6-4',
+        gamesPlayed: 20,
+        avgPointsLast10: 3.1,
+        avgPointsAllowedLast10: 3.1,
+      }),
+    }, evenOdds, { now: NOW })
+
+    expect(result.skipped).toBe(true)
+    expect(result.skipReason).toBe(NHL_SKIP_REASONS.DEGENERATE_EQUAL_STRENGTH)
+    expect(result.edgeMlHome).toBeNull()
+    expect(result.edgeMlAway).toBeNull()
+    expect(result.edgeTotalO).toBeNull()
+    expect(result.edgeTotalU).toBeNull()
+    expect(result.modelRun).toBe(NHL_MODEL_VERSION)
+  })
+
   test('skips when raw model p_home is within 0.5pt of pure home ice', () => {
     const home = freshTeam({
       abbr: 'ANA',

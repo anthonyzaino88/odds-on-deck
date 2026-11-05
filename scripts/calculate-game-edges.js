@@ -141,6 +141,10 @@ async function calculateEdgesForToday() {
           edges = calculateNFLEdges(game, odds)
         } else if (game.sport === 'nhl') {
           edges = calculateNHLEdges(game, odds)
+          if (edges.skipped) {
+            console.log(`  ⏭️  Skipping NHL pick — no real edge (${edges.skipReason})`)
+            continue
+          }
         } else {
           console.log(`  ⚠️  No model available for sport: ${game.sport}`)
           continue
