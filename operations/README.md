@@ -695,7 +695,7 @@ scripts/
 ├── update-scores-safely.js     # Live score updates (FREE)
 ├── calculate-game-edges.js     # Calculate edges (requires secret key)
 ├── check-validation-status.js  # Check validation results
-└── find-real-value-props.js    # Line shopping for real edges
+└── report-final-score-mismatch.js # Read-only stored vs ESPN final-score check
 ```
 
 ## 🔗 Related Docs

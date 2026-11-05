@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import {
   aliasedTeamCodes,
   MLB_TEAM_CODE_ALIASES,
@@ -80,6 +82,20 @@ describe('MLB stored team codes ATH/CHW', () => {
     expect(teamSelectionMatches('LV', 'ATH')).toBe(false)
     expect(aliasedTeamCodes('ATH')).toEqual(expect.arrayContaining(['ATH', 'OAK']))
     expect(aliasedTeamCodes('LV')).toEqual(expect.arrayContaining(['LV', 'OAK']))
+  })
+
+  test('seed and ESPN-id ops store ATH/CHW; live-odds aliases both codes', () => {
+    const seed = readFileSync(join(process.cwd(), 'prisma/seed.js'), 'utf8')
+    expect(seed).toMatch(/abbr: 'ATH'/)
+    expect(seed).toMatch(/abbr: 'CHW'/)
+    expect(seed).not.toMatch(/abbr: 'OAK'/)
+    expect(seed).not.toMatch(/abbr: 'CWS'/)
+    const espnIds = readFileSync(join(process.cwd(), 'operations/add-espn-id-to-teams.js'), 'utf8')
+    expect(espnIds).toMatch(/'ATH': 7/)
+    expect(espnIds).not.toMatch(/'OAK': 7/)
+    const odds = readFileSync(join(process.cwd(), 'scripts/fetch-live-odds.js'), 'utf8')
+    expect(odds).toMatch(/'CHW', 'CWS'/)
+    expect(odds).toMatch(/'ATH', 'OAK'/)
   })
 })
 

@@ -58,7 +58,7 @@ const ESPN_ID_MAPPING = {
   'mlb': {
     'LAD': 25,  // Los Angeles Dodgers
     'LAA': 3,   // Los Angeles Angels
-    'OAK': 7,   // Oakland Athletics
+    'ATH': 7,   // Athletics (ESPN; stored ATH, not OAK)
     'SEA': 11,  // Seattle Mariners
     'TEX': 15,  // Texas Rangers
     // ... more MLB teams would go here

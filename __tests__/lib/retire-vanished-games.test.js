@@ -10,7 +10,9 @@ import {
   classifyEspnScoreboardPayload,
   countNotNeededRetiresSince,
   espnDateParamToKey,
+  formatVanishedCancelLog,
   formatVanishedRetireLog,
+  isIfNecessaryGameId,
   markCoverageUnavailable,
   overallFetchState,
   planVanishedFromFetch,
@@ -384,6 +386,80 @@ describe('countNotNeededRetiresSince', () => {
   })
 })
 
+describe('if-necessary vanish matching', () => {
+  test('isIfNecessaryGameId reads the stored suffix', () => {
+    expect(isIfNecessaryGameId('CHW_at_HOU_2026-10-30_if_necessary')).toBe(true)
+    expect(isIfNecessaryGameId('CHW_at_HOU_2026-10-30')).toBe(false)
+  })
+
+  test('if-necessary slot is not present just because the main pair is on the slate', () => {
+    const ghost = row('CHW_at_HOU_2026-10-30_if_necessary')
+    const plan = planVanishedFromFetch({
+      dbRows: [ghost],
+      fetchedGames: [fetched('CHW_at_HOU_2026-10-30')],
+      coverageByDate: { [TODAY]: 'ok' },
+      todayEt: TODAY,
+    })
+    expect(plan.actions.find((action) => action.id === ghost.id)).toMatchObject({
+      action: 'retire_not_needed',
+      reason: VANISH_RETIRE_REASON,
+    })
+  })
+
+  test('if-necessary slot stays when the source still has that suffix', () => {
+    const keep = row('CHW_at_HOU_2026-10-30_if_necessary')
+    const plan = planVanishedFromFetch({
+      dbRows: [keep],
+      fetchedGames: [fetched('CHW_at_HOU_2026-10-30_if_necessary')],
+      coverageByDate: { [TODAY]: 'ok' },
+      todayEt: TODAY,
+    })
+    expect(plan.actions.filter((action) => action.id === keep.id)).toEqual([])
+  })
+
+  test('past vanished if-necessary without picks is marked cancelled', () => {
+    const ghost = row('CHW_at_HOU_2026-10-30_if_necessary')
+    const plan = planVanishedFromFetch({
+      dbRows: [ghost],
+      fetchedGames: [],
+      coverageByDate: { [TODAY]: 'empty' },
+      todayEt: TOMORROW,
+    })
+    expect(plan.actions[0]).toMatchObject({
+      action: 'mark_cancelled',
+      reason: 'vanished_if_necessary_past',
+    })
+    expect(formatVanishedCancelLog(plan.actions[0], 'mlb')).toMatch(/CHW_at_HOU_2026-10-30_if_necessary/)
+  })
+
+  test('vanished if-necessary with picks is marked cancelled instead of retired', () => {
+    const ghost = row('CHW_at_HOU_2026-10-30_if_necessary', {
+      dependents: {
+        propValidation: 1,
+        propValidationPending: 0,
+        propValidationGraded: 0,
+        propValidationPublished: 1,
+        parlayLeg: 0,
+        parlayLegPending: 0,
+        playerPropCache: 0,
+        odds: 0,
+        edgeSnapshot: 0,
+      },
+    })
+    const plan = planVanishedFromFetch({
+      dbRows: [ghost],
+      fetchedGames: [fetched('CHW_at_HOU_2026-10-30')],
+      coverageByDate: { [TODAY]: 'ok' },
+      todayEt: TODAY,
+    })
+    expect(plan.actions[0]).toMatchObject({
+      action: 'mark_cancelled',
+      reason: 'vanished_if_necessary_has_picks',
+    })
+    expect(plan.actions[0].action).not.toBe('retire_not_needed')
+  })
+})
+
 describe('runRetireVanishedFromFetch apply', () => {
   function createApplySupabase({
     data = [{ id: 'TB_at_MIL_2026-10-30' }],
@@ -482,6 +558,44 @@ describe('runRetireVanishedFromFetch apply', () => {
     expect(result.applied).toEqual([])
     expect(supabase.ops).toEqual([])
     expect(logs.some((line) => line.includes('would retire TB_at_MIL_2026-10-30'))).toBe(true)
+  })
+
+  test('apply marks vanished if-necessary cancelled; dry-run writes nothing', async () => {
+    const ghost = row('CHW_at_HOU_2026-10-30_if_necessary')
+    const dry = createApplySupabase({ data: [{ id: ghost.id }] })
+    const dryLogs = []
+    const dryResult = await runRetireVanishedFromFetch({
+      sport: 'mlb',
+      fetchedGames: [],
+      coverageByDate: { [TODAY]: 'empty' },
+      dbRows: [ghost],
+      supabase: dry,
+      apply: false,
+      now: PAST_NOW,
+      logger: {
+        log: (...args) => dryLogs.push(args.join(' ')),
+        warn: (...args) => dryLogs.push(args.join(' ')),
+        error: (...args) => dryLogs.push(args.join(' ')),
+      },
+    })
+    expect(dryResult.dryRun).toBe(true)
+    expect(dry.ops).toEqual([])
+    expect(dryLogs.some((line) => line.includes('would mark CHW_at_HOU_2026-10-30_if_necessary cancelled'))).toBe(true)
+
+    const supabase = createApplySupabase({ data: [{ id: ghost.id }] })
+    const result = await runRetireVanishedFromFetch({
+      sport: 'mlb',
+      fetchedGames: [],
+      coverageByDate: { [TODAY]: 'empty' },
+      dbRows: [ghost],
+      supabase,
+      apply: true,
+      ignoreQuietPeriod: true,
+      now: PAST_NOW,
+      logger: { log() {}, warn() {}, error() {} },
+    })
+    expect(result.applied).toEqual([{ id: ghost.id, status: 'cancelled' }])
+    expect(supabase.ops[0].payload.status).toBe('cancelled')
   })
 
   test('daily retire cap aborts apply when 5 games already retired this ET day', async () => {

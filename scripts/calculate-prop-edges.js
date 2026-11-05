@@ -10,7 +10,7 @@
  * 
  * IMPORTANT: This script does NOT claim fake edges.
  * Real edge requires either:
- *   1. Line shopping (comparing multiple bookmakers) - use find-real-value-props.js
+ *   1. Line shopping (comparing multiple bookmakers) - scripts/fetch-live-odds.js + lib/line-shopping.js
  *   2. Player projections (requires stats data we don't have)
  * 
  * Without real data, we HONESTLY show 0% edge.
@@ -68,7 +68,7 @@ async function main() {
   console.log('='.repeat(80))
   console.log('⚠️  NOTE: This script does NOT claim fake edges.')
   console.log('   Edge = 0 unless we have real line shopping data.')
-  console.log('   Use find-real-value-props.js to find REAL value.')
+  console.log('   Use scripts/fetch-live-odds.js (line shopping) to find REAL value.')
   console.log('='.repeat(80))
   
   // Fetch all props that need calculation
@@ -171,8 +171,8 @@ async function main() {
   
   console.log('\n' + '='.repeat(80))
   console.log('💡 HOW TO FIND REAL EDGES:')
-  console.log('   Run: node scripts/find-real-value-props.js nhl')
-  console.log('   This compares odds across bookmakers to find REAL value.')
+  console.log('   Run: node scripts/fetch-live-odds.js nhl --cache-fresh')
+  console.log('   That compares odds across bookmakers (lib/line-shopping.js).')
   console.log('='.repeat(80) + '\n')
 }
 
