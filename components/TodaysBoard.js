@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { SectionHeading, SportBadge } from './ui'
+import { SectionHeading, SportBadge, BookBadge } from './ui'
 import { todaysBoardSlateState } from '../lib/published-picks.js'
 
 function lineLabel(row) {
@@ -35,6 +35,12 @@ function BoardRow({ row }) {
           {row.odds && (
             <span className="text-[15px] font-medium text-slate-100 tabular-nums font-mono">
               {row.odds}
+            </span>
+          )}
+          {row.bestBook && <BookBadge book={row.bestBook} />}
+          {typeof row.numBooks === 'number' && row.numBooks > 0 && (
+            <span className="text-[10px] text-slate-500 tabular-nums font-mono">
+              {row.numBooks} {row.numBooks === 1 ? 'book' : 'books'}
             </span>
           )}
           {row.why && (

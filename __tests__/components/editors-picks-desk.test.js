@@ -61,6 +61,34 @@ describe("EditorsPicksDesk honest public copy", () => {
     expect(html).not.toMatch(/>\s*\/validation\s*</)
   })
 
+  test('player-prop cards reuse LineShopMeta ladder, vs cons, and stale flags', () => {
+    const pick = publishedPick('Tyler Shough', {
+      sport: 'nfl',
+      propType: 'player_pass_yds',
+      bookmaker: 'FanDuel',
+      numBooks: 2,
+      bestBook: 'DraftKings',
+      consensusAmerican: 105,
+      staleQuotes: true,
+      quotes: [
+        { book: 'FanDuel', american: -110, decimal: 1.91, ageMs: 120000, stale: false },
+        { book: 'DraftKings', american: 110, decimal: 2.10, ageMs: 8 * 60 * 60 * 1000, stale: true },
+      ],
+    })
+    const html = renderToStaticMarkup(
+      <EditorsPicksDesk picks={[pick]} loading={false} />,
+    )
+    expect(html).toContain('Tyler Shough')
+    expect(html).toContain('2-book')
+    expect(html).toContain('vs cons')
+    expect(html).toContain('+105')
+    expect(html).toContain('2-book ladder')
+    expect(html).toContain('FanDuel')
+    expect(html).toContain('DraftKings')
+    expect(html).toContain('stale')
+    expect(html).not.toContain('Pile B')
+  })
+
   test('full slate labels Published and omits NHL / short-slate note', () => {
     const picks = [
       publishedPick('A', { sport: 'mlb' }),

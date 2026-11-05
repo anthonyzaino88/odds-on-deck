@@ -88,6 +88,25 @@ describe('TodaysBoard honest slate UI', () => {
     expect(html).not.toContain('no-edge')
   })
 
+  test('shows a compact best-book badge and N books without a ladder', () => {
+    const html = renderToStaticMarkup(
+      <TodaysBoard
+        board={{
+          rows: [publishedRow('Tyler Shough', { bestBook: 'DraftKings', numBooks: 3 })],
+          lastNight: [],
+          nextSlateAt: null,
+          slate: todaysBoardSlateState(1),
+          cohort: 'published',
+        }}
+      />,
+    )
+    expect(html).toContain('Tyler Shough')
+    expect(html).toContain('DraftKings')
+    expect(html).toContain('3 books')
+    expect(html).not.toContain('ladder')
+    expect(html).not.toContain('vs cons')
+  })
+
   test('full slate labels Published and omits the short-slate note', () => {
     const rows = ['A', 'B', 'C'].map((name) => publishedRow(name))
     const html = renderToStaticMarkup(

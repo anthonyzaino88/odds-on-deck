@@ -317,7 +317,9 @@ describe('public props / parlay surfaces offer NHL', () => {
       expect(src).not.toMatch(/real-time odds/)
     }
     const filter = read('components/PlayerPropsFilter.js')
-    expect(filter).toMatch(/Array\.isArray\(prop\.quotes\) && prop\.quotes\.length > 0/)
+    const shopMeta = read('components/LineShopMeta.js')
+    expect(filter).toMatch(/LineShopMeta/)
+    expect(shopMeta).toMatch(/Array\.isArray\(prop\?\.quotes\) && prop\.quotes\.length > 0/)
     expect(read('components/DataFreshness.js')).toMatch(/Quotes as of/)
     expect(read('app/api/refresh-status/route.js')).toMatch(/getLatestOddsFreshness/)
     expect(read('app/api/refresh-status/route.js')).toMatch(/console\.error\('getLatestOddsFreshness:/)

@@ -62,4 +62,12 @@ describe("Editor's desk stays on the Published / Pile B bar", () => {
     expect(picksApi).toMatch(/generateGameLines/)
     expect(picksApi).toMatch(/gameLines/)
   })
+
+  test('API hydrates shop from PlayerPropCache by propId, not /api/props', () => {
+    expect(picksApi).toMatch(/hydratePicksWithCacheShop/)
+    expect(picksApi).toMatch(/PlayerPropCache lookup/)
+    expect(picksApi).not.toMatch(/fetch\(['`]\/api\/props/)
+    expect(deskSrc).toMatch(/LineShopMeta/)
+    expect(picksLib).toMatch(/withPublicShopFields/)
+  })
 })

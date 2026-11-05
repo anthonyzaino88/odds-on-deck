@@ -4,6 +4,7 @@ import { formatAmericanOdds } from '../lib/odds-units.js'
 import { todaysBoardSlateState } from '../lib/published-picks.js'
 import ShareButton from './ShareButton.js'
 import { SportBadge, BookBadge, EdgeBadge, QualityChip } from './ui'
+import { LineShopMeta } from './LineShopMeta'
 
 const TIER_LEGEND = [
   { dot: 'bg-green-400', label: 'Elite', range: '70+' },
@@ -123,6 +124,7 @@ function PickCard({ pick, rank }) {
               </span>
             )}
             <BookBadge book={pick.bookmaker} />
+            <LineShopMeta prop={pick} />
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -170,14 +172,15 @@ function PickRow({ pick }) {
                 {pick.quickInsight}
               </div>
             )}
-            {displayOdds && (
-              <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              {displayOdds && (
                 <span className="text-[11px] text-amber-400 font-semibold tabular-nums font-mono">
                   {displayOdds}
                 </span>
-                <BookBadge book={pick.bookmaker} />
-              </div>
-            )}
+              )}
+              <BookBadge book={pick.bookmaker} />
+              <LineShopMeta prop={pick} />
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">

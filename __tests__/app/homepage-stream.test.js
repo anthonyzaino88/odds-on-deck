@@ -58,4 +58,14 @@ describe('homepage public board is Published-only', () => {
     expect(boardSrc).not.toMatch(/no-edge fill/)
     expect(boardSrc).not.toMatch(/Editor's desk/)
   })
+
+  test('board hydrates a compact best-book badge without a ladder', () => {
+    expect(hookSrc).toMatch(/hydratePicksWithCacheShop/)
+    expect(hookSrc).toMatch(/bestBook/)
+    expect(hookSrc).toMatch(/numBooks/)
+    expect(boardSrc).toMatch(/BookBadge/)
+    expect(boardSrc).toMatch(/books/)
+    expect(boardSrc).not.toMatch(/LineShopMeta/)
+    expect(boardSrc).not.toMatch(/ladder/)
+  })
 })
