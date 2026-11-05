@@ -1236,7 +1236,10 @@ describe('fetch-fresh-games reconcile hook', () => {
 
   test('writes Game.season from the ESPN event at ingest (no schema change)', () => {
     expect(src).toMatch(/espnEventSeasonYear/)
-    expect(src).toMatch(/season:\s*espnEventSeasonYear\(event\)/)
-    expect(src).toMatch(/if \(g\.season\) obj\.season = g\.season/)
+    expect(src).toMatch(/resolveNflGameSeason/)
+    expect(src).toMatch(/g\.sport === 'nfl'/)
+    expect(src).toMatch(/nflSeasonForUpsert/)
+    expect(src).toMatch(/existingSeasonById/)
+    expect(src).toMatch(/select\('id, season'\)/)
   })
 })

@@ -699,6 +699,9 @@ scripts/
 ├── check-validation-status.js  # Check validation results
 ├── report-final-score-mismatch.js # Read-only stored vs ESPN/StatsAPI finals (200/sport; all=600)
 └── report-mlb-legacy-abbr.js   # Read-only OAK/CWS leftover counts (no writes)
+
+operations/
+└── backfill-nfl-game-season.mjs # Null NFL Game.season backfill (dry-run default; --apply)
 ```
 
 ## 🔗 Related Docs

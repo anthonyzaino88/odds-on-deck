@@ -39,6 +39,7 @@
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import { createGameId, espnEventSeasonYear, canonicalizeMlbAbbr } from '../lib/team-mapping.js'
+import { nflSeasonForUpsert, resolveNflGameSeason } from '../lib/nfl-season.js'
 import {
   espnHomeAwayCompetitors,
   mapEspnTypeState,
@@ -407,7 +408,9 @@ async function fetchGamesFromESPN(sport, date) {
         homeScore: parseEspnScore(home?.score, { status: gameStatus }),
         awayScore: parseEspnScore(away?.score, { status: gameStatus }),
         espnGameId: event.id, // Store original ESPN ID separately
-        season: espnEventSeasonYear(event),
+        season: sport.toLowerCase() === 'nfl'
+          ? resolveNflGameSeason({ event, date: gameDate })
+          : espnEventSeasonYear(event),
         _homeTeam: home?.team,
         _awayTeam: away?.team
       }
@@ -705,17 +708,30 @@ async function saveToSupabase(sport, games, { logPossibleFlips = false } = {}) {
     // Also dedup by game ID within the batch (overlapping ESPN date queries
     // can return the same game twice with different ESPN event IDs)
     const seenIds = new Set()
-    const gamesToUpsert = games
-      .filter(g => {
-        if (gamesToRemove.includes(g.id)) return false
-        if (seenIds.has(g.id)) {
-          console.log(`  ⚠️  Removing intra-batch duplicate: ${g.id}`)
-          return false
-        }
-        seenIds.add(g.id)
-        return true
-      })
-      .map(g => {
+    const eligibleGames = games.filter(g => {
+      if (gamesToRemove.includes(g.id)) return false
+      if (seenIds.has(g.id)) {
+        console.log(`  ⚠️  Removing intra-batch duplicate: ${g.id}`)
+        return false
+      }
+      seenIds.add(g.id)
+      return true
+    })
+
+    const existingSeasonById = new Map()
+    const nflIds = eligibleGames.filter((g) => g.sport === 'nfl').map((g) => g.id)
+    if (nflIds.length) {
+      const { data: existingSeasonRows, error: seasonLookupError } = await supabase
+        .from('Game')
+        .select('id, season')
+        .in('id', nflIds)
+      if (seasonLookupError) throw seasonLookupError
+      for (const row of existingSeasonRows || []) {
+        existingSeasonById.set(row.id, row.season)
+      }
+    }
+
+    const gamesToUpsert = eligibleGames.map(g => {
         const obj = {
           id: g.id,
           sport: g.sport,
@@ -728,7 +744,18 @@ async function saveToSupabase(sport, games, { logPossibleFlips = false } = {}) {
           espnGameId: g.espnGameId
         }
         if (g.mlbGameId) obj.mlbGameId = g.mlbGameId
-        if (g.season) obj.season = g.season
+        if (g.sport === 'nfl') {
+          // Omit season when the existing row already has one so upsert
+          // does not clobber a populated Game.season.
+          const season = nflSeasonForUpsert({
+            incomingSeason: g.season,
+            date: g.date,
+            existingSeason: existingSeasonById.get(g.id),
+          })
+          if (season) obj.season = season
+        } else if (g.season) {
+          obj.season = g.season
+        }
         return obj
       })
     
