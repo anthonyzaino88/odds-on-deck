@@ -2,8 +2,12 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   LINE_SHOP_UNPAIRED_VIG,
+  LINE_SHOP_010_COLUMNS,
   attachEntryBook,
   bookQuoteLastUpdate,
+  checkLineShop010Schema,
+  countExact,
+  formatLineShop010Report,
   buildLineShoppingEdges,
   consensusOddsFromProbability,
   isMissingEntryBookColumnError,
@@ -21,6 +25,7 @@ import {
   toPublicShopQuotes,
   hydratePicksWithCacheShop,
   loadPlayerPropCacheShopRows,
+  probeOptionalColumn,
   withPublicShopFields,
   upsertPlayerPropCacheWithOptionalQuotes,
   usableDecimalPrice,
@@ -446,6 +451,143 @@ describe('entryBook helpers (column is SQL 010; persist wiring is PR B)', () => 
   })
 })
 
+function thenable(payload) {
+  return {
+    limit: () => thenable(payload),
+    not: () => thenable(payload),
+    then: (resolve, reject) => Promise.resolve(payload).then(resolve, reject),
+  }
+}
+
+function schemaClient({
+  present = {
+    'PlayerPropCache.quotes': true,
+    'PlayerPropCache.quoteUpdatedAt': true,
+    'PropValidation.entryBook': true,
+  },
+  totals = { PlayerPropCache: 40, PropValidation: 10 },
+  populated = { 'PlayerPropCache.quotes': 12, 'PropValidation.entryBook': 3 },
+  unexpected = {},
+} = {}) {
+  return {
+    from(table) {
+      return {
+        select(column, opts = {}) {
+          const key = `${table}.${column}`
+          if (unexpected[key]) {
+            return thenable({ data: null, count: null, error: unexpected[key] })
+          }
+          if (present[key] === false) {
+            return thenable({
+              data: null,
+              count: null,
+              error: { code: 'PGRST204', message: `Could not find the '${column}' column of '${table}'` },
+            })
+          }
+          if (opts.count === 'exact') {
+            const total = { data: null, count: totals[table] ?? 0, error: null }
+            return {
+              not: () => thenable({ data: null, count: populated[key] ?? 0, error: null }),
+              then: (resolve, reject) => Promise.resolve(total).then(resolve, reject),
+            }
+          }
+          return thenable({ data: [], error: null })
+        },
+      }
+    },
+  }
+}
+
+describe('010 schema check', () => {
+  test('LINE_SHOP_010_COLUMNS lists quotes, quoteUpdatedAt, and entryBook', () => {
+    expect(LINE_SHOP_010_COLUMNS).toEqual([
+      { table: 'PlayerPropCache', column: 'quotes' },
+      { table: 'PlayerPropCache', column: 'quoteUpdatedAt' },
+      { table: 'PropValidation', column: 'entryBook' },
+    ])
+  })
+
+  test('probeOptionalColumn treats PGRST204 as missing and 42501 as unexpected', async () => {
+    const missing = await probeOptionalColumn(
+      schemaClient({ present: { 'PlayerPropCache.quotes': false } }),
+      'PlayerPropCache',
+      'quotes',
+    )
+    expect(missing.present).toBe(false)
+    expect(missing.unexpected).toBeUndefined()
+
+    const ok = await probeOptionalColumn(schemaClient(), 'PlayerPropCache', 'quotes')
+    expect(ok.present).toBe(true)
+
+    const denied = await probeOptionalColumn(
+      schemaClient({
+        unexpected: { 'PlayerPropCache.quotes': { code: '42501', message: 'permission denied' } },
+      }),
+      'PlayerPropCache',
+      'quotes',
+    )
+    expect(denied.present).toBe(false)
+    expect(denied.unexpected).toBe(true)
+  })
+
+  test('countExact uses head count and optional not-null filter', async () => {
+    const client = schemaClient({
+      totals: { PlayerPropCache: 40 },
+      populated: { 'PlayerPropCache.quotes': 12 },
+    })
+    expect(await countExact(client, 'PlayerPropCache', { column: 'id' })).toEqual({ count: 40, error: null })
+    expect(await countExact(client, 'PlayerPropCache', { column: 'quotes', nonNull: true })).toEqual({
+      count: 12,
+      error: null,
+    })
+  })
+
+  test('checkLineShop010Schema is ok when columns exist, including zero populated quotes', async () => {
+    const summary = await checkLineShop010Schema(schemaClient({
+      populated: { 'PlayerPropCache.quotes': 0, 'PropValidation.entryBook': 0 },
+    }))
+    expect(summary.status).toBe('ok')
+    expect(summary.applied).toBe(true)
+    expect(summary.missing).toEqual([])
+    expect(summary.cacheRows).toBe(40)
+    expect(summary.quotesPopulated).toBe(0)
+    expect(summary.entryBookPopulated).toBe(0)
+    expect(formatLineShop010Report(summary)).toMatch(/STATUS=ok/)
+    expect(formatLineShop010Report(summary)).toMatch(/quotes populated: 0 \/ 40/)
+  })
+
+  test('checkLineShop010Schema reports missing columns without inventing populate counts', async () => {
+    const summary = await checkLineShop010Schema(schemaClient({
+      present: {
+        'PlayerPropCache.quotes': false,
+        'PlayerPropCache.quoteUpdatedAt': false,
+        'PropValidation.entryBook': false,
+      },
+    }))
+    expect(summary.status).toBe('missing')
+    expect(summary.applied).toBe(false)
+    expect(summary.missing).toEqual([
+      'PlayerPropCache.quotes',
+      'PlayerPropCache.quoteUpdatedAt',
+      'PropValidation.entryBook',
+    ])
+    expect(summary.quotesPopulated).toBeNull()
+    expect(formatLineShop010Report(summary)).toMatch(/STATUS=missing/)
+    expect(formatLineShop010Report(summary)).toMatch(/010_line_shop_quotes\.sql/)
+  })
+
+  test('non-missing-column errors are STATUS=error, not missing', async () => {
+    const summary = await checkLineShop010Schema(schemaClient({
+      unexpected: { 'PlayerPropCache.quotes': { code: '42501', message: 'permission denied' } },
+    }))
+    expect(summary.status).toBe('error')
+    expect(summary.applied).toBe(false)
+    expect(summary.missing).toEqual([])
+    expect(summary.unexpected[0]).toMatchObject({ table: 'PlayerPropCache', column: 'quotes' })
+    expect(formatLineShop010Report(summary)).toMatch(/STATUS=error/)
+  })
+})
+
 describe('010 migration + morning fetch contract', () => {
   test('SQL is additive, manual, and never run from CI', () => {
     const sql = readFileSync(join(process.cwd(), 'scripts/migrations/010_line_shop_quotes.sql'), 'utf8')
@@ -459,6 +601,19 @@ describe('010 migration + morning fetch contract', () => {
     expect(rollback).toMatch(/DROP COLUMN IF EXISTS "quotes"/)
     expect(rollback).toMatch(/DROP COLUMN IF EXISTS "entryBook"/)
     expect(docs).toMatch(/Do \*\*not\*\* run these from CI/)
+    expect(docs).toMatch(/report-line-shop-schema/)
+  })
+
+  test('report script is read-only and does not apply 010', () => {
+    const script = readFileSync(join(process.cwd(), 'scripts/report-line-shop-schema.js'), 'utf8')
+    expect(script).toMatch(/Does not write/)
+    expect(script).toMatch(/Does not apply the migration/)
+    expect(script).toMatch(/checkLineShop010Schema/)
+    expect(script).not.toMatch(/\.update\(/)
+    expect(script).not.toMatch(/\.insert\(/)
+    expect(script).not.toMatch(/\.upsert\(/)
+    expect(script).not.toMatch(/the-odds-api|ODDS_API_KEY/)
+    expect(script).not.toMatch(/010_line_shop_quotes\.sql/)
   })
 
   test('morning fetch uses shared lib, keeps regions=us, and writes optional quotes', () => {
