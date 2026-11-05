@@ -53,4 +53,4 @@ GRANT ALL ON TABLE "PlayerPropCache" TO service_role;
 COMMENT ON COLUMN "PlayerPropCache"."altQuotes" IS
   'Best book per alternate line for this player+side: [{line, side, price, book, lastUpdate}]. NULL until 012 is applied and the alt-line script writes it.';
 COMMENT ON COLUMN "PlayerPropCache"."altQuoteUpdatedAt" IS
-  'Newest book last_update on the alt-line snapshot. NULL if none.';
+  'Fetch time of this alt-line snapshot (not newest book last_update). Per-book lastUpdate stays on altQuotes. NULL if none.';

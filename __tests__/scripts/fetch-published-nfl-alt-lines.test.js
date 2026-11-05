@@ -260,6 +260,8 @@ describe('fetch-published-nfl-alt-lines script', () => {
       expect.objectContaining({ line: 219.5, side: 'over', price: -115, book: 'FanDuel' }),
       expect.objectContaining({ line: 224.5, side: 'over', price: -110, book: 'FanDuel' }),
     ])
+    expect(updates[0].altQuoteUpdatedAt).toBe(NOW.toISOString())
+    expect(updates[0].altQuotes[0].lastUpdate).toBe('2026-11-08T16:00:00.000Z')
     expect(updates[0].odds).toBeUndefined()
     expect(updates[0].closeOdds).toBeUndefined()
     expect(log.lines).toEqual(expect.arrayContaining([
@@ -367,5 +369,176 @@ describe('fetch-published-nfl-alt-lines script', () => {
       persistDays: false,
     })
     expect(capOff.skippedDisabled).toBe(true)
+  })
+
+  test('cap-reached footer does not count fresh skips as close-window', async () => {
+    const result = await runFetchPublishedNflAltLines({
+      argv: [],
+      now: NOW,
+      createClient: () => mockClient({
+        picks: [
+          publishedPick(),
+          publishedPick({
+            id: 'pv-close',
+            gameIdRef: 'close-game',
+          }),
+        ],
+        games: [
+          futureGame(),
+          futureGame({
+            id: 'close-game',
+            date: '2026-11-08T16:30:00.000Z',
+          }),
+        ],
+        cache: [{
+          id: 'cache-1',
+          propId: 'prop-hurts',
+          gameId: 'DAL_at_PHI_2026-11-08',
+          playerName: 'Jalen Hurts',
+          type: 'player_pass_yds',
+          pick: 'over',
+          altQuoteUpdatedAt: '2026-11-08T15:00:00.000Z',
+        }],
+      }),
+      fetchEventOdds: jest.fn(),
+      probeQuota: jest.fn(),
+      apiKey: 'secret-key',
+      env: { SUPABASE_SECRET_KEY: 'secret-key' },
+      log: memoryLog(),
+      budget: budget(),
+      persistDays: false,
+      dayState: { version: 1, days: { '2026-11-08': { credits: 48 } } },
+    })
+    expect(result.skippedCap).toBe(true)
+    expect(result.skippedWindow).toBe(1)
+    expect(result.skippedFresh).toBe(1)
+    expect(result.creditsUsed).toBe(0)
+  })
+
+  test('skips --apply when the exclusive lock is held', async () => {
+    const fetchEventOdds = jest.fn()
+    const result = await runFetchPublishedNflAltLines({
+      argv: ['--apply'],
+      now: NOW,
+      createClient: () => mockClient(),
+      fetchEventOdds,
+      probeQuota: jest.fn(),
+      apiKey: 'secret-key',
+      env: { SUPABASE_SECRET_KEY: 'secret-key' },
+      log: memoryLog(),
+      budget: budget(),
+      persistDays: false,
+      acquirePassLock: () => ({ acquired: false, release() {} }),
+    })
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(result.skippedLock).toBe(true)
+    expect(result.nflAltStatus).toBe('partial')
+    expect(result.creditsUsed).toBe(0)
+  })
+
+  test('records spend per call and stops before exceeding the daily cap', async () => {
+    const fetchEventOdds = jest.fn(async () => ({
+      data: eventOdds(),
+      quota: { remaining: 11998, used: 2002, last: 1 },
+    }))
+    const result = await runFetchPublishedNflAltLines({
+      argv: ['--apply'],
+      now: NOW,
+      createClient: () => mockClient({
+        picks: [
+          publishedPick(),
+          publishedPick({
+            id: 'pv-saquon',
+            propId: 'prop-saquon',
+            gameIdRef: 'KC_at_BUF_2026-11-08',
+            playerName: 'Saquon Barkley',
+            propType: 'player_rush_yds',
+          }),
+        ],
+        games: [
+          futureGame(),
+          futureGame({
+            id: 'KC_at_BUF_2026-11-08',
+            date: '2026-11-08T21:25:00.000Z',
+            oddsApiEventId: 'evt-kc-buf',
+          }),
+        ],
+        cache: [
+          {
+            id: 'cache-1',
+            propId: 'prop-hurts',
+            gameId: 'DAL_at_PHI_2026-11-08',
+            playerName: 'Jalen Hurts',
+            type: 'player_pass_yds',
+            pick: 'over',
+          },
+          {
+            id: 'cache-2',
+            propId: 'prop-saquon',
+            gameId: 'KC_at_BUF_2026-11-08',
+            playerName: 'Saquon Barkley',
+            type: 'player_rush_yds',
+            pick: 'over',
+          },
+        ],
+      }),
+      fetchEventOdds,
+      probeQuota: jest.fn(async () => ({ remaining: 12000, used: 2000, last: 0 })),
+      apiKey: 'secret-key',
+      env: { SUPABASE_SECRET_KEY: 'secret-key' },
+      log: memoryLog(),
+      budget: budget(),
+      persistDays: false,
+      dayState: { version: 1, days: { '2026-11-08': { credits: 47 } } },
+    })
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(result.creditsUsed).toBe(1)
+  })
+
+  test('re-checks quiet inside the per-row write loop and holds remaining', async () => {
+    const updates = []
+    const quiet = new Date('2026-11-08T09:05:00.000Z')
+    const clock = () => (updates.length >= 1 ? quiet : NOW)
+    const fetchEventOdds = jest.fn(async () => ({
+      data: eventOdds(),
+      quota: { remaining: 11998, used: 2002, last: 1 },
+    }))
+    const log = memoryLog()
+    const result = await runFetchPublishedNflAltLines({
+      argv: ['--apply'],
+      clock,
+      createClient: () => mockClient({
+        cache: [
+          {
+            id: 'cache-1',
+            propId: 'prop-hurts',
+            gameId: 'DAL_at_PHI_2026-11-08',
+            playerName: 'Jalen Hurts',
+            type: 'player_pass_yds',
+            pick: 'over',
+          },
+          {
+            id: 'cache-1b',
+            propId: 'prop-hurts-b',
+            gameId: 'DAL_at_PHI_2026-11-08',
+            playerName: 'Jalen Hurts',
+            type: 'player_pass_yds',
+            pick: 'over',
+          },
+        ],
+        updates,
+      }),
+      fetchEventOdds,
+      probeQuota: jest.fn(async () => ({ remaining: 12000, used: 2000, last: 0 })),
+      apiKey: 'secret-key',
+      env: { SUPABASE_SECRET_KEY: 'secret-key' },
+      log,
+      budget: budget(),
+      persistDays: false,
+    })
+    expect(result.skippedQuiet).toBe(true)
+    expect(result.nflAltStatus).toBe('partial')
+    expect(updates).toHaveLength(1)
+    expect(log.lines.some((line) => /Quiet window before write/.test(line))).toBe(true)
   })
 })

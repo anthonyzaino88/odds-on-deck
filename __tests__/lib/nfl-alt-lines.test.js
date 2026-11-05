@@ -22,6 +22,7 @@ import {
   remainingNflAltCredits,
   recordNflAltSpend,
   resetNflAltColumnCache,
+  saveHeldNflAltRows,
   selectNflAltJobs,
   toPublicAltLines,
 } from '../../lib/nfl-alt-lines.js'
@@ -98,10 +99,10 @@ describe('nfl alt-line helpers', () => {
     expect(isNflAltEligiblePick(publishedNflPick({ notes: null }))).toBe(false)
     expect(isNflAltEligibleCacheProp(cacheProp())).toBe(true)
     expect(isNflAltEligibleCacheProp(cacheProp({ sport: 'mlb', type: 'batter_hits' }))).toBe(false)
+    expect(isNflAltEligibleCacheProp(cacheProp({ qualityScore: 20 }))).toBe(false)
     expect(isNflAltEligibleCacheProp(cacheProp({
       notes: SHADOW_PUBLISHED_COHORT_TAG,
-    }))).toBe(false)
-    expect(isNflAltEligibleCacheProp(cacheProp({ qualityScore: 20 }))).toBe(false)
+    }))).toBe(true)
   })
 
   test('bestAltLinesForPick keeps the best book per line on the pick side', () => {
@@ -246,12 +247,14 @@ describe('nfl alt-line helpers', () => {
         book: 'FanDuel',
         last_update: '2026-11-08T14:00:00.000Z',
       }],
+      { now: new Date('2026-11-08T16:00:00.000Z') },
     )
     expect(cacheRowMatchesPick(cacheProp(), publishedNflPick({ propType: 'pass_yds' }))).toBe(true)
     expect(rows).toHaveLength(1)
     expect(rows[0].id).toBe('row-1')
     expect(rows[0].altQuotes[0].line).toBe(219.5)
-    expect(rows[0].altQuoteUpdatedAt).toBe('2026-11-08T14:00:00.000Z')
+    expect(rows[0].altQuotes[0].lastUpdate).toBe('2026-11-08T14:00:00.000Z')
+    expect(rows[0].altQuoteUpdatedAt).toBe('2026-11-08T16:00:00.000Z')
   })
 
   test('public altLines stay off unpublished / non-NFL / shadow rows', () => {
@@ -277,6 +280,8 @@ describe('nfl alt-line helpers', () => {
       altQuotes: stored,
     }), { now })).toBeNull()
     expect(toPublicAltLines(cacheProp({
+      sport: 'nhl',
+      type: 'player_shots_on_goal',
       notes: SHADOW_PUBLISHED_COHORT_TAG,
       altQuotes: stored,
     }), { now })).toBeNull()
@@ -298,5 +303,30 @@ describe('nfl alt-line helpers', () => {
     expect(isMissingAltQuoteColumnError({ code: '23502', message: 'altQuotes' })).toBe(false)
     expect(NFL_ALT_CREDIT_ESTIMATE.dailyCap).toBe(48)
     expect(NFL_ALT_CREDIT_ESTIMATE.worstEveryDayMonthCredits).toBeLessThan(16500 - 10500)
+  })
+
+  test('saveHeldNflAltRows appends JSONL instead of overwriting', () => {
+    const chunks = []
+    const filesystem = {
+      mkdirSync() {},
+      appendFileSync(_filePath, line) { chunks.push(String(line)) },
+    }
+    const first = saveHeldNflAltRows([{ id: 'a' }], {
+      persistPath: '/tmp/odds-nfl-alt.json',
+      filesystem,
+      persist: true,
+      now: new Date('2026-11-08T16:00:00.000Z'),
+    })
+    const second = saveHeldNflAltRows([{ id: 'b' }], {
+      persistPath: '/tmp/odds-nfl-alt.json',
+      filesystem,
+      persist: true,
+      now: new Date('2026-11-08T16:10:00.000Z'),
+    })
+    expect(first).toMatch(/odds-nfl-alt-held\.jsonl$/)
+    expect(second).toBe(first)
+    expect(chunks).toHaveLength(2)
+    expect(JSON.parse(chunks[0]).rows[0].id).toBe('a')
+    expect(JSON.parse(chunks[1]).rows[0].id).toBe('b')
   })
 })

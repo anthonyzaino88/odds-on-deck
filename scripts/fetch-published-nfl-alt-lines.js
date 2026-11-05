@@ -22,13 +22,16 @@
  *
  * Caps: ODDS_NFL_ALT_DAILY_CREDITS default 48, enforced at job
  * selection (soonest kickoff first) against today's persisted spend.
+ * Overlapping applies share the #87 exclusive lockfile (owner token,
+ * stale after 15 min, re-read before delete). Re-selects under the
+ * lock against freshly read spend and records spend per call.
  * Goes through lib/odds-api-budget.js (credit log, daily/monthly,
  * remaining floor 3,000). Purpose is nfl-alt, not close-capture, so
  * the close reserve still holds. Refuses to start :04:30–:15 ET so
  * setup SELECTs cannot run in the window. Re-checks quiet before
- * write. ODDS_NFL_ALT=0 disables. ODDS_NFL_ALT_DAILY_CREDITS=0 also
- * disables. Requires the secret key for --apply. Do not run --apply
- * from CI. Degrades on PGRST204 / 42703 if 012 is not applied.
+ * each cache write. ODDS_NFL_ALT=0 disables. ODDS_NFL_ALT_DAILY_CREDITS=0
+ * also disables. Requires the secret key for --apply. Do not run
+ * --apply from CI. Degrades on PGRST204 / 42703 if 012 is not applied.
  */
 
 import { config } from 'dotenv'
@@ -69,6 +72,7 @@ import {
   ODDS_BUDGET_OK,
 } from '../lib/odds-api-budget.js'
 import {
+  acquireSnapshotPassLock,
   shouldRefuseSnapshotStart,
   shouldSkipCloseCaptureWindow,
   snapshotKickoffFloor,
@@ -91,6 +95,7 @@ import {
   readNflAltConfig,
   recordNflAltSpend,
   remainingNflAltCredits,
+  saveHeldNflAltRows,
   selectNflAltJobs,
   updateCacheAltQuotes,
 } from '../lib/nfl-alt-lines.js'
@@ -229,6 +234,7 @@ export async function runFetchPublishedNflAltLines({
   budget,
   dayState,
   persistDays,
+  acquirePassLock = acquireSnapshotPassLock,
 } = {}) {
   const nowFn = typeof clock === 'function'
     ? clock
@@ -262,7 +268,7 @@ export async function runFetchPublishedNflAltLines({
         || result.missingKey) {
         nflAltStatus = NFL_ALT_STATUS_FAILED
       } else if (result.fetchErrors || result.writeErrors || result.skippedQuiet
-        || result.columnsMissing) {
+        || result.skippedLock || result.columnsMissing) {
         nflAltStatus = NFL_ALT_STATUS_PARTIAL
       } else {
         nflAltStatus = NFL_ALT_STATUS_OK
@@ -300,9 +306,10 @@ Never fetches shadow-published or unpublished pending archive.
 Never requests NHL/MLB alternate keys. Kickoff must be after T−35.
 Skips events whose altQuotes are <${altConfig.freshMinutes} min old.
 Daily credit cap ${altConfig.dailyCredits} (ODDS_NFL_ALT_DAILY_CREDITS),
-enforced at job selection. Goes through the shared credit budget
-(daily / monthly / remaining floor 3,000). Purpose is nfl-alt, so
-the close reserve still holds. Refuses to start :04:30–:15 ET.
+enforced at job selection under an exclusive lock. Goes through the
+shared credit budget (daily / monthly / remaining floor 3,000).
+Purpose is nfl-alt, so the close reserve still holds. Refuses to
+start :04:30–:15 ET. Re-checks quiet before each cache write.
 ODDS_NFL_ALT=0 disables. Informational only — CLV stays entry vs close.
 Unknown flags fail closed (status=failed, exit 0).
 Every run prints NFL_ALT_STATUS=ok|partial|failed,
@@ -468,8 +475,8 @@ NFL_ALT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
   const creditCap = args.maxCredits != null
     ? Math.min(args.maxCredits, creditsLeft)
     : creditsLeft
-  const selected = selectNflAltJobs(classified.fetchable, { maxCredits: creditCap })
-  const altJobs = selected.jobs.map((job) => ({
+  let selected = selectNflAltJobs(classified.fetchable, { maxCredits: creditCap })
+  let altJobs = selected.jobs.map((job) => ({
     ...job,
     creditCost: creditCostForMarkets(job.markets.length, NFL_ALT_REGIONS.length),
   }))
@@ -504,7 +511,7 @@ NFL_ALT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
       calls: 0,
       creditsUsed: 0,
       skippedCap: true,
-      skippedWindow: classified.skippedFresh.length + skippedWindowGames.length,
+      skippedWindow: skippedWindowGames.length,
       skippedFresh: classified.skippedFresh.length,
     })
   }
@@ -557,16 +564,18 @@ NFL_ALT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
     })
   }
 
-  const liveDays = persist
-    ? loadNflAltDayState({ persistPath: altConfig.persistPath, persist })
-    : loadedDays
-  if (remainingNflAltCredits(liveDays, startedAt, altConfig.dailyCredits) <= 0) {
-    log.log('⏸️  ODDS_NFL_ALT_DAILY_CREDITS reached. No Odds API calls.')
+  const lock = acquirePassLock({
+    persistPath: altConfig.persistPath,
+    persist,
+  })
+  if (!lock.acquired) {
+    log.log('⏸️  NFL alt-line lock held. Skipping overlapping run.')
     return done({
-      altJobs: [],
+      altJobs,
+      events: altJobs.length,
       calls: 0,
-      creditsUsed: 0,
-      skippedCap: true,
+      skippedLock: true,
+      nflAltStatus: NFL_ALT_STATUS_PARTIAL,
     })
   }
 
@@ -578,121 +587,182 @@ NFL_ALT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
   let skippedBudgetDuringRun = 0
   let skippedQuietDuringRun = false
   const updates = []
+  let liveDays = loadedDays
 
   try {
-    lastQuota = await probeQuota({ apiKey }) || lastQuota
-    oddsBudget.record(lastQuota, { credits: lastQuota.last ?? 0, isProbe: true })
-    calls += 1
-  } catch (error) {
-    calls += 1
-    log.log(`⚠️ Quota probe failed (${error.message}); continuing without a pre-check.`)
-  }
+    liveDays = persist
+      ? loadNflAltDayState({ persistPath: altConfig.persistPath, persist })
+      : loadedDays
+    const lockedLeft = remainingNflAltCredits(liveDays, startedAt, altConfig.dailyCredits)
+    const lockedCap = args.maxCredits != null
+      ? Math.min(args.maxCredits, lockedLeft)
+      : lockedLeft
+    selected = selectNflAltJobs(classified.fetchable, { maxCredits: lockedCap })
+    altJobs = selected.jobs.map((job) => ({
+      ...job,
+      creditCost: creditCostForMarkets(job.markets.length, NFL_ALT_REGIONS.length),
+    }))
 
-  if (lastQuota.remaining != null && lastQuota.remaining < args.minRemaining) {
-    log.log(
-      `⏸️  Odds API remaining ${lastQuota.remaining} < min-remaining ${args.minRemaining}. `
-      + 'No event-odds calls.',
-    )
-    return done({
-      altJobs,
-      calls,
-      lastQuota,
-      skippedQuota: true,
-    })
-  }
-  if (oddsBudget.status() !== ODDS_BUDGET_OK) {
-    log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
-    const warn = formatOddsBudgetWarnLine(oddsBudget.status())
-    if (warn) log.log(warn)
-    return done({
-      altJobs,
-      calls,
-      creditsUsed: 0,
-      lastQuota,
-      skippedBudget: true,
-    })
-  }
+    if (lockedLeft <= 0) {
+      log.log('⏸️  ODDS_NFL_ALT_DAILY_CREDITS reached. No Odds API calls.')
+      return done({
+        altJobs: [],
+        calls: 0,
+        creditsUsed: 0,
+        skippedCap: true,
+      })
+    }
 
-  for (let jobIndex = 0; jobIndex < altJobs.length; jobIndex += 1) {
-    const job = altJobs[jobIndex]
-    if (isOpsWriteQuietPeriod(nowFn())) {
-      log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
-      skippedQuietDuringRun = true
-      break
+    if (altJobs.length === 0) {
+      log.log('✅ Nothing to fetch under the lock.')
+      return done({
+        altJobs: [],
+        calls: 0,
+        creditsUsed: 0,
+        skippedCap: selected.skippedCap.length,
+      })
     }
-    if (shouldSkipPaidCloseCaptureFetch(nowFn())) {
-      log.log('⏸️  After :04:30 ET — not starting a paid fetch that quiet :05 would block.')
-      skippedQuietDuringRun = true
-      break
-    }
-    const sportKey = oddsApiSportKey(job.game?.sport)
-    if (!job.eventId || !sportKey || !job.markets.length) {
-      log.log(`  ⏭️  ${job.gameIds.join(',')} unmapped or no markets`)
-      continue
-    }
-    const url = buildEventOddsUrl({
-      sportKey,
-      eventId: job.eventId,
-      markets: job.markets,
-      apiKey,
-      regions: NFL_ALT_REGIONS,
-    })
-    const estimatedCredits = creditCostForMarkets(job.markets.length, NFL_ALT_REGIONS.length)
-    let fetched
+
     try {
-      fetched = await fetchEventOdds({
-        url,
-        budget: oddsBudget,
-        estimatedCredits,
-        apiKey,
-      })
+      lastQuota = await probeQuota({ apiKey }) || lastQuota
+      oddsBudget.record(lastQuota, { credits: lastQuota.last ?? 0, isProbe: true })
+      calls += 1
     } catch (error) {
-      fetchErrors += 1
-      log.log(`  ❌ ${job.gameIds.join(',')} fetch failed: ${error.message}`)
-      continue
+      calls += 1
+      log.log(`⚠️ Quota probe failed (${error.message}); continuing without a pre-check.`)
     }
-    if (fetched?.skipped) {
-      skippedBudgetDuringRun += 1
-      log.log(`  ⏸️  ${job.gameIds.join(',')} skipped by budget`)
-      break
-    }
-    if (fetched?.quota) {
-      lastQuota = { ...lastQuota, ...fetched.quota }
-    }
-    calls += 1
-    creditsUsed += estimatedCredits
-    const quotes = flattenEventOddsQuotes(fetched?.data)
-    const gameCache = cacheRows.filter((row) => job.gameIds.includes(row.gameId))
-    for (const pick of job.picks) {
-      const rows = applyAltLinesToCacheRows(gameCache, pick, quotes, {
-        maxLines: altConfig.maxLines,
-        now: nowFn(),
+
+    if (lastQuota.remaining != null && lastQuota.remaining < args.minRemaining) {
+      log.log(
+        `⏸️  Odds API remaining ${lastQuota.remaining} < min-remaining ${args.minRemaining}. `
+        + 'No event-odds calls.',
+      )
+      return done({
+        altJobs,
+        calls,
+        lastQuota,
+        skippedQuota: true,
       })
-      if (!rows.length) {
-        log.log(`  ⏭️  ${pick.playerName} ${pick.propType} — no matching cache row or alt quotes`)
+    }
+    if (oddsBudget.status() !== ODDS_BUDGET_OK) {
+      log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
+      const warn = formatOddsBudgetWarnLine(oddsBudget.status())
+      if (warn) log.log(warn)
+      return done({
+        altJobs,
+        calls,
+        creditsUsed: 0,
+        lastQuota,
+        skippedBudget: true,
+      })
+    }
+
+    for (let jobIndex = 0; jobIndex < altJobs.length; jobIndex += 1) {
+      const job = altJobs[jobIndex]
+      if (isOpsWriteQuietPeriod(nowFn())) {
+        log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
+        skippedQuietDuringRun = true
+        break
+      }
+      if (shouldSkipPaidCloseCaptureFetch(nowFn())) {
+        log.log('⏸️  After :04:30 ET — not starting a paid fetch that quiet :05 would block.')
+        skippedQuietDuringRun = true
+        break
+      }
+      const sportKey = oddsApiSportKey(job.game?.sport)
+      if (!job.eventId || !sportKey || !job.markets.length) {
+        log.log(`  ⏭️  ${job.gameIds.join(',')} unmapped or no markets`)
         continue
       }
-      updates.push(...rows)
+      const estimatedCredits = creditCostForMarkets(job.markets.length, NFL_ALT_REGIONS.length)
+      liveDays = persist
+        ? loadNflAltDayState({ persistPath: altConfig.persistPath, persist })
+        : liveDays
+      if (remainingNflAltCredits(liveDays, startedAt, altConfig.dailyCredits) < estimatedCredits) {
+        log.log('⏸️  ODDS_NFL_ALT_DAILY_CREDITS reached. No further Odds API calls.')
+        break
+      }
+      const url = buildEventOddsUrl({
+        sportKey,
+        eventId: job.eventId,
+        markets: job.markets,
+        apiKey,
+        regions: NFL_ALT_REGIONS,
+      })
+      let fetched
+      try {
+        fetched = await fetchEventOdds({
+          url,
+          budget: oddsBudget,
+          estimatedCredits,
+          apiKey,
+        })
+      } catch (error) {
+        fetchErrors += 1
+        log.log(`  ❌ ${job.gameIds.join(',')} fetch failed: ${error.message}`)
+        continue
+      }
+      if (fetched?.skipped) {
+        skippedBudgetDuringRun += 1
+        log.log(`  ⏸️  ${job.gameIds.join(',')} skipped by budget`)
+        break
+      }
+      if (fetched?.quota) {
+        lastQuota = { ...lastQuota, ...fetched.quota }
+      }
+      calls += 1
+      creditsUsed += estimatedCredits
+      liveDays = recordNflAltSpend(
+        persist
+          ? loadNflAltDayState({ persistPath: altConfig.persistPath, persist })
+          : liveDays,
+        estimatedCredits,
+        startedAt,
+        {
+          persistPath: altConfig.persistPath,
+          persist,
+        },
+      )
+      const quotes = flattenEventOddsQuotes(fetched?.data)
+      const gameCache = cacheRows.filter((row) => job.gameIds.includes(row.gameId))
+      for (const pick of job.picks) {
+        const rows = applyAltLinesToCacheRows(gameCache, pick, quotes, {
+          maxLines: altConfig.maxLines,
+          now: nowFn(),
+        })
+        if (!rows.length) {
+          log.log(`  ⏭️  ${pick.playerName} ${pick.propType} — no matching cache row or alt quotes`)
+          continue
+        }
+        updates.push(...rows)
+      }
     }
-  }
 
-  if (creditsUsed > 0) {
-    recordNflAltSpend(liveDays, creditsUsed, startedAt, {
-      persistPath: altConfig.persistPath,
-      persist,
-    })
-  }
-
-  if (updates.length) {
-    if (isOpsWriteQuietPeriod(nowFn())) {
-      skippedQuietDuringRun = true
-      log.log(`⏸️  Quiet window before write — dropping ${updates.length} altQuotes update(s).`)
-    } else {
+    if (updates.length) {
       const seen = new Set()
+      const pending = []
       for (const row of updates) {
         const key = row.id || row.propId
         if (!key || seen.has(key)) continue
         seen.add(key)
+        pending.push(row)
+      }
+      let wrote = 0
+      for (let i = 0; i < pending.length; i += 1) {
+        if (isOpsWriteQuietPeriod(nowFn())) {
+          skippedQuietDuringRun = true
+          const remaining = pending.slice(i)
+          const held = saveHeldNflAltRows(remaining, {
+            persistPath: altConfig.persistPath,
+            persist,
+            now: nowFn(),
+          })
+          log.log(held
+            ? `⏸️  Quiet window before write — held ${remaining.length} row(s) at ${held}.`
+            : `⏸️  Quiet window before write — dropping ${remaining.length} row(s).`)
+          break
+        }
+        const row = pending[i]
         const write = await updateCacheAltQuotes(
           (payload) => supabase
             .from('PlayerPropCache')
@@ -711,28 +781,32 @@ NFL_ALT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
         if (write?.error) {
           writeErrors += 1
           log.error(`❌ PlayerPropCache altQuotes update failed: ${write.error.message}`)
+        } else {
+          wrote += 1
         }
       }
-      if (!columnsMissing && !writeErrors) {
-        log.log(`✅ Wrote altQuotes on ${seen.size} PlayerPropCache row(s).`)
+      if (!columnsMissing && !writeErrors && !skippedQuietDuringRun) {
+        log.log(`✅ Wrote altQuotes on ${wrote} PlayerPropCache row(s).`)
       }
+    } else {
+      log.log('✅ No matching alt quotes to write.')
     }
-  } else {
-    log.log('✅ No matching alt quotes to write.')
-  }
 
-  return done({
-    altJobs,
-    events: altJobs.length,
-    calls,
-    creditsUsed,
-    updates,
-    fetchErrors,
-    writeErrors,
-    skippedQuiet: skippedQuietDuringRun,
-    skippedBudgetCount: skippedBudgetDuringRun,
-    columnsMissing,
-  })
+    return done({
+      altJobs,
+      events: altJobs.length,
+      calls,
+      creditsUsed,
+      updates,
+      fetchErrors,
+      writeErrors,
+      skippedQuiet: skippedQuietDuringRun,
+      skippedBudgetCount: skippedBudgetDuringRun,
+      columnsMissing,
+    })
+  } finally {
+    lock.release()
+  }
 }
 
 function invokedDirectly() {

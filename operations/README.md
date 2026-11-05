@@ -410,10 +410,15 @@ than 90 minutes (`ODDS_NFL_ALT_FRESH_MINUTES`). Refuses to start
 
 Hard cap: max **48** credits / ET day (`ODDS_NFL_ALT_DAILY_CREDITS`),
 enforced at job selection (soonest kickoff first) against today's
-persisted spend (`.local/odds-nfl-alt.json`). Still gated by
+persisted spend (`.local/odds-nfl-alt.json`). Overlapping applies
+share the #87 exclusive lockfile (owner token, stale after 15 min,
+re-read before delete). Re-selects under the lock against freshly
+read spend and records spend per call. Still gated by
 `lib/odds-api-budget.js` (daily / monthly / remaining floor 3,000).
-Purpose is `nfl-alt`, so the close-capture reserve still holds. Does
-not change morning fetch, `--apply-stale`, close capture, or snapshots.
+Purpose is `nfl-alt`, so the close-capture reserve still holds.
+Re-checks quiet before each cache write and holds remaining rows
+as JSONL. Does not change morning fetch, `--apply-stale`, close
+capture, or snapshots.
 
 Footer:
 

@@ -9,6 +9,8 @@ Anthony applies them in the Supabase SQL editor.
 
 `altQuotes` / `altQuoteUpdatedAt` are **not** on Prisma — same reason
 007 close columns and 011 `OddsSnapshot` stay SQL-only.
+`altQuoteUpdatedAt` is the fetch time. Per-book `lastUpdate` stays
+inside `altQuotes`.
 `prisma.playerPropCache.findMany()` without an explicit `select` must
 not request them.
 
