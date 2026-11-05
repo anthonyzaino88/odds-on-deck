@@ -386,27 +386,43 @@ describe('Published pick shop overlay', () => {
     expect(missed[0].odds).toBe(-105)
     expect(missed[0].bestBook).toBe('FanDuel')
 
-    const spy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const spy = jest.spyOn(console, 'warn').mockImplementation(() => {})
     const errored = await hydratePicksWithCacheShop(
       picks,
       shopClient({ error: { code: '42501', message: 'permission denied' } }),
     )
+    expect(spy).toHaveBeenCalled()
     spy.mockRestore()
     expect(errored[0].quotes).toBeNull()
     expect(errored[0].odds).toBe(-105)
+    expect(errored.shopLoadError).toBe(true)
   })
 
   test('loadPlayerPropCacheShopRows retries without quote columns on PGRST204', async () => {
     const rows = [{ propId: 'p1', odds: 1.91, bookmaker: 'FanDuel', probability: 0.55 }]
-    const map = await loadPlayerPropCacheShopRows(
+    const { map, shopLoadError } = await loadPlayerPropCacheShopRows(
       shopClient({
         error: { code: 'PGRST204', message: "Could not find the 'quotes' column of 'PlayerPropCache'" },
         secondRows: rows,
       }),
       ['p1'],
     )
+    expect(shopLoadError).toBe(false)
     expect(map.get('p1').bookmaker).toBe('FanDuel')
     expect(map.get('p1').quotes).toBeUndefined()
+  })
+
+  test('non-missing-column lookup errors set shopLoadError instead of a silent empty map', async () => {
+    const spy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const { map, shopLoadError, error } = await loadPlayerPropCacheShopRows(
+      shopClient({ error: { code: '42501', message: 'permission denied' } }),
+      ['p1'],
+    )
+    expect(spy).toHaveBeenCalled()
+    spy.mockRestore()
+    expect(shopLoadError).toBe(true)
+    expect(error).toMatchObject({ code: '42501' })
+    expect(map.size).toBe(0)
   })
 })
 

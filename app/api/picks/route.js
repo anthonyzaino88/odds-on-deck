@@ -5,7 +5,6 @@ import { generateQuickInsight } from '../../../lib/pick-insights.js'
 import { isSupabaseAdminConfigured, supabaseAdmin as supabase } from '../../../lib/supabase-admin.js'
 import { todaysBoardSlateState } from '../../../lib/published-picks.js'
 import { getSidesTotalsStats } from '../../../lib/validation.js'
-import { hydratePicksWithCacheShop } from '../../../lib/line-shopping.js'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -24,11 +23,9 @@ export async function GET(request) {
     const validModes = ['safe', 'balanced', 'value', 'all']
     const filterMode = validModes.includes(mode) ? mode : 'value'
     
-    // Generate picks with the selected filter mode
-    const ranked = await generateEditorPicks(filterMode)
-    // Direct PlayerPropCache lookup by propId (not the public props board),
-    // so a Published pick missing from that board still gets a ladder.
-    const picks = await hydratePicksWithCacheShop(ranked, supabase)
+    // Shop fields come from the PlayerPropCache select in generateEditorPicks
+    // (mapCachePropToEditorPick / withPublicShopFields) — one cache round-trip.
+    const picks = await generateEditorPicks(filterMode)
     const gameLines = await generateGameLines()
     const sidesTotals = await getSidesTotalsStats()
     
