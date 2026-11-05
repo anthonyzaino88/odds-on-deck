@@ -88,7 +88,43 @@ function LineShopMeta({ prop }) {
           </ul>
         </details>
       )}
+      <AltLinesMeta prop={prop} />
     </>
+  )
+}
+
+function AltLinesMeta({ prop }) {
+  const altLines = Array.isArray(prop.altLines) && prop.altLines.length > 0 ? prop.altLines : null
+  if (!altLines) return null
+  const sideLabel = (side) => {
+    const key = String(side || '').toLowerCase()
+    if (key === 'over') return 'Over'
+    if (key === 'under') return 'Under'
+    return side || 'Line'
+  }
+
+  return (
+    <details
+      className="text-[10px] text-slate-500"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <summary className="cursor-pointer text-slate-400 hover:text-slate-200">
+        Alt lines
+      </summary>
+      <p className="mt-1 text-slate-600">US books · last shop · not the close</p>
+      <ul className="mt-1 space-y-0.5 text-slate-500">
+        {altLines.map((row) => (
+          <li key={`${row.side}-${row.line}-${row.book}`} className="tabular-nums font-mono">
+            {sideLabel(row.side)} {row.line}{' '}
+            {formatAmerican(row.price) || '—'}
+            {row.book ? ` · ${row.book}` : ''}
+            {' · '}
+            {formatQuoteAge(row.ageMs)}
+            {row.stale ? ' · stale' : ''}
+          </li>
+        ))}
+      </ul>
+    </details>
   )
 }
 

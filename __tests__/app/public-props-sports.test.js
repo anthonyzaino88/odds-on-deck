@@ -167,7 +167,76 @@ describe('GET /api/props stays on public sports', () => {
     expect(body.props[0].numBooks).toBe(2)
     expect(body.props[0].quotes).toHaveLength(2)
     expect(body.props[0].consensusOdds).toBeCloseTo(1 / 0.52, 5)
+    expect(body.props[0].altLines).toBeNull()
     expect(body.count).toBe(1)
+  })
+
+  test('Published NFL cache rows expose altLines; unpublished and NHL do not', async () => {
+    const captured = { ins: [], eqs: [] }
+    supabase.from.mockReturnValue(thenableQuery([
+      {
+        propId: 'nfl-pub',
+        gameId: 'DAL_at_PHI_2026-11-08',
+        playerName: 'Jalen Hurts',
+        type: 'player_pass_yds',
+        pick: 'over',
+        threshold: 224.5,
+        odds: 1.91,
+        probability: 0.54,
+        edge: 0.06,
+        qualityScore: 52,
+        sport: 'nfl',
+        gameTime: '2026-11-08T21:00:00.000Z',
+        altQuotes: [
+          { line: 219.5, side: 'over', price: -115, book: 'FanDuel', lastUpdate: '2026-11-08T16:00:00.000Z' },
+          { line: 224.5, side: 'over', price: -110, book: 'DraftKings', lastUpdate: '2026-11-08T16:00:00.000Z' },
+        ],
+      },
+      {
+        propId: 'nfl-low',
+        gameId: 'DAL_at_PHI_2026-11-08',
+        playerName: 'Backup QB',
+        type: 'player_pass_yds',
+        pick: 'over',
+        threshold: 180.5,
+        odds: 1.91,
+        edge: 0.01,
+        qualityScore: 10,
+        sport: 'nfl',
+        altQuotes: [
+          { line: 175.5, side: 'over', price: -110, book: 'FanDuel', lastUpdate: '2026-11-08T16:00:00.000Z' },
+        ],
+      },
+      {
+        propId: 'nhl-1',
+        gameId: 'BOS_at_TOR_2026-11-08',
+        playerName: 'Auston Matthews',
+        type: 'player_shots_on_goal',
+        pick: 'over',
+        threshold: 3.5,
+        odds: 1.91,
+        edge: 0.06,
+        qualityScore: 52,
+        sport: 'nhl',
+        altQuotes: [
+          { line: 2.5, side: 'over', price: -120, book: 'FanDuel', lastUpdate: '2026-11-08T16:00:00.000Z' },
+        ],
+      },
+    ], captured))
+
+    const res = await getProps(new Request('http://localhost/api/props'))
+    const body = await res.json()
+    expect(body.props.map((prop) => prop.playerName)).toEqual([
+      'Jalen Hurts',
+      'Backup QB',
+      'Auston Matthews',
+    ])
+    expect(body.props[0].altLines).toEqual([
+      expect.objectContaining({ line: 219.5, side: 'over', price: -115, book: 'FanDuel' }),
+      expect.objectContaining({ line: 224.5, side: 'over', price: -110, book: 'DraftKings' }),
+    ])
+    expect(body.props[1].altLines).toBeNull()
+    expect(body.props[2].altLines).toBeNull()
   })
 
   test('getTopProps(nhl) queries the cache', async () => {
