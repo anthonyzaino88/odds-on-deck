@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /**
- * Read-only: stored final Game scores vs the ESPN source box.
+ * Read-only: stored final Game scores vs ESPN (NFL/NHL/MLB) or
+ * MLB StatsAPI schedule+linescore.
  *
  * Does not write. Does not call The Odds API.
  *
  * Usage:
  *   node scripts/report-final-score-mismatch.js
- *   node scripts/report-final-score-mismatch.js --sport nhl --days 14
+ *   node scripts/report-final-score-mismatch.js --sport all --days 14
+ *   node scripts/report-final-score-mismatch.js --sport mlb --days 7
  *   node scripts/report-final-score-mismatch.js --gameId NJ_at_VGK_2026-10-14
  */
 
@@ -14,16 +16,21 @@ import { config } from 'dotenv'
 config({ path: '.env.local' })
 
 import {
+  DEFAULT_SCAN_LIMIT_PER_SPORT,
+  DEFAULT_SOURCE_FETCH_GAP_MS,
   collectFinalScoreMismatches,
   formatFinalScoreMismatchLine,
+  loadSourceFinalBox,
   parseReportFinalScoreArgs,
+  resolveReportSports,
+  sleep,
 } from '../lib/final-score-mismatch.js'
-import { fetchNHLGameDetail } from '../lib/vendors/nhl-stats.js'
 
 export const REPORT_FINAL_SCORE_USAGE = `Usage:
-  node scripts/report-final-score-mismatch.js [--sport nhl] [--days N] [--gameId ID] [--json]
+  node scripts/report-final-score-mismatch.js [--sport mlb|nfl|nhl|all] [--days N] [--gameId ID] [--json]
 
-Read-only stored-vs-ESPN final score check. Does not write.
+Read-only stored-vs-source final score check (ESPN; MLB StatsAPI first).
+Does not write. Does not call The Odds API.
 `
 
 function gameDateCutoff(days) {
@@ -38,6 +45,7 @@ function storedRow(row) {
     sport: row.sport,
     status: row.status,
     espnGameId: row.espnGameId,
+    mlbGameId: row.mlbGameId,
     homeScore: row.homeScore,
     awayScore: row.awayScore,
     homeAbbr: row.home?.abbr || null,
@@ -45,63 +53,87 @@ function storedRow(row) {
   }
 }
 
-async function loadSourceScore(row) {
-  if (String(row.sport || '').toLowerCase() !== 'nhl') return null
-  if (!row.espnGameId) return null
-  return fetchNHLGameDetail(row.espnGameId)
+function indexSource(sourceByKey, row, source) {
+  if (!source) return
+  sourceByKey.set(row.id, source)
+  if (row.espnGameId) sourceByKey.set(String(row.espnGameId), source)
+  if (row.mlbGameId) sourceByKey.set(String(row.mlbGameId), source)
 }
 
-async function main() {
-  const args = parseReportFinalScoreArgs(process.argv.slice(2))
+async function loadFinalGames(supabase, { sports, days, gameId, limit }) {
+  const rows = []
+  for (const sport of sports) {
+    let query = supabase
+      .from('Game')
+      .select('id, sport, status, espnGameId, mlbGameId, date, homeScore, awayScore, home:homeId(abbr), away:awayId(abbr)')
+      .eq('sport', sport)
+      .eq('status', 'final')
+      .gte('date', gameDateCutoff(days))
+      .order('date', { ascending: false })
+      .limit(limit)
+
+    if (gameId) query = query.eq('id', gameId)
+
+    const { data, error } = await query
+    if (error) throw new Error(`Game lookup failed (${sport}): ${error.message}`)
+    rows.push(...(data || []).map(storedRow))
+  }
+  return rows
+}
+
+export async function runFinalScoreMismatchReport({
+  argv = process.argv.slice(2),
+  supabase,
+  loadSource = loadSourceFinalBox,
+  wait = sleep,
+  gapMs = DEFAULT_SOURCE_FETCH_GAP_MS,
+  limit = DEFAULT_SCAN_LIMIT_PER_SPORT,
+  stdout = console,
+} = {}) {
+  const args = parseReportFinalScoreArgs(argv)
   if (args.help) {
-    console.log(REPORT_FINAL_SCORE_USAGE)
-    return
+    stdout.log?.(REPORT_FINAL_SCORE_USAGE)
+    return { scanned: 0, mismatches: [], help: true }
   }
 
-  const { createScriptSupabaseClient } = await import('../lib/supabase-script-client.js')
-  const supabase = createScriptSupabaseClient()
+  const sports = resolveReportSports(args.sport)
+  if (!supabase) {
+    const { createScriptSupabaseClient } = await import('../lib/supabase-script-client.js')
+    supabase = createScriptSupabaseClient()
+  }
 
-  let query = supabase
-    .from('Game')
-    .select('id, sport, status, espnGameId, date, homeScore, awayScore, home:homeId(abbr), away:awayId(abbr)')
-    .eq('sport', args.sport)
-    .eq('status', 'final')
-    .gte('date', gameDateCutoff(args.days))
-    .order('date', { ascending: false })
-    .limit(200)
-
-  if (args.gameId) query = query.eq('id', args.gameId)
-
-  const { data, error } = await query
-  if (error) throw new Error(`Game lookup failed: ${error.message}`)
-
-  const rows = (data || []).map(storedRow)
+  const rows = await loadFinalGames(supabase, {
+    sports,
+    days: args.days,
+    gameId: args.gameId,
+    limit,
+  })
   const sourceByKey = new Map()
-  for (const row of rows) {
-    const source = await loadSourceScore(row)
-    if (source) {
-      sourceByKey.set(row.id, source)
-      if (row.espnGameId) sourceByKey.set(String(row.espnGameId), source)
-    }
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i]
+    const source = await loadSource(row)
+    indexSource(sourceByKey, row, source)
+    if (i < rows.length - 1) await wait(gapMs)
   }
 
-  const flags = collectFinalScoreMismatches(rows, sourceByKey, { sport: args.sport })
+  const flags = collectFinalScoreMismatches(rows, sourceByKey)
   if (args.json) {
-    console.log(JSON.stringify({ scanned: rows.length, mismatches: flags }, null, 2))
-    return
+    stdout.log?.(JSON.stringify({ scanned: rows.length, sports, mismatches: flags }, null, 2))
+    return { scanned: rows.length, mismatches: flags, sports }
   }
 
-  console.log(`📌 Final games scanned: ${rows.length}`)
-  console.log(`📌 Score mismatches: ${flags.length}`)
-  console.log('   (this script does not write)')
+  stdout.log?.(`📌 Final games scanned: ${rows.length} (${sports.join(', ')})`)
+  stdout.log?.(`📌 Score mismatches: ${flags.length}`)
+  stdout.log?.('   (this script does not write)')
   for (const flag of flags) {
-    console.log(`  ${formatFinalScoreMismatchLine(flag)}`)
+    stdout.log?.(`  ${formatFinalScoreMismatchLine(flag)}`)
   }
+  return { scanned: rows.length, mismatches: flags, sports }
 }
 
 const isDirect = process.argv[1] && process.argv[1].endsWith('report-final-score-mismatch.js')
 if (isDirect) {
-  main().catch((error) => {
+  runFinalScoreMismatchReport().catch((error) => {
     console.error('❌ report-final-score-mismatch failed:', error)
     process.exit(1)
   })
