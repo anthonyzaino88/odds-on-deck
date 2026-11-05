@@ -340,16 +340,20 @@ Requires 011 SQL (`OddsSnapshot`). The script warns and does not crash
 on `42P01` / `PGRST204` / `42703` if 011 is not applied.
 
 One event-odds call per `oddsApiEventId`, only the markets those
-Published picks need, `regions=us`. Skips events inside the
-close-capture window (T−35..T−1) and events whose saved quotes are
-fresher than 90 minutes (`ODDS_SNAPSHOT_FRESH_MINUTES`). Self-stops
-during `:05–:15` ET; no paid fetch after `:04:30` ET.
+Published picks need, `regions=us`. Kickoff must be after T−35
+(games inside the close-capture window, or ≤60s from start, are
+skipped). Skips events whose saved quotes are fresher than 90
+minutes (`ODDS_SNAPSHOT_FRESH_MINUTES`). Refuses to start
+`:04:30–:15` ET so setup SELECTs cannot run in the window; re-checks
+quiet immediately before insert.
 
-Caps: max **2** passes / ET day (`ODDS_SNAPSHOT_DAILY_PASSES`) and
-max **8** event calls / pass (`ODDS_SNAPSHOT_MAX_EVENT_CALLS`). Still
-gated by `lib/odds-api-budget.js` (daily / monthly / remaining floor
-3,000). Purpose is `snapshot`, so the close-capture reserve still
-holds. Does not change morning fetch, `--apply-stale`, or close
+Caps: max **2** passes / ET day (`ODDS_SNAPSHOT_DAILY_PASSES`),
+max **8** event calls / pass (`ODDS_SNAPSHOT_MAX_EVENT_CALLS`), and
+max **24** credits / pass (`ODDS_SNAPSHOT_MAX_CREDITS_PER_PASS`).
+Still gated by `lib/odds-api-budget.js` (daily / monthly / remaining
+floor 3,000). Purpose is `snapshot`, so the close-capture reserve
+still holds. Overlapping applies share a lockfile on the pass
+counter. Does not change morning fetch, `--apply-stale`, or close
 capture.
 
 Footer:
@@ -544,6 +548,7 @@ This is not a production DB write.
 | `ODDS_CLOSE_CAPTURE_DAILY_CAP` | `40` | Paid close-capture event-odds fetches allowed per ET day (both passes) |
 | `ODDS_SNAPSHOT_DAILY_PASSES` | `2` | Max published-odds snapshot passes per ET day |
 | `ODDS_SNAPSHOT_MAX_EVENT_CALLS` | `8` | Max event-odds calls per snapshot pass |
+| `ODDS_SNAPSHOT_MAX_CREDITS_PER_PASS` | `24` | Max markets × regions credits per snapshot pass |
 | `ODDS_SNAPSHOT_FRESH_MINUTES` | `90` | Skip an event when saved quotes are newer than this |
 | `ODDS_PROBE_FAIL_CREDIT_CAP` | `100` | If `/v4/sports` fails and there are no quota headers from today, cap this run at this many credits |
 | `ODDS_NFL_ADJACENT_PROPS_TTL_HOURS` | `48` | Skip refetching NFL props for games not on today's ET date when cache is this fresh |

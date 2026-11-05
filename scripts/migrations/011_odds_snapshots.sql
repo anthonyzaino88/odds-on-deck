@@ -14,6 +14,7 @@
 -- WHAT THIS DOES:
 --   OddsSnapshot — one row per Published pick per capture. Informational
 --   only. Does not rewrite PropValidation.odds / closeOdds / result.
+--   RLS on; PUBLIC/anon/authenticated revoked; service_role granted.
 --
 -- WHAT THIS DOES NOT DO:
 --   Does not change clvProb (posted/entry vs consensus close).
@@ -26,6 +27,16 @@
 --   FROM information_schema.columns
 --   WHERE table_name = 'OddsSnapshot'
 --   ORDER BY ordinal_position;
+--
+--   SELECT c.relname, c.relrowsecurity
+--   FROM pg_class c
+--   JOIN pg_namespace n ON n.oid = c.relnamespace
+--   WHERE n.nspname = 'public' AND c.relname = 'OddsSnapshot';
+--
+--   SELECT grantee, privilege_type
+--   FROM information_schema.role_table_grants
+--   WHERE table_schema = 'public' AND table_name = 'OddsSnapshot'
+--   ORDER BY grantee, privilege_type;
 -- ============================================================================
 
 SET lock_timeout = '5s';
@@ -50,6 +61,14 @@ CREATE TABLE IF NOT EXISTS "OddsSnapshot" (
 
 CREATE INDEX IF NOT EXISTS "OddsSnapshot_propValidationId_capturedAt_idx"
   ON "OddsSnapshot" ("propValidationId", "capturedAt");
+
+CREATE INDEX IF NOT EXISTS "OddsSnapshot_gameId_capturedAt_idx"
+  ON "OddsSnapshot" ("gameId", "capturedAt");
+
+ALTER TABLE "OddsSnapshot" ENABLE ROW LEVEL SECURITY;
+
+GRANT ALL ON TABLE "OddsSnapshot" TO service_role;
+REVOKE ALL ON TABLE "OddsSnapshot" FROM PUBLIC, anon, authenticated;
 
 COMMENT ON TABLE "OddsSnapshot" IS
   'Informational Published-pick price path (midday/pregame). CLV stays entry vs consensus close.';

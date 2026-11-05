@@ -3,6 +3,7 @@ import {
   SNAPSHOT_SOURCE_CLOSE,
   SNAPSHOT_SOURCE_MIDDAY,
   SNAPSHOT_SOURCE_PREGAME,
+  acquireSnapshotPassLock,
   buildSnapshotRow,
   classifySnapshotJobs,
   eventQuotesAreFresh,
@@ -15,6 +16,7 @@ import {
   remainingSnapshotPasses,
   sameLineQuotesForPick,
   selectSnapshotJobs,
+  shouldRefuseSnapshotStart,
   shouldSkipCloseCaptureWindow,
   snapshotSourceForKickoff,
 } from '../../lib/odds-snapshot.js'
@@ -76,14 +78,24 @@ describe('odds snapshot helpers', () => {
     })).toBe(true)
   })
 
-  test('shouldSkipCloseCaptureWindow matches T−35..T−1', () => {
+  test('shouldSkipCloseCaptureWindow requires kickoff after T−35', () => {
     const now = new Date('2026-11-05T17:00:00.000Z')
     expect(shouldSkipCloseCaptureWindow({
       date: '2026-11-05T17:20:00.000Z',
     }, now)).toBe(true)
     expect(shouldSkipCloseCaptureWindow({
+      date: '2026-11-05T17:00:30.000Z',
+    }, now)).toBe(true)
+    expect(shouldSkipCloseCaptureWindow({
       date: '2026-11-05T19:00:00.000Z',
     }, now)).toBe(false)
+  })
+
+  test('shouldRefuseSnapshotStart covers :04:30 through :15 ET', () => {
+    expect(shouldRefuseSnapshotStart(new Date('2026-11-05T04:04:31.000-05:00'))).toBe(true)
+    expect(shouldRefuseSnapshotStart(new Date('2026-11-05T05:08:00.000-05:00'))).toBe(true)
+    expect(shouldRefuseSnapshotStart(new Date('2026-11-05T04:04:29.000-05:00'))).toBe(false)
+    expect(shouldRefuseSnapshotStart(new Date('2026-11-05T05:16:00.000-05:00'))).toBe(false)
   })
 
   test('classifySnapshotJobs skips close-window, fresh, and unmapped events', () => {
@@ -134,6 +146,18 @@ describe('odds snapshot helpers', () => {
     expect(selected.skippedCap).toHaveLength(2)
     expect(selected.jobs[0].gameId).toBe('g0')
     expect(selected.jobs[7].gameId).toBe('g7')
+  })
+
+  test('selectSnapshotJobs enforces the 24-credit pass cap', () => {
+    const jobs = Array.from({ length: 8 }, (_, i) => ({
+      gameId: `g${i}`,
+      eventId: `e${i}`,
+      game: { date: new Date(Date.UTC(2026, 10, 5, 20, i)).toISOString() },
+      markets: ['a', 'b', 'c', 'd'],
+    }))
+    const selected = selectSnapshotJobs(jobs, { maxEventCalls: 8, maxCredits: 24 })
+    expect(selected.jobs).toHaveLength(6)
+    expect(selected.skippedCap).toHaveLength(2)
   })
 
   test('remainingSnapshotPasses defaults to two per ET day', () => {
@@ -219,5 +243,45 @@ describe('odds snapshot helpers', () => {
       { gameId: 'g1', capturedAt: '2026-11-05T17:00:00.000Z' },
     ])
     expect(latest.get('g1').toISOString()).toBe('2026-11-05T17:00:00.000Z')
+  })
+
+  test('acquireSnapshotPassLock is exclusive until released', () => {
+    const files = new Map()
+    const filesystem = {
+      mkdirSync() {},
+      openSync(filePath, flags) {
+        if (flags === 'wx' && files.has(filePath)) {
+          const err = new Error('EEXIST')
+          err.code = 'EEXIST'
+          throw err
+        }
+        files.set(filePath, '')
+        return 1
+      },
+      writeFileSync() {},
+      closeSync() {},
+      unlinkSync(filePath) { files.delete(filePath) },
+      statSync() { return { mtimeMs: Date.now() } },
+    }
+    const first = acquireSnapshotPassLock({
+      persistPath: '/tmp/odds-snapshot-test.json',
+      filesystem,
+      persist: true,
+    })
+    expect(first.acquired).toBe(true)
+    const second = acquireSnapshotPassLock({
+      persistPath: '/tmp/odds-snapshot-test.json',
+      filesystem,
+      persist: true,
+    })
+    expect(second.acquired).toBe(false)
+    first.release()
+    const third = acquireSnapshotPassLock({
+      persistPath: '/tmp/odds-snapshot-test.json',
+      filesystem,
+      persist: true,
+    })
+    expect(third.acquired).toBe(true)
+    third.release()
   })
 })

@@ -253,6 +253,7 @@ describe('snapshot-published-odds script', () => {
       skipped: false,
     }))
     const oddsBudget = budget()
+    const log = memoryLog()
     const result = await runSnapshotPublishedOdds({
       argv: ['--apply'],
       now: NOW,
@@ -260,7 +261,7 @@ describe('snapshot-published-odds script', () => {
       fetchEventOdds,
       probeQuota: jest.fn(async () => ({ remaining: 12000, used: 2000, last: 0 })),
       apiKey: 'secret-key',
-      log: memoryLog(),
+      log,
       budget: oddsBudget,
       persistPasses: false,
       env: { NODE_ENV: 'test' },
@@ -277,6 +278,8 @@ describe('snapshot-published-odds script', () => {
     expect(inserts[0].consensusOdds).toBe(-112)
     expect(result.snapshotStatus).toBe('ok')
     expect(result.events).toBe(1)
+    expect(result.calls).toBe(2)
+    expect(log.lines.some((line) => line === 'CALLS_USED=2')).toBe(true)
     expect(oddsBudget.purpose).toBe('snapshot')
   })
 
@@ -343,5 +346,97 @@ describe('snapshot-published-odds script', () => {
     })
     expect(fetchEventOdds).not.toHaveBeenCalled()
     expect(result.skippedBudget || result.snapshotStatus).toBeTruthy()
+  })
+
+  test('refuses to start at/after :04:30 ET so setup SELECTs do not run', async () => {
+    const cutoff = new Date('2026-11-05T04:04:31.000-05:00')
+    const createClient = jest.fn()
+    const fetchEventOdds = jest.fn()
+    const result = await runSnapshotPublishedOdds({
+      argv: ['--apply'],
+      now: cutoff,
+      createClient,
+      fetchEventOdds,
+      log: memoryLog(),
+      budget: budget({ now: cutoff }),
+      persistPasses: false,
+      env: { NODE_ENV: 'test' },
+    })
+    expect(createClient).not.toHaveBeenCalled()
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(result.skippedQuiet).toBe(true)
+    expect(result.snapshotStatus).toBe('partial')
+  })
+
+  test('skips games 60s from start (outside T−35)', async () => {
+    const fetchEventOdds = jest.fn()
+    const result = await runSnapshotPublishedOdds({
+      argv: ['--apply'],
+      now: NOW,
+      createClient: () => mockClient({
+        games: [futureGame({ date: '2026-11-05T17:00:30.000Z' })],
+      }),
+      fetchEventOdds,
+      probeQuota: jest.fn(async () => ({ remaining: 12000, used: 2000, last: 0 })),
+      apiKey: 'secret-key',
+      log: memoryLog(),
+      budget: budget(),
+      persistPasses: false,
+      env: { NODE_ENV: 'test' },
+    })
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(result.events).toBe(0)
+  })
+
+  test('re-checks quiet immediately before insert and does not write', async () => {
+    const inserts = []
+    const quiet = new Date('2026-11-05T05:08:00.000-05:00')
+    let ticks = 0
+    const clock = () => {
+      ticks += 1
+      return ticks <= 4 ? NOW : quiet
+    }
+    const fetchEventOdds = jest.fn(async () => ({
+      data: eventOdds(),
+      quota: { remaining: 11999, used: 2001, last: 1 },
+      skipped: false,
+    }))
+    const result = await runSnapshotPublishedOdds({
+      argv: ['--apply'],
+      clock,
+      createClient: () => mockClient({ inserts }),
+      fetchEventOdds,
+      probeQuota: jest.fn(async () => ({ remaining: 12000, used: 2000, last: 0 })),
+      apiKey: 'secret-key',
+      log: memoryLog(),
+      budget: budget(),
+      persistPasses: false,
+      env: { NODE_ENV: 'test' },
+    })
+    expect(fetchEventOdds).toHaveBeenCalled()
+    expect(inserts).toHaveLength(0)
+    expect(result.skippedQuiet).toBe(true)
+    expect(result.snapshotStatus).toBe('partial')
+    expect(result.calls).toBe(2)
+  })
+
+  test('overlapping apply fails closed when the pass lock is held', async () => {
+    const fetchEventOdds = jest.fn()
+    const result = await runSnapshotPublishedOdds({
+      argv: ['--apply'],
+      now: NOW,
+      createClient: () => mockClient(),
+      fetchEventOdds,
+      probeQuota: jest.fn(async () => ({ remaining: 12000, used: 2000, last: 0 })),
+      apiKey: 'secret-key',
+      log: memoryLog(),
+      budget: budget(),
+      persistPasses: false,
+      acquirePassLock: () => ({ acquired: false, release() {} }),
+      env: { NODE_ENV: 'test' },
+    })
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(result.skippedLock).toBe(true)
+    expect(result.snapshotStatus).toBe('partial')
   })
 })

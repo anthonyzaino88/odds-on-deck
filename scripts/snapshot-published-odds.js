@@ -21,8 +21,9 @@
  * (ODDS_SNAPSHOT_DAILY_PASSES / ODDS_SNAPSHOT_MAX_EVENT_CALLS).
  * Goes through lib/odds-api-budget.js (credit log, daily/monthly,
  * remaining floor 3,000). Purpose is snapshot, not close-capture, so
- * the close reserve still holds. No fetch after :04:30 ET; no-ops
- * during :05–:15 ET. ODDS_SNAPSHOT=0 disables.
+ * the close reserve still holds. Refuses to start :04:30–:15 ET so
+ * setup SELECTs cannot run in the window. Re-checks quiet before
+ * insert. ODDS_SNAPSHOT=0 disables.
  * Requires the secret key for --apply. Do not run --apply from CI.
  * Degrades on 42P01 / PGRST204 / 42703 if 011 is not applied.
  */
@@ -76,6 +77,7 @@ import {
   formatSnapshotCredits,
   formatSnapshotEvents,
   formatSnapshotStatus,
+  acquireSnapshotPassLock,
   isMissingOddsSnapshotError,
   isSnapshotDisabled,
   isSnapshotEligiblePick,
@@ -86,8 +88,11 @@ import {
   recordSnapshotPass,
   remainingSnapshotPasses,
   sameLineQuotesForPick,
+  saveHeldSnapshotRows,
   selectSnapshotJobs,
+  shouldRefuseSnapshotStart,
   shouldSkipCloseCaptureWindow,
+  snapshotKickoffFloor,
   snapshotSourceForKickoff,
 } from '../lib/odds-snapshot.js'
 
@@ -227,6 +232,7 @@ export async function runSnapshotPublishedOdds({
   budget,
   passState,
   persistPasses,
+  acquirePassLock = acquireSnapshotPassLock,
 } = {}) {
   const nowFn = typeof clock === 'function'
     ? clock
@@ -295,13 +301,13 @@ Dry-run (default): list future Published picks that would be snapshotted.
 Requires ODDS_API_KEY + SUPABASE_SECRET_KEY (SUPABASE_REQUIRE_SECRET_KEY=1).
 Do not run from CI. Anon/public keys are refused.
 Never snapshots shadow-published or unpublished pending archive.
-Never writes source=close. Skips events inside the close-capture
-window (T−35..T−1). Skips events whose saved quotes are <90 min old.
-Max ${passConfig.dailyPasses} passes / ET day and ${passConfig.maxEventCalls}
-event calls / pass. Goes through the shared credit budget (daily /
-monthly / remaining floor 3,000). Purpose is snapshot, so the close
-reserve still holds. No-ops during :05–:15 ET. Does not start a paid
-fetch after :04:30 ET. ODDS_SNAPSHOT=0 disables.
+Never writes source=close. Kickoff must be after T−35. Skips events
+whose saved quotes are <90 min old. Max ${passConfig.dailyPasses}
+passes / ET day, ${passConfig.maxEventCalls} event calls / pass, and
+${passConfig.maxCreditsPerPass} credits / pass. Goes through the
+shared credit budget (daily / monthly / remaining floor 3,000).
+Purpose is snapshot, so the close reserve still holds. Refuses to
+start :04:30–:15 ET. ODDS_SNAPSHOT=0 disables.
 Unknown flags fail closed (status=failed, exit 0).
 Every run prints SNAPSHOT_STATUS=ok|partial|failed,
 SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
@@ -334,8 +340,8 @@ SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
     return done({ snapshotJobs: [], calls: 0, skippedDisabled: true })
   }
 
-  if (isOpsWriteQuietPeriod(startedAt)) {
-    log.log('⏸️  Ops quiet period (:05–:15 ET) — no snapshot writes or Odds API calls.')
+  if (shouldRefuseSnapshotStart(startedAt)) {
+    log.log('⏸️  Snapshot quiet window (:04:30–:15 ET) — no setup queries or Odds API calls.')
     return done({ snapshotJobs: [], calls: 0, skippedQuiet: true })
   }
 
@@ -354,6 +360,7 @@ SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
   }
 
   const horizon = new Date(startedAt.getTime() + passConfig.horizonHours * 60 * 60 * 1000)
+  const kickoffFloor = snapshotKickoffFloor(startedAt)
 
   async function loadPublishedPicks() {
     return paginateSupabaseSelect(() => applyShadowPublishedNotesExclusion(
@@ -390,7 +397,7 @@ SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
     .from('Game')
     .select(GAME_SELECT)
     .in('id', gameIds)
-    .gt('date', startedAt.toISOString())
+    .gt('date', kickoffFloor.toISOString())
     .lte('date', horizon.toISOString())
 
   if (gameError) {
@@ -482,21 +489,14 @@ SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
     maxEventCalls: args.maxCalls != null
       ? Math.min(args.maxCalls, passConfig.maxEventCalls)
       : passConfig.maxEventCalls,
+    maxCredits: args.maxCredits != null
+      ? Math.min(args.maxCredits, passConfig.maxCreditsPerPass)
+      : passConfig.maxCreditsPerPass,
   })
-  let snapshotJobs = selected.jobs.map((job) => ({
+  const snapshotJobs = selected.jobs.map((job) => ({
     ...job,
     creditCost: creditCostForMarkets(job.markets.length, SNAPSHOT_REGIONS.length),
   }))
-  if (args.maxCredits != null) {
-    const kept = []
-    let planned = 0
-    for (const job of snapshotJobs) {
-      if (planned + job.creditCost > args.maxCredits) continue
-      kept.push(job)
-      planned += job.creditCost
-    }
-    snapshotJobs = kept
-  }
 
   const plannedCredits = snapshotJobs.reduce((sum, job) => sum + (job.creditCost || 0), 0)
   const plannedCalls = snapshotJobs.length === 0 ? 0 : 1 + snapshotJobs.length
@@ -568,6 +568,21 @@ SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
     })
   }
 
+  const lock = acquirePassLock({
+    persistPath: passConfig.persistPath,
+    persist,
+  })
+  if (!lock.acquired) {
+    log.log('⏸️  Snapshot pass lock held. Skipping overlapping run.')
+    return done({
+      snapshotJobs,
+      events: snapshotJobs.length,
+      calls: 0,
+      skippedLock: true,
+      snapshotStatus: SNAPSHOT_STATUS_PARTIAL,
+    })
+  }
+
   let calls = 0
   let creditsUsed = 0
   let lastQuota = { remaining: null, used: null, last: null }
@@ -578,141 +593,170 @@ SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
   const rows = []
 
   try {
-    lastQuota = await probeQuota({ apiKey }) || lastQuota
-    oddsBudget.record(lastQuota, { credits: lastQuota.last ?? 0, isProbe: true })
-    calls += 1
-  } catch (error) {
-    calls += 1
-    log.log(`⚠️ Quota probe failed (${error.message}); continuing without a pre-check.`)
-  }
-  if (lastQuota.remaining != null && lastQuota.remaining < args.minRemaining) {
-    log.log(
-      `⏸️  Odds API remaining ${lastQuota.remaining} < min-remaining ${args.minRemaining}. `
-      + 'No event-odds calls.',
-    )
-    return done({
-      snapshotJobs,
-      calls,
-      lastQuota,
-      skippedQuota: true,
-    })
-  }
-  if (oddsBudget.status() !== ODDS_BUDGET_OK) {
-    log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
-    const warn = formatOddsBudgetWarnLine(oddsBudget.status())
-    if (warn) log.log(warn)
-    return done({
-      snapshotJobs,
-      calls,
-      creditsUsed: 0,
-      lastQuota,
-      skippedBudget: true,
-    })
-  }
-
-  let paidCalls = 0
-  for (let jobIndex = 0; jobIndex < snapshotJobs.length; jobIndex += 1) {
-    const job = snapshotJobs[jobIndex]
-    if (isOpsWriteQuietPeriod(nowFn())) {
-      log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
-      skippedQuietDuringRun = true
-      break
-    }
-    if (shouldSkipPaidCloseCaptureFetch(nowFn())) {
-      log.log('⏸️  After :04:30 ET — not starting a paid fetch that quiet :05 would block.')
-      skippedQuietDuringRun = true
-      break
-    }
-    const sportKey = oddsApiSportKey(job.game?.sport)
-    if (!job.eventId || !sportKey || !job.markets.length) {
-      log.log(`  ⏭️  ${job.gameIds.join(',')} unmapped or no markets`)
-      continue
-    }
-    const url = buildEventOddsUrl({
-      sportKey,
-      eventId: job.eventId,
-      markets: job.markets,
-      apiKey,
-      regions: SNAPSHOT_REGIONS,
-    })
-    const estimatedCredits = creditCostForMarkets(job.markets.length, SNAPSHOT_REGIONS.length)
-    let fetched
-    try {
-      fetched = await fetchEventOdds({
-        url,
-        budget: oddsBudget,
-        estimatedCredits,
-        apiKey,
+    const lockedState = persist
+      ? loadSnapshotPassState({ persistPath: passConfig.persistPath, persist })
+      : loadedPasses
+    if (remainingSnapshotPasses(lockedState, startedAt, passConfig.dailyPasses) <= 0) {
+      log.log('⏸️  ODDS_SNAPSHOT_DAILY_PASSES reached. No Odds API calls.')
+      return done({
+        snapshotJobs: [],
+        calls: 0,
+        creditsUsed: 0,
+        skippedPasses: true,
       })
+    }
+
+    try {
+      lastQuota = await probeQuota({ apiKey }) || lastQuota
+      oddsBudget.record(lastQuota, { credits: lastQuota.last ?? 0, isProbe: true })
+      calls += 1
     } catch (error) {
-      fetchErrors += 1
-      log.log(`  ❌ ${job.gameIds.join(',')} fetch failed: ${error.message}`)
-      continue
+      calls += 1
+      log.log(`⚠️ Quota probe failed (${error.message}); continuing without a pre-check.`)
     }
-    if (fetched?.skipped) {
-      skippedBudgetDuringRun += 1
-      log.log(`  ⏸️  ${job.gameIds.join(',')} skipped by budget`)
-      break
+    if (lastQuota.remaining != null && lastQuota.remaining < args.minRemaining) {
+      log.log(
+        `⏸️  Odds API remaining ${lastQuota.remaining} < min-remaining ${args.minRemaining}. `
+        + 'No event-odds calls.',
+      )
+      return done({
+        snapshotJobs,
+        calls,
+        lastQuota,
+        skippedQuota: true,
+      })
     }
-    calls += 1
-    creditsUsed += estimatedCredits
-    paidCalls += 1
-    const quotes = flattenEventOddsQuotes(fetched?.data)
-    const capturedAt = nowFn()
-    const source = snapshotSourceForKickoff(job.game?.date, capturedAt)
-    if (source === SNAPSHOT_SOURCE_CLOSE) continue
-    for (const pick of job.picks) {
-      const { match, quotes: lineQuotes } = sameLineQuotesForPick(pick, quotes)
-      if (!match) {
-        log.log(`  ⏭️  ${pick.playerName} ${pick.propType} — no same-line quote`)
+    if (oddsBudget.status() !== ODDS_BUDGET_OK) {
+      log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
+      const warn = formatOddsBudgetWarnLine(oddsBudget.status())
+      if (warn) log.log(warn)
+      return done({
+        snapshotJobs,
+        calls,
+        creditsUsed: 0,
+        lastQuota,
+        skippedBudget: true,
+      })
+    }
+
+    let paidCalls = 0
+    for (let jobIndex = 0; jobIndex < snapshotJobs.length; jobIndex += 1) {
+      const job = snapshotJobs[jobIndex]
+      if (isOpsWriteQuietPeriod(nowFn())) {
+        log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
+        skippedQuietDuringRun = true
+        break
+      }
+      if (shouldSkipPaidCloseCaptureFetch(nowFn())) {
+        log.log('⏸️  After :04:30 ET — not starting a paid fetch that quiet :05 would block.')
+        skippedQuietDuringRun = true
+        break
+      }
+      const sportKey = oddsApiSportKey(job.game?.sport)
+      if (!job.eventId || !sportKey || !job.markets.length) {
+        log.log(`  ⏭️  ${job.gameIds.join(',')} unmapped or no markets`)
         continue
       }
-      const row = buildSnapshotRow({
-        pick,
-        game: job.game,
-        match,
-        quotes: lineQuotes,
-        capturedAt,
-        source,
+      const url = buildEventOddsUrl({
+        sportKey,
+        eventId: job.eventId,
+        markets: job.markets,
+        apiKey,
+        regions: SNAPSHOT_REGIONS,
       })
-      if (row) rows.push(row)
+      const estimatedCredits = creditCostForMarkets(job.markets.length, SNAPSHOT_REGIONS.length)
+      let fetched
+      try {
+        fetched = await fetchEventOdds({
+          url,
+          budget: oddsBudget,
+          estimatedCredits,
+          apiKey,
+        })
+      } catch (error) {
+        fetchErrors += 1
+        log.log(`  ❌ ${job.gameIds.join(',')} fetch failed: ${error.message}`)
+        continue
+      }
+      if (fetched?.skipped) {
+        skippedBudgetDuringRun += 1
+        log.log(`  ⏸️  ${job.gameIds.join(',')} skipped by budget`)
+        break
+      }
+      calls += 1
+      creditsUsed += estimatedCredits
+      paidCalls += 1
+      const quotes = flattenEventOddsQuotes(fetched?.data)
+      const capturedAt = nowFn()
+      const source = snapshotSourceForKickoff(job.game?.date, capturedAt)
+      if (source === SNAPSHOT_SOURCE_CLOSE) continue
+      for (const pick of job.picks) {
+        const { match, quotes: lineQuotes } = sameLineQuotesForPick(pick, quotes)
+        if (!match) {
+          log.log(`  ⏭️  ${pick.playerName} ${pick.propType} — no same-line quote`)
+          continue
+        }
+        const row = buildSnapshotRow({
+          pick,
+          game: job.game,
+          match,
+          quotes: lineQuotes,
+          capturedAt,
+          source,
+        })
+        if (row) rows.push(row)
+      }
     }
-  }
 
-  if (paidCalls > 0) {
-    recordSnapshotPass(loadedPasses, startedAt, {
-      persistPath: passConfig.persistPath,
-      persist,
-    })
-  }
+    if (paidCalls > 0) {
+      recordSnapshotPass(lockedState, startedAt, {
+        persistPath: passConfig.persistPath,
+        persist,
+      })
+    }
 
-  if (rows.length) {
-    const write = await supabase.from('OddsSnapshot').insert(rows)
-    if (write?.error && isMissingOddsSnapshotError(write.error)) {
-      tableMissing = true
-      log.log('⚠️ OddsSnapshot missing on write (run 011 SQL). Degrading — no crash.')
-    } else if (write?.error) {
-      writeErrors += 1
-      log.error(`❌ OddsSnapshot insert failed: ${write.error.message}`)
+    if (rows.length) {
+      if (isOpsWriteQuietPeriod(nowFn())) {
+        skippedQuietDuringRun = true
+        const held = saveHeldSnapshotRows(rows, {
+          persistPath: passConfig.persistPath,
+          persist,
+          now: nowFn(),
+        })
+        log.log(held
+          ? `⏸️  Quiet window before insert — held ${rows.length} row(s) at ${held}.`
+          : `⏸️  Quiet window before insert — dropping ${rows.length} row(s).`)
+      } else {
+        const write = await supabase.from('OddsSnapshot').insert(rows)
+        if (write?.error && isMissingOddsSnapshotError(write.error)) {
+          tableMissing = true
+          log.log('⚠️ OddsSnapshot missing on write (run 011 SQL). Degrading — no crash.')
+        } else if (write?.error) {
+          writeErrors += 1
+          log.error(`❌ OddsSnapshot insert failed: ${write.error.message}`)
+        } else {
+          log.log(`✅ Wrote ${rows.length} OddsSnapshot row(s).`)
+        }
+      }
     } else {
-      log.log(`✅ Wrote ${rows.length} OddsSnapshot row(s).`)
+      log.log('✅ No matching quotes to write.')
     }
-  } else {
-    log.log('✅ No matching quotes to write.')
-  }
 
-  return done({
-    snapshotJobs,
-    events: snapshotJobs.length,
-    calls,
-    creditsUsed,
-    rows,
-    fetchErrors,
-    writeErrors,
-    skippedQuiet: skippedQuietDuringRun,
-    skippedBudgetCount: skippedBudgetDuringRun,
-    tableMissing,
-  })
+    return done({
+      snapshotJobs,
+      events: snapshotJobs.length,
+      calls,
+      creditsUsed,
+      rows,
+      fetchErrors,
+      writeErrors,
+      skippedQuiet: skippedQuietDuringRun,
+      skippedBudgetCount: skippedBudgetDuringRun,
+      tableMissing,
+    })
+  } finally {
+    lock.release()
+  }
 }
 
 function invokedDirectly() {

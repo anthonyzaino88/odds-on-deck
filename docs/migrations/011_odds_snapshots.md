@@ -11,6 +11,9 @@ Anthony applies them in the Supabase SQL editor.
 SQL-only. `prisma.propValidation.findMany()` without an explicit
 `select` must not request snapshot fields.
 
+RLS is enabled. `PUBLIC` / `anon` / `authenticated` are revoked;
+`service_role` is granted. Same pattern as `009_injury_report.sql`.
+
 Writers and readers degrade on `PGRST204` / `42703` / `42P01` (missing
 table or column) with a warning. They do not crash.
 
@@ -20,21 +23,34 @@ table or column) with a warning. They do not crash.
 2. Paste `scripts/migrations/011_odds_snapshots.sql`.
 3. Run it in a planned ops window. The script is `IF NOT EXISTS` /
    additive and can be re-run.
-4. Confirm with the `information_schema.columns` check in that file:
+4. Confirm with the checks in that file:
 
 ```sql
 SELECT table_name, column_name, data_type, is_nullable
 FROM information_schema.columns
 WHERE table_name = 'OddsSnapshot'
 ORDER BY ordinal_position;
+
+SELECT c.relname, c.relrowsecurity
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public' AND c.relname = 'OddsSnapshot';
+
+SELECT grantee, privilege_type
+FROM information_schema.role_table_grants
+WHERE table_schema = 'public' AND table_name = 'OddsSnapshot'
+ORDER BY grantee, privilege_type;
 ```
+
+`relrowsecurity` should be `true`. Grants should show `service_role`
+only (no `anon` / `authenticated` / `PUBLIC`).
 
 Do **not** apply from CI. Do not backfill. Do not regrade. Do not
 change CLV (`implied(close) − implied(recorded)`).
 
 Rollback (same editor, do not run from CI):
-`scripts/migrations/011_odds_snapshots_rollback.sql` drops the table.
-Published odds, closes, and grades stay.
+`scripts/migrations/011_odds_snapshots_rollback.sql` drops the table
+(indexes and RLS go with it). Published odds, closes, and grades stay.
 
 ## Credits
 
