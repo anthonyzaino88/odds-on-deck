@@ -280,6 +280,7 @@ describe('snapshot-published-odds script', () => {
     expect(result.events).toBe(1)
     expect(result.calls).toBe(2)
     expect(log.lines.some((line) => line === 'CALLS_USED=2')).toBe(true)
+    expect(log.lines.some((line) => /SNAPSHOT_SPEND_MISMATCH/.test(line))).toBe(false)
     expect(oddsBudget.purpose).toBe('snapshot')
   })
 
@@ -394,7 +395,7 @@ describe('snapshot-published-odds script', () => {
     let ticks = 0
     const clock = () => {
       ticks += 1
-      return ticks <= 4 ? NOW : quiet
+      return ticks <= 5 ? NOW : quiet
     }
     const fetchEventOdds = jest.fn(async () => ({
       data: eventOdds(),
@@ -438,5 +439,74 @@ describe('snapshot-published-odds script', () => {
     expect(fetchEventOdds).not.toHaveBeenCalled()
     expect(result.skippedLock).toBe(true)
     expect(result.snapshotStatus).toBe('partial')
+  })
+
+  test('ODDS_SNAPSHOT_MAX_CREDITS_PER_PASS=0 logs that snapshots are disabled', async () => {
+    const log = memoryLog()
+    const createClient = jest.fn()
+    const result = await runSnapshotPublishedOdds({
+      argv: [],
+      now: NOW,
+      createClient,
+      fetchEventOdds: jest.fn(),
+      log,
+      budget: budget(),
+      persistPasses: false,
+      env: { NODE_ENV: 'test', ODDS_SNAPSHOT_MAX_CREDITS_PER_PASS: '0' },
+    })
+    expect(createClient).not.toHaveBeenCalled()
+    expect(result.skippedDisabled).toBe(true)
+    expect(log.lines.some((line) => (
+      line.includes('ODDS_SNAPSHOT_MAX_CREDITS_PER_PASS=0')
+      && line.includes('disabled')
+    ))).toBe(true)
+  })
+
+  test('aborts as partial if setup started at :04:29 and quiet begins before fetch', async () => {
+    const start = new Date('2026-11-05T04:04:29.000-05:00')
+    const quiet = new Date('2026-11-05T05:08:00.000-05:00')
+    let ticks = 0
+    const clock = () => {
+      ticks += 1
+      return ticks === 1 ? start : quiet
+    }
+    const fetchEventOdds = jest.fn()
+    const result = await runSnapshotPublishedOdds({
+      argv: ['--apply'],
+      clock,
+      createClient: () => mockClient(),
+      fetchEventOdds,
+      probeQuota: jest.fn(),
+      apiKey: 'secret-key',
+      log: memoryLog(),
+      budget: budget({ now: start }),
+      persistPasses: false,
+      env: { NODE_ENV: 'test' },
+    })
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(result.skippedQuiet).toBe(true)
+    expect(result.snapshotStatus).toBe('partial')
+  })
+
+  test('footer warns when local spend and API headers differ', async () => {
+    const log = memoryLog()
+    const result = await runSnapshotPublishedOdds({
+      argv: ['--apply'],
+      now: NOW,
+      createClient: () => mockClient(),
+      fetchEventOdds: jest.fn(async () => ({
+        data: eventOdds(),
+        quota: { remaining: 11997, used: 2003, last: 3 },
+        skipped: false,
+      })),
+      probeQuota: jest.fn(async () => ({ remaining: 12000, used: 2000, last: 0 })),
+      apiKey: 'secret-key',
+      log,
+      budget: budget(),
+      persistPasses: false,
+      env: { NODE_ENV: 'test' },
+    })
+    expect(result.spendReconcile.ok).toBe(false)
+    expect(log.lines.some((line) => line.startsWith('⚠️ SNAPSHOT_SPEND_MISMATCH'))).toBe(true)
   })
 })

@@ -76,7 +76,9 @@ import {
   classifySnapshotJobs,
   formatSnapshotCredits,
   formatSnapshotEvents,
+  formatSnapshotSpendMismatch,
   formatSnapshotStatus,
+  reconcileSnapshotSpend,
   acquireSnapshotPassLock,
   isMissingOddsSnapshotError,
   isSnapshotDisabled,
@@ -276,6 +278,8 @@ export async function runSnapshotPublishedOdds({
     log.log(formatSnapshotEvents(events))
     log.log(formatCallsUsed(calls))
     log.log(formatSnapshotCredits(credits))
+    const spendWarn = formatSnapshotSpendMismatch(result.spendReconcile)
+    if (spendWarn) log.log(spendWarn)
     if (snapshotStatus !== SNAPSHOT_STATUS_OK) {
       log.log(`⚠️ ${formatSnapshotStatus(snapshotStatus)} — treat as WARN in routine reports (exit 0)`)
     }
@@ -337,6 +341,11 @@ SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
 
   if (args.disabled) {
     log.log('⏸️  ODDS_SNAPSHOT=0 — published odds snapshots disabled.')
+    return done({ snapshotJobs: [], calls: 0, skippedDisabled: true })
+  }
+
+  if (passConfig.maxCreditsPerPass === 0) {
+    log.log('⏸️  ODDS_SNAPSHOT_MAX_CREDITS_PER_PASS=0 — published odds snapshots disabled.')
     return done({ snapshotJobs: [], calls: 0, skippedDisabled: true })
   }
 
@@ -498,6 +507,17 @@ SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
     creditCost: creditCostForMarkets(job.markets.length, SNAPSHOT_REGIONS.length),
   }))
 
+  if (shouldRefuseSnapshotStart(nowFn())) {
+    log.log('⏸️  Snapshot quiet window (:04:30–:15 ET) — aborting after setup, before fetch.')
+    return done({
+      snapshotJobs: [],
+      events: 0,
+      calls: 0,
+      skippedQuiet: true,
+      snapshotStatus: SNAPSHOT_STATUS_PARTIAL,
+    })
+  }
+
   const plannedCredits = snapshotJobs.reduce((sum, job) => sum + (job.creditCost || 0), 0)
   const plannedCalls = snapshotJobs.length === 0 ? 0 : 1 + snapshotJobs.length
 
@@ -614,6 +634,10 @@ SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
       calls += 1
       log.log(`⚠️ Quota probe failed (${error.message}); continuing without a pre-check.`)
     }
+    const startQuota = {
+      used: lastQuota.used ?? null,
+      remaining: lastQuota.remaining ?? null,
+    }
     if (lastQuota.remaining != null && lastQuota.remaining < args.minRemaining) {
       log.log(
         `⏸️  Odds API remaining ${lastQuota.remaining} < min-remaining ${args.minRemaining}. `
@@ -682,6 +706,9 @@ SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
         skippedBudgetDuringRun += 1
         log.log(`  ⏸️  ${job.gameIds.join(',')} skipped by budget`)
         break
+      }
+      if (fetched?.quota) {
+        lastQuota = { ...lastQuota, ...fetched.quota }
       }
       calls += 1
       creditsUsed += estimatedCredits
@@ -753,6 +780,13 @@ SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
       skippedQuiet: skippedQuietDuringRun,
       skippedBudgetCount: skippedBudgetDuringRun,
       tableMissing,
+      spendReconcile: reconcileSnapshotSpend({
+        localCredits: creditsUsed,
+        startUsed: startQuota.used,
+        endUsed: lastQuota.used,
+        startRemaining: startQuota.remaining,
+        endRemaining: lastQuota.remaining,
+      }),
     })
   } finally {
     lock.release()

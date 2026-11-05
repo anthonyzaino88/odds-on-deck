@@ -336,6 +336,8 @@ npm run snapshot:published-odds:apply
 
 PowerShell: do not pass flags through `npm run snapshot:published-odds`.
 `--apply` or `SNAPSHOT_APPLY=1`. Kill switch: `ODDS_SNAPSHOT=0`.
+`ODDS_SNAPSHOT_MAX_CREDITS_PER_PASS=0` also disables snapshots
+(logged clearly; no setup fetches).
 Requires 011 SQL (`OddsSnapshot`). The script warns and does not crash
 on `42P01` / `PGRST204` / `42703` if 011 is not applied.
 
@@ -548,7 +550,7 @@ This is not a production DB write.
 | `ODDS_CLOSE_CAPTURE_DAILY_CAP` | `40` | Paid close-capture event-odds fetches allowed per ET day (both passes) |
 | `ODDS_SNAPSHOT_DAILY_PASSES` | `2` | Max published-odds snapshot passes per ET day |
 | `ODDS_SNAPSHOT_MAX_EVENT_CALLS` | `8` | Max event-odds calls per snapshot pass |
-| `ODDS_SNAPSHOT_MAX_CREDITS_PER_PASS` | `24` | Max markets × regions credits per snapshot pass |
+| `ODDS_SNAPSHOT_MAX_CREDITS_PER_PASS` | `24` | Max markets × regions credits per snapshot pass. `0` disables snapshots |
 | `ODDS_SNAPSHOT_FRESH_MINUTES` | `90` | Skip an event when saved quotes are newer than this |
 | `ODDS_PROBE_FAIL_CREDIT_CAP` | `100` | If `/v4/sports` fails and there are no quota headers from today, cap this run at this many credits |
 | `ODDS_NFL_ADJACENT_PROPS_TTL_HOURS` | `48` | Skip refetching NFL props for games not on today's ET date when cache is this fresh |

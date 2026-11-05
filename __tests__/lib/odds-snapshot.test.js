@@ -5,6 +5,7 @@ import {
   SNAPSHOT_SOURCE_PREGAME,
   acquireSnapshotPassLock,
   buildSnapshotRow,
+  formatSnapshotSpendMismatch,
   classifySnapshotJobs,
   eventQuotesAreFresh,
   formatSnapshotCredits,
@@ -13,8 +14,10 @@ import {
   isMissingOddsSnapshotError,
   isSnapshotEligiblePick,
   latestStampByGameId,
+  reconcileSnapshotSpend,
   remainingSnapshotPasses,
   sameLineQuotesForPick,
+  saveHeldSnapshotRows,
   selectSnapshotJobs,
   shouldRefuseSnapshotStart,
   shouldSkipCloseCaptureWindow,
@@ -247,6 +250,7 @@ describe('odds snapshot helpers', () => {
 
   test('acquireSnapshotPassLock is exclusive until released', () => {
     const files = new Map()
+    let currentPath = null
     const filesystem = {
       mkdirSync() {},
       openSync(filePath, flags) {
@@ -256,9 +260,17 @@ describe('odds snapshot helpers', () => {
           throw err
         }
         files.set(filePath, '')
+        currentPath = filePath
         return 1
       },
-      writeFileSync() {},
+      writeFileSync(fdOrPath, contents) {
+        const key = typeof fdOrPath === 'string' ? fdOrPath : currentPath
+        if (key) files.set(key, String(contents))
+      },
+      readFileSync(filePath) {
+        if (!files.has(filePath)) throw new Error('ENOENT')
+        return files.get(filePath)
+      },
       closeSync() {},
       unlinkSync(filePath) { files.delete(filePath) },
       statSync() { return { mtimeMs: Date.now() } },
@@ -283,5 +295,122 @@ describe('odds snapshot helpers', () => {
     })
     expect(third.acquired).toBe(true)
     third.release()
+  })
+
+  test('stale-lock cleanup deletes only when the owner token is unchanged', () => {
+    const stalePath = '/tmp/odds-snapshot-stale.json.lock'
+    const tokens = ['owner-a', 'owner-b']
+    let reads = 0
+    let unlinked = false
+    const filesystem = {
+      mkdirSync() {},
+      openSync() {
+        const err = new Error('EEXIST')
+        err.code = 'EEXIST'
+        throw err
+      },
+      readFileSync() {
+        const token = tokens[Math.min(reads, tokens.length - 1)]
+        reads += 1
+        return token
+      },
+      writeFileSync() {},
+      closeSync() {},
+      unlinkSync() { unlinked = true },
+      statSync() { return { mtimeMs: Date.now() - 20 * 60 * 1000 } },
+    }
+    const result = acquireSnapshotPassLock({
+      persistPath: '/tmp/odds-snapshot-stale.json',
+      filesystem,
+      persist: true,
+      staleMs: 15 * 60 * 1000,
+    })
+    expect(result.acquired).toBe(false)
+    expect(unlinked).toBe(false)
+    expect(reads).toBeGreaterThanOrEqual(2)
+  })
+
+  test('stale-lock cleanup deletes when the owner token is unchanged', () => {
+    const files = new Map([[ '/tmp/odds-snapshot-stale2.json.lock', 'owner-a' ]])
+    let currentPath = null
+    const filesystem = {
+      mkdirSync() {},
+      openSync(filePath, flags) {
+        if (flags === 'wx' && files.has(filePath)) {
+          const err = new Error('EEXIST')
+          err.code = 'EEXIST'
+          throw err
+        }
+        files.set(filePath, '')
+        currentPath = filePath
+        return 1
+      },
+      writeFileSync(fdOrPath, contents) {
+        const key = typeof fdOrPath === 'string' ? fdOrPath : currentPath
+        if (key) files.set(key, String(contents))
+      },
+      readFileSync(filePath) {
+        if (!files.has(filePath)) throw new Error('ENOENT')
+        return files.get(filePath)
+      },
+      closeSync() {},
+      unlinkSync(filePath) { files.delete(filePath) },
+      statSync() { return { mtimeMs: Date.now() - 20 * 60 * 1000 } },
+    }
+    const result = acquireSnapshotPassLock({
+      persistPath: '/tmp/odds-snapshot-stale2.json',
+      filesystem,
+      persist: true,
+      staleMs: 15 * 60 * 1000,
+    })
+    expect(result.acquired).toBe(true)
+    result.release()
+  })
+
+  test('saveHeldSnapshotRows appends JSONL instead of overwriting', () => {
+    const chunks = []
+    const filesystem = {
+      mkdirSync() {},
+      appendFileSync(_filePath, line) { chunks.push(String(line)) },
+    }
+    const first = saveHeldSnapshotRows([{ id: 'a' }], {
+      persistPath: '/tmp/odds-snapshot.json',
+      filesystem,
+      persist: true,
+      now: new Date('2026-11-05T17:00:00.000Z'),
+    })
+    const second = saveHeldSnapshotRows([{ id: 'b' }], {
+      persistPath: '/tmp/odds-snapshot.json',
+      filesystem,
+      persist: true,
+      now: new Date('2026-11-05T17:10:00.000Z'),
+    })
+    expect(first).toMatch(/odds-snapshot-held\.jsonl$/)
+    expect(second).toBe(first)
+    expect(chunks).toHaveLength(2)
+    expect(JSON.parse(chunks[0]).rows[0].id).toBe('a')
+    expect(JSON.parse(chunks[1]).rows[0].id).toBe('b')
+  })
+
+  test('reconcileSnapshotSpend warns only when header deltas differ', () => {
+    expect(reconcileSnapshotSpend({
+      localCredits: 2,
+      startUsed: 2000,
+      endUsed: 2002,
+      startRemaining: 12000,
+      endRemaining: 11998,
+    }).ok).toBe(true)
+    const mismatch = reconcileSnapshotSpend({
+      localCredits: 2,
+      startUsed: 2000,
+      endUsed: 2001,
+      startRemaining: 12000,
+      endRemaining: 11999,
+    })
+    expect(mismatch.ok).toBe(false)
+    expect(formatSnapshotSpendMismatch(mismatch)).toBe(
+      '⚠️ SNAPSHOT_SPEND_MISMATCH local=2 usedΔ=1 remainingΔ=1',
+    )
+    expect(formatSnapshotSpendMismatch({ ok: true })).toBeNull()
   })
 })
