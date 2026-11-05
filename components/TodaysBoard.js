@@ -1,6 +1,7 @@
 import Link from 'next/link'
-import { SectionHeading, SportBadge } from './ui'
+import { SectionHeading, SportBadge, BookBadge } from './ui'
 import { todaysBoardSlateState } from '../lib/published-picks.js'
+import { formatAmericanOdds } from '../lib/odds-units.js'
 
 function lineLabel(row) {
   const pick = row.pick ? String(row.pick) : ''
@@ -10,6 +11,7 @@ function lineLabel(row) {
 }
 
 function BoardRow({ row }) {
+  const consensus = formatAmericanOdds(row.consensusAmerican)
   const inner = (
     <div className="bg-surface hover:bg-elevated transition-colors duration-100 px-3 py-2.5 sm:px-4">
       <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
@@ -36,6 +38,20 @@ function BoardRow({ row }) {
             <span className="text-[15px] font-medium text-slate-100 tabular-nums font-mono">
               {row.odds}
             </span>
+          )}
+          {row.bestBook && <BookBadge book={row.bestBook} />}
+          {typeof row.numBooks === 'number' && row.numBooks > 0 && (
+            <span className="text-[10px] text-slate-500 tabular-nums font-mono">
+              {row.numBooks} {row.numBooks === 1 ? 'book' : 'books'}
+            </span>
+          )}
+          {consensus && (
+            <span className="text-[10px] text-slate-500 tabular-nums font-mono">
+              vs cons {consensus}
+            </span>
+          )}
+          {row.staleQuotes && (
+            <span className="text-[10px] font-medium text-amber-400">stale</span>
           )}
           {row.why && (
             <span className="inline-flex items-center px-1.5 py-0.5 rounded-[3px] text-[10px] font-medium tabular-nums font-mono border border-white/[0.08] bg-white/[0.04] text-slate-300">

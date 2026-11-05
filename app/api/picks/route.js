@@ -23,7 +23,8 @@ export async function GET(request) {
     const validModes = ['safe', 'balanced', 'value', 'all']
     const filterMode = validModes.includes(mode) ? mode : 'value'
     
-    // Generate picks with the selected filter mode
+    // Shop fields come from the PlayerPropCache select in generateEditorPicks
+    // (mapCachePropToEditorPick / withPublicShopFields) — one cache round-trip.
     const picks = await generateEditorPicks(filterMode)
     const gameLines = await generateGameLines()
     const sidesTotals = await getSidesTotalsStats()

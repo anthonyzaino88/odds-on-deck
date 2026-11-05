@@ -19,6 +19,9 @@ import {
   toPublicPropShop,
   toPublicPropsApiRow,
   toPublicShopQuotes,
+  hydratePicksWithCacheShop,
+  loadPlayerPropCacheShopRows,
+  withPublicShopFields,
   upsertPlayerPropCacheWithOptionalQuotes,
   usableDecimalPrice,
   vigFreeProbability,
@@ -281,6 +284,145 @@ describe('public shop mapping', () => {
     expect(shop.quotes[0].stale).toBe(false)
     expect(shop.quotes[1].stale).toBe(true)
     expect(shop.staleQuotes).toBe(true)
+  })
+})
+
+describe('Published pick shop overlay', () => {
+  function shopClient({ rows = [], error = null, secondRows = null } = {}) {
+    let calls = 0
+    return {
+      from(table) {
+        expect(table).toBe('PlayerPropCache')
+        const chain = {
+          select() { return chain },
+          in() { return chain },
+          then(ok, err) {
+            calls += 1
+            if (calls === 1 && error) {
+              return Promise.resolve({ data: null, error }).then(ok, err)
+            }
+            const payload = (calls > 1 && secondRows) ? secondRows : rows
+            return Promise.resolve({ data: payload, error: null }).then(ok, err)
+          },
+        }
+        return chain
+      },
+    }
+  }
+
+  test('withPublicShopFields keeps entry price/book and attaches the ladder', () => {
+    const pick = {
+      propId: 'shough-pass',
+      playerName: 'Tyler Shough',
+      odds: -110,
+      bookmaker: 'FanDuel',
+      entryBook: 'FanDuel',
+      probability: 0.54,
+    }
+    const cache = {
+      propId: 'shough-pass',
+      odds: 2.10,
+      bookmaker: 'DraftKings',
+      probability: 0.52,
+      gameTime: '2026-11-04T23:00:00.000Z',
+      quotes: [
+        { book: 'FanDuel', decimal: 2.00, american: 100, lastUpdate: '2026-11-04T17:00:00.000Z' },
+        { book: 'DraftKings', decimal: 2.10, american: 110, lastUpdate: '2026-11-04T17:05:00.000Z' },
+      ],
+    }
+    const out = withPublicShopFields(pick, cache, { now: Date.parse('2026-11-04T18:00:00.000Z') })
+    expect(out.odds).toBe(-110)
+    expect(out.bookmaker).toBe('FanDuel')
+    expect(out.entryBook).toBe('FanDuel')
+    expect(out.bestBook).toBe('DraftKings')
+    expect(out.numBooks).toBe(2)
+    expect(out.quotes).toHaveLength(2)
+    expect(out.quotes[0].book).toBe('FanDuel')
+    expect(out.quotes[0].ageMs).toBeGreaterThan(0)
+    expect(out.consensusAmerican).toBe(-108)
+    expect(out.staleQuotes).toBe(false)
+  })
+
+  test('falls back cleanly when the cache row has no quotes', () => {
+    const pick = { propId: 'p1', odds: 1.91, bookmaker: 'FanDuel', probability: 0.55 }
+    const out = withPublicShopFields(pick, { propId: 'p1', odds: 1.91, bookmaker: 'FanDuel' })
+    expect(out.quotes).toBeNull()
+    expect(out.staleQuotes).toBe(false)
+    expect(out.numBooks).toBeNull()
+    expect(out.bestBook).toBe('FanDuel')
+    expect(out.odds).toBe(1.91)
+  })
+
+  test('hydrate looks up PlayerPropCache by propId without /api/props filters', async () => {
+    const picks = [{
+      propId: 'shough-pass',
+      playerName: 'Tyler Shough',
+      odds: -110,
+      bookmaker: 'FanDuel',
+    }]
+    const client = shopClient({
+      rows: [{
+        propId: 'shough-pass',
+        odds: 2.05,
+        bookmaker: 'DraftKings',
+        probability: 0.51,
+        quotes: [
+          { book: 'DraftKings', decimal: 2.05, american: 105, lastUpdate: '2026-11-04T17:00:00.000Z' },
+        ],
+      }],
+    })
+    const [out] = await hydratePicksWithCacheShop(picks, client, { now: Date.parse('2026-11-04T18:00:00.000Z') })
+    expect(out.playerName).toBe('Tyler Shough')
+    expect(out.odds).toBe(-110)
+    expect(out.bestBook).toBe('DraftKings')
+    expect(out.numBooks).toBe(1)
+    expect(out.quotes).toHaveLength(1)
+  })
+
+  test('hydrate falls back to the pick when the cache miss / lookup errors', async () => {
+    const picks = [{ propId: 'missing', odds: -105, bookmaker: 'FanDuel', probability: 0.53 }]
+    const missed = await hydratePicksWithCacheShop(picks, shopClient({ rows: [] }))
+    expect(missed[0].quotes).toBeNull()
+    expect(missed[0].odds).toBe(-105)
+    expect(missed[0].bestBook).toBe('FanDuel')
+
+    const spy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const errored = await hydratePicksWithCacheShop(
+      picks,
+      shopClient({ error: { code: '42501', message: 'permission denied' } }),
+    )
+    expect(spy).toHaveBeenCalled()
+    spy.mockRestore()
+    expect(errored[0].quotes).toBeNull()
+    expect(errored[0].odds).toBe(-105)
+    expect(errored.shopLoadError).toBe(true)
+  })
+
+  test('loadPlayerPropCacheShopRows retries without quote columns on PGRST204', async () => {
+    const rows = [{ propId: 'p1', odds: 1.91, bookmaker: 'FanDuel', probability: 0.55 }]
+    const { map, shopLoadError } = await loadPlayerPropCacheShopRows(
+      shopClient({
+        error: { code: 'PGRST204', message: "Could not find the 'quotes' column of 'PlayerPropCache'" },
+        secondRows: rows,
+      }),
+      ['p1'],
+    )
+    expect(shopLoadError).toBe(false)
+    expect(map.get('p1').bookmaker).toBe('FanDuel')
+    expect(map.get('p1').quotes).toBeUndefined()
+  })
+
+  test('non-missing-column lookup errors set shopLoadError instead of a silent empty map', async () => {
+    const spy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const { map, shopLoadError, error } = await loadPlayerPropCacheShopRows(
+      shopClient({ error: { code: '42501', message: 'permission denied' } }),
+      ['p1'],
+    )
+    expect(spy).toHaveBeenCalled()
+    spy.mockRestore()
+    expect(shopLoadError).toBe(true)
+    expect(error).toMatchObject({ code: '42501' })
+    expect(map.size).toBe(0)
   })
 })
 

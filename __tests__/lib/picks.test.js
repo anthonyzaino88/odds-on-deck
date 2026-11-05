@@ -40,6 +40,27 @@ describe('selectEditorPicks', () => {
     expect(picks[0].propType).toBe('batter_hits')
   })
 
+  test('maps shop fields from the cache row without changing entry odds', () => {
+    const mapped = mapCachePropToEditorPick(cacheRow('Tyler Shough', {
+      sport: 'nfl',
+      type: 'player_pass_yds',
+      odds: -110,
+      bookmaker: 'FanDuel',
+      probability: 0.52,
+      quotes: [
+        { book: 'FanDuel', decimal: 1.91, american: -110, lastUpdate: '2026-11-04T17:00:00.000Z' },
+        { book: 'DraftKings', decimal: 2.00, american: 100, lastUpdate: '2026-11-04T17:00:00.000Z' },
+      ],
+    }))
+    expect(mapped.odds).toBe(-110)
+    expect(mapped.bookmaker).toBe('FanDuel')
+    expect(mapped.numBooks).toBe(2)
+    expect(mapped.bestBook).toBe('FanDuel')
+    expect(mapped.quotes).toHaveLength(2)
+    expect(mapped.staleQuotes).toBe(true)
+    expect(mapped.consensusAmerican).not.toBeNull()
+  })
+
   test('returns an empty list instead of padding', () => {
     expect(selectEditorPicks([
       cacheRow('Trap', { pick: 'under', threshold: 0.5 }),
