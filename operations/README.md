@@ -322,6 +322,60 @@ below the daily cap so this job is not starved. 40 captures × 5
 markets = 200 credits, inside that reserve. CLV math and grading
 are unchanged.
 
+### Published odds snapshots (informational)
+
+Path from the morning post to the close for **Published picks only**.
+Never shadow-published, never unpublished pending archive. CLV stays
+entry vs consensus close — these rows are not used in `clvProb`.
+
+```bash
+node scripts/snapshot-published-odds.js
+node scripts/snapshot-published-odds.js --apply
+npm run snapshot:published-odds:apply
+```
+
+PowerShell: do not pass flags through `npm run snapshot:published-odds`.
+`--apply` or `SNAPSHOT_APPLY=1`. Kill switch: `ODDS_SNAPSHOT=0`.
+`ODDS_SNAPSHOT_MAX_CREDITS_PER_PASS=0` also disables snapshots
+(logged clearly; no setup fetches).
+Requires 011 SQL (`OddsSnapshot`). The script warns and does not crash
+on `42P01` / `PGRST204` / `42703` if 011 is not applied.
+
+One event-odds call per `oddsApiEventId`, only the markets those
+Published picks need, `regions=us`. Kickoff must be after T−35
+(games inside the close-capture window, or ≤60s from start, are
+skipped). Skips events whose saved quotes are fresher than 90
+minutes (`ODDS_SNAPSHOT_FRESH_MINUTES`). Refuses to start
+`:04:30–:15` ET so setup SELECTs cannot run in the window; re-checks
+quiet immediately before insert.
+
+Caps: max **2** passes / ET day (`ODDS_SNAPSHOT_DAILY_PASSES`),
+max **8** event calls / pass (`ODDS_SNAPSHOT_MAX_EVENT_CALLS`), and
+max **24** credits / pass (`ODDS_SNAPSHOT_MAX_CREDITS_PER_PASS`).
+Still gated by `lib/odds-api-budget.js` (daily / monthly / remaining
+floor 3,000). Purpose is `snapshot`, so the close-capture reserve
+still holds. Overlapping applies share a lockfile on the pass
+counter. Does not change morning fetch, `--apply-stale`, or close
+capture.
+
+Footer:
+
+```
+SNAPSHOT_STATUS=ok|partial|failed
+SNAPSHOT_EVENTS=<n>
+CALLS_USED=<n>
+CREDITS=<n>
+```
+
+| Assumption | Credits / pass | Credits / month |
+| --- | --- | --- |
+| Typical NFL Sunday (8 events, 2 markets) | ~16 | ~32 / Sunday × 4 ≈ 128 |
+| Typical NHL night (4–6 events, 1–2 markets) | ~6–12 | ~20 NHL days × 2 passes × 10 ≈ 400 |
+| Both passes hit the 8-event × 3-market cap | 24 | ≤1,440 if every day |
+
+Typical month: **~500–900**. Worst case at the caps: **≤1,440**. Still
+well under the 16.5k plan budget with morning + close capture.
+
 `--nfl-all` is opt-in. With it, every pending NFL prop in the window
 that still has no close is targeted (Published bar ignored), and each
 NFL game's existing event-odds request also asks for `h2h`, `spreads`,
@@ -494,6 +548,10 @@ This is not a production DB write.
 | `ODDS_REMAINING_FLOOR` | `3000` | Stop when remaining would fall under this |
 | `ODDS_CLOSE_CAPTURE_RESERVE` | `200` | Credits `fetch-live-odds` holds back each ET day so close capture is not starved |
 | `ODDS_CLOSE_CAPTURE_DAILY_CAP` | `40` | Paid close-capture event-odds fetches allowed per ET day (both passes) |
+| `ODDS_SNAPSHOT_DAILY_PASSES` | `2` | Max published-odds snapshot passes per ET day |
+| `ODDS_SNAPSHOT_MAX_EVENT_CALLS` | `8` | Max event-odds calls per snapshot pass |
+| `ODDS_SNAPSHOT_MAX_CREDITS_PER_PASS` | `24` | Max markets × regions credits per snapshot pass. `0` disables snapshots |
+| `ODDS_SNAPSHOT_FRESH_MINUTES` | `90` | Skip an event when saved quotes are newer than this |
 | `ODDS_PROBE_FAIL_CREDIT_CAP` | `100` | If `/v4/sports` fails and there are no quota headers from today, cap this run at this many credits |
 | `ODDS_NFL_ADJACENT_PROPS_TTL_HOURS` | `48` | Skip refetching NFL props for games not on today's ET date when cache is this fresh |
 | `ODDS_BUDGET_PATH` | `.local/odds-api-budget.json` | Ledger path, resolved from the repo root (not the working directory) |
