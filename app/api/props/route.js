@@ -9,6 +9,7 @@ import {
   isShadowPublishedCohort,
 } from '../../../lib/published-picks.js'
 import { toPublicPropsApiRow } from '../../../lib/line-shopping.js'
+import { attachPublicAltLines } from '../../../lib/nfl-alt-lines.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -74,7 +75,7 @@ export async function GET(request) {
         if (!prop.odds) return true
         return prop.odds >= MIN_DECIMAL_ODDS && prop.odds <= MAX_DECIMAL_ODDS
       })
-      .map(prop => toPublicPropsApiRow(prop))
+      .map(prop => attachPublicAltLines(toPublicPropsApiRow(prop), prop))
     
     return NextResponse.json({
       success: true,

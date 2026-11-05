@@ -38,6 +38,8 @@
     "preview:legacy-nfl": "node scripts/preview-legacy-nfl-published.js",
     "snapshot:published-odds": "node scripts/snapshot-published-odds.js",
     "snapshot:published-odds:apply": "node scripts/snapshot-published-odds.js --apply",
+    "fetch:nfl-alt-lines": "node scripts/fetch-published-nfl-alt-lines.js",
+    "fetch:nfl-alt-lines:apply": "node scripts/fetch-published-nfl-alt-lines.js --apply",
     "capture:published-closes": "node scripts/capture-published-closes.js",
     "capture:published-closes:apply": "node scripts/capture-published-closes.js --apply",
     "capture:published-closes:nfl-all": "node scripts/capture-published-closes.js --nfl-all",

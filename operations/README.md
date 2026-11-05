@@ -376,6 +376,71 @@ CREDITS=<n>
 Typical month: **~500–900**. Worst case at the caps: **≤1,440**. Still
 well under the 16.5k plan budget with morning + close capture.
 
+### Published NFL alt lines (informational)
+
+Shop alternate lines for **Published NFL picks only** so the public
+board can show best line+price combos (Over 64.5 −110 vs Over 62.5
+−135), not only juice at the posted number. Never shadow-published,
+never unpublished pending archive. CLV stays entry vs consensus close
+at the **same line** — alt lines are not used in `clvProb` or grading.
+
+Separate script. Morning fetch runs before the Published slate exists
+and already bills 5 NFL main markets per event; piggybacking would
+either miss Published-only targeting or multiply morning credits.
+Snapshot / close-capture routines stay unchanged.
+
+```bash
+node scripts/fetch-published-nfl-alt-lines.js
+node scripts/fetch-published-nfl-alt-lines.js --apply
+npm run fetch:nfl-alt-lines:apply
+```
+
+PowerShell: do not pass flags through `npm run fetch:nfl-alt-lines`.
+`--apply` or `NFL_ALT_APPLY=1`. Kill switch: `ODDS_NFL_ALT=0`.
+`ODDS_NFL_ALT_DAILY_CREDITS=0` also disables.
+Requires 012 SQL (`altQuotes` / `altQuoteUpdatedAt` on
+`PlayerPropCache`). The script warns and does not crash on `PGRST204`
+/ `42703` if 012 is not applied.
+
+One event-odds call per `oddsApiEventId`, only the official NFL
+`*_alternate` markets those Published picks need, `regions=us`.
+Kickoff must be after T−35. Skips events whose `altQuotes` are fresher
+than 90 minutes (`ODDS_NFL_ALT_FRESH_MINUTES`). Refuses to start
+`:04:30–:15` ET; re-checks quiet immediately before write.
+
+Hard cap: max **48** credits / ET day (`ODDS_NFL_ALT_DAILY_CREDITS`),
+enforced at job selection (soonest kickoff first) against today's
+persisted spend (`.local/odds-nfl-alt.json`). Overlapping applies
+share the #87 exclusive lockfile (owner token, stale after 15 min,
+re-read before delete). Re-selects under the lock against freshly
+read spend and records spend per call. Still gated by
+`lib/odds-api-budget.js` (daily / monthly / remaining floor 3,000).
+Purpose is `nfl-alt`, so the close-capture reserve still holds.
+Re-checks quiet before each cache write and holds remaining rows
+as JSONL. Does not change morning fetch, `--apply-stale`, close
+capture, or snapshots.
+
+Footer:
+
+```
+NFL_ALT_STATUS=ok|partial|failed
+NFL_ALT_EVENTS=<n>
+CALLS_USED=<n>
+CREDITS=<n>
+```
+
+| Assumption | Credits | Notes |
+| --- | --- | --- |
+| Typical NFL Sunday (8 events × 2 matching alt markets) | ~16 | Published slate only |
+| Typical month (4 Sundays) | ~64 | Quiet weekdays skip |
+| Daily cap (hard) | 48 | `ODDS_NFL_ALT_DAILY_CREDITS` |
+| Worst month, NFL days only (~8) | ≤384 | Cap × NFL days |
+| Worst month if run every day | ≤1,488 | Cap × 31; still under 16.5k with existing 6–10.5k |
+
+Uncapped Published-only Sundays stay small (matching markets only).
+The 48/day cap is the hard stop so a busy slate cannot surprise the
+budget. Combined worst case stays under the 16.5k plan.
+
 `--nfl-all` is opt-in. With it, every pending NFL prop in the window
 that still has no close is targeted (Published bar ignored), and each
 NFL game's existing event-odds request also asks for `h2h`, `spreads`,
@@ -552,6 +617,9 @@ This is not a production DB write.
 | `ODDS_SNAPSHOT_MAX_EVENT_CALLS` | `8` | Max event-odds calls per snapshot pass |
 | `ODDS_SNAPSHOT_MAX_CREDITS_PER_PASS` | `24` | Max markets × regions credits per snapshot pass. `0` disables snapshots |
 | `ODDS_SNAPSHOT_FRESH_MINUTES` | `90` | Skip an event when saved quotes are newer than this |
+| `ODDS_NFL_ALT` | (unset) | `0` / `false` / `off` disables the NFL alt-line shop |
+| `ODDS_NFL_ALT_DAILY_CREDITS` | `48` | Max markets × regions credits per ET day for alt lines. `0` disables |
+| `ODDS_NFL_ALT_FRESH_MINUTES` | `90` | Skip an event when saved altQuotes are newer than this |
 | `ODDS_PROBE_FAIL_CREDIT_CAP` | `100` | If `/v4/sports` fails and there are no quota headers from today, cap this run at this many credits |
 | `ODDS_NFL_ADJACENT_PROPS_TTL_HOURS` | `48` | Skip refetching NFL props for games not on today's ET date when cache is this fresh |
 | `ODDS_BUDGET_PATH` | `.local/odds-api-budget.json` | Ledger path, resolved from the repo root (not the working directory) |
@@ -622,6 +690,7 @@ scripts/
 ├── fetch-fresh-games.js        # ESPN slate; vanish writes with --apply-vanish (never --apply-stale)
 ├── reconcile-games.js          # Retire ghost / flipped MLB games (dry-run default; --apply writes)
 ├── fetch-live-odds.js          # Fetch odds/props from Odds API (PAID)
+├── fetch-published-nfl-alt-lines.js # Published NFL alt lines (PAID, dry-run default)
 ├── fetch-team-performance-data.js # ESPN team records / PPG (run before edges)
 ├── update-scores-safely.js     # Live score updates (FREE)
 ├── calculate-game-edges.js     # Calculate edges (requires secret key)
