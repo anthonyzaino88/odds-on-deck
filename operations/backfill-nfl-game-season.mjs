@@ -2,7 +2,8 @@
 /**
  * Backfill null/empty NFL Game.season from kickoff date (Jan–Feb → prior
  * year). Dry-run by default. --apply writes a JSON backup to
- * .local/backups first, then UPDATE. Refused :05–:15 ET.
+ * .local/backups first, then UPDATE only where season is still
+ * null/empty. Refused :05–:15 ET; the apply loop re-checks per write.
  *
  * Does not change eligibility gates. Does not call The Odds API.
  *
@@ -37,6 +38,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     argv,
     supabase,
     now: deps.now,
+    nowFn: deps.nowFn,
     log: deps.log || console,
     writeFile: deps.writeFile || writeFileSync,
     mkdir: deps.mkdir || mkdirSync,

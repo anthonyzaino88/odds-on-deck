@@ -2,9 +2,11 @@ import { mkdirSync, readFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import {
+  NFL_SEASON_MISSING_OR,
   formatSeasonYear,
   isMissingNflSeason,
   nflSeasonBackupFileName,
+  nflSeasonForUpsert,
   nflSeasonYearFromDate,
   parseBackfillNflGameSeasonArgs,
   planNflSeasonBackfill,
@@ -12,13 +14,23 @@ import {
   runBackfillNflGameSeason,
 } from '../../lib/nfl-season.js'
 
-function createSupabase({ rows = [], updates = [] } = {}) {
+function createSupabase({ rows = [], updates = [], updateResults } = {}) {
+  let updateCount = 0
   return {
     from(table) {
       expect(table).toBe('Game')
-      const state = { filters: [], payload: null }
+      const state = { filters: [], payload: null, isUpdate: false }
       const chain = {
-        select() { return chain },
+        select() {
+          if (state.isUpdate) {
+            updates.push({ payload: state.payload, filters: [...state.filters] })
+            const result = updateResults
+              ? updateResults[updateCount++]
+              : { data: [{ id: 'ok' }], error: null }
+            return Promise.resolve(result || { data: [], error: null })
+          }
+          return chain
+        },
         eq(col, val) { state.filters.push(['eq', col, val]); return chain },
         or(expr) { state.filters.push(['or', expr]); return chain },
         order() { return chain },
@@ -26,23 +38,9 @@ function createSupabase({ rows = [], updates = [] } = {}) {
           return Promise.resolve({ data: rows, error: null })
         },
         update(payload) {
+          state.isUpdate = true
           state.payload = payload
-          return {
-            eq(col, val) {
-              state.filters.push(['upd', col, val])
-              return {
-                eq(col2, val2) {
-                  state.filters.push(['upd', col2, val2])
-                  return {
-                    select() {
-                      updates.push({ payload: state.payload, filters: [...state.filters] })
-                      return Promise.resolve({ data: [{ id: val }], error: null })
-                    },
-                  }
-                },
-              }
-            },
-          }
+          return chain
         },
       }
       return chain
@@ -75,14 +73,66 @@ describe('NFL season year format', () => {
       date: '2027-02-14T23:30:00.000Z',
     })).toBe('2026')
   })
+
+  test('date-only strings are America/New_York calendar dates, not UTC midnight', () => {
+    expect(nflSeasonYearFromDate('2027-03-01')).toBe('2027')
+    expect(nflSeasonYearFromDate('2027-01-01')).toBe('2026')
+    expect(nflSeasonYearFromDate('2027-02-14')).toBe('2026')
+    expect(nflSeasonYearFromDate('2026-11-02')).toBe('2026')
+    // Contrast: UTC midnight Mar 1 is still Feb 28 ET → prior season.
+    expect(nflSeasonYearFromDate(new Date('2027-03-01T00:00:00.000Z'))).toBe('2026')
+  })
+
+  test('junk ESPN season.year falls through to the kickoff-date rule', () => {
+    expect(resolveNflGameSeason({
+      event: { season: { year: 'n/a' } },
+      date: '2027-02-14T23:30:00.000Z',
+    })).toBe('2026')
+    expect(resolveNflGameSeason({
+      event: { season: { year: 0 } },
+      date: '2026-10-29T17:00:00.000Z',
+    })).toBe('2026')
+    expect(resolveNflGameSeason({
+      event: { season: { year: 'TBD' } },
+      date: '2026-11-02T18:00:00.000Z',
+    })).toBe('2026')
+    expect(formatSeasonYear('n/a')).toBeNull()
+    expect(formatSeasonYear(0)).toBeNull()
+  })
+
+  test('upsert omits season when the existing row is already populated', () => {
+    expect(nflSeasonForUpsert({
+      incomingSeason: '2027',
+      date: '2026-10-29T17:00:00.000Z',
+      existingSeason: '2026',
+    })).toBeUndefined()
+    expect(nflSeasonForUpsert({
+      incomingSeason: '2026',
+      date: '2026-10-29T17:00:00.000Z',
+      existingSeason: null,
+    })).toBe('2026')
+    expect(nflSeasonForUpsert({
+      incomingSeason: null,
+      date: '2027-02-14T23:30:00.000Z',
+      existingSeason: '',
+    })).toBe('2026')
+    expect(nflSeasonForUpsert({
+      incomingSeason: '2026',
+      date: '2026-10-29T17:00:00.000Z',
+    })).toBe('2026')
+  })
 })
 
 describe('fetch-fresh-games NFL season ingest', () => {
-  test('always writes Game.season for NFL and falls back from kickoff date', () => {
+  test('writes Game.season for NFL only when the existing row is null/empty', () => {
     const src = readFileSync(join(process.cwd(), 'scripts/fetch-fresh-games.js'), 'utf8')
     expect(src).toMatch(/resolveNflGameSeason\(\{ event, date: gameDate \}\)/)
     expect(src).toMatch(/g\.sport === 'nfl'/)
-    expect(src).toMatch(/obj\.season = g\.season \|\| nflSeasonYearFromDate\(g\.date\)/)
+    expect(src).toMatch(/nflSeasonForUpsert/)
+    expect(src).toMatch(/existingSeasonById/)
+    expect(src).toMatch(/select\('id, season'\)/)
+    expect(src).toMatch(/does not clobber a populated Game\.season/)
+    expect(src).not.toMatch(/obj\.season = g\.season \|\| nflSeasonYearFromDate/)
     expect(src).not.toMatch(/eligibleForPublic/)
   })
 })
@@ -165,6 +215,65 @@ describe('runBackfillNflGameSeason', () => {
     expect(nflSeasonBackupFileName(new Date('2026-11-08T16:30:00.000Z'))).toMatch(/nfl-game-season-/)
     expect(JSON.parse(writes[0].body).rows[0].id).toBe('CAR_at_GB_2026-10-29')
     expect(updates[0].payload).toEqual({ season: '2026' })
+    expect(updates[0].filters.some(([op, expr]) => op === 'or' && expr === NFL_SEASON_MISSING_OR)).toBe(true)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('--apply re-checks the quiet window per write and stops cleanly', async () => {
+    const dir = join(tmpdir(), `nfl-season-quiet-${Date.now()}`)
+    mkdirSync(dir, { recursive: true })
+    const updates = []
+    const rows = [
+      { id: 'CAR_at_GB_2026-10-29', sport: 'nfl', date: '2026-10-29T17:00:00.000Z', season: null },
+      { id: 'KC_at_PHI_2026-11-02', sport: 'nfl', date: '2026-11-02T18:00:00.000Z', season: null },
+    ]
+    let n = 0
+    const result = await runBackfillNflGameSeason({
+      argv: ['--apply'],
+      supabase: createSupabase({ rows, updates }),
+      nowFn: () => {
+        n += 1
+        // 1 initial check, 2 backup stamp, 3 first write: not quiet.
+        // 4 second write: :09 ET.
+        if (n >= 4) return new Date('2026-11-08T17:09:00.000Z')
+        return new Date('2026-11-08T16:30:00.000Z')
+      },
+      log: { log() {}, warn() {}, error() {} },
+      writeFile() {},
+      mkdir() {},
+      cwd: dir,
+    })
+    expect(result.applied).toBe(1)
+    expect(result.stopped).toBe(true)
+    expect(result.reason).toBe('ops_quiet_period')
+    expect(result.exitCode).toBe(1)
+    expect(updates).toHaveLength(1)
+    expect(updates[0].payload).toEqual({ season: '2026' })
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('--apply UPDATE is a no-op when season was filled concurrently', async () => {
+    const dir = join(tmpdir(), `nfl-season-race-${Date.now()}`)
+    mkdirSync(dir, { recursive: true })
+    const updates = []
+    const rows = [
+      { id: 'CAR_at_GB_2026-10-29', sport: 'nfl', date: '2026-10-29T17:00:00.000Z', season: null },
+    ]
+    const result = await runBackfillNflGameSeason({
+      argv: ['--apply'],
+      supabase: createSupabase({
+        rows,
+        updates,
+        updateResults: [{ data: [], error: null }],
+      }),
+      now: new Date('2026-11-08T16:30:00.000Z'),
+      log: { log() {}, warn() {}, error() {} },
+      writeFile() {},
+      mkdir() {},
+      cwd: dir,
+    })
+    expect(result.applied).toBe(0)
+    expect(updates[0].filters.some(([op, expr]) => op === 'or' && expr === NFL_SEASON_MISSING_OR)).toBe(true)
     rmSync(dir, { recursive: true, force: true })
   })
 
