@@ -245,10 +245,56 @@ describe('runBackfillNflGameSeason', () => {
     })
     expect(result.applied).toBe(1)
     expect(result.stopped).toBe(true)
+    expect(result.status).toBe('partial')
     expect(result.reason).toBe('ops_quiet_period')
     expect(result.exitCode).toBe(1)
+    expect(result.remaining).toBe(1)
     expect(updates).toHaveLength(1)
     expect(updates[0].payload).toEqual({ season: '2026' })
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('stopped remaining count subtracts applied and errored rows', async () => {
+    const dir = join(tmpdir(), `nfl-season-partial-${Date.now()}`)
+    mkdirSync(dir, { recursive: true })
+    const updates = []
+    const logs = []
+    const rows = [
+      { id: 'CAR_at_GB_2026-10-29', sport: 'nfl', date: '2026-10-29T17:00:00.000Z', season: null },
+      { id: 'KC_at_PHI_2026-11-02', sport: 'nfl', date: '2026-11-02T18:00:00.000Z', season: null },
+      { id: 'BUF_at_MIA_2026-11-09', sport: 'nfl', date: '2026-11-09T18:00:00.000Z', season: null },
+    ]
+    let n = 0
+    const result = await runBackfillNflGameSeason({
+      argv: ['--apply'],
+      supabase: createSupabase({
+        rows,
+        updates,
+        updateResults: [
+          { data: [{ id: 'ok' }], error: null },
+          { data: null, error: { message: 'write failed' } },
+        ],
+      }),
+      nowFn: () => {
+        n += 1
+        // 1 initial, 2 backup, 3 first write, 4 second write (error): not quiet.
+        // 5 third write: :09 ET stop.
+        if (n >= 5) return new Date('2026-11-08T17:09:00.000Z')
+        return new Date('2026-11-08T16:30:00.000Z')
+      },
+      log: { log: (...args) => logs.push(args.join(' ')), warn() {}, error() {} },
+      writeFile() {},
+      mkdir() {},
+      cwd: dir,
+    })
+    expect(result.status).toBe('partial')
+    expect(result.stopped).toBe(true)
+    expect(result.applied).toBe(1)
+    expect(result.errors).toHaveLength(1)
+    expect(result.remaining).toBe(1)
+    expect(result.count - result.applied - result.errors.length).toBe(1)
+    expect(logs.join('\n')).toMatch(/Stopped remaining writes \(1 not applied\)/)
+    expect(updates).toHaveLength(2)
     rmSync(dir, { recursive: true, force: true })
   })
 
