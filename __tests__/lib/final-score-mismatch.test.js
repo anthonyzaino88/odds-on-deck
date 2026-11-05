@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import {
+  DEFAULT_SCAN_LIMIT_PER_SPORT,
   DEFAULT_SOURCE_FETCH_GAP_MS,
   ESPN_SUMMARY_URLS,
   FINAL_SCORE_MISMATCH_REASONS,
@@ -9,6 +10,7 @@ import {
   flagFinalScoreMismatch,
   formatFinalScoreMismatchLine,
   loadSourceFinalBox,
+  mapEspnHeaderStatus,
   mapEspnSummaryBox,
   mapMlbScheduleFinalBox,
   parseReportFinalScoreArgs,
@@ -171,6 +173,30 @@ describe('flagFinalScoreMismatch', () => {
     )
   })
 
+  test('OAK vs ATH stored/source codes are the same MLB team', () => {
+    const stored = {
+      id: 'OAK_at_TEX_2026-04-26',
+      sport: 'mlb',
+      status: 'final',
+      homeAbbr: 'TEX',
+      awayAbbr: 'ATH',
+      homeScore: 5,
+      awayScore: 2,
+    }
+    const source = {
+      status: 'final',
+      homeAbbr: 'TEX',
+      awayAbbr: 'OAK',
+      homeScore: 5,
+      awayScore: 2,
+    }
+    expect(flagFinalScoreMismatch(stored, source)).toBeNull()
+    expect(flagFinalScoreMismatch({ ...stored, awayAbbr: 'OAK' }, {
+      ...source,
+      awayAbbr: 'ATH',
+    })).toBeNull()
+  })
+
   test('returns null when stored and source finals agree', () => {
     const source = mapNHLGameDetail(espnDetail({ home: '3', away: '2' }))
     expect(flagFinalScoreMismatch(NJ_VGK, source)).toBeNull()
@@ -251,6 +277,38 @@ describe('source loaders', () => {
     expect(espnOnly).toMatchObject({ status: 'final', homeScore: 4, awayScore: 1, awayAbbr: 'CWS' })
   })
 
+  test('non-final or null-score StatsAPI boxes fall through to ESPN', async () => {
+    const urls = []
+    const espnBox = espnDetail({
+      id: CHW_HOU.espnGameId,
+      home: '4',
+      away: '1',
+      homeAbbr: 'HOU',
+      awayAbbr: 'CHW',
+    })
+    const live = await loadSourceFinalBox(CHW_HOU, {
+      fetchJson: async (url) => {
+        urls.push(url)
+        if (String(url).includes('statsapi.mlb.com')) {
+          return { dates: [{ games: [mlbScheduleGame({ coded: 'I', homeRuns: 2, awayRuns: 1 })] }] }
+        }
+        return espnBox
+      },
+    })
+    expect(urls.some((url) => String(url).includes('site.api.espn.com'))).toBe(true)
+    expect(live).toMatchObject({ status: 'final', homeScore: 4, awayScore: 1 })
+
+    const blank = await loadSourceFinalBox(CHW_HOU, {
+      fetchJson: async (url) => {
+        if (String(url).includes('statsapi.mlb.com')) {
+          return { dates: [{ games: [mlbScheduleGame({ coded: 'F', homeRuns: null, awayRuns: null })] }] }
+        }
+        return espnBox
+      },
+    })
+    expect(blank).toMatchObject({ status: 'final', homeScore: 4, awayScore: 1 })
+  })
+
   test('NFL and NHL load ESPN summary URLs', async () => {
     const nfl = await loadSourceFinalBox(KC_BUF, {
       fetchJson: async (url) => {
@@ -304,7 +362,33 @@ describe('report-final-score-mismatch script', () => {
     })
     expect(resolveReportSports('all')).toEqual(['mlb', 'nfl', 'nhl'])
     expect(resolveReportSports('mlb')).toEqual(['mlb'])
+    expect(resolveReportSports('soccer')).toBeNull()
     expect(DEFAULT_SOURCE_FETCH_GAP_MS).toBeGreaterThanOrEqual(100)
+    expect(DEFAULT_SCAN_LIMIT_PER_SPORT).toBe(200)
+    expect(src).toMatch(/200 finals per sport/)
+    expect(src).toMatch(/--sport all can scan 600/)
+    expect(mapEspnHeaderStatus({ type: { name: 'STATUS_DELAYED', detail: 'Rain Delay' } })).toBe('delayed')
+    expect(mapEspnHeaderStatus({ type: { name: 'STATUS_SUSPENDED', detail: 'Suspended' } })).toBe('suspended')
+  })
+
+  test('unknown --sport prints usage and exits nonzero', async () => {
+    const { runFinalScoreMismatchReport } = await import(
+      '../../scripts/report-final-score-mismatch.js'
+    )
+    const logs = []
+    const result = await runFinalScoreMismatchReport({
+      argv: ['--sport', 'soccer'],
+      supabase: { from() { throw new Error('must not query') } },
+      stdout: {
+        log: (...args) => logs.push(args.join(' ')),
+        error: (...args) => logs.push(args.join(' ')),
+      },
+    })
+    expect(result.exitCode).toBeGreaterThan(0)
+    expect(result.error).toBe('unknown_sport')
+    expect(result.scanned).toBe(0)
+    expect(logs.join('\n')).toMatch(/Unknown --sport/)
+    expect(logs.join('\n')).toMatch(/--sport mlb\|nfl\|nhl\|all/)
   })
 
   test('runFinalScoreMismatchReport rate-limits source fetches and writes nothing', async () => {

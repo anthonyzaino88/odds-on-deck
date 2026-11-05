@@ -10,6 +10,8 @@
  *   node scripts/report-final-score-mismatch.js --sport all --days 14
  *   node scripts/report-final-score-mismatch.js --sport mlb --days 7
  *   node scripts/report-final-score-mismatch.js --gameId NJ_at_VGK_2026-10-14
+ *
+ * Scan cap is 200 finals per sport (--sport all can scan 600).
  */
 
 import { config } from 'dotenv'
@@ -31,6 +33,7 @@ export const REPORT_FINAL_SCORE_USAGE = `Usage:
 
 Read-only stored-vs-source final score check (ESPN; MLB StatsAPI first).
 Does not write. Does not call The Odds API.
+Scan cap is ${DEFAULT_SCAN_LIMIT_PER_SPORT} finals per sport (--sport all can scan 600).
 `
 
 function gameDateCutoff(days) {
@@ -97,6 +100,14 @@ export async function runFinalScoreMismatchReport({
   }
 
   const sports = resolveReportSports(args.sport)
+  if (!sports) {
+    const message = `Unknown --sport ${JSON.stringify(args.sport)}. Use mlb, nfl, nhl, or all.`
+    stdout.error?.(message)
+    stdout.error?.(REPORT_FINAL_SCORE_USAGE)
+    stdout.log?.(message)
+    stdout.log?.(REPORT_FINAL_SCORE_USAGE)
+    return { scanned: 0, mismatches: [], error: 'unknown_sport', exitCode: 2, help: true }
+  }
   if (!supabase) {
     const { createScriptSupabaseClient } = await import('../lib/supabase-script-client.js')
     supabase = createScriptSupabaseClient()
@@ -133,8 +144,12 @@ export async function runFinalScoreMismatchReport({
 
 const isDirect = process.argv[1] && process.argv[1].endsWith('report-final-score-mismatch.js')
 if (isDirect) {
-  runFinalScoreMismatchReport().catch((error) => {
-    console.error('❌ report-final-score-mismatch failed:', error)
-    process.exit(1)
-  })
+  runFinalScoreMismatchReport()
+    .then((result) => {
+      if (result?.exitCode) process.exit(result.exitCode)
+    })
+    .catch((error) => {
+      console.error('❌ report-final-score-mismatch failed:', error)
+      process.exit(1)
+    })
 }
