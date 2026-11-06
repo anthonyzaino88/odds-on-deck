@@ -2,6 +2,8 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { getGameDetail, latestOddsByBookMarket } from '../../lib/db.js'
 
+const FRESH_FETCHED_AT = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+
 function gameRow(id, overrides = {}) {
   return {
     id,
@@ -150,7 +152,7 @@ describe('getGameDetail sibling resolution', () => {
         { id: 'edge-next', gameId: nextDayId, ts: '2026-10-02T20:00:00.000Z' },
       ],
       props: [
-        { id: 'prop-exact', gameId: exactId, isStale: false, qualityScore: 80, gameTime: exactGame.date },
+        { id: 'prop-exact', gameId: exactId, isStale: false, qualityScore: 80, gameTime: exactGame.date, fetchedAt: FRESH_FETCHED_AT },
         { id: 'prop-next', gameId: nextDayId, isStale: false, qualityScore: 90, gameTime: nextDayGame.date },
       ],
     })
@@ -208,7 +210,7 @@ describe('getGameDetail sibling resolution', () => {
         { id: 'edge-alias', gameId: aliasId, ts: '2026-10-01T20:00:00.000Z' },
       ],
       props: [
-        { id: 'prop-alias', gameId: aliasId, isStale: false, qualityScore: 60, gameTime: aliasGame.date },
+        { id: 'prop-alias', gameId: aliasId, isStale: false, qualityScore: 60, gameTime: aliasGame.date, fetchedAt: FRESH_FETCHED_AT },
       ],
     })
 
@@ -264,7 +266,7 @@ describe('getGameDetail sibling resolution', () => {
     const client = createGameDetailClient({
       games: [nhlGame],
       props: [
-        { id: 'prop-nhl', gameId: nhlId, sport: 'nhl', isStale: false, qualityScore: 80, gameTime: nhlGame.date },
+        { id: 'prop-nhl', gameId: nhlId, sport: 'nhl', isStale: false, qualityScore: 80, gameTime: nhlGame.date, fetchedAt: FRESH_FETCHED_AT },
       ],
     })
 
@@ -291,6 +293,36 @@ describe('getGameDetail sibling resolution', () => {
     const detail = await getGameDetail(exactId, client)
     expect(detail.odds.map((row) => row.id)).toEqual(['fresh', 'spread'])
     expect(detail.odds.find((row) => row.market === 'h2h').priceHome).toBe(-110)
+  })
+
+  test('hides an old pregame price even when the row is unexpired', async () => {
+    const client = createGameDetailClient({
+      games: [exactGame],
+      props: [
+        {
+          id: 'prop-old',
+          gameId: exactId,
+          playerName: 'Old Price',
+          isStale: false,
+          qualityScore: 90,
+          gameTime: new Date(Date.now() + 36 * 60 * 60 * 1000).toISOString(),
+          expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+          fetchedAt: new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString(),
+        },
+        {
+          id: 'prop-fresh',
+          gameId: exactId,
+          playerName: 'Fresh Price',
+          isStale: false,
+          qualityScore: 40,
+          gameTime: new Date(Date.now() + 36 * 60 * 60 * 1000).toISOString(),
+          expiresAt: new Date(Date.now() + 20 * 60 * 60 * 1000).toISOString(),
+          fetchedAt: FRESH_FETCHED_AT,
+        },
+      ],
+    })
+    const detail = await getGameDetail(exactId, client)
+    expect(detail.playerProps.map((row) => row.id)).toEqual(['prop-fresh'])
   })
 
   test('game detail page revalidates on a short ISR window and is not force-dynamic', () => {

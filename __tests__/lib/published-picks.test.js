@@ -15,6 +15,7 @@ import {
   getEtCalendarDayRange,
   pickWhyChip,
   boardRowKey,
+  canonicalPlayerPropCacheId,
   matchesPublishedStatsPrefilter,
   toPublishedValidationFields,
   publishedPropId,
@@ -956,6 +957,21 @@ describe('toPublishedValidationFields', () => {
     })
     expect(fields.source).not.toBe('game_line')
     expect(publishedPropId({ propId: 'yelich-tb-15' })).toBe('yelich-tb-15')
+    expect(canonicalPlayerPropCacheId({
+      gameId: 'DAL_at_PHI_2026-11-08',
+      playerName: 'Jalen Hurts',
+      type: 'player_pass_yds',
+      threshold: 224.5,
+      pick: 'over',
+    })).toBe('DAL_at_PHI_2026-11-08-Jalen Hurts-player_pass_yds-224.5-over')
+    expect(publishedPropId({
+      gameIdRef: 'DAL_at_PHI_2026-11-08',
+      playerName: 'Jalen Hurts',
+      propType: 'player_pass_yds_alternate',
+      threshold: 224.5,
+      prediction: 'Over',
+    })).toBe('DAL_at_PHI_2026-11-08-Jalen Hurts-player_pass_yds_alternate-224.5-over')
+    expect(publishedPropId({ playerName: 'Jalen Hurts' })).toMatch(/^pub-/)
   })
 
   test('appends availability flags onto Published notes without changing the cohort', () => {

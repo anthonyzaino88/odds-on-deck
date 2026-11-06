@@ -178,6 +178,62 @@ describe('runCleanupCli side-effect guards', () => {
 })
 
 describe('script wiring', () => {
+  test('a mid-run quiet stop exits 0 with CLEANUP_STATUS=partial', async () => {
+    const stdout = memoryStream()
+    const { exitCode } = await runCleanupCli({
+      argv: [],
+      env: { NEXT_PUBLIC_SUPABASE_URL: 'http://example.supabase.co', SUPABASE_SECRET_KEY: 'k' },
+      stdout,
+      stderr: memoryStream(),
+      createClient: jest.fn(() => ({})),
+      loadEnv: jest.fn(),
+      now: () => new Date('2026-09-14T08:00:00.000Z'),
+      resolveArchiveDir: () => '/tmp/ood-archive-test',
+      countRemaining: async () => ({
+        remainingExpired: 2,
+        remainingStale: 0,
+        remainingPastGame: 0,
+        remainingTotal: 2,
+      }),
+      runCleanup: async () => ({
+        abort: false,
+        partial: true,
+        skippedQuiet: true,
+        candidates: 2,
+        archived: 2,
+        deleted: 1,
+        skippedConcurrent: 0,
+        skippedDeleteMismatch: 0,
+        dryRun: false,
+      }),
+    })
+    expect(exitCode).toBe(0)
+    expect(stdout.toString()).toMatch(/CLEANUP_STATUS=partial/)
+    expect(stdout.toString()).toMatch(/DELETED=1/)
+  })
+
+  test('live cleanup does not touch the DB during :05–:15 ET', async () => {
+    const stdout = memoryStream()
+    const createClient = jest.fn()
+    const runCleanup = jest.fn()
+    const { exitCode, result } = await runCleanupCli({
+      argv: [],
+      env: { NEXT_PUBLIC_SUPABASE_URL: 'http://example.supabase.co', SUPABASE_SECRET_KEY: 'k' },
+      stdout,
+      stderr: memoryStream(),
+      createClient,
+      loadEnv: jest.fn(),
+      now: () => new Date('2026-07-15T16:09:00.000Z'),
+      runCleanup,
+    })
+    expect(exitCode).toBe(0)
+    expect(result.skippedQuiet).toBe(true)
+    expect(result.deleted).toBe(0)
+    expect(createClient).not.toHaveBeenCalled()
+    expect(runCleanup).not.toHaveBeenCalled()
+    expect(stdout.toString()).toMatch(/quiet period/i)
+  })
+
   test('clear-stale-props defers DB work until after CLI parse', () => {
     const src = readFileSync(join(process.cwd(), 'scripts/clear-stale-props.js'), 'utf8')
     expect(src).toMatch(/runCleanupCli/)

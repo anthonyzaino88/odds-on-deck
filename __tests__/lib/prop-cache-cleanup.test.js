@@ -7,7 +7,10 @@ import {
   PROP_LINE_ARCHIVE_CONTRACT_FIELDS,
   archiveCleanupRows,
   cleanupRetryDelayMs,
+  ALT_PLACEHOLDER_CATEGORY,
+  ALT_PLACEHOLDER_MAX_HOLD_MS,
   collectCleanupCandidates,
+  isPreGameAltPlaceholder,
   createSupabaseKeysetFetcher,
   dedupeCleanupCandidates,
   describeCleanupReadError,
@@ -121,6 +124,79 @@ describe('cleanup candidate pagination + dedupe', () => {
 
     expect(rows.map((r) => r.id)).toEqual(['a', 'b', 'c'])
     expect(dedupeCleanupCandidates([...expired, ...stale, ...past])).toHaveLength(3)
+  })
+
+  test('keeps an alt placeholder until kickoff, then past_game can remove it', async () => {
+    const nowIso = '2026-11-08T18:00:00.000Z'
+    const future = cacheRow({
+      id: 'hold',
+      category: ALT_PLACEHOLDER_CATEGORY,
+      isStale: true,
+      gameTime: '2026-11-08T21:00:00.000Z',
+      odds: 1,
+      edge: 0,
+      qualityScore: 0,
+      confidence: 'low',
+    })
+    const played = cacheRow({
+      id: 'done',
+      category: ALT_PLACEHOLDER_CATEGORY,
+      isStale: true,
+      gameTime: '2026-11-08T17:00:00.000Z',
+    })
+    const realStale = cacheRow({ id: 'real', isStale: true, category: null })
+    expect(isPreGameAltPlaceholder(future, nowIso)).toBe(true)
+    expect(isPreGameAltPlaceholder(played, nowIso)).toBe(false)
+    expect(isPreGameAltPlaceholder(realStale, nowIso)).toBe(false)
+
+    const kept = await collectCleanupCandidates(
+      keysetPages({
+        stale: [future, realStale],
+        past_game: [played],
+        expired: [],
+      }),
+      { nowIso, pageSize: 10 },
+    )
+    expect(kept.map((row) => row.id).sort()).toEqual(['done', 'real'])
+  })
+
+  test('an alt placeholder with no kickoff is exempt only until fetchedAt + 7 days', () => {
+    const nowIso = '2026-11-08T18:00:00.000Z'
+    const nowMs = Date.parse(nowIso)
+    const recent = cacheRow({
+      id: 'recent',
+      category: ALT_PLACEHOLDER_CATEGORY,
+      gameTime: 'not-a-kickoff',
+      fetchedAt: new Date(nowMs - 2 * 24 * 60 * 60 * 1000).toISOString(),
+    })
+    const aged = cacheRow({
+      id: 'aged',
+      category: ALT_PLACEHOLDER_CATEGORY,
+      gameTime: null,
+      fetchedAt: new Date(nowMs - ALT_PLACEHOLDER_MAX_HOLD_MS - 60 * 1000).toISOString(),
+    })
+    const undated = cacheRow({
+      id: 'undated',
+      category: ALT_PLACEHOLDER_CATEGORY,
+      gameTime: '',
+      fetchedAt: null,
+    })
+    expect(isPreGameAltPlaceholder(recent, nowIso)).toBe(true)
+    expect(isPreGameAltPlaceholder(aged, nowIso)).toBe(false)
+    expect(isPreGameAltPlaceholder(undated, nowIso)).toBe(false)
+  })
+
+  test('live cleanup refuses the :05–:15 ET quiet window before any read', async () => {
+    const fetchPage = jest.fn()
+    const result = await runPropCacheCleanup({
+      fetchPage,
+      nowIso: '2026-07-15T16:09:00.000Z',
+      dryRun: false,
+    })
+    expect(result.skippedQuiet).toBe(true)
+    expect(result.deleted).toBe(0)
+    expect(result.archived).toBe(0)
+    expect(fetchPage).not.toHaveBeenCalled()
   })
 
   test('walks page-size boundaries with a stable id cursor', async () => {
@@ -481,6 +557,56 @@ describe('deletion protection', () => {
     expect(result.skippedConcurrent).toBe(0)
     expect(result.skippedDeleteMismatch).toBe(1)
     expect(deleted[0].fetched_at).toBe('2026-09-10T12:00:00.123456+00:00')
+  })
+
+  test('quiet window before the delete phase archives and deletes nothing further', async () => {
+    const rows = [cacheRow({ id: 'a' }), cacheRow({ id: 'b' })]
+    const deleted = []
+    const result = await runPropCacheCleanup({
+      fetchPage: keysetPages({ expired: rows }),
+      refetchByIds: async () => rows,
+      deleteExact: async (snapshot) => {
+        deleted.push(snapshot.id)
+        return 1
+      },
+      nowIso: '2026-09-14T00:00:00.000Z',
+      archiveDir: dir,
+      archivedAt: '2026-09-14T00:00:00.000Z',
+      clock: () => new Date('2026-07-15T16:09:00.000Z'),
+    })
+    expect(result.abort).toBe(false)
+    expect(result.partial).toBe(true)
+    expect(result.skippedQuiet).toBe(true)
+    expect(result.archived).toBe(2)
+    expect(result.deleted).toBe(0)
+    expect(deleted).toEqual([])
+    expect(summarizeCleanupForOps(result).cleanup_status).toBe('partial')
+  })
+
+  test('quiet window before a later delete keeps earlier deletes and stops', async () => {
+    const rows = [cacheRow({ id: 'a' }), cacheRow({ id: 'b' })]
+    const deleted = []
+    let ticks = 0
+    const result = await runPropCacheCleanup({
+      fetchPage: keysetPages({ expired: rows }),
+      refetchByIds: async () => rows,
+      deleteExact: async (snapshot) => {
+        deleted.push(snapshot.id)
+        return 1
+      },
+      nowIso: '2026-09-14T00:00:00.000Z',
+      archiveDir: dir,
+      archivedAt: '2026-09-14T00:00:00.000Z',
+      clock: () => {
+        ticks += 1
+        return new Date(ticks >= 3 ? '2026-07-15T16:09:00.000Z' : '2026-07-15T16:16:00.000Z')
+      },
+    })
+    expect(result.abort).toBe(false)
+    expect(result.partial).toBe(true)
+    expect(result.deleted).toBe(1)
+    expect(deleted).toEqual(['a'])
+    expect(summarizeCleanupForOps(result).cleanup_status).toBe('partial')
   })
 
   test('preserves exact fetchedAt precision for delete matching', async () => {

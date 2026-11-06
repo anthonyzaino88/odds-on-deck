@@ -7,9 +7,11 @@ import {
   PUBLISHED_SPORTS,
   isPublicPropSport,
   isShadowPublishedCohort,
+  omitStalePropCacheRows,
 } from '../../../lib/published-picks.js'
 import { toPublicPropsApiRow } from '../../../lib/line-shopping.js'
 import { attachPublicAltLines } from '../../../lib/nfl-alt-lines.js'
+import { applyPublicPropFreshness, omitUnfreshPublicPropRows } from '../../../lib/live-odds-landing.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,10 +51,10 @@ export async function GET(request) {
     
     // Only get non-stale props that haven't expired and whose games are still in the future
     const now = new Date().toISOString()
-    query = query
+    query = applyPublicPropFreshness(query
       .eq('isStale', false)
       .gte('expiresAt', now)
-      .gt('gameTime', now)
+      .gt('gameTime', now), now)
     
     const { data, error } = await query
     
@@ -68,7 +70,7 @@ export async function GET(request) {
     const MIN_DECIMAL_ODDS = 1.25   // worse than -400 is not a real bet
     const MAX_DECIMAL_ODDS = 15.0   // worse than +1400 is lottery territory
 
-    const props = (data || [])
+    const props = omitUnfreshPublicPropRows(omitStalePropCacheRows(data), now)
       .filter(prop => isPublicPropSport(prop.sport))
       .filter(prop => !isShadowPublishedCohort(prop))
       .filter(prop => {

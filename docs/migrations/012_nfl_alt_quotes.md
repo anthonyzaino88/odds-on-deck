@@ -22,6 +22,18 @@ Writers degrade on `PGRST204` / `42703` with a warning. They do not
 crash. `/api/props` returns `altLines: null` when the columns are
 absent.
 
+A cache miss for a Published `propId` may insert a non-playable
+placeholder row that only holds `altQuotes`. That row is `isStale:
+true` with `confidence: 'low'` (a normal cache value, not a special
+token) and `category = alt-placeholder`. Public prop queries
+(`/api/props`, homepage, Editor's, Published) select `isStale = false`,
+so the placeholder is not a play. Morning cleanup keeps
+`alt-placeholder` rows until `gameTime` has passed, then `past_game`
+archives and deletes them. A placeholder with no parseable kickoff is
+kept only until `fetchedAt` + 7 days. Public boards also require
+`fetchedAt` within 24 hours; a longer `expiresAt` only keeps the row
+for cleanup and close, it does not keep an old price on the board.
+
 ## How to apply (do not run from this PR)
 
 1. Open Supabase → SQL Editor.

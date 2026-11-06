@@ -1,5 +1,13 @@
-import { PUBLISHED_COHORT_TAG, PUBLISHED_SOURCE, SHADOW_PUBLISHED_COHORT_TAG } from '../../lib/published-picks.js'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
+  PUBLISHED_COHORT_TAG,
+  PUBLISHED_SOURCE,
+  SHADOW_PUBLISHED_COHORT_TAG,
+  omitStalePropCacheRows,
+} from '../../lib/published-picks.js'
+import {
+  DEFAULT_NFL_ALT_HORIZON_HOURS,
   NFL_ALT_CREDIT_ESTIMATE,
   NFL_ALT_MARKETS,
   NFL_ALT_REGIONS,
@@ -9,6 +17,13 @@ import {
   bestAltLinesForPick,
   cacheRowMatchesPick,
   classifyNflAltJobs,
+  eventCanPersistAltQuotes,
+  formatNflAltEventLine,
+  nflAltPersistStatus,
+  planAltQuotesForEvent,
+  planAltQuotesForPick,
+  readNflAltConfig,
+  writeAltQuoteRow,
   formatNflAltCredits,
   formatNflAltEvents,
   formatNflAltStatus,
@@ -255,6 +270,148 @@ describe('nfl alt-line helpers', () => {
     expect(rows[0].altQuotes[0].line).toBe(219.5)
     expect(rows[0].altQuotes[0].lastUpdate).toBe('2026-11-08T14:00:00.000Z')
     expect(rows[0].altQuoteUpdatedAt).toBe('2026-11-08T16:00:00.000Z')
+  })
+
+  test('public prop queries exclude stale alt placeholders', () => {
+    const files = [
+      'app/api/props/route.js',
+      'lib/homepage-hook.js',
+      'lib/picks.js',
+      'lib/validation.js',
+      'lib/published-picks.js',
+    ]
+    for (const file of files) {
+      const src = readFileSync(join(process.cwd(), file), 'utf8')
+      expect(src).toMatch(/\.eq\('isStale', false\)/)
+      expect(src).toMatch(/omitStalePropCacheRows/)
+    }
+    const docs = readFileSync(join(process.cwd(), 'docs/migrations/012_nfl_alt_quotes.md'), 'utf8')
+    expect(docs).toMatch(/non-playable/)
+    expect(docs).toMatch(/isStale/)
+  })
+
+  test('horizon default stays 36 hours', () => {
+    expect(DEFAULT_NFL_ALT_HORIZON_HOURS).toBe(36)
+    expect(readNflAltConfig({}).horizonHours).toBe(36)
+    expect(readNflAltConfig({ ODDS_NFL_ALT_HORIZON_HOURS: '36' }).horizonHours).toBe(36)
+  })
+
+  test('cache miss with quotes still plans a thin propId insert', () => {
+    const quotes = [{
+      playerName: 'Jalen Hurts',
+      market: 'player_pass_yds_alternate',
+      pick: 'over',
+      threshold: 219.5,
+      odds: -115,
+      book: 'FanDuel',
+      last_update: '2026-11-08T14:00:00.000Z',
+    }]
+    const pick = publishedNflPick({ propType: 'pass_yds' })
+    const planned = planAltQuotesForPick([], pick, quotes, {
+      now: new Date('2026-11-08T16:00:00.000Z'),
+      game: { date: '2026-11-08T21:00:00.000Z' },
+    })
+    expect(planned.matchedRows).toBe(0)
+    expect(planned.rows).toHaveLength(1)
+    expect(planned.rows[0].insert).toBe(true)
+    expect(planned.rows[0].propId).toBe('prop-hurts')
+    expect(planned.rows[0].altQuotes[0].line).toBe(219.5)
+    expect(planned.rows[0].edge).toBe(0)
+    expect(planned.rows[0].qualityScore).toBe(0)
+    expect(planned.rows[0].odds).toBe(1)
+    expect(planned.rows[0].isStale).toBe(true)
+    expect(planned.rows[0].category).toBe('alt-placeholder')
+    expect(planned.rows[0].confidence).toBe('low')
+    expect(planned.rows[0].confidence).not.toBe('alt-only')
+    const src = readFileSync(join(process.cwd(), 'lib/nfl-alt-lines.js'), 'utf8')
+    expect(src).toMatch(/Non-playable placeholder/)
+    expect(omitStalePropCacheRows([
+      planned.rows[0],
+      { propId: 'live', isStale: false, odds: 1.91 },
+    ]).map((row) => row.propId)).toEqual(['live'])
+    expect(planned.rows[0].expiresAt).toBe('2026-11-08T21:00:00.000Z')
+
+    const event = planAltQuotesForEvent(
+      { eventId: 'evt-1', game: { date: '2026-11-08T21:00:00.000Z' }, picks: [pick] },
+      [],
+      quotes,
+      { now: new Date('2026-11-08T16:00:00.000Z') },
+    )
+    expect(event.quotesCount).toBe(1)
+    expect(event.cacheRowsForGame).toBe(0)
+    expect(event.persistedRows).toBe(1)
+    expect(event.emptyAltPicks).toEqual([])
+    expect(formatNflAltEventLine({ eventId: 'evt-1' }, event)).toMatch(/quotesCount=1/)
+    expect(formatNflAltEventLine({ eventId: 'evt-1' }, event)).toMatch(/persistedRows=1/)
+    expect(formatNflAltEventLine({ eventId: 'evt-1' }, event)).toMatch(/emptyAltPicks=\[\]/)
+  })
+
+  test('empty alt quotes are unmatched and a paid run is partial', () => {
+    const pick = publishedNflPick()
+    const event = planAltQuotesForEvent(
+      { eventId: 'evt-1', picks: [pick] },
+      [cacheProp()],
+      [],
+    )
+    expect(event.persistedRows).toBe(0)
+    expect(event.emptyAltPicks).toEqual(['Jalen Hurts player_pass_yds'])
+    expect(nflAltPersistStatus({
+      creditsUsed: 1,
+      persistedRows: 0,
+      unmatchedPicks: event.unmatchedPicks,
+    })).toBe('partial')
+    expect(nflAltPersistStatus({
+      creditsUsed: 1,
+      persistedRows: 1,
+      unmatchedPicks: [],
+    })).toBe('ok')
+    expect(nflAltPersistStatus({ creditsUsed: 0, persistedRows: 0 })).toBe('ok')
+  })
+
+  test('no propId and no cache row cannot persist, so the event is not a write target', () => {
+    const pick = publishedNflPick({ propId: null })
+    expect(eventCanPersistAltQuotes({ picks: [pick] }, [])).toBe(false)
+    expect(planAltQuotesForPick([], pick, [{
+      playerName: 'Jalen Hurts',
+      market: 'player_pass_yds_alternate',
+      pick: 'over',
+      threshold: 219.5,
+      odds: -115,
+      book: 'FanDuel',
+    }]).rows).toEqual([])
+  })
+
+  test('propId conflict updates alt columns only', async () => {
+    const calls = []
+    const client = {
+      from() {
+        return {
+          insert() {
+            calls.push('insert')
+            return Promise.resolve({ error: { code: '23505', message: 'duplicate key' } })
+          },
+          update(payload) {
+            calls.push(payload)
+            return { eq: () => Promise.resolve({ error: null, data: payload }) }
+          },
+        }
+      },
+    }
+    const result = await writeAltQuoteRow(client, {
+      insert: true,
+      propId: 'prop-hurts',
+      altQuotes: [{ line: 219.5 }],
+      altQuoteUpdatedAt: '2026-11-08T16:00:00.000Z',
+      odds: 1,
+      edge: 0,
+    })
+    expect(result.error).toBeNull()
+    expect(calls[0]).toBe('insert')
+    expect(calls[1]).toEqual({
+      altQuotes: [{ line: 219.5 }],
+      altQuoteUpdatedAt: '2026-11-08T16:00:00.000Z',
+    })
+    expect(calls[1].odds).toBeUndefined()
   })
 
   test('public altLines stay off unpublished / non-NFL / shadow rows', () => {

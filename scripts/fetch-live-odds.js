@@ -30,6 +30,7 @@ import {
   pickUnmappedOddsGame,
   msSinceEtMidnight,
   nflAdjacentPropsTtlMs,
+  propCacheExpiresAt,
   propsCacheMaxAgeMs,
   resolveTeamNameFallback,
   resolvePropLanding,
@@ -54,6 +55,7 @@ import { isJuiceTrap, attachNumBooks } from '../lib/juice-traps.js'
 import {
   isPublishedEligibleProp,
   isPublicPropSport,
+  canonicalPlayerPropCacheId,
   loadPublishedEligibleForAutoSave,
   selectAutoSaveValidationProps,
   skipAutoSaveAfterPublishedPrefetchError,
@@ -1424,7 +1426,18 @@ async function savePlayerProps(gameProps, sport) {
               continue
             }
             
-            const propId = `${ourGameId}-${playerName}-${market.key}-${line}-${pick}`
+            // Legacy cache id keeps market.key, including *_alternate.
+            const propId = canonicalPlayerPropCacheId({
+              gameId: ourGameId,
+              playerName,
+              type: market.key,
+              threshold: line,
+              pick,
+            })
+            if (!propId) {
+              skipped++
+              continue
+            }
             
             // Only store the best-odds version of each prop (skip if already seen)
             const edgeLookup = `${gameId}|${playerName}|${market.key}|${line}|${pick}`
@@ -1499,7 +1512,7 @@ async function savePlayerProps(gameProps, sport) {
               bookmaker: bestBook,
               gameTime,
               fetchedAt: new Date().toISOString(),
-              expiresAt: new Date(Date.now() + CACHE_DURATION.PROPS).toISOString(),
+              expiresAt: propCacheExpiresAt({ now: new Date(), gameTime, sport }),
               isStale: false
             }, lineShop))
           }

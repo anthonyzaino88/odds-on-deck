@@ -95,7 +95,7 @@ Do not paste `scripts/migrations/006_rls_lockdown.sql` until every item is true:
 - [ ] `006_pre_snapshot.sql` has been run and its output saved
 
 
-**Cleanup failure is not overall OK.** `clear-stale-props.js` exits `1` when candidate reads or archive writes fail, and it deletes nothing. Later ESPN/odds steps may still succeed. Label that morning run **DEGRADED / PARTIAL SUCCESS**, not OK. Parse the `CLEANUP_STATUS=` footer (`ok` or `fail`) plus `CANDIDATES`, `ARCHIVED`, `DELETED`, `SKIPPED_REFETCH`, `SKIPPED_DELETE`, `REMAINING_EXPIRED`, `REMAINING_STALE`, `REMAINING_PAST_GAME`.
+**Cleanup failure is not overall OK.** `clear-stale-props.js` exits `1` when candidate reads or archive writes fail, and it deletes nothing. Later ESPN/odds steps may still succeed. Label that morning run **DEGRADED / PARTIAL SUCCESS**, not OK. Parse the `CLEANUP_STATUS=` footer (`ok`, `partial`, or `fail`) plus `CANDIDATES`, `ARCHIVED`, `DELETED`, `SKIPPED_REFETCH`, `SKIPPED_DELETE`, `REMAINING_EXPIRED`, `REMAINING_STALE`, `REMAINING_PAST_GAME`. `partial` means the live clock entered :05–:15 ET after archive started, so remaining deletes were not run.
 
 There is **no in-repo wrapper** that aggregates morning status. The Grok Bot morning-ops routine (outside this repo) must apply the prompt change below. **This live morning-routine reporting change is pending and has not been applied.** This agent does not modify live automation.
 
@@ -402,7 +402,16 @@ PowerShell: do not pass flags through `npm run fetch:nfl-alt-lines`.
 `ODDS_NFL_ALT_DAILY_CREDITS=0` also disables.
 Requires 012 SQL (`altQuotes` / `altQuoteUpdatedAt` on
 `PlayerPropCache`). The script warns and does not crash on `PGRST204`
-/ `42703` if 012 is not applied.
+/ `42703` if 012 is not applied. A Published prop with no cache row
+gets a non-playable placeholder (`isStale: true`, `confidence: 'low'`,
+`category: alt-placeholder`, edge and quality 0). Public prop queries
+already require `isStale = false`, so the placeholder is not a board
+play. Morning cleanup keeps that category until kickoff, then
+`past_game` archives and deletes it. No parseable kickoff: the
+exemption ends at `fetchedAt` + 7 days. `clear-stale-props` does not
+read or delete during the :05–:15 ET quiet window. Public boards hide
+a price whose `fetchedAt` is older than 24 hours even when `expiresAt`
+is still in the future.
 
 One event-odds call per `oddsApiEventId`, only the official NFL
 `*_alternate` markets those Published picks need, `regions=us`.

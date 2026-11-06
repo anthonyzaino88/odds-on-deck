@@ -82,6 +82,7 @@ function chainable(terminal, extras = {}) {
     range() { return terminal },
     then: terminal.then?.bind(terminal),
     update: extras.update,
+    insert: extras.insert,
   }
   return query
 }
@@ -101,6 +102,7 @@ function mockClient({
   }],
   cacheError = null,
   updates = [],
+  inserts = [],
   updateError = null,
 } = {}) {
   return {
@@ -123,6 +125,10 @@ function mockClient({
             return {
               eq() { return Promise.resolve({ data: payload, error: null }) },
             }
+          },
+          insert(payload) {
+            inserts.push(payload)
+            return Promise.resolve({ data: payload, error: null })
           },
         })
       }
@@ -540,5 +546,97 @@ describe('fetch-published-nfl-alt-lines script', () => {
     expect(result.nflAltStatus).toBe('partial')
     expect(updates).toHaveLength(1)
     expect(log.lines.some((line) => /Quiet window before write/.test(line))).toBe(true)
+  })
+
+  test('quotes with no cache row are inserted on propId and logged', async () => {
+    const log = memoryLog()
+    const inserts = []
+    const fetchEventOdds = jest.fn(async () => ({
+      data: eventOdds(),
+      quota: { remaining: 11998, used: 2002, last: 1 },
+    }))
+    const result = await runFetchPublishedNflAltLines({
+      argv: ['--apply'],
+      now: NOW,
+      createClient: () => mockClient({ cache: [], inserts }),
+      fetchEventOdds,
+      probeQuota: jest.fn(async () => ({ remaining: 12000, used: 2000, last: 0 })),
+      apiKey: 'secret-key',
+      env: { SUPABASE_SECRET_KEY: 'secret-key' },
+      log,
+      budget: budget(),
+      persistDays: false,
+    })
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(result.nflAltStatus).toBe('ok')
+    expect(result.creditsUsed).toBe(1)
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0].propId).toBe('prop-hurts')
+    expect(inserts[0].insert).toBeUndefined()
+    expect(inserts[0].altQuotes[0]).toEqual(expect.objectContaining({
+      line: 219.5,
+      side: 'over',
+      book: 'FanDuel',
+    }))
+    expect(inserts[0].edge).toBe(0)
+    expect(inserts[0].odds).toBe(1)
+    const line = log.lines.find((entry) => entry.includes('quotesCount='))
+    expect(line).toMatch(/quotesCount=2/)
+    expect(line).toMatch(/cacheRowsForGame=0/)
+    expect(line).toMatch(/matchedRows=0/)
+    expect(line).toMatch(/persistedRows=1/)
+    expect(line).toMatch(/emptyAltPicks=\[\]/)
+    expect(line).not.toMatch(/secret-key|apiKey=/)
+  })
+
+  test('empty API alts are partial and do not look like a clean shop', async () => {
+    const log = memoryLog()
+    const inserts = []
+    const updates = []
+    const result = await runFetchPublishedNflAltLines({
+      argv: ['--apply'],
+      now: NOW,
+      createClient: () => mockClient({ inserts, updates }),
+      fetchEventOdds: jest.fn(async () => ({
+        data: { bookmakers: [] },
+        quota: { remaining: 11998, used: 2002, last: 1 },
+      })),
+      probeQuota: jest.fn(async () => ({ remaining: 12000, used: 2000, last: 0 })),
+      apiKey: 'secret-key',
+      env: { SUPABASE_SECRET_KEY: 'secret-key' },
+      log,
+      budget: budget(),
+      persistDays: false,
+    })
+    expect(result.creditsUsed).toBe(1)
+    expect(result.nflAltStatus).toBe('partial')
+    expect(inserts).toHaveLength(0)
+    expect(updates).toHaveLength(0)
+    const line = log.lines.find((entry) => entry.includes('quotesCount='))
+    expect(line).toMatch(/quotesCount=0/)
+    expect(line).toMatch(/persistedRows=0/)
+    expect(line).toMatch(/emptyAltPicks=\["Jalen Hurts player_pass_yds"\]/)
+    expect(log.lines).toEqual(expect.arrayContaining(['NFL_ALT_STATUS=partial']))
+  })
+
+  test('skips the paid fetch when the pick has no propId and no cache row', async () => {
+    const fetchEventOdds = jest.fn()
+    const result = await runFetchPublishedNflAltLines({
+      argv: ['--apply'],
+      now: NOW,
+      createClient: () => mockClient({
+        picks: [publishedPick({ propId: null })],
+        cache: [],
+      }),
+      fetchEventOdds,
+      probeQuota: jest.fn(async () => ({ remaining: 12000, used: 2000, last: 0 })),
+      apiKey: 'secret-key',
+      env: { SUPABASE_SECRET_KEY: 'secret-key' },
+      log: memoryLog(),
+      budget: budget(),
+      persistDays: false,
+    })
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(result.creditsUsed).toBe(0)
   })
 })
