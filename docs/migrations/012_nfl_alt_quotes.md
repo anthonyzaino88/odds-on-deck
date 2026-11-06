@@ -22,6 +22,13 @@ Writers degrade on `PGRST204` / `42703` with a warning. They do not
 crash. `/api/props` returns `altLines: null` when the columns are
 absent.
 
+A cache miss for a Published `propId` may insert a non-playable
+placeholder row that only holds `altQuotes`. That row is `isStale:
+true` with `confidence: 'low'` (a normal cache value, not a special
+token). Public prop queries (`/api/props`, homepage, Editor's,
+Published) select `isStale = false`, so the placeholder is not a play.
+Morning cleanup deletes stale cache rows.
+
 ## How to apply (do not run from this PR)
 
 1. Open Supabase → SQL Editor.

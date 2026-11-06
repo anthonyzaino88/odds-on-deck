@@ -402,7 +402,11 @@ PowerShell: do not pass flags through `npm run fetch:nfl-alt-lines`.
 `ODDS_NFL_ALT_DAILY_CREDITS=0` also disables.
 Requires 012 SQL (`altQuotes` / `altQuoteUpdatedAt` on
 `PlayerPropCache`). The script warns and does not crash on `PGRST204`
-/ `42703` if 012 is not applied.
+/ `42703` if 012 is not applied. A Published prop with no cache row
+gets a non-playable placeholder (`isStale: true`, `confidence: 'low'`,
+edge and quality 0). Public prop queries already require
+`isStale = false`, so the placeholder is not a board play. Morning
+cleanup deletes stale rows.
 
 One event-odds call per `oddsApiEventId`, only the official NFL
 `*_alternate` markets those Published picks need, `regions=us`.

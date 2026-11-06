@@ -1,4 +1,11 @@
-import { PUBLISHED_COHORT_TAG, PUBLISHED_SOURCE, SHADOW_PUBLISHED_COHORT_TAG } from '../../lib/published-picks.js'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import {
+  PUBLISHED_COHORT_TAG,
+  PUBLISHED_SOURCE,
+  SHADOW_PUBLISHED_COHORT_TAG,
+  omitStalePropCacheRows,
+} from '../../lib/published-picks.js'
 import {
   DEFAULT_NFL_ALT_HORIZON_HOURS,
   NFL_ALT_CREDIT_ESTIMATE,
@@ -265,6 +272,24 @@ describe('nfl alt-line helpers', () => {
     expect(rows[0].altQuoteUpdatedAt).toBe('2026-11-08T16:00:00.000Z')
   })
 
+  test('public prop queries exclude stale alt placeholders', () => {
+    const files = [
+      'app/api/props/route.js',
+      'lib/homepage-hook.js',
+      'lib/picks.js',
+      'lib/validation.js',
+      'lib/published-picks.js',
+    ]
+    for (const file of files) {
+      const src = readFileSync(join(process.cwd(), file), 'utf8')
+      expect(src).toMatch(/\.eq\('isStale', false\)/)
+      expect(src).toMatch(/omitStalePropCacheRows/)
+    }
+    const docs = readFileSync(join(process.cwd(), 'docs/migrations/012_nfl_alt_quotes.md'), 'utf8')
+    expect(docs).toMatch(/non-playable/)
+    expect(docs).toMatch(/isStale/)
+  })
+
   test('horizon default stays 36 hours', () => {
     expect(DEFAULT_NFL_ALT_HORIZON_HOURS).toBe(36)
     expect(readNflAltConfig({}).horizonHours).toBe(36)
@@ -294,6 +319,15 @@ describe('nfl alt-line helpers', () => {
     expect(planned.rows[0].edge).toBe(0)
     expect(planned.rows[0].qualityScore).toBe(0)
     expect(planned.rows[0].odds).toBe(1)
+    expect(planned.rows[0].isStale).toBe(true)
+    expect(planned.rows[0].confidence).toBe('low')
+    expect(planned.rows[0].confidence).not.toBe('alt-only')
+    const src = readFileSync(join(process.cwd(), 'lib/nfl-alt-lines.js'), 'utf8')
+    expect(src).toMatch(/Non-playable placeholder/)
+    expect(omitStalePropCacheRows([
+      planned.rows[0],
+      { propId: 'live', isStale: false, odds: 1.91 },
+    ]).map((row) => row.propId)).toEqual(['live'])
     expect(planned.rows[0].expiresAt).toBe('2026-11-08T21:00:00.000Z')
 
     const event = planAltQuotesForEvent(

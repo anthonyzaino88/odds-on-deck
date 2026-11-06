@@ -125,6 +125,44 @@ describe('GET /api/props stays on public sports', () => {
     expect(body.props.some((prop) => prop.sport === 'nhl')).toBe(true)
   })
 
+  test('drops a stale alt placeholder even when its odds are inside 1.25–15', async () => {
+    const captured = { ins: [], eqs: [] }
+    supabase.from.mockReturnValue(thenableQuery([
+      {
+        propId: 'prop-hurts',
+        gameId: 'DAL_at_PHI_2026-11-08',
+        playerName: 'Jalen Hurts',
+        type: 'player_pass_yds',
+        pick: 'over',
+        threshold: 224.5,
+        odds: 1.91,
+        edge: 0,
+        qualityScore: 0,
+        confidence: 'low',
+        sport: 'nfl',
+        isStale: true,
+      },
+      {
+        propId: 'nfl-live',
+        gameId: 'DAL_at_PHI_2026-11-08',
+        playerName: 'A.J. Brown',
+        type: 'player_receptions',
+        pick: 'over',
+        threshold: 5.5,
+        odds: 1.91,
+        sport: 'nfl',
+        isStale: false,
+      },
+    ], captured))
+
+    const res = await getProps(new Request('http://localhost/api/props?sport=nfl'))
+    const body = await res.json()
+    expect(captured.eqs).toEqual(expect.arrayContaining([
+      { col: 'isStale', val: false },
+    ]))
+    expect(body.props.map((prop) => prop.playerName)).toEqual(['A.J. Brown'])
+  })
+
   test('returns shop fields, hides a null ladder, and drops shadow NHL', async () => {
     const captured = { ins: [], eqs: [] }
     supabase.from.mockReturnValue(thenableQuery([

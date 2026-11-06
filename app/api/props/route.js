@@ -7,6 +7,7 @@ import {
   PUBLISHED_SPORTS,
   isPublicPropSport,
   isShadowPublishedCohort,
+  omitStalePropCacheRows,
 } from '../../../lib/published-picks.js'
 import { toPublicPropsApiRow } from '../../../lib/line-shopping.js'
 import { attachPublicAltLines } from '../../../lib/nfl-alt-lines.js'
@@ -68,7 +69,7 @@ export async function GET(request) {
     const MIN_DECIMAL_ODDS = 1.25   // worse than -400 is not a real bet
     const MAX_DECIMAL_ODDS = 15.0   // worse than +1400 is lottery territory
 
-    const props = (data || [])
+    const props = omitStalePropCacheRows(data)
       .filter(prop => isPublicPropSport(prop.sport))
       .filter(prop => !isShadowPublishedCohort(prop))
       .filter(prop => {
