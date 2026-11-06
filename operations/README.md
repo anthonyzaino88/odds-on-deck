@@ -407,7 +407,11 @@ gets a non-playable placeholder (`isStale: true`, `confidence: 'low'`,
 `category: alt-placeholder`, edge and quality 0). Public prop queries
 already require `isStale = false`, so the placeholder is not a board
 play. Morning cleanup keeps that category until kickoff, then
-`past_game` archives and deletes it.
+`past_game` archives and deletes it. No parseable kickoff: the
+exemption ends at `fetchedAt` + 7 days. `clear-stale-props` does not
+read or delete during the :05–:15 ET quiet window. Public boards hide
+a price whose `fetchedAt` is older than 24 hours even when `expiresAt`
+is still in the future.
 
 One event-odds call per `oddsApiEventId`, only the official NFL
 `*_alternate` markets those Published picks need, `regions=us`.

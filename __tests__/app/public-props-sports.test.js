@@ -19,7 +19,12 @@ const { supabase, isSupabaseAdminConfigured } = require('../../lib/supabase.js')
 const read = (rel) => fs.readFileSync(path.join(__dirname, '../..', rel), 'utf8')
 
 function thenableQuery(data, captured) {
-  const resolved = { data, error: null }
+  const resolved = {
+    data: (data || []).map((row) => (
+      row && row.fetchedAt ? row : { ...row, fetchedAt: new Date().toISOString() }
+    )),
+    error: null,
+  }
   const chain = {}
   const self = () => chain
   Object.assign(chain, {

@@ -1426,6 +1426,7 @@ async function savePlayerProps(gameProps, sport) {
               continue
             }
             
+            // Legacy cache id keeps market.key, including *_alternate.
             const propId = canonicalPlayerPropCacheId({
               gameId: ourGameId,
               playerName,

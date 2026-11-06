@@ -8,6 +8,7 @@ import {
   archiveCleanupRows,
   cleanupRetryDelayMs,
   ALT_PLACEHOLDER_CATEGORY,
+  ALT_PLACEHOLDER_MAX_HOLD_MS,
   collectCleanupCandidates,
   isPreGameAltPlaceholder,
   createSupabaseKeysetFetcher,
@@ -157,6 +158,45 @@ describe('cleanup candidate pagination + dedupe', () => {
       { nowIso, pageSize: 10 },
     )
     expect(kept.map((row) => row.id).sort()).toEqual(['done', 'real'])
+  })
+
+  test('an alt placeholder with no kickoff is exempt only until fetchedAt + 7 days', () => {
+    const nowIso = '2026-11-08T18:00:00.000Z'
+    const nowMs = Date.parse(nowIso)
+    const recent = cacheRow({
+      id: 'recent',
+      category: ALT_PLACEHOLDER_CATEGORY,
+      gameTime: 'not-a-kickoff',
+      fetchedAt: new Date(nowMs - 2 * 24 * 60 * 60 * 1000).toISOString(),
+    })
+    const aged = cacheRow({
+      id: 'aged',
+      category: ALT_PLACEHOLDER_CATEGORY,
+      gameTime: null,
+      fetchedAt: new Date(nowMs - ALT_PLACEHOLDER_MAX_HOLD_MS - 60 * 1000).toISOString(),
+    })
+    const undated = cacheRow({
+      id: 'undated',
+      category: ALT_PLACEHOLDER_CATEGORY,
+      gameTime: '',
+      fetchedAt: null,
+    })
+    expect(isPreGameAltPlaceholder(recent, nowIso)).toBe(true)
+    expect(isPreGameAltPlaceholder(aged, nowIso)).toBe(false)
+    expect(isPreGameAltPlaceholder(undated, nowIso)).toBe(false)
+  })
+
+  test('live cleanup refuses the :05–:15 ET quiet window before any read', async () => {
+    const fetchPage = jest.fn()
+    const result = await runPropCacheCleanup({
+      fetchPage,
+      nowIso: '2026-07-15T16:09:00.000Z',
+      dryRun: false,
+    })
+    expect(result.skippedQuiet).toBe(true)
+    expect(result.deleted).toBe(0)
+    expect(result.archived).toBe(0)
+    expect(fetchPage).not.toHaveBeenCalled()
   })
 
   test('walks page-size boundaries with a stable id cursor', async () => {

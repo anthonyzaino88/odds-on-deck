@@ -970,7 +970,7 @@ describe('toPublishedValidationFields', () => {
       propType: 'player_pass_yds_alternate',
       threshold: 224.5,
       prediction: 'Over',
-    })).toBe('DAL_at_PHI_2026-11-08-Jalen Hurts-player_pass_yds-224.5-over')
+    })).toBe('DAL_at_PHI_2026-11-08-Jalen Hurts-player_pass_yds_alternate-224.5-over')
     expect(publishedPropId({ playerName: 'Jalen Hurts' })).toMatch(/^pub-/)
   })
 

@@ -178,6 +178,28 @@ describe('runCleanupCli side-effect guards', () => {
 })
 
 describe('script wiring', () => {
+  test('live cleanup does not touch the DB during :05–:15 ET', async () => {
+    const stdout = memoryStream()
+    const createClient = jest.fn()
+    const runCleanup = jest.fn()
+    const { exitCode, result } = await runCleanupCli({
+      argv: [],
+      env: { NEXT_PUBLIC_SUPABASE_URL: 'http://example.supabase.co', SUPABASE_SECRET_KEY: 'k' },
+      stdout,
+      stderr: memoryStream(),
+      createClient,
+      loadEnv: jest.fn(),
+      now: () => new Date('2026-07-15T16:09:00.000Z'),
+      runCleanup,
+    })
+    expect(exitCode).toBe(0)
+    expect(result.skippedQuiet).toBe(true)
+    expect(result.deleted).toBe(0)
+    expect(createClient).not.toHaveBeenCalled()
+    expect(runCleanup).not.toHaveBeenCalled()
+    expect(stdout.toString()).toMatch(/quiet period/i)
+  })
+
   test('clear-stale-props defers DB work until after CLI parse', () => {
     const src = readFileSync(join(process.cwd(), 'scripts/clear-stale-props.js'), 'utf8')
     expect(src).toMatch(/runCleanupCli/)
