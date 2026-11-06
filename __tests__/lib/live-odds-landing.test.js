@@ -15,7 +15,10 @@ import {
   propSaveDecision,
   propsCacheMaxAgeMs,
   DEFAULT_NFL_ADJACENT_PROPS_TTL_MS,
+  PROP_CACHE_EXPIRES_MS,
+  PROP_CACHE_POST_KICKOFF_BUFFER_MS,
   nflAdjacentPropsTtlMs,
+  propCacheExpiresAt,
 } from '../../lib/live-odds-landing.js'
 
 function parseSelectColumns(select) {
@@ -276,6 +279,46 @@ describe('propsCacheMaxAgeMs', () => {
     expect(parsed.bareEtDay).toBe('2026-11-09')
     expect(parsed.ttl).toBe(parsed.todayTtl)
     expect(parsed.ttl).not.toBe(parsed.adjacent)
+  })
+})
+
+describe('propCacheExpiresAt', () => {
+  const now = new Date('2026-11-06T13:00:00.000Z')
+
+  test('later-day NFL lasts through the 48h skip window and 4h after kickoff', () => {
+    const gameTime = '2026-11-08T18:00:00.000Z'
+    const expires = Date.parse(propCacheExpiresAt({ now, gameTime, sport: 'nfl' }))
+    const kickoffBuffer = Date.parse(gameTime) + PROP_CACHE_POST_KICKOFF_BUFFER_MS
+    const adjacentEnd = now.getTime() + DEFAULT_NFL_ADJACENT_PROPS_TTL_MS
+    expect(expires).toBe(Math.max(now.getTime() + PROP_CACHE_EXPIRES_MS, adjacentEnd, kickoffBuffer))
+    expect(expires).toBeGreaterThan(Date.parse(gameTime))
+    expect(PROP_CACHE_POST_KICKOFF_BUFFER_MS).toBe(4 * 60 * 60 * 1000)
+    const nearer = Date.parse(propCacheExpiresAt({
+      now,
+      gameTime: '2026-11-07T19:00:00.000Z',
+      sport: 'nfl',
+    }))
+    expect(nearer).toBe(now.getTime() + DEFAULT_NFL_ADJACENT_PROPS_TTL_MS)
+  })
+
+  test('same-day props stay at least 24h, and MLB uses the same rule', () => {
+    const tonight = '2026-11-06T21:00:00.000Z'
+    const nfl = Date.parse(propCacheExpiresAt({ now, gameTime: tonight, sport: 'nfl' }))
+    const mlb = Date.parse(propCacheExpiresAt({ now, gameTime: tonight, sport: 'mlb' }))
+    expect(nfl).toBe(now.getTime() + PROP_CACHE_EXPIRES_MS)
+    expect(mlb).toBe(nfl)
+    const laterMlb = Date.parse(propCacheExpiresAt({
+      now,
+      gameTime: '2026-11-08T18:00:00.000Z',
+      sport: 'mlb',
+    }))
+    expect(laterMlb).toBe(Date.parse('2026-11-08T18:00:00.000Z') + PROP_CACHE_POST_KICKOFF_BUFFER_MS)
+  })
+
+  test('a missing kickoff falls back to now+24h', () => {
+    expect(Date.parse(propCacheExpiresAt({ now, gameTime: null, sport: 'nfl' }))).toBe(
+      now.getTime() + PROP_CACHE_EXPIRES_MS,
+    )
   })
 })
 

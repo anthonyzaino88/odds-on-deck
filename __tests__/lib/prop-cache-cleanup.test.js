@@ -7,7 +7,9 @@ import {
   PROP_LINE_ARCHIVE_CONTRACT_FIELDS,
   archiveCleanupRows,
   cleanupRetryDelayMs,
+  ALT_PLACEHOLDER_CATEGORY,
   collectCleanupCandidates,
+  isPreGameAltPlaceholder,
   createSupabaseKeysetFetcher,
   dedupeCleanupCandidates,
   describeCleanupReadError,
@@ -121,6 +123,40 @@ describe('cleanup candidate pagination + dedupe', () => {
 
     expect(rows.map((r) => r.id)).toEqual(['a', 'b', 'c'])
     expect(dedupeCleanupCandidates([...expired, ...stale, ...past])).toHaveLength(3)
+  })
+
+  test('keeps an alt placeholder until kickoff, then past_game can remove it', async () => {
+    const nowIso = '2026-11-08T18:00:00.000Z'
+    const future = cacheRow({
+      id: 'hold',
+      category: ALT_PLACEHOLDER_CATEGORY,
+      isStale: true,
+      gameTime: '2026-11-08T21:00:00.000Z',
+      odds: 1,
+      edge: 0,
+      qualityScore: 0,
+      confidence: 'low',
+    })
+    const played = cacheRow({
+      id: 'done',
+      category: ALT_PLACEHOLDER_CATEGORY,
+      isStale: true,
+      gameTime: '2026-11-08T17:00:00.000Z',
+    })
+    const realStale = cacheRow({ id: 'real', isStale: true, category: null })
+    expect(isPreGameAltPlaceholder(future, nowIso)).toBe(true)
+    expect(isPreGameAltPlaceholder(played, nowIso)).toBe(false)
+    expect(isPreGameAltPlaceholder(realStale, nowIso)).toBe(false)
+
+    const kept = await collectCleanupCandidates(
+      keysetPages({
+        stale: [future, realStale],
+        past_game: [played],
+        expired: [],
+      }),
+      { nowIso, pageSize: 10 },
+    )
+    expect(kept.map((row) => row.id).sort()).toEqual(['done', 'real'])
   })
 
   test('walks page-size boundaries with a stable id cursor', async () => {

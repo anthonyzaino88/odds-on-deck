@@ -25,9 +25,11 @@ absent.
 A cache miss for a Published `propId` may insert a non-playable
 placeholder row that only holds `altQuotes`. That row is `isStale:
 true` with `confidence: 'low'` (a normal cache value, not a special
-token). Public prop queries (`/api/props`, homepage, Editor's,
-Published) select `isStale = false`, so the placeholder is not a play.
-Morning cleanup deletes stale cache rows.
+token) and `category = alt-placeholder`. Public prop queries
+(`/api/props`, homepage, Editor's, Published) select `isStale = false`,
+so the placeholder is not a play. Morning cleanup keeps
+`alt-placeholder` rows until `gameTime` has passed, then `past_game`
+archives and deletes them.
 
 ## How to apply (do not run from this PR)
 

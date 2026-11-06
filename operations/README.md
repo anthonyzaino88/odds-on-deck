@@ -404,9 +404,10 @@ Requires 012 SQL (`altQuotes` / `altQuoteUpdatedAt` on
 `PlayerPropCache`). The script warns and does not crash on `PGRST204`
 / `42703` if 012 is not applied. A Published prop with no cache row
 gets a non-playable placeholder (`isStale: true`, `confidence: 'low'`,
-edge and quality 0). Public prop queries already require
-`isStale = false`, so the placeholder is not a board play. Morning
-cleanup deletes stale rows.
+`category: alt-placeholder`, edge and quality 0). Public prop queries
+already require `isStale = false`, so the placeholder is not a board
+play. Morning cleanup keeps that category until kickoff, then
+`past_game` archives and deletes it.
 
 One event-odds call per `oddsApiEventId`, only the official NFL
 `*_alternate` markets those Published picks need, `regions=us`.

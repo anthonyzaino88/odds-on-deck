@@ -320,6 +320,7 @@ describe('nfl alt-line helpers', () => {
     expect(planned.rows[0].qualityScore).toBe(0)
     expect(planned.rows[0].odds).toBe(1)
     expect(planned.rows[0].isStale).toBe(true)
+    expect(planned.rows[0].category).toBe('alt-placeholder')
     expect(planned.rows[0].confidence).toBe('low')
     expect(planned.rows[0].confidence).not.toBe('alt-only')
     const src = readFileSync(join(process.cwd(), 'lib/nfl-alt-lines.js'), 'utf8')
