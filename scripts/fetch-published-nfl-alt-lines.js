@@ -9,7 +9,9 @@
  *
  * Informational only. Does not rewrite PropValidation.odds / closeOdds
  * and does not change CLV (entry vs consensus close). Writes
- * PlayerPropCache.altQuotes when 012 is applied.
+ * PlayerPropCache.altQuotes when 012 is applied. A name-match miss
+ * still persists the ladder on that pick's propId (existing row, or a
+ * thin alt-only insert). Events with nowhere to write are not fetched.
  *
  * Separate from morning fetch (Published slate is not known then) and
  * from snapshot / close-capture routines (those stay unchanged).
@@ -82,8 +84,12 @@ import {
   NFL_ALT_STATUS_FAILED,
   NFL_ALT_STATUS_OK,
   NFL_ALT_STATUS_PARTIAL,
-  applyAltLinesToCacheRows,
   classifyNflAltJobs,
+  eventCanPersistAltQuotes,
+  formatNflAltEventLine,
+  nflAltPersistStatus,
+  planAltQuotesForEvent,
+  writeAltQuoteRow,
   formatNflAltCredits,
   formatNflAltEvents,
   formatNflAltStatus,
@@ -97,7 +103,6 @@ import {
   remainingNflAltCredits,
   saveHeldNflAltRows,
   selectNflAltJobs,
-  updateCacheAltQuotes,
 } from '../lib/nfl-alt-lines.js'
 
 config({ path: '.env.local' })
@@ -274,6 +279,12 @@ export async function runFetchPublishedNflAltLines({
         nflAltStatus = NFL_ALT_STATUS_OK
       }
     }
+    nflAltStatus = nflAltPersistStatus({
+      creditsUsed: credits,
+      persistedRows: result.persistedRows ?? 0,
+      unmatchedPicks: result.unmatchedPicks || [],
+      baseStatus: nflAltStatus,
+    })
     log.log(formatNflAltStatus(nflAltStatus))
     log.log(formatNflAltEvents(events))
     log.log(formatCallsUsed(calls))
@@ -587,6 +598,7 @@ NFL_ALT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
   let skippedBudgetDuringRun = 0
   let skippedQuietDuringRun = false
   const updates = []
+  const unmatchedPicks = []
   let liveDays = loadedDays
 
   try {
@@ -674,6 +686,11 @@ NFL_ALT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
         log.log(`  ⏭️  ${job.gameIds.join(',')} unmapped or no markets`)
         continue
       }
+      const gameCachePreview = cacheRows.filter((row) => job.gameIds.includes(row.gameId))
+      if (!eventCanPersistAltQuotes(job, gameCachePreview)) {
+        log.log(`  ⏭️  ${job.gameIds.join(',')} no alt write target — skip fetch (0 credits)`)
+        continue
+      }
       const estimatedCredits = creditCostForMarkets(job.markets.length, NFL_ALT_REGIONS.length)
       liveDays = persist
         ? loadNflAltDayState({ persistPath: altConfig.persistPath, persist })
@@ -725,19 +742,16 @@ NFL_ALT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
       )
       const quotes = flattenEventOddsQuotes(fetched?.data)
       const gameCache = cacheRows.filter((row) => job.gameIds.includes(row.gameId))
-      for (const pick of job.picks) {
-        const rows = applyAltLinesToCacheRows(gameCache, pick, quotes, {
-          maxLines: altConfig.maxLines,
-          now: nowFn(),
-        })
-        if (!rows.length) {
-          log.log(`  ⏭️  ${pick.playerName} ${pick.propType} — no matching cache row or alt quotes`)
-          continue
-        }
-        updates.push(...rows)
-      }
+      const planned = planAltQuotesForEvent(job, gameCache, quotes, {
+        maxLines: altConfig.maxLines,
+        now: nowFn(),
+      })
+      log.log(formatNflAltEventLine(job, planned))
+      unmatchedPicks.push(...planned.unmatchedPicks)
+      updates.push(...planned.rows)
     }
 
+    let wrote = 0
     if (updates.length) {
       const seen = new Set()
       const pending = []
@@ -747,7 +761,6 @@ NFL_ALT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
         seen.add(key)
         pending.push(row)
       }
-      let wrote = 0
       for (let i = 0; i < pending.length; i += 1) {
         if (isOpsWriteQuietPeriod(nowFn())) {
           skippedQuietDuringRun = true
@@ -763,16 +776,7 @@ NFL_ALT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
           break
         }
         const row = pending[i]
-        const write = await updateCacheAltQuotes(
-          (payload) => supabase
-            .from('PlayerPropCache')
-            .update({
-              altQuotes: payload.altQuotes,
-              altQuoteUpdatedAt: payload.altQuoteUpdatedAt,
-            })
-            .eq(row.id ? 'id' : 'propId', row.id || row.propId),
-          row,
-        )
+        const write = await writeAltQuoteRow(supabase, row)
         if (write?.columnMissing || write?.skipped) {
           columnsMissing = true
           log.log('⚠️ PlayerPropCache alt columns missing on write (run 012 SQL). Degrading — no crash.')
@@ -798,6 +802,8 @@ NFL_ALT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
       calls,
       creditsUsed,
       updates,
+      persistedRows: wrote,
+      unmatchedPicks,
       fetchErrors,
       writeErrors,
       skippedQuiet: skippedQuietDuringRun,
