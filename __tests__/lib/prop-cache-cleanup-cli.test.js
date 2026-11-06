@@ -178,6 +178,40 @@ describe('runCleanupCli side-effect guards', () => {
 })
 
 describe('script wiring', () => {
+  test('a mid-run quiet stop exits 0 with CLEANUP_STATUS=partial', async () => {
+    const stdout = memoryStream()
+    const { exitCode } = await runCleanupCli({
+      argv: [],
+      env: { NEXT_PUBLIC_SUPABASE_URL: 'http://example.supabase.co', SUPABASE_SECRET_KEY: 'k' },
+      stdout,
+      stderr: memoryStream(),
+      createClient: jest.fn(() => ({})),
+      loadEnv: jest.fn(),
+      now: () => new Date('2026-09-14T08:00:00.000Z'),
+      resolveArchiveDir: () => '/tmp/ood-archive-test',
+      countRemaining: async () => ({
+        remainingExpired: 2,
+        remainingStale: 0,
+        remainingPastGame: 0,
+        remainingTotal: 2,
+      }),
+      runCleanup: async () => ({
+        abort: false,
+        partial: true,
+        skippedQuiet: true,
+        candidates: 2,
+        archived: 2,
+        deleted: 1,
+        skippedConcurrent: 0,
+        skippedDeleteMismatch: 0,
+        dryRun: false,
+      }),
+    })
+    expect(exitCode).toBe(0)
+    expect(stdout.toString()).toMatch(/CLEANUP_STATUS=partial/)
+    expect(stdout.toString()).toMatch(/DELETED=1/)
+  })
+
   test('live cleanup does not touch the DB during :05–:15 ET', async () => {
     const stdout = memoryStream()
     const createClient = jest.fn()

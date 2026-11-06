@@ -559,6 +559,56 @@ describe('deletion protection', () => {
     expect(deleted[0].fetched_at).toBe('2026-09-10T12:00:00.123456+00:00')
   })
 
+  test('quiet window before the delete phase archives and deletes nothing further', async () => {
+    const rows = [cacheRow({ id: 'a' }), cacheRow({ id: 'b' })]
+    const deleted = []
+    const result = await runPropCacheCleanup({
+      fetchPage: keysetPages({ expired: rows }),
+      refetchByIds: async () => rows,
+      deleteExact: async (snapshot) => {
+        deleted.push(snapshot.id)
+        return 1
+      },
+      nowIso: '2026-09-14T00:00:00.000Z',
+      archiveDir: dir,
+      archivedAt: '2026-09-14T00:00:00.000Z',
+      clock: () => new Date('2026-07-15T16:09:00.000Z'),
+    })
+    expect(result.abort).toBe(false)
+    expect(result.partial).toBe(true)
+    expect(result.skippedQuiet).toBe(true)
+    expect(result.archived).toBe(2)
+    expect(result.deleted).toBe(0)
+    expect(deleted).toEqual([])
+    expect(summarizeCleanupForOps(result).cleanup_status).toBe('partial')
+  })
+
+  test('quiet window before a later delete keeps earlier deletes and stops', async () => {
+    const rows = [cacheRow({ id: 'a' }), cacheRow({ id: 'b' })]
+    const deleted = []
+    let ticks = 0
+    const result = await runPropCacheCleanup({
+      fetchPage: keysetPages({ expired: rows }),
+      refetchByIds: async () => rows,
+      deleteExact: async (snapshot) => {
+        deleted.push(snapshot.id)
+        return 1
+      },
+      nowIso: '2026-09-14T00:00:00.000Z',
+      archiveDir: dir,
+      archivedAt: '2026-09-14T00:00:00.000Z',
+      clock: () => {
+        ticks += 1
+        return new Date(ticks >= 3 ? '2026-07-15T16:09:00.000Z' : '2026-07-15T16:16:00.000Z')
+      },
+    })
+    expect(result.abort).toBe(false)
+    expect(result.partial).toBe(true)
+    expect(result.deleted).toBe(1)
+    expect(deleted).toEqual(['a'])
+    expect(summarizeCleanupForOps(result).cleanup_status).toBe('partial')
+  })
+
   test('preserves exact fetchedAt precision for delete matching', async () => {
     const row = cacheRow({ fetchedAt: '2026-09-10T12:00:00.123456+00:00' })
     const snapshot = propCacheVersionSnapshot(row)
