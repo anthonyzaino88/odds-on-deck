@@ -159,7 +159,7 @@ The conditional probability is a lock-time model quantity. It does not depend on
 P_decisive(side) = P(side) / (1 − P(push))
 ```
 
-`P(side)` and `P(push)` are the model's pick-lock probabilities. If the model emits no push mass, `P(push) = 0` and `P_decisive(side) = P(side)`. `nfl-selection-v1.0.1` is that case (`P(tie) = 0`). If `1 − P(push) = 0`, the conditional probability is undefined at lock and that game is not eligible. A model probability outside `[0, 1]` fails the candidate. `P_decisive` of 0 or 1 is accepted.
+`P(side)` and `P(push)` are the model's pick-lock probabilities. If the model emits no push mass, `P(push) = 0` and `P_decisive(side) = P(side)`. `nfl-selection-v1.0.1` is that case (`P(tie) = 0`). Before conditioning, the outcome probabilities must sum to 1 within `PROB_SUM_TOLERANCE` (`1e-6`): `P(home) + P(away) + P(push)` for a moneyline, and `P(over) + P(under) + P(push)` for a total. A missing push mass counts as 0 in that sum. The harness does not rescale them. A game whose sum is outside that tolerance is not eligible, and it is not conditioned. If `1 − P(push) = 0`, the conditional probability is undefined at lock and that game is not eligible. A model probability outside `[0, 1]` fails the candidate. `P_decisive` of 0 or 1 is accepted.
 
 Eval edge is computed at lock for every eligible game, before any result is read:
 
