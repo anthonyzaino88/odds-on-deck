@@ -3,6 +3,8 @@ import os from 'os'
 import path from 'path'
 import {
   acquireCleanupRunLock,
+  CLEANUP_LOCK_STALE_MS,
+  CLEANUP_SERVER_STATEMENT_TIMEOUT_CAP_MS,
   runCleanupOldGames,
 } from '../../lib/cleanup-old-games.js'
 import { isOpsWriteQuietPeriod } from '../../lib/closing-line.js'
@@ -72,6 +74,7 @@ function createDb(initial = {}, hooks = {}) {
   function matches(row, filters) {
     return filters.every(([op, col, val]) => {
       if (op === 'eq') return row[col] === val
+      if (op === 'is') return val == null ? row[col] == null : row[col] === val
       if (op === 'in') return val.includes(row[col])
       if (op === 'gt') return String(row[col]) > String(val)
       if (op === 'or') {
@@ -100,6 +103,7 @@ function createDb(initial = {}, hooks = {}) {
         return chain
       },
       eq(col, val) { q.filters.push(['eq', col, val]); return chain },
+      is(col, val) { q.filters.push(['is', col, val]); return chain },
       or(expr) { q.filters.push(['or', 'date', expr]); return chain },
       in(col, val) { q.filters.push(['in', col, val]); return chain },
       gt(col, val) { q.filters.push(['gt', col, val]); return chain },
@@ -175,7 +179,9 @@ function createDb(initial = {}, hooks = {}) {
         return { error: { message: `${table} delete failed` }, count: null }
       }
       if (table === 'Game') {
-        const ids = q.filters.find((filter) => filter[0] === 'in' && filter[1] === 'id')?.[2] || []
+        const inIds = q.filters.find((filter) => filter[0] === 'in' && filter[1] === 'id')?.[2] || []
+        const eqId = q.filters.find((filter) => filter[0] === 'eq' && filter[1] === 'id')?.[2]
+        const ids = eqId == null ? inIds : [...inIds, eqId]
         const blocking = state.odds.filter((row) => ids.includes(row.gameId))
         if (blocking.length > 0) {
           events.push({ op: 'delete', table, error: true, column: 'id' })
@@ -190,8 +196,15 @@ function createDb(initial = {}, hooks = {}) {
         else kept.push(row)
       }
       target.splice(0, target.length, ...kept)
-      const column = q.filters.find((filter) => filter[0] === 'in')?.[1] || null
-      events.push({ op: 'delete', table, ids: removed.map((row) => row.id), column })
+      const column = q.filters.find((filter) => filter[0] === 'in')?.[1]
+        || (q.filters.some((filter) => filter[0] === 'eq' && filter[1] === 'id') ? 'id' : null)
+      events.push({
+        op: 'delete',
+        table,
+        ids: removed.map((row) => row.id),
+        column,
+        filters: q.filters.map(([op, col]) => `${op}:${col}`),
+      })
       hooks.onDelete?.(table, removed)
       return { error: null, count: removed.length, data: removed }
     }
@@ -217,6 +230,11 @@ function run(db, extra = {}) {
 }
 
 describe('runCleanupOldGames', () => {
+  test('the lock lease is longer than the verified client statement timeout cap', () => {
+    expect(CLEANUP_SERVER_STATEMENT_TIMEOUT_CAP_MS).toBe(60 * 1000)
+    expect(CLEANUP_LOCK_STALE_MS).toBeGreaterThan(CLEANUP_SERVER_STATEMENT_TIMEOUT_CAP_MS)
+  })
+
   test('quiet clock is the ET :05–:15 window', () => {
     expect(isOpsWriteQuietPeriod(QUIET)).toBe(true)
     expect(isOpsWriteQuietPeriod(OPEN)).toBe(false)
@@ -486,6 +504,7 @@ describe('runCleanupOldGames', () => {
     expect(result.status).toBe('ok')
     expect(db.state.closing[0]).toMatchObject({ id: 'oddsret:o1', quoted_at: null })
     expect(log.lines.some((line) => line.includes('1 quote-time-unknown, not lock-eligible; 0 lock-eligible'))).toBe(true)
+    expect(log.lines.some((line) => line.includes('ClosingOdds archive grew by 1 row(s) observed this run.'))).toBe(true)
   })
 
   test('a changed date, status, or lastUpdate skips the non-odds deletes', async () => {
@@ -508,6 +527,22 @@ describe('runCleanupOldGames', () => {
     expect(db.state.edges.map((row) => row.id)).toEqual(['e1'])
     expect(db.state.nfl.map((row) => row.gameId)).toEqual(['g1'])
     expect(db.events.some((event) => event.op === 'delete' && event.table === 'Game')).toBe(false)
+  })
+
+  test('the game delete predicates reject a row that changed after the re-read', async () => {
+    const db = createDb({}, {
+      onRead(table) {
+        if (table === 'EdgeSnapshot') db.state.games[0].status = 'scheduled'
+      },
+    })
+    const result = await run(db)
+    expect(result.status).toBe('ok')
+    expect(result.deletedGames).toBe(0)
+    expect(db.state.games).toHaveLength(1)
+    expect(db.state.games[0].status).toBe('scheduled')
+    const gameDelete = db.events.find((event) => event.op === 'delete' && event.table === 'Game')
+    expect(gameDelete.ids).toEqual([])
+    expect(gameDelete.filters).toEqual(expect.arrayContaining(['eq:id', 'eq:date', 'eq:status', 'is:lastUpdate']))
   })
 
   test('an edge or nfl row inserted after the re-read is not deleted', async () => {
@@ -557,14 +592,23 @@ describe('runCleanupOldGames', () => {
   })
 
   test('a call that outlives the operation timeout aborts later work', async () => {
+    let released = false
     const db = createDb({}, { pauseOdds: new Promise(() => {}) })
+    const log = memoryLog()
     const result = await run(db, {
+      log,
       renewEveryMs: 60_000,
       operationTimeoutMs: 40,
-      acquireLock: () => ({ acquired: true, heartbeat: () => true, release() {} }),
+      acquireLock: () => ({
+        acquired: true,
+        heartbeat: () => true,
+        release() { released = true },
+      }),
     })
     expect(result.status).toBe('failed')
     expect(result.reason).toBe('timeout')
+    expect(released).toBe(false)
+    expect(log.lines.some((line) => line.includes('The cleanup lock stays until the lease expires'))).toBe(true)
     expect(db.events.some((event) => event.op === 'delete')).toBe(false)
     expect(db.state.odds).toHaveLength(1)
   })

@@ -174,7 +174,7 @@ model Odds {
 
   ts DateTime
 
-  // Cleanup pages Odds by gameId then id. SQL 014. Not a row cap.
+  // Cleanup pages Odds by gameId then id. SQL 014 creates this concurrently. Not a row cap.
   @@index([gameId, id])
 }
 

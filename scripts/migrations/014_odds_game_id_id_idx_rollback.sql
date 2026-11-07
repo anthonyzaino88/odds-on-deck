@@ -5,8 +5,11 @@
 --
 -- DO NOT run from CI, this PR, or a production refresh job.
 -- Drops only Odds_gameId_id_idx. Odds rows and quotedAt stay.
+--
+-- OUTSIDE A TRANSACTION. DROP INDEX CONCURRENTLY cannot run inside
+-- BEGIN/COMMIT. Run this file as the only statement.
+-- Also use this when CREATE INDEX CONCURRENTLY left the index INVALID
+-- (indisvalid = false). Drop it here, then run the CREATE again.
 -- ============================================================================
 
-SET lock_timeout = '5s';
-
-DROP INDEX IF EXISTS "Odds_gameId_id_idx";
+DROP INDEX CONCURRENTLY IF EXISTS "Odds_gameId_id_idx";
