@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import {
+  closingCopyMatches,
   insertClosingOddsArchive,
   ODDS_CLOSE_MIN_LEAD_MS,
   ODDS_CLOSE_WINDOW_MS,
@@ -105,7 +106,7 @@ describe('selectRetainedOddsRows', () => {
     expect(ODDS_CLOSE_MIN_LEAD_MS).toBe(CLOSE_CAPTURE_MIN_LEAD_MINUTES * 60 * 1000)
   })
 
-  test('keeps the latest lock capture and every capture inside the 35-to-1 minute window', () => {
+  test('keeps every eligible pre-60 capture and every capture inside the 35-to-1 minute window', () => {
     const rows = [
       row({ id: 'early', quotedAt: at(-3 * 60 * 60 * 1000), ts: at(-3 * 60 * 60 * 1000) }),
       row({ id: 'lock', quotedAt: at(-70 * 60 * 1000), ts: at(-70 * 60 * 1000) }),
@@ -115,15 +116,17 @@ describe('selectRetainedOddsRows', () => {
       row({ id: 'too-late', quotedAt: at(-30 * 1000), ts: at(-30 * 1000) }),
     ]
     const kept = selectRetainedOddsRows(rows, games).rows.map((item) => item.id).sort()
-    expect(kept).toEqual(['close-a', 'close-b', 'lock'])
+    expect(kept).toEqual(['close-a', 'close-b', 'early', 'lock'])
   })
 
-  test('a later quote on an older capture does not beat a later capture', () => {
+  test('keeps an older capture and a later one, including both totals lines', () => {
     const plan = selectRetainedOddsRows([
       row({ id: 'old', quotedAt: at(-2 * 60 * 60 * 1000), ts: at(-2 * 60 * 60 * 1000) }),
       row({ id: 'lock', quotedAt: at(-100 * 60 * 1000), ts: at(-70 * 60 * 1000) }),
+      row({ id: 'total-early', market: 'totals', total: 44.5, quotedAt: at(-3 * 60 * 60 * 1000), ts: at(-3 * 60 * 60 * 1000) }),
+      row({ id: 'total-late', market: 'totals', total: 47.5, quotedAt: at(-80 * 60 * 1000), ts: at(-80 * 60 * 1000) }),
     ], games)
-    expect(plan.rows.map((item) => item.id)).toEqual(['lock'])
+    expect(plan.rows.map((item) => item.id).sort()).toEqual(['lock', 'old', 'total-early', 'total-late'])
     expect(plan.blockedGameIds).toEqual([])
   })
 
@@ -145,7 +148,7 @@ describe('selectRetainedOddsRows', () => {
     expect(plan.rows.map((item) => item.id)).toEqual(['fresh'])
   })
 
-  test('lock is the latest capture per book and market, and the same capture keeps every row', () => {
+  test('keeps every paired row in the lock window, including the same capture', () => {
     const same = at(-80 * 60 * 1000)
     const rows = [
       row({ id: 'b', book: 'FanDuel', market: 'h2h', quotedAt: same, ts: same }),
@@ -166,31 +169,34 @@ describe('selectRetainedOddsRows', () => {
     expect(plan.rows.map((item) => item.id)).toEqual(['line'])
   })
 
-  test('a missing quotedAt stays on capture time only when the book has no usable quote', () => {
-    const onlyCapture = selectRetainedOddsRows([
+  test('a missing quote is not eligible, and the archive still leaves quoted_at null', () => {
+    const plan = selectRetainedOddsRows([
       row({ id: 'cap', quotedAt: null, ts: at(-2 * 60 * 60 * 1000) }),
+      row({ id: 'close', quotedAt: null, ts: at(-10 * 60 * 1000) }),
+      row({ id: 'quoted', quotedAt: at(-80 * 60 * 1000), ts: at(-70 * 60 * 1000) }),
     ], games)
-    expect(onlyCapture.rows.map((item) => item.id)).toEqual(['cap'])
-    expect(toClosingOddsArchiveRow(onlyCapture.rows[0], 'nfl')).toMatchObject({
+    expect(plan.rows.map((item) => item.id)).toEqual(['quoted'])
+    expect(toClosingOddsArchiveRow(row({
+      id: 'cap',
+      quotedAt: null,
+      ts: at(-2 * 60 * 60 * 1000),
+    }), 'nfl')).toMatchObject({
       id: 'oddsret:cap',
       game_id: 'g1',
       sport: 'nfl',
       snapshot_at: at(-2 * 60 * 60 * 1000),
       quoted_at: null,
     })
+  })
 
-    const mixed = selectRetainedOddsRows([
-      row({ id: 'old', quotedAt: null, ts: at(-3 * 60 * 60 * 1000) }),
-      row({ id: 'lock', quotedAt: at(-80 * 60 * 1000), ts: at(-70 * 60 * 1000) }),
-      row({ id: 'close', quotedAt: null, ts: at(-10 * 60 * 1000) }),
-    ], games)
-    expect(mixed.rows.map((item) => item.id).sort()).toEqual(['close', 'lock'])
-
-    const quoteOnlyInWindow = selectRetainedOddsRows([
-      row({ id: 'lock', quotedAt: null, ts: at(-2 * 60 * 60 * 1000) }),
-      row({ id: 'close', quotedAt: at(-10 * 60 * 1000), ts: at(-10 * 60 * 1000) }),
-    ], games)
-    expect(quoteOnlyInWindow.rows.map((item) => item.id).sort()).toEqual(['close', 'lock'])
+  test('read-back matches price, line, and timestamps', () => {
+    const source = row({ id: 'cap', total: 47.5, market: 'totals', quotedAt: at(-80 * 60 * 1000), ts: at(-70 * 60 * 1000) })
+    const stored = toClosingOddsArchiveRow(source, 'nfl')
+    expect(closingCopyMatches(source, stored)).toBe(true)
+    expect(closingCopyMatches(source, { ...stored, price_home: -105 })).toBe(false)
+    expect(closingCopyMatches(source, { ...stored, total: 44.5 })).toBe(false)
+    expect(closingCopyMatches(source, { ...stored, snapshot_at: at(-60 * 60 * 1000) })).toBe(false)
+    expect(closingCopyMatches(source, { ...stored, quoted_at: null }, { quoteWritten: false })).toBe(true)
   })
 
   test('an unparseable start blocks the game instead of choosing rows', () => {
@@ -268,6 +274,32 @@ describe('insertClosingOddsArchive', () => {
     expect(result.ids).toEqual(['oddsret:cap'])
     expect(bodies[1][0].quoted_at).toBeUndefined()
     expect(bodies[1][0].snapshot_at).toBe('2026-11-08T16:05:00.000Z')
+  })
+
+  test('checks the clock before each chunk and does not write the next one', async () => {
+    const writes = []
+    let quiet = false
+    const supabase = {
+      from() {
+        return {
+          upsert(body) {
+            writes.push(body)
+            quiet = true
+            return Promise.resolve({ error: null })
+          },
+        }
+      },
+    }
+    const result = await insertClosingOddsArchive(supabase, [
+      { id: 'oddsret:a', quoted_at: null },
+      { id: 'oddsret:b', quoted_at: null },
+    ], {
+      chunkSize: 1,
+      beforeWrite: () => (quiet ? { reason: 'quiet' } : null),
+    })
+    expect(result.ok).toBe(false)
+    expect(result.reason).toBe('quiet')
+    expect(writes).toHaveLength(1)
   })
 
   test('rows without an id still insert for the closing snapshot job', async () => {

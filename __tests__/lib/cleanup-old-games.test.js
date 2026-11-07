@@ -1,3 +1,4 @@
+import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import {
@@ -89,9 +90,13 @@ function createDb(initial = {}, hooks = {}) {
   function from(table) {
     const q = { filters: [], op: 'select', columns: '*' }
     const chain = {
-      select(cols) {
+      select(cols, options) {
         q.columns = typeof cols === 'string' ? cols : '*'
+        q.head = Boolean(options?.head)
         if (q.op === 'delete') return Promise.resolve(execDelete())
+        if (q.head) {
+          chain.then = (resolve, reject) => Promise.resolve().then(execCount).then(resolve, reject)
+        }
         return chain
       },
       eq(col, val) { q.filters.push(['eq', col, val]); return chain },
@@ -119,12 +124,19 @@ function createDb(initial = {}, hooks = {}) {
           return { data: null, error: { message: 'odds read failed' } }
         }
       }
-      const page = rowsFor(table)
+      let page = rowsFor(table)
         .filter((row) => matches(row, q.filters))
         .sort((a, b) => String(a.id).localeCompare(String(b.id)))
         .slice(0, n)
+      const cap = hooks.truncateReads?.[table]
+      if (Number.isFinite(cap)) page = page.slice(0, cap)
       events.push({ op: 'read', table, ids: page.map((row) => row.id) })
       return { data: page, error: null }
+    }
+
+    function execCount() {
+      const matched = rowsFor(table).filter((row) => matches(row, q.filters))
+      return { data: null, error: null, count: matched.length }
     }
 
     function execUpsert(body, options) {
@@ -144,12 +156,15 @@ function createDb(initial = {}, hooks = {}) {
       }
       const target = rowsFor(table)
       for (const row of rows) {
-        if (options?.ignoreDuplicates && target.some((item) => item.id === row.id)) continue
-        const index = target.findIndex((item) => item.id === row.id)
-        if (index >= 0) target[index] = { ...row }
-        else target.push({ ...row })
+        const stored = { ...row }
+        if (table === 'ClosingOdds' && hooks.corruptPrice) stored.price_home = 999
+        if (options?.ignoreDuplicates && target.some((item) => item.id === stored.id)) continue
+        const index = target.findIndex((item) => item.id === stored.id)
+        if (index >= 0) target[index] = stored
+        else target.push(stored)
       }
       events.push({ op: 'upsert', table, ids: rows.map((row) => row.id), ignoreDuplicates: options?.ignoreDuplicates === true })
+      hooks.onUpsert?.(table, rows)
       return { error: null }
     }
 
@@ -157,6 +172,14 @@ function createDb(initial = {}, hooks = {}) {
       if (hooks.failDelete === table) {
         events.push({ op: 'delete', table, error: true })
         return { error: { message: `${table} delete failed` }, count: null }
+      }
+      if (table === 'Game') {
+        const ids = q.filters.find((filter) => filter[0] === 'in' && filter[1] === 'id')?.[2] || []
+        const blocking = state.odds.filter((row) => ids.includes(row.gameId))
+        if (blocking.length > 0) {
+          events.push({ op: 'delete', table, error: true, column: 'id' })
+          return { error: { message: 'odds fk' }, count: null }
+        }
       }
       const target = rowsFor(table)
       const kept = []
@@ -166,7 +189,9 @@ function createDb(initial = {}, hooks = {}) {
         else kept.push(row)
       }
       target.splice(0, target.length, ...kept)
-      events.push({ op: 'delete', table, ids: removed.map((row) => row.id) })
+      const column = q.filters.find((filter) => filter[0] === 'in')?.[1] || null
+      events.push({ op: 'delete', table, ids: removed.map((row) => row.id), column })
+      hooks.onDelete?.(table, removed)
       return { error: null, count: removed.length, data: removed }
     }
 
@@ -184,6 +209,7 @@ function run(db, extra = {}) {
     log: extra.log || memoryLog(),
     pageSize: extra.pageSize || 1000,
     batchSize: extra.batchSize || 50,
+    archiveChunkSize: extra.archiveChunkSize,
   })
 }
 
@@ -208,6 +234,9 @@ describe('runCleanupOldGames', () => {
     expect(closingAt).toBeGreaterThanOrEqual(0)
     expect(closingAt).toBeLessThan(firstDelete)
     expect(closingWrite.ignoreDuplicates).toBe(true)
+    const oddsDelete = db.events.find((event) => event.op === 'delete' && event.table === 'Odds')
+    expect(oddsDelete.column).toBe('id')
+    expect(oddsDelete.ids).toEqual(['o1'])
   })
 
   test('an odds read error deletes nothing', async () => {
@@ -240,7 +269,7 @@ describe('runCleanupOldGames', () => {
     expect(result.status).toBe('ok')
     const oddsReads = db.events.filter((event) => event.op === 'read' && event.table === 'Odds')
     expect(oddsReads.length).toBeGreaterThanOrEqual(3)
-    expect(db.state.closing.map((row) => row.id).sort()).toEqual(['oddsret:o2', 'oddsret:o3'])
+    expect(db.state.closing.map((row) => row.id).sort()).toEqual(['oddsret:o1', 'oddsret:o2', 'oddsret:o3'])
     expect(db.state.odds).toEqual([])
   })
 
@@ -298,15 +327,14 @@ describe('runCleanupOldGames', () => {
     expect(db.state.odds).toEqual([])
   })
 
-  test('a quiet clock before the delete batch leaves the copy in place', async () => {
-    let calls = 0
-    const db = createDb()
-    const result = await run(db, {
-      now: () => {
-        calls += 1
-        return calls >= 4 ? QUIET : OPEN
+  test('a quiet clock before the odds delete leaves the copy in place', async () => {
+    let quiet = false
+    const db = createDb({}, {
+      onUpsert(table) {
+        if (table === 'ClosingOdds') quiet = true
       },
     })
+    const result = await run(db, { now: () => (quiet ? QUIET : OPEN) })
     expect(result.status).toBe('quiet')
     expect(result.deletedGames).toBe(0)
     expect(db.events.some((event) => event.op === 'delete')).toBe(false)
@@ -314,23 +342,41 @@ describe('runCleanupOldGames', () => {
     expect(db.state.games).toHaveLength(1)
   })
 
-  test('a quiet clock before a later copy batch stops every delete', async () => {
-    let calls = 0
+  test('a quiet clock before the next archive chunk stops every delete', async () => {
+    let quiet = false
     const db = createDb({
-      games: [game(), game({ id: 'g2' })],
-      odds: [odds(), odds({ id: 'o2', gameId: 'g2' })],
+      odds: [
+        odds({ id: 'o1', ts: '2020-01-01T14:00:00.000Z', quotedAt: '2020-01-01T13:50:00.000Z' }),
+        odds({ id: 'o2', ts: '2020-01-01T16:00:00.000Z', quotedAt: '2020-01-01T15:50:00.000Z' }),
+      ],
+    }, {
+      onUpsert(table) {
+        if (table === 'ClosingOdds') quiet = true
+      },
     })
     const result = await run(db, {
-      batchSize: 1,
-      now: () => {
-        calls += 1
-        return calls >= 4 ? QUIET : OPEN
-      },
+      archiveChunkSize: 1,
+      now: () => (quiet ? QUIET : OPEN),
     })
     expect(result.status).toBe('quiet')
     expect(db.events.some((event) => event.op === 'delete')).toBe(false)
-    expect(db.state.games).toHaveLength(2)
-    expect(db.state.closing.map((row) => row.id)).toEqual(['oddsret:o1'])
+    expect(db.state.closing).toHaveLength(1)
+    expect(db.state.odds).toHaveLength(2)
+    expect(db.state.games).toHaveLength(1)
+  })
+
+  test('a quiet clock before the next table delete stops there', async () => {
+    let quiet = false
+    const db = createDb({}, {
+      onDelete(table) {
+        if (table === 'Odds') quiet = true
+      },
+    })
+    const result = await run(db, { now: () => (quiet ? QUIET : OPEN) })
+    expect(result.status).toBe('quiet')
+    expect(db.events.filter((event) => event.op === 'delete').map((event) => event.table)).toEqual(['Odds'])
+    expect(db.state.games).toHaveLength(1)
+    expect(db.state.odds).toEqual([])
   })
 
   test('a second run does no work while the first holds the lock', async () => {
@@ -369,6 +415,74 @@ describe('runCleanupOldGames', () => {
     expect(result.status).toBe('locked')
     expect(db.events).toEqual([])
     first.release()
+  })
+
+  test('a mismatched price on read-back blocks the delete', async () => {
+    const db = createDb({}, { corruptPrice: true })
+    const result = await run(db)
+    expect(result.status).toBe('failed')
+    expect(result.reason).toBe('odds-archive')
+    expect(db.events.some((event) => event.op === 'delete')).toBe(false)
+    expect(db.state.odds).toHaveLength(1)
+  })
+
+  test('deletes only the odds ids that were read', async () => {
+    const db = createDb({
+      odds: [
+        odds(),
+        odds({ id: 'o-skip', ts: '2020-01-01T23:10:00.000Z', quotedAt: '2020-01-01T23:00:00.000Z' }),
+      ],
+    }, {
+      onUpsert(table) {
+        if (table === 'ClosingOdds') {
+          db.state.odds.push(odds({ id: 'o-new', ts: '2020-01-01T16:05:00.000Z', quotedAt: '2020-01-01T16:00:00.000Z' }))
+        }
+      },
+    })
+    const result = await run(db)
+    expect(result.status).toBe('failed')
+    expect(result.reason).toBe('delete')
+    const oddsDelete = db.events.find((event) => event.op === 'delete' && event.table === 'Odds')
+    expect(oddsDelete.column).toBe('id')
+    expect([...oddsDelete.ids].sort()).toEqual(['o-skip', 'o1'])
+    expect(db.state.closing.map((row) => row.id)).toEqual(['oddsret:o1'])
+    expect(db.state.odds.map((row) => row.id)).toEqual(['o-new'])
+    expect(db.state.games).toHaveLength(1)
+  })
+
+  test('a short page below the reported count is not the end of the read', async () => {
+    const db = createDb({
+      odds: [
+        odds({ id: 'o1' }),
+        odds({ id: 'o2', ts: '2020-01-01T15:00:00.000Z', quotedAt: '2020-01-01T14:50:00.000Z' }),
+        odds({ id: 'o3', ts: '2020-01-01T14:00:00.000Z', quotedAt: '2020-01-01T13:50:00.000Z' }),
+      ],
+    }, { truncateReads: { Odds: 1 } })
+    const result = await run(db)
+    expect(result.status).toBe('failed')
+    expect(result.reason).toBe('odds-read')
+    expect(db.events.some((event) => event.op === 'delete')).toBe(false)
+    expect(db.state.odds).toHaveLength(3)
+  })
+
+  test('a heartbeat keeps a live lock from being stolen after the stale window', () => {
+    const persistPath = path.join(os.tmpdir(), `ood-cleanup-beat-${process.pid}-${Date.now()}`)
+    const lockFile = `${persistPath}.lock`
+    const first = acquireCleanupRunLock({ persistPath, staleMs: 1000 })
+    expect(first.acquired).toBe(true)
+    const old = new Date(Date.now() - 60 * 1000)
+    fs.utimesSync(lockFile, old, old)
+    expect(first.heartbeat()).toBe(true)
+    const second = acquireCleanupRunLock({ persistPath, staleMs: 1000 })
+    expect(second.acquired).toBe(false)
+    first.release()
+    const crashed = acquireCleanupRunLock({ persistPath, staleMs: 1000 })
+    expect(crashed.acquired).toBe(true)
+    const stale = new Date(Date.now() - 60 * 1000)
+    fs.utimesSync(lockFile, stale, stale)
+    const recovered = acquireCleanupRunLock({ persistPath, staleMs: 1000 })
+    expect(recovered.acquired).toBe(true)
+    recovered.release()
   })
 
   test('an unparseable start blocks the delete', async () => {
