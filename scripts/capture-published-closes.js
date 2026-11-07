@@ -126,7 +126,11 @@ export const PICK_SELECT_BASE = [
 ].join(', ')
 export const PICK_SELECT = `${PICK_SELECT_BASE}, closeOdds, closeCapturedAt`
 
-/** Re-capture a stored close only in this final pre-start window. */
+/**
+ * Re-capture a stored close only in this final pre-start window.
+ * Hardcoded at 10 minutes. Separate from the near-start pass
+ * (CLOSE_CAPTURE_NEAR_START_MINUTES / CLOSE_CAPTURE_NEAR_START_MINUTES env).
+ */
 export const ALREADY_CLOSED_RECAPTURE_MINUTES = 10
 
 export function publishedCloseAlreadyStored(row) {
