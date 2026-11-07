@@ -168,6 +168,10 @@ model Odds {
   // Game timing
   commence_time DateTime? // When the game starts
 
+  // Odds API bookmaker/market last_update. Null when the payload omitted it.
+  // Not a copy of ts. SQL 013; writers omit the field until that column exists.
+  quotedAt DateTime?
+
   ts DateTime
 }
 
@@ -542,6 +546,8 @@ model ClosingOdds {
   total       Float?
   spread      Float?
   snapshotAt  DateTime @default(now()) @map("snapshot_at")
+  // Odds API last_update. Null when unknown. Not a copy of snapshotAt. SQL 013.
+  quotedAt    DateTime? @map("quoted_at")
 
   @@index([gameId])
   @@index([sport, snapshotAt])

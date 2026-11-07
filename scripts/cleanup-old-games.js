@@ -8,10 +8,18 @@
  * - NHL: Outside today
  * - MLB: Outside today
  * 
- * Handles foreign key constraints by deleting Odds first
+ * Handles foreign key constraints by deleting Odds first.
+ * Lock-eligible and close-eligible Odds rows are copied onto ClosingOdds
+ * before that delete. Game is still removed, so Odds cannot keep the FK.
+ * EdgeSnapshot deletion is unchanged.
  */
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
+import {
+  insertClosingOddsArchive,
+  selectRetainedOddsRows,
+  toClosingOddsArchiveRow,
+} from '../lib/odds-history-retention.js'
 import { config } from 'dotenv'
 
 config({ path: '.env.local' })
@@ -102,6 +110,7 @@ async function cleanupOldGames() {
   }
   
   const oldGameIds = oldGames.map(g => g.id)
+  const gameIdsReadyToDelete = []
 
   // ============================================================================
   // STEP 1b: ARCHIVE games before deletion
@@ -146,53 +155,41 @@ async function cleanupOldGames() {
       else console.log(`  ✅ Archived ${archiveRows.length} games`)
     }
 
-    // Archive closing odds for these games
     const { data: oddsRows } = await supabase
       .from('Odds')
       .select('*')
       .in('gameId', batch)
 
-    if (oddsRows && oddsRows.length > 0) {
-      // Group by gameId+book+market, keep latest by ts
-      const latest = new Map()
-      for (const o of oddsRows) {
-        const key = `${o.gameId}|${o.book}|${o.market}`
-        const existing = latest.get(key)
-        if (!existing || new Date(o.ts) > new Date(existing.ts)) {
-          latest.set(key, o)
-        }
+    const sportFor = (gameId) => fullGames?.find(g => g.id === gameId)?.sport || 'unknown'
+    const retained = selectRetainedOddsRows(oddsRows || [], fullGames || [])
+    if (retained.length > 0) {
+      const closingRows = retained.map(o => toClosingOddsArchiveRow(o, sportFor(o.gameId)))
+      const archived = await insertClosingOddsArchive(supabase, closingRows)
+      if (!archived.ok) {
+        console.error(`  ⚠️  Archive odds history error: ${archived.error?.message}. Leaving this batch in place.`)
+        continue
       }
-
-      const closingRows = [...latest.values()].map(o => ({
-        game_id: o.gameId,
-        sport: fullGames?.find(g => g.id === o.gameId)?.sport || 'unknown',
-        book: o.book,
-        market: o.market,
-        price_home: o.priceHome,
-        price_away: o.priceAway,
-        total: o.total,
-        spread: o.spread,
-        snapshot_at: o.ts,
-      }))
-
-      const { error: closingErr } = await supabase
-        .from('ClosingOdds')
-        .insert(closingRows)
-      if (closingErr) console.error(`  ⚠️  Archive closing odds error: ${closingErr.message}`)
-      else console.log(`  ✅ Archived ${closingRows.length} closing odds`)
+      const quoteNote = archived.wroteQuoteTime ? 'with quoted_at' : 'without quoted_at (column missing)'
+      console.log(`  ✅ Archived ${closingRows.length} lock/close odds rows ${quoteNote}`)
     }
+    gameIdsReadyToDelete.push(...batch)
+  }
+
+  if (gameIdsReadyToDelete.length === 0) {
+    console.log('⚠️  No games deleted. Odds history did not archive.')
+    return
   }
 
   // ============================================================================
   // STEP 2: Delete Odds records for old games (to avoid FK constraint errors)
   // ============================================================================
   
-  console.log(`🗑️  Deleting Odds records for ${oldGameIds.length} old games...`)
+  console.log(`🗑️  Deleting Odds records for ${gameIdsReadyToDelete.length} old games...`)
   
   const { error: oddsError, count: deletedOdds } = await supabase
     .from('Odds')
     .delete()
-    .in('gameId', oldGameIds)
+    .in('gameId', gameIdsReadyToDelete)
     .select('*', { count: 'exact', head: true })
   
   if (oddsError) {
@@ -205,12 +202,12 @@ async function cleanupOldGames() {
   // STEP 3: Delete EdgeSnapshot records for old games
   // ============================================================================
   
-  console.log(`🗑️  Deleting EdgeSnapshot records for ${oldGameIds.length} old games...`)
+  console.log(`🗑️  Deleting EdgeSnapshot records for ${gameIdsReadyToDelete.length} old games...`)
   
   const { error: edgeError, count: deletedEdges } = await supabase
     .from('EdgeSnapshot')
     .delete()
-    .in('gameId', oldGameIds)
+    .in('gameId', gameIdsReadyToDelete)
     .select('*', { count: 'exact', head: true })
   
   if (edgeError) {
@@ -223,12 +220,12 @@ async function cleanupOldGames() {
   // STEP 3b: Delete NFLGameData records for old games
   // ============================================================================
   
-  console.log(`🗑️  Deleting NFLGameData records for ${oldGameIds.length} old games...`)
+  console.log(`🗑️  Deleting NFLGameData records for ${gameIdsReadyToDelete.length} old games...`)
   
   const { error: nflDataError, count: deletedNFLData } = await supabase
     .from('NFLGameData')
     .delete()
-    .in('gameId', oldGameIds)
+    .in('gameId', gameIdsReadyToDelete)
     .select('*', { count: 'exact', head: true })
   
   if (nflDataError) {
@@ -241,14 +238,14 @@ async function cleanupOldGames() {
   // STEP 4: Delete old Game records
   // ============================================================================
   
-  console.log(`🗑️  Deleting ${oldGameIds.length} old Game records...`)
+  console.log(`🗑️  Deleting ${gameIdsReadyToDelete.length} old Game records...`)
   
   // Delete in batches to avoid query size limits
   const batchSize = 50
   let deletedGames = 0
   
-  for (let i = 0; i < oldGameIds.length; i += batchSize) {
-    const batch = oldGameIds.slice(i, i + batchSize)
+  for (let i = 0; i < gameIdsReadyToDelete.length; i += batchSize) {
+    const batch = gameIdsReadyToDelete.slice(i, i + batchSize)
     const { data: deletedData, error: gameError } = await supabase
       .from('Game')
       .delete()

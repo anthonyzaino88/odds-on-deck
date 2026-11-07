@@ -36,6 +36,12 @@ import {
   resolvePropLanding,
 } from '../lib/live-odds-landing.js'
 import {
+  bookmakerQuoteTimeIso,
+  isMissingQuotedAtColumnError,
+  oddsTableHasQuotedAt,
+  omitQuotedAtFields,
+} from '../lib/odds-quote-time.js'
+import {
   createOddsApiBudget,
   estimateCreditsFromOddsEndpoint,
   fetchOddsApiJson,
@@ -1052,7 +1058,8 @@ async function saveGameOdds(games, sport, date) {
           if (!priceAway || !priceHome) continue
           
           const includeCommenceTime = await oddsTableHasCommenceTime()
-          const oddsRow = oddsInsertPayload({
+          const includeQuotedAt = await oddsTableHasQuotedAt(supabase)
+          let oddsRow = oddsInsertPayload({
             id: generateId(),
             gameId: ourGameId,
             book: bookmaker.title,
@@ -1064,10 +1071,17 @@ async function saveGameOdds(games, sport, date) {
             ts: new Date().toISOString(),
             commenceTime: game.commence_time,
             includeCommenceTime,
+            quoteTime: bookmakerQuoteTimeIso(bookmaker, market),
+            includeQuotedAt,
           })
           let { error } = await supabase
             .from('Odds')
             .insert(oddsRow)
+          if (error && includeQuotedAt && isMissingQuotedAtColumnError(error)) {
+            oddsRow = omitQuotedAtFields(oddsRow)
+            const retryQuote = await supabase.from('Odds').insert(oddsRow)
+            error = retryQuote.error
+          }
           if (error && includeCommenceTime && oddsInsertFailedForMissingCommenceTime(error)) {
             oddsHasCommenceTime = false
             const { commence_time: _omit, ...withoutCommence } = oddsRow
