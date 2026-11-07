@@ -141,6 +141,8 @@ function createDb(initial = {}, hooks = {}) {
 
     function execCount() {
       const matched = rowsFor(table).filter((row) => matches(row, q.filters))
+      const inIds = q.filters.find((filter) => filter[0] === 'in' && filter[1] === 'id')?.[2] || null
+      events.push({ op: 'count', table, ids: inIds })
       return { data: null, error: null, count: matched.length }
     }
 
@@ -505,6 +507,28 @@ describe('runCleanupOldGames', () => {
     expect(db.state.closing[0]).toMatchObject({ id: 'oddsret:o1', quoted_at: null })
     expect(log.lines.some((line) => line.includes('1 quote-time-unknown, not lock-eligible; 0 lock-eligible'))).toBe(true)
     expect(log.lines.some((line) => line.includes('ClosingOdds archive grew by 1 row(s) observed this run.'))).toBe(true)
+  })
+
+  test('archive growth counts chunk the archive ids', async () => {
+    const db = createDb({
+      odds: [
+        odds({ id: 'o1', ts: '2020-01-01T14:00:00.000Z', quotedAt: '2020-01-01T13:50:00.000Z' }),
+        odds({ id: 'o2', ts: '2020-01-01T16:00:00.000Z', quotedAt: '2020-01-01T15:50:00.000Z' }),
+      ],
+    })
+    const log = memoryLog()
+    const result = await run(db, { log, pageSize: 1 })
+    expect(result.status).toBe('ok')
+    const growthCounts = db.events.filter((event) => (
+      event.op === 'count' && event.table === 'ClosingOdds' && Array.isArray(event.ids)
+    ))
+    expect(growthCounts.length).toBeGreaterThanOrEqual(4)
+    expect(growthCounts.every((event) => event.ids.length === 1)).toBe(true)
+    const countedIds = growthCounts.map((event) => event.ids[0])
+    expect(countedIds.filter((id) => id === 'oddsret:o1').length).toBeGreaterThanOrEqual(2)
+    expect(countedIds.filter((id) => id === 'oddsret:o2').length).toBeGreaterThanOrEqual(2)
+    expect(new Set(countedIds)).toEqual(new Set(['oddsret:o1', 'oddsret:o2']))
+    expect(log.lines.some((line) => line.includes('ClosingOdds archive grew by 2 row(s) observed this run.'))).toBe(true)
   })
 
   test('a changed date, status, or lastUpdate skips the non-odds deletes', async () => {
