@@ -2,12 +2,15 @@ import { createScriptSupabaseClient } from '../../lib/supabase-script-client.js'
 import { isPublishableSupabaseKey } from '../../lib/supabase-admin-key.js'
 import { PUBLISHED_SOURCE, SHADOW_PUBLISHED_COHORT_TAG } from '../../lib/published-picks.js'
 import {
+  ALREADY_CLOSED_RECAPTURE_MINUTES,
   assertCaptureSecretIsNotPublishable,
   captureSupabaseEnv,
   formatCaptureModeBanner,
   isClosingCaptureDisabled,
   parseCaptureClosesArgs,
+  publishedCloseAlreadyStored,
   runCapturePublishedCloses,
+  shouldRecaptureStoredClose,
 } from '../../scripts/capture-published-closes.js'
 import { createOddsApiBudget } from '../../lib/odds-api-budget.js'
 
@@ -321,6 +324,222 @@ describe('runCapturePublishedCloses', () => {
     expect(log.lines.join('\n')).toMatch(/DRY-RUN/)
     expect(log.lines.join('\n')).toMatch(/evt-kc-hou/)
     expect(log.lines.join('\n')).toMatch(/batter_hits/)
+  })
+
+  test('already-closed recapture window is 10 minutes', () => {
+    expect(ALREADY_CLOSED_RECAPTURE_MINUTES).toBe(10)
+    const game = windowGame({ date: '2026-07-15T23:10:00.000Z' })
+    const now = new Date('2026-07-15T23:00:00.000Z')
+    expect(shouldRecaptureStoredClose(game, now)).toBe(true)
+    expect(shouldRecaptureStoredClose(game, new Date('2026-07-15T22:59:59.999Z'))).toBe(false)
+    expect(publishedCloseAlreadyStored({ closeOdds: -110, closeCapturedAt: '2026-07-15T22:00:00.000Z' })).toBe(true)
+    expect(publishedCloseAlreadyStored({ closeOdds: -110, closeCapturedAt: null })).toBe(false)
+    expect(publishedCloseAlreadyStored({ closeOdds: null, closeCapturedAt: '2026-07-15T22:00:00.000Z' })).toBe(false)
+  })
+
+  test('already-closed far from start is skipped and spends no call or credit', async () => {
+    const fetchEventOdds = jest.fn()
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        picks: [publishedPick({
+          closeOdds: -110,
+          closeCapturedAt: '2026-07-15T22:00:00.000Z',
+        })],
+      }),
+      fetchEventOdds,
+      probeQuota: jest.fn(),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.skippedAlreadyClosed).toBe(1)
+    expect(result.calls).toBe(0)
+    expect(result.creditsUsed).toBe(0)
+    expect(result.updates).toHaveLength(0)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(log.lines.join('\n')).toMatch(/SKIPPED_ALREADY_CLOSED=1/)
+  })
+
+  test('already-closed inside 10 minutes is re-captured', async () => {
+    const updates = []
+    const log = memoryLog()
+    const fetchEventOdds = jest.fn(async () => ({
+      data: {
+        commence_time: '2026-07-15T23:10:00.000Z',
+        bookmakers: [{
+          title: 'FanDuel',
+          last_update: '2026-07-15T23:01:00.000Z',
+          markets: [{
+            key: 'batter_hits',
+            last_update: '2026-07-15T23:01:00.000Z',
+            outcomes: [
+              { name: 'Over', description: 'Vinnie Pasquantino', point: 0.5, price: -125 },
+            ],
+          }],
+        }],
+      },
+      quota: { remaining: 18000, used: 2000, last: 1 },
+    }))
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: new Date('2026-07-15T23:02:00.000Z'),
+      createClient: () => mockClient({
+        picks: [publishedPick({
+          closeOdds: -110,
+          closeCapturedAt: '2026-07-15T22:46:00.000Z',
+        })],
+        updates,
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.skippedAlreadyClosed).toBe(0)
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(result.calls).toBe(2)
+    expect(result.creditsUsed).toBeGreaterThan(0)
+    expect(result.updates).toHaveLength(1)
+    expect(updates[0]).toMatchObject({ closeOdds: -125 })
+    expect(log.lines.join('\n')).toMatch(/SKIPPED_ALREADY_CLOSED=0/)
+  })
+
+  test('a pick without a close is captured', async () => {
+    const updates = []
+    const log = memoryLog()
+    const fetchEventOdds = jest.fn(async () => ({
+      data: {
+        bookmakers: [{
+          title: 'FanDuel',
+          markets: [{
+            key: 'batter_hits',
+            outcomes: [
+              { name: 'Over', description: 'Vinnie Pasquantino', point: 0.5, price: -118 },
+            ],
+          }],
+        }],
+      },
+      quota: { remaining: 18000, used: 2000, last: 1 },
+    }))
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({ updates }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.skippedAlreadyClosed).toBe(0)
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(result.calls).toBe(2)
+    expect(result.creditsUsed).toBeGreaterThan(0)
+    expect(result.updates).toHaveLength(1)
+    expect(updates[0]).toMatchObject({ closeOdds: -118 })
+    expect(log.lines.join('\n')).toMatch(/SKIPPED_ALREADY_CLOSED=0/)
+  })
+
+  test('invalid kickoff does not recapture a stored close', async () => {
+    const fetchEventOdds = jest.fn()
+    const updates = []
+    const log = memoryLog()
+    const now = new Date('2026-07-15T23:02:00.000Z')
+    const game = windowGame({ date: 'not-a-kickoff' })
+    expect(shouldRecaptureStoredClose(game, now)).toBe(false)
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now,
+      createClient: () => mockClient({
+        games: [game],
+        picks: [publishedPick({
+          closeOdds: -110,
+          closeCapturedAt: '2026-07-15T22:46:00.000Z',
+        })],
+        updates,
+      }),
+      fetchEventOdds,
+      probeQuota: jest.fn(),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(result.calls).toBe(0)
+    expect(result.creditsUsed).toBe(0)
+    expect(result.updates).toHaveLength(0)
+    expect(updates).toHaveLength(0)
+    expect(result.skippedAlreadyClosed).toBe(0)
+    expect(log.lines.join('\n')).toMatch(/SKIPPED_ALREADY_CLOSED=0/)
+    expect(log.lines.join('\n')).toMatch(/No games in the close-capture window/)
+  })
+
+  test('partial close fields follow the existing close check', async () => {
+    const earlyNow = IN_WINDOW
+    for (const partial of [
+      { closeOdds: -110, closeCapturedAt: null },
+      { closeOdds: null, closeCapturedAt: '2026-07-15T22:00:00.000Z' },
+    ]) {
+      const fetchEventOdds = jest.fn()
+      const log = memoryLog()
+      const result = await runCapturePublishedCloses({
+        argv: ['--apply'],
+        now: earlyNow,
+        createClient: () => mockClient({
+          picks: [publishedPick(partial)],
+        }),
+        fetchEventOdds,
+        probeQuota: jest.fn(),
+        apiKey: 'test-key',
+        log,
+      })
+      expect(result.skippedAlreadyClosed).toBe(0)
+      expect(result.calls).toBe(0)
+      expect(result.creditsUsed).toBe(0)
+      expect(result.updates).toHaveLength(0)
+      expect(fetchEventOdds).not.toHaveBeenCalled()
+      expect(log.lines.join('\n')).toMatch(/SKIPPED_ALREADY_CLOSED=0/)
+    }
+
+    const updates = []
+    const log = memoryLog()
+    const fetchEventOdds = jest.fn(async () => ({
+      data: {
+        commence_time: '2026-07-15T23:10:00.000Z',
+        bookmakers: [{
+          title: 'FanDuel',
+          last_update: '2026-07-15T23:01:00.000Z',
+          markets: [{
+            key: 'batter_hits',
+            last_update: '2026-07-15T23:01:00.000Z',
+            outcomes: [
+              { name: 'Over', description: 'Vinnie Pasquantino', point: 0.5, price: -125 },
+            ],
+          }],
+        }],
+      },
+      quota: { remaining: 18000, used: 2000, last: 1 },
+    }))
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply'],
+      now: new Date('2026-07-15T23:02:00.000Z'),
+      createClient: () => mockClient({
+        picks: [publishedPick({
+          closeOdds: -110,
+          closeCapturedAt: null,
+        })],
+        updates,
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.skippedAlreadyClosed).toBe(0)
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(result.updates).toHaveLength(1)
+    expect(updates[0]).toMatchObject({ closeOdds: -125 })
+    expect(log.lines.join('\n')).toMatch(/SKIPPED_ALREADY_CLOSED=0/)
   })
 
   test('skips picks that already have a close', async () => {

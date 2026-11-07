@@ -9,7 +9,10 @@
  * Quota-aware: one Odds API event-odds call per oddsApiEventId,
  * markets restricted to Published (or shadow-published) picks. Never re-runs morning fetch-live-odds.
  * Early pass writes where closeOdds
- * IS NULL. Near-start upserts the later close on ClosingOdds.id
+ * IS NULL. A pick that already has closeOdds and closeCapturedAt is
+ * skipped until kickoff is inside ALREADY_CLOSED_RECAPTURE_MINUTES, so
+ * that final window can overwrite with the truest close. Near-start
+ * upserts the later close on ClosingOdds.id
  * (deterministic clvclose: primary key; onConflict: id — does not
  * rely on SQL 008) and overwrites PropValidation close fields.
  * Requires the secret key. Daily event-odds captures are
@@ -122,6 +125,26 @@ export const PICK_SELECT_BASE = [
   'status', 'notes',
 ].join(', ')
 export const PICK_SELECT = `${PICK_SELECT_BASE}, closeOdds, closeCapturedAt`
+
+/**
+ * Re-capture a stored close only in this final pre-start window.
+ * Hardcoded at 10 minutes. Separate from the near-start pass
+ * (CLOSE_CAPTURE_NEAR_START_MINUTES / CLOSE_CAPTURE_NEAR_START_MINUTES env).
+ */
+export const ALREADY_CLOSED_RECAPTURE_MINUTES = 10
+
+export function publishedCloseAlreadyStored(row) {
+  return row?.closeOdds != null && Boolean(row?.closeCapturedAt)
+}
+
+export function shouldRecaptureStoredClose(game, now, minutes = ALREADY_CLOSED_RECAPTURE_MINUTES) {
+  const startMs = Date.parse(game?.date || game?.gameDate || '')
+  const nowMs = now instanceof Date ? now.getTime() : Date.parse(now)
+  if (!Number.isFinite(startMs) || !Number.isFinite(nowMs)) return false
+  const leadMs = startMs - nowMs
+  const windowMs = Number(minutes) * 60 * 1000
+  return leadMs > 0 && leadMs <= windowMs
+}
 
 const KNOWN_FLAGS = new Set([
   '--dry-run', '--apply', '--help', '-h', '--max-calls', '--min-remaining',
@@ -274,8 +297,10 @@ export async function runCapturePublishedCloses({
     apiKey,
     purpose: 'close-capture',
   })
+  let skippedAlreadyClosed = 0
   const done = (result) => {
     const captured = result.captured ?? (result.updates?.length || 0)
+    const skippedClosed = Number(result.skippedAlreadyClosed ?? skippedAlreadyClosed) || 0
     const skippedBudget = result.skippedBudgetCount
       ?? ((result.skippedBudget || result.skippedMaxCalls || result.skippedMaxCredits
         || result.skippedQuota || oddsBudget.status() === 'close_cap')
@@ -303,6 +328,7 @@ export async function runCapturePublishedCloses({
       skippedWindow,
       credits,
     }))
+    log.log(`SKIPPED_ALREADY_CLOSED=${skippedClosed}`)
     if (captureStatus !== CLOSE_CAPTURE_STATUS_OK) {
       log.log(`⚠️ ${formatCloseCaptureStatus(captureStatus)} — treat as WARN in routine reports (exit 0)`)
     }
@@ -321,6 +347,7 @@ export async function runCapturePublishedCloses({
       skippedBudgetCount: skippedBudget,
       skippedQuietCount,
       skippedWindow,
+      skippedAlreadyClosed: skippedClosed,
       creditsUsed: credits,
     }
   }
@@ -522,6 +549,11 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
 
   const openPicks = (pickPage.rows || []).filter((row) => {
     if (!gamesById.has(row.gameIdRef)) return false
+    const game = gamesById.get(row.gameIdRef)
+    if (publishedCloseAlreadyStored(row) && !shouldRecaptureStoredClose(game, startedAt)) {
+      skippedAlreadyClosed += 1
+      return false
+    }
     const overwrite = passByGameId.get(row.gameIdRef) === CLOSE_CAPTURE_PASS_NEAR_START
     return isTargetedCloseCapturePick(row, { nflAll: args.nflAll, overwrite })
   })
