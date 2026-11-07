@@ -92,11 +92,11 @@ A book is eligible at a capture when all of the following hold:
 - Both sides are present on that same capture: home and away for `h2h`, over and under for `totals`. One-sided rows are out.
 - Totals: both sides quote the same numeric total.
 - Both sides share one quote time (synchronized).
-- That quote time is present, is before the frozen start, and is no older than `LINE_SHOP_STALE_AFTER_MS` (6 hours) before the capture time. Missing quote time is stale (`isQuoteStale` in `lib/line-shopping.js`).
+- That quote time is present, is at or before the capture time, is before the frozen start, and is no older than `LINE_SHOP_STALE_AFTER_MS` (6 hours) before the capture time. A quote time after the capture time is a clock error and the book is ineligible. Missing quote time is stale (`isQuoteStale` in `lib/line-shopping.js`).
 
 Entry book, at one capture: among eligible books, take the first name in `CLOSE_QUOTE_BOOK_ORDER` (`pinnacle`, `circa`, `circa sports`, `fanduel`, `draftkings`, `betmgm`, `caesars`, `betrivers`, `fanatics`). Any other book sorts after that list, then by `localeCompare` of the book name. The sort keys are the book name only. The rule does not prefer the book that later posts the close, and it does not read the final score.
 
-Pick-lock is the latest capture that is at least 60 minutes before the frozen start and that has an eligible entry book. The posted price is that book's American (or stored decimal) price on the side, vig included. A later capture is a close candidate. If no capture qualifies, the event is excluded from that market. The harness does not impute a price.
+Pick-lock is the latest capture that is at least 60 minutes before the frozen start and that has an eligible entry book. If capture times tie, take the later entry-book quote time, then the localeCompare-smallest capture id. The posted price is that book's American (or stored decimal) price on the side, vig included. A later capture is a close candidate. If no capture qualifies, the event is excluded from that market. The harness does not impute a price.
 
 `Game` / `Odds` rows that store `ts` or `snapshot_at` and no `last_update` fail this rule. The inventory must count them separately. They are not silently treated as fresh.
 
@@ -104,16 +104,20 @@ Pick-lock is the latest capture that is at least 60 minutes before the frozen st
 
 Production CLV compares the posted price with the **consensus** close, not with the entry book's own later price (`lib/closing-line.js`: `consensusClosingQuote`, `clvFromOdds`).
 
-Consensus membership at a close capture uses the same eligible-book rule as the lock (fresh, synchronized, two-sided, and for totals the locked total). A close needs at least two member books. One book is not a consensus.
+Consensus membership at a close capture uses the same eligible-book rule as the lock (fresh, synchronized, two-sided, quote time at or before capture time, and for totals the locked total). These membership rules are stricter than production. `consensusClosingQuote` returns the median of whatever usable quotes it is given, including a single quote, and it does not check that the two sides share a quote time. The eval contract requires at least two member books after the one-quote-per-book collapse below, and it requires the synchronized pair. One book is not an eval consensus.
 
-The consensus quote is the median decimal on that exact side and, for totals, the exact locked total (`consensusClosingQuote`). An even count takes the earlier book in `CLOSE_QUOTE_BOOK_ORDER` among the two middle quotes, then `localeCompare`. The highest price is not the consensus.
+One quote per book, before the median: if a book has more than one row on that side at that capture, keep the row with the latest quote time. A remaining tie keeps the localeCompare-smallest `id`, then the localeCompare-smallest price string. The other rows from that book are dropped.
+
+The consensus quote is then the median decimal on that exact side and, for totals, the exact locked total (`consensusClosingQuote` on the collapsed set). An even count takes the earlier book in `CLOSE_QUOTE_BOOK_ORDER` among the two middle quotes, then `localeCompare`. The highest price is not the consensus.
+
+The no-vig benchmark uses one pair from the single selected close capture. After the one-quote-per-book collapse, take `consensusClosingQuote` on the scored side and `consensusClosingQuote` on the opposite side (home with away, or over with under at the locked total). Those two consensus prices are the close pair for `P_novig` and for `novigMove`. The lock pair for `P_novig` is the entry book's own synchronized prices at the lock capture. The benchmark is not the entry book's later prices, and it is not a mix of two captures.
 
 Totals: a close whose total differs from the locked total is `lineMoved`. It is reported on its own and is excluded from `clvProb`, from the CLV pass sample, and from 2-way log loss and Brier. That matches `summarizePublishedClv`, which averages `clvProb` on same-line rows only.
 
-Close selection, in order:
+Close selection picks one capture. An eligible capture has member quote times after `frozen start − CLOSE_CAPTURE_WINDOW_MINUTES` (35) and at or before `frozen start − CLOSE_CAPTURE_MIN_LEAD_MINUTES` (1), a capture time before the frozen start, quote times at or before that capture time, and at least two member books after the one-quote-per-book collapse. Capture time alone cannot put a row inside the window.
 
-1. Preferred: a `clvclose:` capture whose member quote times sit after `frozen start − CLOSE_CAPTURE_WINDOW_MINUTES` (35) and at or before `frozen start − CLOSE_CAPTURE_MIN_LEAD_MINUTES` (1). The capture time must also be before the frozen start.
-2. Fallback, only when no preferred capture qualifies: the latest pre-start capture that meets the same quote-time window and the same two-book membership rule. The fallback max age is that 35-minute window. A quote older than 35 minutes before start is not a fallback close. Capture time alone cannot put a row inside the window.
+1. Preferred: among eligible captures whose id starts with `clvclose:`, take the latest capture time. If capture times tie, take the capture whose latest member quote time is later. If those also tie, take the localeCompare-smallest capture id.
+2. Fallback, only when no preferred capture qualifies: the same ordering among eligible captures whose id does not start with `clvclose:`. The fallback max age is that 35-minute window. A quote older than 35 minutes before start is not a fallback close.
 3. If neither exists, CLV is missing for that event. The event stays out of the CLV pass sample.
 
 ## Allowed inputs
@@ -149,15 +153,21 @@ Stored markets in this contract are 2-way only.
 - NBA `h2h`, if stored rows ever exist, is the full game including overtime. There is no draw.
 - Totals are over/under at one number. The book must post both over and under at that same total. An integer landing on the number pushes.
 
-Pushes are refunds. They are excluded from 2-way log loss, 2-way Brier, and the hit-rate denominator, and they are counted in the report. They are not coded as losses, and log loss does not use `P(side | decisive)`.
+Pushes are refunds. They are counted in the report and excluded from the hit-rate denominator. They are not coded as losses. Edge, log loss, and Brier are computed only on non-push games, and on those games the model probability is conditional on no push:
+
+```
+P_decisive(side) = P(side) / (1 − P(push))
+```
+
+`P(side)` and `P(push)` are the model's pick-lock probabilities. If the model emits no push mass, `P(push) = 0` and `P_decisive(side) = P(side)`. `nfl-selection-v1.0.1` is that case (`P(tie) = 0`). If `P(push) = 1`, or `P_decisive(side)` is outside `(0, 1)`, the probability is unavailable and the game is excluded from edge, log loss, and Brier. A probability outside `[0, 1]` before conditioning fails the candidate.
 
 Eval edge decides the bet. It is not CLV.
 
 ```
-edge = P_model(side) − P_novig(side | entry book's paired lock prices)
+edge = P_decisive(side) − P_novig(side | entry book's paired lock prices)
 ```
 
-`P_model` is the model's probability of that side at pick-lock, in `[0, 1]`. A probability outside `[0, 1]` fails the candidate. Caps are not the edge. These production caps stay out of the metric: `NFL_DISPLAY_EDGE_CAP` (0.10), `NHL_ML_EDGE_CAP` (0.05), `NHL_TOTAL_EDGE_CAP` (0.10), MLB `EDGE_CAP` (0.08), and `GAME_LINE_MIN_EDGE` (0.05).
+Caps are not the edge. These production caps stay out of the metric: `NFL_DISPLAY_EDGE_CAP` (0.10), `NHL_ML_EDGE_CAP` (0.05), `NHL_TOTAL_EDGE_CAP` (0.10), MLB `EDGE_CAP` (0.08), and `GAME_LINE_MIN_EDGE` (0.05).
 
 `P_novig` uses both posted sides. Let `q_side` and `q_other` be the raw implied probabilities (`impliedProbabilityFromOdds`, vig still inside). The contract normalizes whenever `q_side + q_other` is finite and positive, including an underround (`sum ≤ 1`):
 
@@ -196,8 +206,10 @@ One candidate is one pre-registered model version on one sport and one of {money
 - Order folds by frozen start. NFL: previous weeks only. NHL, MLB, NBA: previous ET days only.
 - A training row's result-available time must be at or before `earliest test pick-lock − EMBARGO`. `EMBARGO` is 24 hours. A game that kicks off before the test slate and whose score is written inside that window, or after the test lock, is purged from that fold's training set.
 - Unresolved and overlapping labels are purged: not-final statuses, duplicate event ids (keep the row that owns the frozen start), and any training game whose result interval overlaps the test lock. Same-week NFL games and same-ET-day games are out of that fold's training set.
-- Fit any free parameter on the surviving training rows only. Constants in git (`NFL_HFA_LOGIT` 0.12, `NHL_HOME_ICE` 0.14, `NHL_MARKET_BLEND` 0.35, `TEAM_NB_R` 5, park factors) stay fixed. Changing one is a new model version and a new pre-registered candidate.
+- Before any fit, freeze the holdout folds with the rounding rule in Pass / fail. Every holdout label is removed from every training set. Rolling forward does not put an earlier holdout result into a later development fit or a later holdout fit.
+- Fit any free parameter on the surviving non-holdout training rows only. Constants in git (`NFL_HFA_LOGIT` 0.12, `NHL_HOME_ICE` 0.14, `NHL_MARKET_BLEND` 0.35, `TEAM_NB_R` 5, park factors) stay fixed. Changing one is a new model version and a new pre-registered candidate.
 - Score the fold, then move forward. Never shuffle.
+- The holdout is opened the first time any holdout label, score, or residual is computed or read. After that, features, constants, candidates, the embargo, the gates, and refits stay as they were. A pass that follows a discretionary change is void.
 - The first fold has no training rows. It is warmup. It does not count toward sample size and it is not holdout.
 - A game missing a lock quote, a paired price, a final, or a required pre-lock feature is excluded and the reason is counted. It is not imputed.
 
@@ -212,16 +224,16 @@ Sample sizes below are gates. This audit did not observe them.
 | Metric | Definition | Holdout gate |
 | --- | --- | --- |
 | `clvProb` | Mean of production `clvProb` on bets with a same-line consensus close. | At least **200** such bets across at least **4** holdout folds. Mean ≥ `CLV_MIN_EFFECT` (0.01). Cluster 95% CI lower bound > 0. |
-| Log loss | Mean log loss of clipped `P_model` vs the 0/1 outcome, against the same loss for `P_novig` of the consensus close. Pushes omitted. No-bets included. Totals need the paired over/under at the locked total. | At least **200** such decided games across at least **4** holdout folds. Model loss lower, and the cluster 95% CI for (close loss − model loss) has lower bound > 0. |
-| Brier | Mean squared error of unclipped `P_model` in `[0, 1]`, against `P_novig` of the consensus close. Same games and the same push rule as log loss. | Same 200 games. Model score lower, and the cluster 95% CI for (close score − model score) has lower bound > 0. |
+| Log loss | Mean log loss of clipped `P_decisive` vs the 0/1 outcome, against the same loss for `P_novig` of the close pair. Pushes omitted. No-bets included. Totals need the paired over/under at the locked total. | At least **200** such decided games across at least **4** holdout folds. Model loss lower, and the cluster 95% CI for (close loss − model loss) has lower bound > 0. |
+| Brier | Mean squared error of unclipped `P_decisive` in `(0, 1)`, against `P_novig` of the close pair. Same games and the same push rule as log loss. | Same 200 games. Model score lower, and the cluster 95% CI for (close score − model score) has lower bound > 0. |
 | ROI | Flat 1 unit at the posted lock price. Wins pay that price. Losses lose 1. Pushes return 0 and stay in the denominator. | Point estimate > 0 on the same bets as `clvProb`, and the cluster 95% CI lower bound > 0. |
 | Hit rate | Wins / (wins + losses). Pushes omitted. | Reported with the counts, by fold. No hit-rate threshold. |
 
-Log loss clips `P_model` and the close probability to `[LOG_LOSS_CLIP, 1 − LOG_LOSS_CLIP]` with `LOG_LOSS_CLIP = 0.001` before the log. Brier uses the unclipped `[0, 1]` probabilities.
+Log loss clips `P_decisive` and the close probability to `[LOG_LOSS_CLIP, 1 − LOG_LOSS_CLIP]` with `LOG_LOSS_CLIP = 0.001` before the log. Brier uses the unclipped `P_decisive` in `(0, 1)`.
 
-Dependence: the interval is a cluster-robust sandwich or a cluster bootstrap, with the fold id as the cluster. An iid standard error does not satisfy the gate. The report names the method and the cluster count.
+Dependence: `G` is the number of holdout folds that contain at least one scored row for that metric. The interval is a wild cluster bootstrap percentile interval, or a cluster-robust Wald interval referred to a Student-t with `G − 1` degrees of freedom. The fold id is the cluster. A normal critical value does not qualify, and an iid standard error does not qualify. If `G < 4`, that metric fails closed. The report names the method, `G`, and the degrees of freedom or bootstrap replicate count.
 
-`clvProb` and ROI use the posted lock price and the consensus close. Log loss and Brier use `P_model` and `P_novig`. `novigMove` is reported beside them and is not substituted for `clvProb`.
+`clvProb` and ROI use the posted lock price and the consensus close on the scored side. Log loss and Brier use `P_decisive` and `P_novig` from the close pair named above. `novigMove` is reported beside them and is not substituted for `clvProb`.
 
 If the holdout cannot supply 200 qualifying games, the market fails for sample size. The harness does not lower the gate.
 
@@ -241,9 +253,11 @@ Pre-register the candidate list before scoring any test fold. The list for this 
 | none | NBA moneyline |
 | none | NBA total |
 
-`K` is the size of that frozen list. A candidate dropped after seeing metrics still counts in `K`. Adding a version, a feature, or a market after seeing test results voids every pass.
+`K` counts frozen rows whose candidate cell names a model version. The two NBA rows with candidate `none` are shadow placeholders. They are not tests and they are not in `K`. With the list above, `K = 7`. A named candidate dropped after seeing metrics still counts in `K`. Adding a version, a feature, or a market after seeing test results voids every pass.
 
-The last 20% of scored folds by frozen start, and at least two folds, are the untouched holdout. They are not used to pick features, constants, or which candidate to publish. Development folds may be inspected. The pass numbers are computed on the holdout only. Fewer than six scored folds means the holdout cannot be formed, and every candidate fails closed.
+Let `N` be the number of scored folds after warmup is excluded. The holdout size is `H = max(4, ceil(0.20 × N))`. The holdout is the last `H` folds by frozen start. If `N < H + 4`, the holdout cannot be formed: the split must leave at least four development folds and at least four holdout folds, which is the fold gate in the metrics table. Every candidate then fails closed. For `N = 8`, `H = 4`. For `N = 7`, `H = 4` and `7 < 8`, so the split is refused.
+
+Those holdout folds are excluded from every fit, including rolling training of later folds. They are not used to pick features, constants, or which candidate to publish. Development folds may be inspected before the holdout is opened. The pass numbers are computed on the holdout only. After the holdout is opened, discretionary tuning and refits are banned, as stated in Walk-forward.
 
 A candidate passes only when all of the following hold on one frozen holdout report:
 
