@@ -1,0 +1,48 @@
+-- ============================================================================
+-- Odds (gameId, id) index for cleanup retention reads
+-- ============================================================================
+-- APPLY MANUALLY in Supabase: Dashboard -> SQL Editor -> New query -> paste -> Run
+--
+-- DO NOT run from CI, this PR, or a production refresh job.
+-- Does not delete or rewrite rows.
+--
+-- OUTSIDE A TRANSACTION. CREATE INDEX CONCURRENTLY cannot run inside
+-- BEGIN/COMMIT. Run this file as the only statement. Do not add a SET
+-- or a second statement in the same batch: some editors wrap a multi-
+-- statement script in one transaction, and CONCURRENTLY then fails.
+--
+-- WHY:
+--   Cleanup pages Odds with gameId IN (...) ORDER BY id, using the last id
+--   as the cursor. There is no cap on how many of those rows are retained.
+--
+-- WHAT THIS DOES:
+--   Adds Odds_gameId_id_idx on ("gameId", "id") without blocking writes.
+--
+-- WHAT THIS DOES NOT DO:
+--   Does not add or drop quotedAt / quoted_at (that is SQL 013).
+--   Does not delete odds history.
+--   Does not add Odds API requests.
+--   Does not set statement_timeout. The cleanup client cannot SET it.
+--
+-- IF THIS FAILS PARTWAY:
+--   CONCURRENTLY can leave an INVALID index. IF NOT EXISTS will not rebuild
+--   it, because the name is already taken. Check:
+--
+--   SELECT c.relname, i.indisvalid
+--   FROM pg_index i
+--   JOIN pg_class c ON c.oid = i.indexrelid
+--   WHERE c.relname = 'Odds_gameId_id_idx';
+--
+--   When indisvalid is false, run the rollback
+--   (DROP INDEX CONCURRENTLY IF EXISTS), then run this CREATE again.
+--
+-- VERIFY:
+--   SELECT c.relname, i.indisvalid, pg_get_indexdef(i.indexrelid)
+--   FROM pg_index i
+--   JOIN pg_class c ON c.oid = i.indexrelid
+--   WHERE c.relname = 'Odds_gameId_id_idx';
+--   indisvalid must be true.
+-- ============================================================================
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "Odds_gameId_id_idx"
+  ON "Odds" ("gameId", "id");

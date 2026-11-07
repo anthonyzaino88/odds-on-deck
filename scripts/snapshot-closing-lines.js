@@ -17,6 +17,8 @@ import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import { appendJsonl, resolvePropLinesDir } from '../lib/local-archive.js'
 import { mapPropCacheToArchiveRow } from '../lib/prop-line-archive.js'
+import { insertClosingOddsArchive } from '../lib/odds-history-retention.js'
+import { quoteTimeIso } from '../lib/odds-quote-time.js'
 
 config({ path: '.env.local' })
 
@@ -95,6 +97,7 @@ async function main() {
     price_away: o.priceAway,
     total: o.total,
     spread: o.spread,
+    quoted_at: quoteTimeIso(o.quotedAt),
   }))
 
   console.log(`📦 Saving ${closingRows.length} closing odds lines...`)
@@ -103,9 +106,9 @@ async function main() {
   let saved = 0
   for (let i = 0; i < closingRows.length; i += 200) {
     const batch = closingRows.slice(i, i + 200)
-    const { error } = await supabase.from('ClosingOdds').insert(batch)
-    if (error) {
-      console.error(`  ⚠️  Batch insert error: ${error.message}`)
+    const archived = await insertClosingOddsArchive(supabase, batch)
+    if (!archived.ok) {
+      console.error(`  ⚠️  Batch insert error: ${archived.error?.message}`)
     } else {
       saved += batch.length
     }
