@@ -104,17 +104,17 @@ Pick-lock is the latest capture that is at least 60 minutes before the frozen st
 
 Production CLV compares the posted price with the **consensus** close, not with the entry book's own later price (`lib/closing-line.js`: `consensusClosingQuote`, `clvFromOdds`).
 
-Consensus membership at a close capture uses the same eligible-book rule as the lock (fresh, synchronized, two-sided, quote time at or before capture time, and for totals the locked total). These membership rules are stricter than production. `consensusClosingQuote` returns the median of whatever usable quotes it is given, including a single quote, and it does not check that the two sides share a quote time. The eval contract requires at least two member books after the one-quote-per-book collapse below, and it requires the synchronized pair. One book is not an eval consensus.
+Consensus membership at a close capture uses the same eligible-book rule as the lock (fresh, synchronized, two-sided, quote time at or before capture time, and for totals the locked total). These membership rules are stricter than production. `consensusClosingQuote` returns the median of whatever usable quotes it is given, including a single quote, and it does not check that the two sides share a quote time. The eval contract requires at least two member books after the one-pair-per-book collapse below, and it requires the synchronized pair. One book is not an eval consensus.
 
-One quote per book, before the median: if a book has more than one row on that side at that capture, keep the row with the latest quote time. A remaining tie keeps the localeCompare-smallest `id`, then the localeCompare-smallest price string. The other rows from that book are dropped.
+One synchronized pair per book, before the median. A pair is that book's two sides at one shared quote time and, for totals, one total. If a book has more than one pair at the capture, keep the pair with the latest shared quote time. A remaining tie keeps the localeCompare-smallest `id` among the pair's rows, then the localeCompare-smallest price string on the scored side. Both side prices are taken from that kept pair. The home row and the away row are not chosen in separate passes, and the over row and the under row are not chosen in separate passes. That keeps one timestamp on both sides.
 
-The consensus quote is then the median decimal on that exact side and, for totals, the exact locked total (`consensusClosingQuote` on the collapsed set). An even count takes the earlier book in `CLOSE_QUOTE_BOOK_ORDER` among the two middle quotes, then `localeCompare`. The highest price is not the consensus.
+The consensus quote is then the median decimal on that exact side and, for totals, the exact locked total (`consensusClosingQuote` on the prices from the kept pairs). An even count takes the earlier book in `CLOSE_QUOTE_BOOK_ORDER` among the two middle quotes, then `localeCompare`. The highest price is not the consensus.
 
-The no-vig benchmark uses one pair from the single selected close capture. After the one-quote-per-book collapse, take `consensusClosingQuote` on the scored side and `consensusClosingQuote` on the opposite side (home with away, or over with under at the locked total). Those two consensus prices are the close pair for `P_novig` and for `novigMove`. The lock pair for `P_novig` is the entry book's own synchronized prices at the lock capture. The benchmark is not the entry book's later prices, and it is not a mix of two captures.
+The no-vig benchmark uses one pair from the single selected close capture. After the one-pair-per-book collapse, take `consensusClosingQuote` on the scored side and `consensusClosingQuote` on the opposite side (home with away, or over with under at the locked total). Those two consensus prices are the close pair for `P_novig` and for `novigMove`. Each book's contribution to both medians is the same kept pair, so the two sides of a book never come from different quote times. The lock pair for `P_novig` is the entry book's own synchronized prices at the lock capture. The benchmark is not the entry book's later prices, and it is not a mix of two captures.
 
 Totals: a close whose total differs from the locked total is `lineMoved`. It is reported on its own and is excluded from `clvProb`, from the CLV pass sample, and from 2-way log loss and Brier. That matches `summarizePublishedClv`, which averages `clvProb` on same-line rows only.
 
-Close selection picks one capture. An eligible capture has member quote times after `frozen start − CLOSE_CAPTURE_WINDOW_MINUTES` (35) and at or before `frozen start − CLOSE_CAPTURE_MIN_LEAD_MINUTES` (1), a capture time before the frozen start, quote times at or before that capture time, and at least two member books after the one-quote-per-book collapse. Capture time alone cannot put a row inside the window.
+Close selection picks one capture. An eligible capture has member quote times after `frozen start − CLOSE_CAPTURE_WINDOW_MINUTES` (35) and at or before `frozen start − CLOSE_CAPTURE_MIN_LEAD_MINUTES` (1), a capture time before the frozen start, quote times at or before that capture time, and at least two member books after the one-pair-per-book collapse. Capture time alone cannot put a row inside the window.
 
 1. Preferred: among eligible captures whose id starts with `clvclose:`, take the latest capture time. If capture times tie, take the capture whose latest member quote time is later. If those also tie, take the localeCompare-smallest capture id.
 2. Fallback, only when no preferred capture qualifies: the same ordering among eligible captures whose id does not start with `clvclose:`. The fallback max age is that 35-minute window. A quote older than 35 minutes before start is not a fallback close.
@@ -153,15 +153,15 @@ Stored markets in this contract are 2-way only.
 - NBA `h2h`, if stored rows ever exist, is the full game including overtime. There is no draw.
 - Totals are over/under at one number. The book must post both over and under at that same total. An integer landing on the number pushes.
 
-Pushes are refunds. They are counted in the report and excluded from the hit-rate denominator. They are not coded as losses. Edge, log loss, and Brier are computed only on non-push games, and on those games the model probability is conditional on no push:
+The conditional probability is a lock-time model quantity. It does not depend on whether the game later pushes:
 
 ```
 P_decisive(side) = P(side) / (1 − P(push))
 ```
 
-`P(side)` and `P(push)` are the model's pick-lock probabilities. If the model emits no push mass, `P(push) = 0` and `P_decisive(side) = P(side)`. `nfl-selection-v1.0.1` is that case (`P(tie) = 0`). If `P(push) = 1`, or `P_decisive(side)` is outside `(0, 1)`, the probability is unavailable and the game is excluded from edge, log loss, and Brier. A probability outside `[0, 1]` before conditioning fails the candidate.
+`P(side)` and `P(push)` are the model's pick-lock probabilities. If the model emits no push mass, `P(push) = 0` and `P_decisive(side) = P(side)`. `nfl-selection-v1.0.1` is that case (`P(tie) = 0`). If `1 − P(push) = 0`, the conditional probability is undefined at lock and that game is not eligible. A model probability outside `[0, 1]` fails the candidate. `P_decisive` of 0 or 1 is accepted.
 
-Eval edge decides the bet. It is not CLV.
+Eval edge is computed at lock for every eligible game, before any result is read:
 
 ```
 edge = P_decisive(side) − P_novig(side | entry book's paired lock prices)
@@ -177,7 +177,9 @@ P_novig(side) = q_side / (q_side + q_other)
 
 `removeMlVig` and `removeTotalVig` leave the raw implied probabilities in place when the sum is `≤ 1` (`vig = 0`). Probability scores and `novigMove` use the always-normalize rule above instead, and the report counts underround pairs. An unpaired price is excluded. `LINE_SHOP_UNPAIRED_VIG` (0.955) is not applied.
 
-The bet side is the side with positive eval edge. If both sides are non-positive, the event is a no-bet: it stays in the probability scores and stays out of ROI, CLV, and hit rate.
+The bet is frozen at lock. The bet side is the side with positive eval edge. If both sides are non-positive, the event is a no-bet. That choice does not change after the result, including when the result is a push.
+
+A realized push is a refund. It stays in ROI as profit 0, and it stays in `clvProb` when a same-line consensus close exists. It is excluded from log loss, Brier, and the hit-rate denominator. It is not coded as a loss. Log loss and Brier on the remaining games use the `P_decisive` that was frozen at lock.
 
 ## Production CLV
 
@@ -223,13 +225,13 @@ Sample sizes below are gates. This audit did not observe them.
 
 | Metric | Definition | Holdout gate |
 | --- | --- | --- |
-| `clvProb` | Mean of production `clvProb` on bets with a same-line consensus close. | At least **200** such bets across at least **4** holdout folds. Mean ≥ `CLV_MIN_EFFECT` (0.01). Cluster 95% CI lower bound > 0. |
+| `clvProb` | Mean of production `clvProb` on bets with a same-line consensus close, including bets that later push. | At least **200** such bets across at least **4** holdout folds. Mean ≥ `CLV_MIN_EFFECT` (0.01). Cluster 95% CI lower bound > 0. |
 | Log loss | Mean log loss of clipped `P_decisive` vs the 0/1 outcome, against the same loss for `P_novig` of the close pair. Pushes omitted. No-bets included. Totals need the paired over/under at the locked total. | At least **200** such decided games across at least **4** holdout folds. Model loss lower, and the cluster 95% CI for (close loss − model loss) has lower bound > 0. |
-| Brier | Mean squared error of unclipped `P_decisive` in `(0, 1)`, against `P_novig` of the close pair. Same games and the same push rule as log loss. | Same 200 games. Model score lower, and the cluster 95% CI for (close score − model score) has lower bound > 0. |
+| Brier | Mean squared error of unclipped `P_decisive` in `[0, 1]`, against `P_novig` of the close pair. Same games and the same push rule as log loss. | Same 200 games. Model score lower, and the cluster 95% CI for (close score − model score) has lower bound > 0. |
 | ROI | Flat 1 unit at the posted lock price. Wins pay that price. Losses lose 1. Pushes return 0 and stay in the denominator. | Point estimate > 0 on the same bets as `clvProb`, and the cluster 95% CI lower bound > 0. |
 | Hit rate | Wins / (wins + losses). Pushes omitted. | Reported with the counts, by fold. No hit-rate threshold. |
 
-Log loss clips `P_decisive` and the close probability to `[LOG_LOSS_CLIP, 1 − LOG_LOSS_CLIP]` with `LOG_LOSS_CLIP = 0.001` before the log. Brier uses the unclipped `P_decisive` in `(0, 1)`.
+`P_decisive` of 0 or 1 is a valid probability. Log loss is the only place it is clipped, to `[LOG_LOSS_CLIP, 1 − LOG_LOSS_CLIP]` with `LOG_LOSS_CLIP = 0.001`, and the close probability is clipped the same way. Brier uses the unclipped value in `[0, 1]`.
 
 Dependence: `G` is the number of holdout folds that contain at least one scored row for that metric. The interval is a wild cluster bootstrap percentile interval, or a cluster-robust Wald interval referred to a Student-t with `G − 1` degrees of freedom. The fold id is the cluster. A normal critical value does not qualify, and an iid standard error does not qualify. If `G < 4`, that metric fails closed. The report names the method, `G`, and the degrees of freedom or bootstrap replicate count.
 
