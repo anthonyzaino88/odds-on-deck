@@ -27,6 +27,7 @@ import {
   gamesEligibleForPropSave,
   propSaveDecision,
   oddsInsertPayload,
+  insertOddsRowResolvingSchema,
   pickUnmappedOddsGame,
   msSinceEtMidnight,
   nflAdjacentPropsTtlMs,
@@ -37,9 +38,7 @@ import {
 } from '../lib/live-odds-landing.js'
 import {
   bookmakerQuoteTimeIso,
-  isMissingQuotedAtColumnError,
   oddsTableHasQuotedAt,
-  omitQuotedAtFields,
 } from '../lib/odds-quote-time.js'
 import {
   createOddsApiBudget,
@@ -1074,19 +1073,14 @@ async function saveGameOdds(games, sport, date) {
             quoteTime: bookmakerQuoteTimeIso(bookmaker, market),
             includeQuotedAt,
           })
-          let { error } = await supabase
-            .from('Odds')
-            .insert(oddsRow)
-          if (error && includeQuotedAt && isMissingQuotedAtColumnError(error)) {
-            oddsRow = omitQuotedAtFields(oddsRow)
-            const retryQuote = await supabase.from('Odds').insert(oddsRow)
-            error = retryQuote.error
-          }
-          if (error && includeCommenceTime && oddsInsertFailedForMissingCommenceTime(error)) {
+          const inserted = await insertOddsRowResolvingSchema(supabase, oddsRow)
+          const error = inserted?.error
+          if (
+            Object.prototype.hasOwnProperty.call(oddsRow, 'commence_time')
+            && inserted?.payload
+            && !Object.prototype.hasOwnProperty.call(inserted.payload, 'commence_time')
+          ) {
             oddsHasCommenceTime = false
-            const { commence_time: _omit, ...withoutCommence } = oddsRow
-            const retry = await supabase.from('Odds').insert(withoutCommence)
-            error = retry.error
           }
           
           // Ignore duplicate key errors (code 23505)
