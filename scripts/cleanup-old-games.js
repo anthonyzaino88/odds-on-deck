@@ -7,8 +7,9 @@
  * - NFL: outside the current week (Sun–Sat)
  * - NHL and MLB: outside today
  *
- * The run holds an exclusive lock, refreshes it while working, and refuses
- * each archive write and each table delete during the ET :05–:15 quiet window.
+ * The run holds an exclusive lock and renews it every 20 seconds, including
+ * during a call. A call that runs longer than 45 seconds is aborted. The
+ * ET :05–:15 quiet window refuses each archive write and each table delete.
  * Game and Odds reads are paginated and checked. A read error, a failed
  * archive, a short verify, or a quiet-window hit stops every delete that
  * has not already run. Lock and close odds are copied onto ClosingOdds

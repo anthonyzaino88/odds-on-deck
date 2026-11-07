@@ -169,13 +169,18 @@ describe('selectRetainedOddsRows', () => {
     expect(plan.rows.map((item) => item.id)).toEqual(['line'])
   })
 
-  test('a missing quote is not eligible, and the archive still leaves quoted_at null', () => {
+  test('a null quote in a pre-start window is retained and is not lock-eligible', () => {
     const plan = selectRetainedOddsRows([
       row({ id: 'cap', quotedAt: null, ts: at(-2 * 60 * 60 * 1000) }),
       row({ id: 'close', quotedAt: null, ts: at(-10 * 60 * 1000) }),
+      row({ id: 'gap', quotedAt: null, ts: at(-50 * 60 * 1000) }),
+      row({ id: 'late', quotedAt: null, ts: at(-30 * 1000) }),
       row({ id: 'quoted', quotedAt: at(-80 * 60 * 1000), ts: at(-70 * 60 * 1000) }),
     ], games)
-    expect(plan.rows.map((item) => item.id)).toEqual(['quoted'])
+    expect(plan.rows.map((item) => item.id).sort()).toEqual(['cap', 'close', 'quoted'])
+    expect(plan.unknownQuote.map((item) => item.id).sort()).toEqual(['cap', 'close'])
+    expect(plan.unknownQuote.every((item) => item.reason === 'quote_time_unknown')).toBe(true)
+    expect(plan.counts).toEqual({ retained: 3, quoteTimeUnknown: 2, lockEligible: 1 })
     expect(toClosingOddsArchiveRow(row({
       id: 'cap',
       quotedAt: null,

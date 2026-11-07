@@ -56,7 +56,7 @@ function createDb(initial = {}, hooks = {}) {
     closing: [],
     archived: [],
     edges: [...(initial.edges || [])],
-    nfl: [],
+    nfl: [...(initial.nfl || [])],
   }
   const events = []
   const rowsFor = (table) => {
@@ -126,11 +126,12 @@ function createDb(initial = {}, hooks = {}) {
       }
       let page = rowsFor(table)
         .filter((row) => matches(row, q.filters))
-        .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+        .sort((a, b) => String(a.id ?? a.gameId).localeCompare(String(b.id ?? b.gameId)))
         .slice(0, n)
       const cap = hooks.truncateReads?.[table]
       if (Number.isFinite(cap)) page = page.slice(0, cap)
-      events.push({ op: 'read', table, ids: page.map((row) => row.id) })
+      events.push({ op: 'read', table, ids: page.map((row) => row.id ?? row.gameId) })
+      hooks.onRead?.(table, page)
       return { data: page, error: null }
     }
 
@@ -210,6 +211,8 @@ function run(db, extra = {}) {
     pageSize: extra.pageSize || 1000,
     batchSize: extra.batchSize || 50,
     archiveChunkSize: extra.archiveChunkSize,
+    renewEveryMs: extra.renewEveryMs,
+    operationTimeoutMs: extra.operationTimeoutMs,
   })
 }
 
@@ -318,7 +321,7 @@ describe('runCleanupOldGames', () => {
   })
 
   test('a delete failure stops the later tables', async () => {
-    const db = createDb({}, { failDelete: 'EdgeSnapshot' })
+    const db = createDb({ edges: [{ id: 'e1', gameId: 'g1' }] }, { failDelete: 'EdgeSnapshot' })
     const result = await run(db)
     expect(result.status).toBe('failed')
     expect(result.reason).toBe('delete')
@@ -450,7 +453,16 @@ describe('runCleanupOldGames', () => {
     expect(db.state.games).toHaveLength(1)
   })
 
-  test('a short page below the reported count is not the end of the read', async () => {
+  test('an empty page before the count is met still fails the read', async () => {
+    const db = createDb({}, { truncateReads: { Odds: 0 } })
+    const result = await run(db)
+    expect(result.status).toBe('failed')
+    expect(result.reason).toBe('odds-read')
+    expect(db.events.some((event) => event.op === 'delete')).toBe(false)
+    expect(db.state.odds).toHaveLength(1)
+  })
+
+  test('a short page lowers the page size and the read still finishes', async () => {
     const db = createDb({
       odds: [
         odds({ id: 'o1' }),
@@ -459,10 +471,102 @@ describe('runCleanupOldGames', () => {
       ],
     }, { truncateReads: { Odds: 1 } })
     const result = await run(db)
+    expect(result.status).toBe('ok')
+    expect(result.deletedGames).toBe(1)
+    expect(db.state.closing.map((row) => row.id).sort()).toEqual(['oddsret:o1', 'oddsret:o2', 'oddsret:o3'])
+    expect(db.state.odds).toEqual([])
+  })
+
+  test('a null quote in the lock window is copied and flagged', async () => {
+    const db = createDb({
+      odds: [odds({ quotedAt: null })],
+    })
+    const log = memoryLog()
+    const result = await run(db, { log })
+    expect(result.status).toBe('ok')
+    expect(db.state.closing[0]).toMatchObject({ id: 'oddsret:o1', quoted_at: null })
+    expect(log.lines.some((line) => line.includes('1 quote-time-unknown, not lock-eligible; 0 lock-eligible'))).toBe(true)
+  })
+
+  test('a changed date, status, or lastUpdate skips the non-odds deletes', async () => {
+    const db = createDb({
+      edges: [{ id: 'e1', gameId: 'g1' }],
+      nfl: [{ id: 'g1', gameId: 'g1' }],
+    }, {
+      onDelete(table) {
+        if (table === 'Odds') {
+          db.state.games[0].date = OPEN.toISOString()
+          db.state.games[0].status = 'scheduled'
+          db.state.games[0].lastUpdate = OPEN.toISOString()
+        }
+      },
+    })
+    const result = await run(db)
+    expect(result.status).toBe('ok')
+    expect(result.deletedGames).toBe(0)
+    expect(db.state.games).toHaveLength(1)
+    expect(db.state.edges.map((row) => row.id)).toEqual(['e1'])
+    expect(db.state.nfl.map((row) => row.gameId)).toEqual(['g1'])
+    expect(db.events.some((event) => event.op === 'delete' && event.table === 'Game')).toBe(false)
+  })
+
+  test('an edge or nfl row inserted after the re-read is not deleted', async () => {
+    const db = createDb({
+      edges: [{ id: 'e1', gameId: 'g1' }],
+      nfl: [{ id: 'g1', gameId: 'g1' }],
+    }, {
+      onRead(table) {
+        if (table === 'EdgeSnapshot' && !db.state.edges.some((row) => row.id === 'e-new')) {
+          db.state.edges.push({ id: 'e-new', gameId: 'g1' })
+        }
+        if (table === 'NFLGameData' && !db.state.nfl.some((row) => row.gameId === 'g-new')) {
+          db.state.nfl.push({ id: 'g-new', gameId: 'g-new' })
+        }
+      },
+    })
+    const result = await run(db)
+    expect(result.status).toBe('ok')
+    expect(result.deletedGames).toBe(1)
+    const edgeDelete = db.events.find((event) => event.op === 'delete' && event.table === 'EdgeSnapshot')
+    expect(edgeDelete.column).toBe('id')
+    expect(edgeDelete.ids).toEqual(['e1'])
+    expect(db.state.edges.map((row) => row.id)).toEqual(['e-new'])
+    const nflDelete = db.events.find((event) => event.op === 'delete' && event.table === 'NFLGameData')
+    expect(nflDelete.column).toBe('gameId')
+    expect(nflDelete.ids).toEqual(['g1'])
+    expect(db.state.nfl.map((row) => row.gameId)).toEqual(['g-new'])
+  })
+
+  test('a failed lock renewal aborts the in-flight read and later deletes', async () => {
+    const started = Date.now()
+    const db = createDb({}, { pauseOdds: new Promise(() => {}) })
+    const result = await run(db, {
+      renewEveryMs: 15,
+      operationTimeoutMs: 1000,
+      acquireLock: () => ({
+        acquired: true,
+        heartbeat: () => Date.now() - started < 40,
+        release() {},
+      }),
+    })
     expect(result.status).toBe('failed')
-    expect(result.reason).toBe('odds-read')
+    expect(result.reason).toBe('lock')
     expect(db.events.some((event) => event.op === 'delete')).toBe(false)
-    expect(db.state.odds).toHaveLength(3)
+    expect(db.state.games).toHaveLength(1)
+    expect(db.state.odds).toHaveLength(1)
+  })
+
+  test('a call that outlives the operation timeout aborts later work', async () => {
+    const db = createDb({}, { pauseOdds: new Promise(() => {}) })
+    const result = await run(db, {
+      renewEveryMs: 60_000,
+      operationTimeoutMs: 40,
+      acquireLock: () => ({ acquired: true, heartbeat: () => true, release() {} }),
+    })
+    expect(result.status).toBe('failed')
+    expect(result.reason).toBe('timeout')
+    expect(db.events.some((event) => event.op === 'delete')).toBe(false)
+    expect(db.state.odds).toHaveLength(1)
   })
 
   test('a heartbeat keeps a live lock from being stolen after the stale window', () => {
