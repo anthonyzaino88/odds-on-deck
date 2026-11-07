@@ -6,6 +6,13 @@
  */
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
+import { oddsInsertPayload } from '../lib/live-odds-landing.js'
+import {
+  bookmakerQuoteTimeIso,
+  isMissingQuotedAtColumnError,
+  oddsTableHasQuotedAt,
+  omitQuotedAtFields,
+} from '../lib/odds-quote-time.js'
 import { config } from 'dotenv'
 
 config({ path: '.env.local' })
@@ -126,22 +133,28 @@ async function fetchOddsForGame(gameId) {
         // Generate unique ID
         const oddsId = `${gameId}_${bookmaker.title}_${market.key}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
         
-        // Save to database
-        const { error } = await supabase
+        const includeQuotedAt = await oddsTableHasQuotedAt(supabase)
+        let oddsRow = oddsInsertPayload({
+          id: oddsId,
+          gameId,
+          book: bookmaker.title,
+          market: market.key,
+          priceAway,
+          priceHome,
+          spread,
+          total,
+          ts: new Date().toISOString(),
+          quoteTime: bookmakerQuoteTimeIso(bookmaker, market),
+          includeQuotedAt,
+        })
+        let { error } = await supabase
           .from('Odds')
-          .upsert({
-            id: oddsId,
-            gameId: gameId,
-            book: bookmaker.title,
-            market: market.key,
-            priceAway,
-            priceHome,
-            spread,
-            total,
-            ts: new Date().toISOString()
-          }, {
-            onConflict: 'id'
-          })
+          .upsert(oddsRow, { onConflict: 'id' })
+        if (error && includeQuotedAt && isMissingQuotedAtColumnError(error)) {
+          oddsRow = omitQuotedAtFields(oddsRow)
+          const retry = await supabase.from('Odds').upsert(oddsRow, { onConflict: 'id' })
+          error = retry.error
+        }
         
         if (error && !error.code?.includes('23505')) {
           console.error(`  ❌ Error saving ${bookmaker.title} ${market.key}: ${error.message}`)

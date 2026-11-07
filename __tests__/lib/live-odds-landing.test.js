@@ -6,6 +6,7 @@ import {
   MAP_EVENT_GAME_SELECT,
   oddsInsertFailedForMissingCommenceTime,
   oddsInsertPayload,
+  insertOddsRowResolvingSchema,
   isOpenForOddsEvent,
   pickOpenTeamMatch,
   pickUnmappedOddsGame,
@@ -349,5 +350,88 @@ describe('oddsInsertPayload', () => {
       code: '23505',
       message: 'duplicate key',
     })).toBe(false)
+  })
+})
+
+describe('insertOddsRowResolvingSchema', () => {
+  function payload() {
+    return {
+      id: 'o1',
+      gameId: 'g1',
+      book: 'FanDuel',
+      market: 'h2h',
+      priceAway: -110,
+      priceHome: -110,
+      commence_time: '2026-11-08T18:00:00.000Z',
+      quotedAt: '2026-11-08T16:00:00.000Z',
+    }
+  }
+
+  test('strips quotedAt and then commence_time when the schema changes after the probe', async () => {
+    const seen = []
+    const supabase = {
+      from() {
+        return {
+          insert(row) {
+            seen.push({ ...row })
+            if ('quotedAt' in row && 'commence_time' in row) {
+              return Promise.resolve({
+                error: { code: 'PGRST204', message: "Could not find the 'quotedAt' column of 'Odds' in the schema cache" },
+              })
+            }
+            if ('commence_time' in row) {
+              return Promise.resolve({
+                error: { code: 'PGRST204', message: "Could not find the 'commence_time' column of 'Odds' in the schema cache" },
+              })
+            }
+            return Promise.resolve({ error: null })
+          },
+        }
+      },
+    }
+    const result = await insertOddsRowResolvingSchema(supabase, payload())
+    expect(result.error).toBeNull()
+    expect(seen).toHaveLength(3)
+    expect(seen[1].quotedAt).toBeUndefined()
+    expect(seen[1].commence_time).toBe('2026-11-08T18:00:00.000Z')
+    expect(seen[2].quotedAt).toBeUndefined()
+    expect(seen[2].commence_time).toBeUndefined()
+    expect(result.payload.quotedAt).toBeUndefined()
+    expect(result.payload.commence_time).toBeUndefined()
+  })
+
+  test('strips commence_time first when that is the column PostgREST names', async () => {
+    const seen = []
+    const supabase = {
+      from() {
+        return {
+          insert(row) {
+            seen.push({ ...row })
+            if (seen.length === 1) {
+              return Promise.resolve({
+                error: { code: 'PGRST204', message: "Could not find the 'commence_time' column of 'Odds' in the schema cache" },
+              })
+            }
+            if ('quotedAt' in row) {
+              return Promise.resolve({
+                error: { code: 'PGRST204', message: "Could not find the 'quotedAt' column of 'Odds' in the schema cache" },
+              })
+            }
+            return Promise.resolve({ error: null })
+          },
+        }
+      },
+    }
+    const result = await insertOddsRowResolvingSchema(supabase, payload())
+    expect(result.error).toBeNull()
+    expect(seen[1].commence_time).toBeUndefined()
+    expect(seen[1].quotedAt).toBe('2026-11-08T16:00:00.000Z')
+    expect(seen[2].quotedAt).toBeUndefined()
+    expect(seen[2].commence_time).toBeUndefined()
+  })
+
+  test('fetch-live-odds uses the combined retry', () => {
+    const src = readFileSync(join(process.cwd(), 'scripts/fetch-live-odds.js'), 'utf8')
+    expect(src).toMatch(/insertOddsRowResolvingSchema/)
   })
 })

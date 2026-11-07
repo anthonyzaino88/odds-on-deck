@@ -27,6 +27,7 @@ import {
   gamesEligibleForPropSave,
   propSaveDecision,
   oddsInsertPayload,
+  insertOddsRowResolvingSchema,
   pickUnmappedOddsGame,
   msSinceEtMidnight,
   nflAdjacentPropsTtlMs,
@@ -35,6 +36,10 @@ import {
   resolveTeamNameFallback,
   resolvePropLanding,
 } from '../lib/live-odds-landing.js'
+import {
+  bookmakerQuoteTimeIso,
+  oddsTableHasQuotedAt,
+} from '../lib/odds-quote-time.js'
 import {
   createOddsApiBudget,
   estimateCreditsFromOddsEndpoint,
@@ -1052,7 +1057,8 @@ async function saveGameOdds(games, sport, date) {
           if (!priceAway || !priceHome) continue
           
           const includeCommenceTime = await oddsTableHasCommenceTime()
-          const oddsRow = oddsInsertPayload({
+          const includeQuotedAt = await oddsTableHasQuotedAt(supabase)
+          let oddsRow = oddsInsertPayload({
             id: generateId(),
             gameId: ourGameId,
             book: bookmaker.title,
@@ -1064,15 +1070,17 @@ async function saveGameOdds(games, sport, date) {
             ts: new Date().toISOString(),
             commenceTime: game.commence_time,
             includeCommenceTime,
+            quoteTime: bookmakerQuoteTimeIso(bookmaker, market),
+            includeQuotedAt,
           })
-          let { error } = await supabase
-            .from('Odds')
-            .insert(oddsRow)
-          if (error && includeCommenceTime && oddsInsertFailedForMissingCommenceTime(error)) {
+          const inserted = await insertOddsRowResolvingSchema(supabase, oddsRow)
+          const error = inserted?.error
+          if (
+            Object.prototype.hasOwnProperty.call(oddsRow, 'commence_time')
+            && inserted?.payload
+            && !Object.prototype.hasOwnProperty.call(inserted.payload, 'commence_time')
+          ) {
             oddsHasCommenceTime = false
-            const { commence_time: _omit, ...withoutCommence } = oddsRow
-            const retry = await supabase.from('Odds').insert(withoutCommence)
-            error = retry.error
           }
           
           // Ignore duplicate key errors (code 23505)

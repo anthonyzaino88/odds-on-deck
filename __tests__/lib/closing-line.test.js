@@ -1036,6 +1036,71 @@ describe('NFL game-line ClosingOdds writes', () => {
       }),
     ]))
     expect(rows.find((row) => row.market === 'player_receptions')).toBeUndefined()
+    expect(rows.every((row) => row.quoted_at == null)).toBe(true)
+    expect(rows.every((row) => row.quoted_at !== row.snapshot_at)).toBe(true)
+  })
+
+  test('stores the market last_update on quoted_at and leaves snapshot_at as capture time', () => {
+    const rows = gameLineClosesFromEventOdds({
+      home_team: 'Kansas City Chiefs',
+      away_team: 'Buffalo Bills',
+      bookmakers: [{
+        title: 'FanDuel',
+        last_update: '2026-07-15T22:00:00.000Z',
+        markets: [{
+          key: 'h2h',
+          last_update: '2026-07-15T22:40:00.000Z',
+          outcomes: [
+            { name: 'Kansas City Chiefs', price: -150 },
+            { name: 'Buffalo Bills', price: 130 },
+          ],
+        }],
+      }],
+    }, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+    })
+    expect(rows).toEqual([
+      expect.objectContaining({
+        book: 'FanDuel',
+        market: 'h2h',
+        snapshot_at: '2026-07-15T22:50:00.000Z',
+        quoted_at: '2026-07-15T22:40:00.000Z',
+      }),
+    ])
+  })
+
+  test('a missing quoted_at column is stripped and the close insert is retried', async () => {
+    const bodies = []
+    const supabase = {
+      from() {
+        return {
+          select() { return this },
+          in() { return Promise.resolve({ data: [], error: null }) },
+          insert(body) {
+            bodies.push(body)
+            if (bodies.length === 1) {
+              return Promise.resolve({
+                error: {
+                  code: 'PGRST204',
+                  message: "Could not find the 'quoted_at' column of 'ClosingOdds' in the schema cache",
+                },
+              })
+            }
+            return Promise.resolve({ data: body, error: null })
+          },
+        }
+      },
+    }
+    const proposed = gameLineClosesFromEventOdds(eventData, {
+      gameId: 'KC_at_BUF',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+    })
+    const written = await writeGameLineCloses(supabase, proposed)
+    expect(written.error).toBeNull()
+    expect(written.inserted).toBe(proposed.length)
+    expect(bodies[1][0].quoted_at).toBeUndefined()
+    expect(bodies[1][0].snapshot_at).toBe('2026-07-15T22:50:00.000Z')
   })
 
   test('writeGameLineCloses is idempotent on game_id + book + market', async () => {
