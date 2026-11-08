@@ -43,7 +43,7 @@ These schemas exist. This checkout does not contain their row counts.
 
 Odds API sport keys in `scripts/fetch-odds-for-all-games.js`: `icehockey_nhl`, `americanfootball_nfl`, `baseball_mlb`. No NBA key.
 
-Close capture of game lines (`lib/closing-line.js`) merges `h2h` / `spreads` / `totals` onto an event only for the opt-in `--nfl-all` NFL job. NHL, MLB, and NBA game lines do not have that path.
+Close capture of game lines (`lib/closing-line.js`): `--nfl-all` still merges `h2h` / `spreads` / `totals` onto the per-game NFL prop call. `--game-lines` loads today's EdgeSnapshot moneyline and total edges for NFL, NHL, and MLB in the same T−35..T−1 window and writes `clvclose:` rows from one sport-level odds call per start cluster (`h2h,totals`; `spreads` only with `--spreads`). NBA game lines still have no close path.
 
 ### Fixtures (not a sample)
 

@@ -70,6 +70,15 @@ import {
   filterNewClosingOddsRows,
   formatCallsUsed,
   gameLineClosesFromEventOdds,
+  gameLineClosesForSportEvent,
+  gameLineQuoteFitsClose,
+  loadExistingClosingOdds,
+  setClosingOddsClock,
+  buildSportOddsUrl,
+  clusterGameLineCloseTargets,
+  selectGameLineCloseTargets,
+  selectGameLineClustersWithinBudget,
+  gameLineCloseMarkets,
   includeNflWindowGamesForGameLines,
   isNflAllPendingProp,
   isTargetedCloseCapturePick,
@@ -843,17 +852,17 @@ describe('close write payload and missing-column retry', () => {
     })).toBeNull()
     expect(shouldSkipLiveCloseOverwrite({
       payload: { commence_time: '2026-07-15T22:10:00.000Z' },
+      quote: { last_update: '2026-07-15T22:05:00.000Z' },
+      now,
+    })).toBe('quote last_update after capture')
+    expect(shouldSkipLiveCloseOverwrite({
+      payload: { commence_time: '2026-07-15T22:10:00.000Z' },
       quote: { last_update: '2026-07-15T22:10:00.000Z' },
       now,
-    })).toBe('quote last_update at or after commence_time')
+    })).toBe('quote last_update after capture')
     expect(shouldSkipLiveCloseOverwrite({
       payload: { commence_time: '2026-07-15T22:10:00.000Z' },
-      quote: { last_update: '2026-07-15T22:10:01.000Z' },
-      now,
-    })).toBe('quote last_update at or after commence_time')
-    expect(shouldSkipLiveCloseOverwrite({
-      payload: { commence_time: '2026-07-15T22:10:00.000Z' },
-      quote: { last_update: '2026-07-15T22:09:59.000Z' },
+      quote: { last_update: '2026-07-15T21:59:00.000Z' },
       now,
     })).toBeNull()
     expect(shouldSkipLiveCloseOverwrite({ payload: {}, quote: {}, now }))
@@ -1674,5 +1683,410 @@ describe('ClosingOdds total selection for close-stuck-parlays', () => {
     expect(src).toMatch(/ORDER BY/)
     expect(src).toMatch(/price_away/)
     expect(src).toMatch(/price_home/)
+  })
+})
+
+describe('game-line close capture for NHL, MLB, and NFL', () => {
+  const now = new Date('2026-07-15T22:46:00.000Z')
+
+  function game(overrides = {}) {
+    return {
+      id: 'BOS_at_TOR',
+      sport: 'nhl',
+      date: '2026-07-15T23:10:00.000Z',
+      status: 'scheduled',
+      oddsApiEventId: 'evt-bos',
+      ...overrides,
+    }
+  }
+
+  function edge(overrides = {}) {
+    return {
+      id: 'edge-bos',
+      gameId: 'BOS_at_TOR',
+      edgeMlHome: 0.04,
+      edgeMlAway: null,
+      edgeTotalO: null,
+      edgeTotalU: null,
+      ts: '2026-07-15T18:00:00.000Z',
+      ...overrides,
+    }
+  }
+
+  test('keeps today moneyline and total edges inside the early and near-start windows', () => {
+    const nhl = game()
+    const mlb = game({
+      id: 'NYY_at_BOS',
+      sport: 'mlb',
+      date: '2026-07-15T22:52:00.000Z',
+      oddsApiEventId: 'evt-mlb',
+    })
+    const targets = selectGameLineCloseTargets([
+      nhl,
+      mlb,
+      game({ id: 'NBA', sport: 'nba' }),
+      game({ id: 'LIVE', status: 'in_progress' }),
+      game({ id: 'TOO_SOON', date: '2026-07-15T22:46:30.000Z' }),
+      game({ id: 'TOO_LATE', date: '2026-07-15T23:40:00.000Z' }),
+      game({ id: 'NO_EDGE' }),
+      game({ id: 'YDAY', oddsApiEventId: 'evt-yday' }),
+    ], [
+      edge(),
+      edge({ id: 'edge-mlb', gameId: 'NYY_at_BOS', edgeMlHome: null, edgeTotalU: -0.02 }),
+      edge({ id: 'edge-nba', gameId: 'NBA' }),
+      edge({ id: 'edge-live', gameId: 'LIVE' }),
+      edge({ id: 'edge-soon', gameId: 'TOO_SOON' }),
+      edge({ id: 'edge-late', gameId: 'TOO_LATE' }),
+      edge({ id: 'edge-empty', gameId: 'NO_EDGE', edgeMlHome: null }),
+      edge({ id: 'edge-yday', gameId: 'YDAY', ts: '2026-07-15T03:00:00.000Z' }),
+      edge({ id: 'edge-old', ts: '2026-07-15T16:00:00.000Z', edgeMlHome: 0.01 }),
+      edge({ id: 'edge-new', ts: '2026-07-15T20:00:00.000Z', edgeMlHome: 0.09 }),
+    ], now)
+    expect(targets.map((target) => [target.game.id, target.pass])).toEqual([
+      ['BOS_at_TOR', 'early'],
+      ['NYY_at_BOS', 'near-start'],
+    ])
+    expect(targets[0].snapshot.id).toBe('edge-new')
+  })
+
+  test('batches one sport call per start cluster and keeps NFL ahead of NHL and MLB', () => {
+    const targets = selectGameLineCloseTargets([
+      game({ id: 'NHL_A', date: '2026-07-15T23:10:00.000Z' }),
+      game({ id: 'NHL_B', date: '2026-07-15T23:20:00.000Z', oddsApiEventId: 'evt-b' }),
+      game({ id: 'MLB', sport: 'mlb', date: '2026-07-15T23:12:00.000Z', oddsApiEventId: 'evt-mlb' }),
+      game({ id: 'NFL', sport: 'nfl', date: '2026-07-15T23:15:00.000Z', oddsApiEventId: 'evt-nfl' }),
+    ], [
+      edge({ gameId: 'NHL_A' }),
+      edge({ gameId: 'NHL_B' }),
+      edge({ gameId: 'MLB', edgeMlHome: null, edgeTotalO: 0.03 }),
+      edge({ gameId: 'NFL' }),
+    ], now)
+    const clusters = clusterGameLineCloseTargets(targets)
+    expect(clusters.map((cluster) => cluster.sport)).toEqual(['nfl', 'nhl', 'mlb'])
+    expect(clusters[1].gameIds).toEqual(['NHL_A', 'NHL_B'])
+    expect(clusters).toHaveLength(3)
+
+    const split = clusterGameLineCloseTargets([
+      { game: game({ id: 'EARLY', date: '2026-07-15T23:00:00.000Z' }), pass: 'early' },
+      { game: game({ id: 'LATER', date: '2026-07-15T23:40:00.000Z' }), pass: 'early' },
+    ])
+    expect(split).toHaveLength(2)
+    expect(split.map((cluster) => cluster.gameIds)).toEqual([['EARLY'], ['LATER']])
+  })
+
+  test('sport odds URL is one h2h,totals call for the cluster region', () => {
+    const url = buildSportOddsUrl({
+      sportKey: 'icehockey_nhl',
+      markets: gameLineCloseMarkets(),
+      regions: ['us'],
+      apiKey: 'secret',
+      commenceTimeFrom: '2026-07-15T23:10:00.000Z',
+      commenceTimeTo: '2026-07-15T23:20:00.000Z',
+    })
+    expect(url).toContain('/v4/sports/icehockey_nhl/odds?')
+    expect(url).not.toContain('/events/')
+    expect(url).toContain('markets=h2h%2Ctotals')
+    expect(url).not.toContain('spreads')
+    expect(url).toContain('regions=us')
+    const withSpreads = buildSportOddsUrl({
+      sportKey: 'baseball_mlb',
+      markets: gameLineCloseMarkets({ spreads: true }),
+      regions: ['us'],
+    })
+    expect(withSpreads).toContain('markets=h2h%2Cspreads%2Ctotals')
+  })
+
+  test('game-line budget leaves prop calls ahead and stops at the sub-cap', () => {
+    const clusters = clusterGameLineCloseTargets([
+      { game: game({ id: 'NFL', sport: 'nfl' }), pass: 'early' },
+      { game: game({ id: 'NHL' }), pass: 'early' },
+    ])
+    const capped = selectGameLineClustersWithinBudget(clusters, {
+      markets: ['h2h', 'totals'],
+      regions: ['us'],
+      maxCredits: 2,
+      maxGameLineCredits: 12,
+      includeQuota: true,
+    })
+    expect(capped.clusters.map((cluster) => cluster.sport)).toEqual(['nfl'])
+    expect(capped.plannedCalls).toBe(2)
+    expect(capped.plannedCredits).toBe(2)
+    expect(capped.gameLineCredits).toBe(2)
+    expect(capped.skipped).toBe(1)
+    expect(capped.clusters[0].creditCost).toBe(2)
+
+    const afterProps = selectGameLineClustersWithinBudget(clusters, {
+      markets: ['h2h', 'totals'],
+      regions: ['us'],
+      maxCalls: 2,
+      callsAlready: 2,
+      creditsAlready: 1,
+      capturesAlready: 1,
+      includeQuota: false,
+    })
+    expect(afterProps.clusters).toEqual([])
+    expect(afterProps.plannedCalls).toBe(2)
+    expect(afterProps.skipped).toBe(2)
+
+    const subCap = selectGameLineClustersWithinBudget(clusters, {
+      markets: ['h2h', 'totals'],
+      regions: ['us'],
+      maxGameLineCredits: 2,
+      includeQuota: true,
+    })
+    expect(subCap.clusters).toHaveLength(1)
+    expect(subCap.gameLineCredits).toBe(2)
+    expect(subCap.skipped).toBe(1)
+  })
+
+  test('NHL sport rows keep quoted_at and a second write does not insert again', async () => {
+    const capturedAt = new Date('2026-07-15T22:50:00.000Z')
+    const event = {
+      id: 'evt-bos',
+      home_team: 'Boston Bruins',
+      away_team: 'Toronto Maple Leafs',
+      bookmakers: [{
+        title: 'FanDuel',
+        markets: [
+          {
+            key: 'h2h',
+            last_update: '2026-07-15T22:40:00.000Z',
+            outcomes: [
+              { name: 'Boston Bruins', price: -140 },
+              { name: 'Toronto Maple Leafs', price: 120 },
+            ],
+          },
+          {
+            key: 'spreads',
+            last_update: '2026-07-15T22:40:00.000Z',
+            outcomes: [
+              { name: 'Boston Bruins', price: -110, point: -1.5 },
+              { name: 'Toronto Maple Leafs', price: -110, point: 1.5 },
+            ],
+          },
+          {
+            key: 'totals',
+            last_update: '2026-07-15T22:41:00.000Z',
+            outcomes: [
+              { name: 'Over', price: -105, point: 6.5 },
+              { name: 'Under', price: -115, point: 6.5 },
+            ],
+          },
+        ],
+      }],
+    }
+    const rows = gameLineClosesForSportEvent(event, game(), capturedAt, {
+      markets: ['h2h', 'totals'],
+    })
+    expect(rows.map((row) => row.market).sort()).toEqual(['h2h', 'totals'])
+    expect(rows.every((row) => row.sport === 'nhl')).toBe(true)
+    expect(rows.find((row) => row.market === 'h2h').quoted_at).toBe('2026-07-15T22:40:00.000Z')
+    expect(rows.find((row) => row.market === 'totals').quoted_at).toBe('2026-07-15T22:41:00.000Z')
+    expect(rows.every((row) => row.id.startsWith('clvclose:'))).toBe(true)
+
+    const existing = []
+    const inserts = []
+    const supabase = {
+      from() {
+        return {
+          select() { return this },
+          in() { return Promise.resolve({ data: existing, error: null }) },
+          insert(body) {
+            inserts.push(...body)
+            existing.push(...body)
+            return Promise.resolve({ data: body, error: null })
+          },
+        }
+      },
+    }
+    resetClosingOddsWriteGuard()
+    const first = await writeGameLineCloses(supabase, rows)
+    expect(first.inserted).toBe(2)
+    resetClosingOddsWriteGuard()
+    const second = await writeGameLineCloses(supabase, rows)
+    expect(second.inserted).toBe(0)
+    expect(second.skipped).toBe(2)
+    expect(inserts).toHaveLength(2)
+  })
+
+  test('drops a quote after the capture and a quote outside the close window', () => {
+    const capturedAt = new Date('2026-07-15T22:50:00.000Z')
+    const late = gameLineClosesFromEventOdds({
+      home_team: 'Boston Bruins',
+      away_team: 'Toronto Maple Leafs',
+      bookmakers: [{
+        title: 'FanDuel',
+        markets: [{
+          key: 'h2h',
+          last_update: '2026-07-15T22:58:00.000Z',
+          outcomes: [
+            { name: 'Boston Bruins', price: -140 },
+            { name: 'Toronto Maple Leafs', price: 120 },
+          ],
+        }],
+      }],
+    }, {
+      gameId: 'BOS_at_TOR',
+      sport: 'nhl',
+      capturedAt,
+      kickoff: '2026-07-15T23:10:00.000Z',
+    })
+    expect(late.filter((row) => row.book === 'FanDuel')).toEqual([])
+    expect(gameLineQuoteFitsClose({
+      quotedAt: '2026-07-15T22:58:00.000Z',
+      snapshotAt: '2026-07-15T22:55:00.000Z',
+      kickoff: '2026-07-15T23:10:00.000Z',
+    })).toBe(false)
+
+    const earlyQuote = gameLineClosesForSportEvent({
+      id: 'evt-bos',
+      home_team: 'Boston Bruins',
+      away_team: 'Toronto Maple Leafs',
+      bookmakers: [{
+        title: 'FanDuel',
+        markets: [{
+          key: 'h2h',
+          last_update: '2026-07-15T21:00:00.000Z',
+          outcomes: [
+            { name: 'Boston Bruins', price: -140 },
+            { name: 'Toronto Maple Leafs', price: 120 },
+          ],
+        }],
+      }],
+    }, game(), capturedAt, { markets: ['h2h'] })
+    expect(earlyQuote.filter((row) => row.book === 'FanDuel')).toEqual([])
+    expect(earlyQuote.some((row) => row.book === 'attempted' && row.market === 'h2h')).toBe(true)
+  })
+
+  test('drops a total when over and under quote different points', () => {
+    const rows = gameLineClosesFromEventOdds({
+      home_team: 'Boston Bruins',
+      away_team: 'Toronto Maple Leafs',
+      bookmakers: [{
+        title: 'FanDuel',
+        markets: [{
+          key: 'totals',
+          last_update: '2026-07-15T22:40:00.000Z',
+          outcomes: [
+            { name: 'Over', price: -105, point: 6.5 },
+            { name: 'Under', price: -115, point: 6 },
+          ],
+        }],
+      }],
+    }, {
+      gameId: 'BOS_at_TOR',
+      sport: 'nhl',
+      capturedAt: new Date('2026-07-15T22:50:00.000Z'),
+      kickoff: '2026-07-15T23:10:00.000Z',
+    })
+    expect(rows).toEqual([])
+  })
+
+  test('rejects null total points and accepts the contract quote window', () => {
+    const capturedAt = new Date('2026-07-15T22:50:00.000Z')
+    const kickoff = '2026-07-15T23:10:00.000Z'
+    const base = {
+      home_team: 'Boston Bruins',
+      away_team: 'Toronto Maple Leafs',
+    }
+    const totals = (overPoint, underPoint) => gameLineClosesFromEventOdds({
+      ...base,
+      bookmakers: [{
+        title: 'FanDuel',
+        markets: [{
+          key: 'totals',
+          last_update: '2026-07-15T22:40:00.000Z',
+          outcomes: [
+            { name: 'Over', price: -105, point: overPoint },
+            { name: 'Under', price: -115, point: underPoint },
+          ],
+        }],
+      }],
+    }, { gameId: 'BOS_at_TOR', sport: 'nhl', capturedAt, kickoff })
+    expect(totals(null, null)).toEqual([])
+    expect(totals(6.5, null)).toEqual([])
+    expect(totals(undefined, undefined)).toEqual([])
+    expect(totals(0, 0)).toEqual([
+      expect.objectContaining({ market: 'totals', total: 0, book: 'FanDuel' }),
+    ])
+
+    expect(gameLineQuoteFitsClose({
+      quotedAt: '2026-07-15T22:35:00.000Z',
+      snapshotAt: '2026-07-15T22:50:00.000Z',
+      kickoff,
+    })).toBe(false)
+    expect(gameLineQuoteFitsClose({
+      quotedAt: '2026-07-15T22:35:00.001Z',
+      snapshotAt: '2026-07-15T22:50:00.000Z',
+      kickoff,
+    })).toBe(true)
+    expect(gameLineQuoteFitsClose({
+      quotedAt: '2026-07-15T23:09:00.000Z',
+      snapshotAt: '2026-07-15T23:09:00.000Z',
+      kickoff,
+    })).toBe(true)
+    expect(gameLineQuoteFitsClose({
+      quotedAt: '2026-07-15T23:09:00.001Z',
+      snapshotAt: '2026-07-15T23:09:00.001Z',
+      kickoff,
+    })).toBe(false)
+  })
+
+  test('the close write itself stops during the quiet window', async () => {
+    setClosingOddsClock(() => new Date('2026-07-15T16:09:00.000Z'))
+    const inserts = []
+    const supabase = {
+      from() {
+        return {
+          insert(body) {
+            inserts.push(...body)
+            return Promise.resolve({ data: body, error: null })
+          },
+        }
+      },
+    }
+    try {
+      const written = await writeGameLineCloses(supabase, [{
+        id: 'clvclose:bos_at_tor|fanduel|h2h',
+        game_id: 'BOS_at_TOR',
+        book: 'FanDuel',
+        market: 'h2h',
+        price_home: -140,
+        price_away: 120,
+        snapshot_at: '2026-07-15T22:50:00.000Z',
+        quoted_at: '2026-07-15T22:40:00.000Z',
+      }])
+      expect(written.quiet).toBe(true)
+      expect(written.inserted).toBe(0)
+      expect(inserts).toEqual([])
+    } finally {
+      resetClosingOddsWriteGuard()
+    }
+  })
+
+  test('ClosingOdds load orders by id and follows a second page', async () => {
+    const ranges = []
+    const rows = [
+      { id: 'b', game_id: 'g', book: 'FanDuel', market: 'h2h' },
+      { id: 'a', game_id: 'g', book: 'FanDuel', market: 'totals' },
+    ]
+    const supabase = {
+      from() {
+        const query = {
+          select() { return query },
+          in() { return query },
+          order() { return query },
+          range(from, to) {
+            ranges.push([from, to])
+            return Promise.resolve({ data: rows.slice(from, to + 1), error: null })
+          },
+        }
+        return query
+      },
+    }
+    const loaded = await loadExistingClosingOdds(supabase, ['g'], { pageSize: 1 })
+    expect(ranges).toEqual([[0, 0], [1, 1], [2, 2]])
+    expect(loaded.rows.map((row) => row.id)).toEqual(['b', 'a'])
+    expect(loaded.error).toBeNull()
   })
 })
