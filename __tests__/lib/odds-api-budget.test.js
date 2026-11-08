@@ -7,6 +7,7 @@ import {
   DEFAULT_CLOSE_CAPTURE_PROP_HEADROOM,
   DEFAULT_CLOSE_CAPTURE_RESERVE,
   DEFAULT_GAME_LINE_CLOSE_DAILY_CAP,
+  DEFAULT_GAME_LINE_RESERVED_SLOTS,
   DEFAULT_DAILY_CREDIT_CAP,
   DEFAULT_MONTHLY_CREDIT_CAP,
   DEFAULT_PROBE_FAIL_CREDIT_CAP,
@@ -259,11 +260,14 @@ describe('readOddsBudgetConfig', () => {
       closeCaptureReserve: DEFAULT_CLOSE_CAPTURE_RESERVE,
       closeCaptureDailyCap: DEFAULT_CLOSE_CAPTURE_DAILY_CAP,
       closeCapturePropHeadroom: DEFAULT_CLOSE_CAPTURE_PROP_HEADROOM,
+      gameLineReservedSlots: DEFAULT_GAME_LINE_RESERVED_SLOTS,
       gameLineCloseDailyCap: DEFAULT_GAME_LINE_CLOSE_DAILY_CAP,
       probeFailCreditCap: DEFAULT_PROBE_FAIL_CREDIT_CAP,
       persistPath: '.local/odds-api-budget.json',
     })
     expect(DEFAULT_CLOSE_CAPTURE_DAILY_CAP).toBe(40)
+    expect(DEFAULT_GAME_LINE_RESERVED_SLOTS).toBe(31)
+    expect(DEFAULT_GAME_LINE_CLOSE_DAILY_CAP).toBe(62)
     expect(parseEnvNonNegInt('nope', 7)).toBe(7)
     expect(readOddsBudgetConfig({
       ODDS_DAILY_CREDIT_CAP: '200',
@@ -1316,7 +1320,8 @@ describe('daily game-line budget and locked reserve', () => {
     const reserved = first.reserve(2, { captures: 1, gameLineCredits: 2 })
     expect(reserved.ok).toBe(true)
     expect(first.todayGameLineCredits()).toBe(2)
-    expect(first.todayCloseCaptures()).toBe(1)
+    expect(first.todayGameLineCaptures()).toBe(1)
+    expect(first.todayCloseCaptures()).toBe(0)
 
     const second = createOddsApiBudget({
       persist: true,
@@ -1348,26 +1353,41 @@ describe('daily game-line budget and locked reserve', () => {
     const propped = capped.reserve(5, { captures: 1 })
     expect(propped.ok).toBe(true)
     expect(capped.allow(5, { captures: 1 })).toBe(true)
-    expect(capped.todayCloseCaptures()).toBe(3)
+    expect(capped.todayCloseCaptures()).toBe(1)
+    expect(capped.todayGameLineCaptures()).toBe(2)
   })
 
-  test('game lines stop at the prop headroom while a later prop reserve still fits', () => {
+  test('a full prop day cannot consume reserved game-line slots', () => {
     const fs = memoryFs()
     fs.writeFileSync(ledgerPath, JSON.stringify({
       version: 1,
       fence: 3,
-      days: { [day]: { credits: 24, calls: 12, closeCaptures: 12, gameLineCredits: 0 } },
+      days: {
+        [day]: {
+          credits: 40,
+          calls: 40,
+          closeCaptures: 40,
+          gameLineCredits: 0,
+          gameLineCaptures: 0,
+        },
+      },
     }))
-    const budget = budgetOn(fs)
-    expect(budget.remainingGameLineSlots()).toBe(0)
+    const budget = budgetOn(fs, undefined, { ODDS_GAME_LINE_RESERVED_SLOTS: '2' })
+    expect(budget.remainingCloseCaptures()).toBe(0)
+    expect(budget.remainingGameLineSlots()).toBe(2)
     const gameLine = budget.reserve(2, { captures: 1, gameLineCredits: 2 })
-    expect(gameLine.ok).toBe(false)
-    expect(gameLine.status).toBe('game_line_cap')
-    expect(budget.todayCloseCaptures()).toBe(12)
+    expect(gameLine.ok).toBe(true)
+    expect(budget.todayCloseCaptures()).toBe(40)
+    expect(budget.todayGameLineCaptures()).toBe(1)
     const prop = budget.reserve(5, { captures: 1 })
-    expect(prop.ok).toBe(true)
-    expect(budget.todayCloseCaptures()).toBe(13)
-    expect(budget.allow(5, { captures: 1 })).toBe(true)
+    expect(prop.ok).toBe(false)
+    expect(prop.status).toBe('close_cap')
+    const second = budget.reserve(2, { captures: 1, gameLineCredits: 2 })
+    expect(second.ok).toBe(true)
+    const third = budget.reserve(2, { captures: 1, gameLineCredits: 2 })
+    expect(third.ok).toBe(false)
+    expect(third.status).toBe('game_line_cap')
+    expect(budget.todayGameLineCaptures()).toBe(2)
   })
 
   test('two reserves at 39/40 cannot both pass, and a crash keeps the reservation', () => {
@@ -1418,7 +1438,8 @@ describe('daily game-line budget and locked reserve', () => {
     })
     expect(reloaded.todayCredits()).toBe(4)
     expect(reloaded.todayGameLineCredits()).toBe(4)
-    expect(reloaded.todayCloseCaptures()).toBe(1)
+    expect(reloaded.todayGameLineCaptures()).toBe(1)
+    expect(reloaded.todayCloseCaptures()).toBe(0)
   })
 
   test('reconcile lowers a reservation to x-requests-last and a thrown fetch keeps it', async () => {
@@ -1430,7 +1451,8 @@ describe('daily game-line budget and locked reserve', () => {
     expect(budget.todayCredits()).toBe(2)
     expect(budget.todayGameLineCredits()).toBe(2)
     expect(budget.runCredits()).toBe(2)
-    expect(budget.todayCloseCaptures()).toBe(1)
+    expect(budget.todayGameLineCaptures()).toBe(1)
+    expect(budget.todayCloseCaptures()).toBe(0)
     budget.reconcile(held, { remaining: 100, used: 2, last: 0 })
     expect(budget.todayCredits()).toBe(2)
     expect(budget.todayGameLineCredits()).toBe(2)
@@ -1473,7 +1495,8 @@ describe('daily game-line budget and locked reserve', () => {
     })
     expect(afterThrow.todayCredits()).toBe(2)
     expect(afterThrow.todayGameLineCredits()).toBe(2)
-    expect(afterThrow.todayCloseCaptures()).toBe(1)
+    expect(afterThrow.todayGameLineCaptures()).toBe(1)
+    expect(afterThrow.todayCloseCaptures()).toBe(0)
   })
 
   test('a missing, blank, or negative last header keeps the reserved credits', () => {
