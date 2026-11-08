@@ -15,8 +15,9 @@ export async function GET() {
     const result = await getTodaysGames()
 
     if (!result.success) {
-      console.error('❌ Database error:', sanitizeLoggedValue(result.error))
-      return NextResponse.json(result, { status: 500 })
+      const safeError = sanitizeLoggedValue(result.error)
+      console.error('❌ Database error:', safeError)
+      return NextResponse.json({ ...result, error: safeError }, { status: 500 })
     }
 
     console.log(`📊 Games: MLB=${result.data.mlb.length}, NFL=${result.data.nfl.length} (week), NHL=${result.data.nhl.length}`)

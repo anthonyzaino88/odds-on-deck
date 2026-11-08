@@ -1,4 +1,4 @@
-const { sanitizedErrorMessage, sanitizeLoggedValue } = require('../lib/sanitize-error.js')
+const { sanitizedErrorMessage, sanitizeLoggedValue } = require('../lib/sanitize-error.cjs')
 // Setup script for automatic data refresh
 // This can be run as a cron job or scheduled task
 

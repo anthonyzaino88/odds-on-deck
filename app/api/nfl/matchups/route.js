@@ -40,7 +40,13 @@ export async function GET(request) {
     return NextResponse.json(matchupAnalysis)
     
   } catch (error) {
-    console.error('Error in NFL matchup API:', sanitizeLoggedValue(error))
+    let logged = '[redacted]'
+    try {
+      logged = sanitizeLoggedValue(error)
+    } catch {
+      logged = '[redacted]'
+    }
+    console.error('Error in NFL matchup API:', logged)
     return NextResponse.json(
       { error: 'Failed to analyze matchup' },
       { status: 500 }

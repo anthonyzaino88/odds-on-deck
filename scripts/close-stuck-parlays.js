@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-const { sanitizedErrorMessage, sanitizeLoggedValue } = require('../lib/sanitize-error.js')
+const { sanitizedErrorMessage, sanitizeLoggedValue } = require('../lib/sanitize-error.cjs')
 /**
  * CLOSE STUCK PARLAYS (one-shot)
  *

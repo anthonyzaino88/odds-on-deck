@@ -24,7 +24,7 @@ async function main() {
       console.log(`   Roster entries: ${result.rosterEntries || 0}`)
       console.log(`   Teams processed: ${result.teamsProcessed || 0}`)
     } else {
-      console.error('❌ Failed:', sanitizeLoggedValue(result.error || result))
+      console.error('❌ Failed:', sanitizeLoggedValue(result.error || result.message || result))
       process.exit(1)
     }
   } catch (error) {
