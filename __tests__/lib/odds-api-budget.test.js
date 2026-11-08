@@ -1273,6 +1273,57 @@ describe('daily game-line budget and locked reserve', () => {
     expect(adopted.days[day].closeCaptures).toBe(2)
     expect(adopted.fence).toBe(4)
   })
+
+  test('a later ET day reserve survives pointer failure without deleting its fence', () => {
+    const fs = memoryFs()
+    const ledger = '/tmp/odds-api-budget-later-day.json'
+    const nov4 = '2026-11-04'
+    const nov7 = '2026-11-07'
+    const prior = {
+      version: 1,
+      fence: 4,
+      fenceDay: nov4,
+      days: {
+        [nov4]: { credits: 5, calls: 5, closeCaptures: 5, gameLineCredits: 0 },
+      },
+    }
+    fs.writeFileSync(ledger, JSON.stringify(prior))
+    fs.writeFileSync(`${ledger}.fences/${nov4}/4`, JSON.stringify(prior))
+    const origWrite = fs.writeFileSync.bind(fs)
+    const origRename = fs.renameSync.bind(fs)
+    fs.writeFileSync = (filePath, data) => {
+      if (filePath === ledger) throw new Error('pointer failed')
+      return origWrite(filePath, data)
+    }
+    fs.renameSync = (from, to) => {
+      if (to === ledger) throw new Error('pointer failed')
+      return origRename(from, to)
+    }
+    const opts = {
+      persist: true,
+      filesystem: fs,
+      now: new Date('2026-11-07T16:00:00.000Z'),
+      purpose: 'close-capture',
+      env: closeCaptureEnv(ledger),
+      log: { log() {}, warn() {} },
+    }
+    const budget = createOddsApiBudget(opts)
+    const held = budget.reserve(2)
+    expect(held.ok).toBe(true)
+    expect(held.dayKey).toBe(nov7)
+    expect(fs.existsSync(`${ledger}.fences/${nov7}/5`)).toBe(true)
+    expect(fs.existsSync(`${ledger}.fences/${nov4}/5`)).toBe(false)
+    const reloaded = createOddsApiBudget(opts)
+    expect(reloaded.todayCredits()).toBe(2)
+    const adopted = loadOddsBudgetState({
+      persistPath: ledger,
+      filesystem: fs,
+      warn: false,
+    })
+    expect(adopted.fence).toBe(5)
+    expect(adopted.fenceDay).toBe(nov7)
+    expect(adopted.days[nov7].credits).toBe(2)
+  })
 })
 
 describe('ops docs and script wiring', () => {
