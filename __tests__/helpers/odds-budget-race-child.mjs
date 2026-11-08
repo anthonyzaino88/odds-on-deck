@@ -35,6 +35,27 @@ try {
       credits: third.credits,
       error: null,
     }, 0)
+  } else if (config.mode === 'mixed-line-batch') {
+    const attempts = Math.max(0, Number(config.attempts) || 0)
+    let accepted = 0
+    for (let i = 0; i < attempts; i += 1) {
+      const held = budget.reserve(8, {
+        captures: 1,
+        gameLineCredits: 6,
+        countPropCapture: true,
+      })
+      if (!held.ok) break
+      budget.reconcile(held, { last: 6, remaining: 5000, used: (accepted + 1) * 6 })
+      accepted += 1
+    }
+    finish({
+      ok: true,
+      accepted,
+      status: budget.status(),
+      gameLineCredits: budget.todayGameLineCredits(),
+      credits: budget.todayCredits(),
+      error: null,
+    }, 0)
   } else {
   const result = budget.reserve(config.credits, config.extra || {})
   if (config.reconcile && result.ok) {

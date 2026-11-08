@@ -668,9 +668,17 @@ extra layer. Morning fetch subtracts
 `ODDS_CLOSE_CAPTURE_RESERVE` from the daily cap so a heavy slate cannot
 spend the last ~200 credits before hourly close capture. Hitting the
 40-capture cap sets `ODDS_BUDGET_STATUS=close_cap`.
-Game-line closes persist `gameLineCredits` on that same ET day
-(`ODDS_GAME_LINE_CLOSE_DAILY_CAP`, default 12) and stay out of the prop
-headroom (`ODDS_CLOSE_CAPTURE_PROP_HEADROOM`, default 28 of the 40 slots).
+Game-line closes persist `gameLineCredits` and `gameLineCaptures` on
+that same ET day. They use their own call pool
+(`ODDS_GAME_LINE_RESERVED_SLOTS`, default 31 = a 16-game NFL slate plus
+a 15-game NHL night) and credit cap (`ODDS_GAME_LINE_CLOSE_DAILY_CAP`,
+default 93 = 31 games × h2h, spread/puck line, and totals × 1 region).
+The day is 40 prop captures plus those 31 game-line captures, and both
+sit under the 1500 overall credit cap (`ODDS_DAILY_CREDIT_CAP`). Prop
+`closeCaptures` cannot consume the reserved slots. A game that also
+has a pending prop still gets its game-line fetch from that pool once
+the 40 prop captures are full. `ODDS_CLOSE_CAPTURE_PROP_HEADROOM`
+(default 28) remains the documented prop remainder of the 40-slot day.
 A paid call reserves its credits under a ledger lock before the request
 and reconciles to `x-requests-last` after the response. A dropped
 response keeps the reservation.

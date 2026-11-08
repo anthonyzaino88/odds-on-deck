@@ -27,28 +27,37 @@
  * --nfl-all (opt-in): also capture every pending NFL prop without a close
  * (Published bar ignored) and merge h2h/spreads/totals onto that same
  * per-game call. Game-line closes write to ClosingOdds, idempotently.
- * Absent the flag, behavior is unchanged. NHL visibility is unchanged.
+ * Absent the flag, behavior is unchanged.
+ *
+ * --nhl-all (opt-in): every scheduled in-window NHL game gets h2h and
+ * totals (puck line / spreads only with --spreads) without an
+ * EdgeSnapshot, plus every pending NHL prop that is not a private
+ * shadow pick. Private shadow NHL stays off this public capture list.
  *
  * --game-lines (opt-in): today's EdgeSnapshot moneyline/total edges for
  * NFL, NHL, and MLB in the same windows. One sport-level /odds call
  * per start-time cluster (markets h2h,totals; --spreads adds spreads;
  * regions from ODDS_CLOSE_CAPTURE_REGIONS, default us). Writes
  * clvclose: rows with quoted_at from last_update. Prop jobs are
- * planned and fetched first. Each sport call also uses one
- * ODDS_CLOSE_CAPTURE_DAILY_CAP slot. ODDS_GAME_LINE_CLOSE_DAILY_CAP
- * (default 12 credits) is persisted on the ET-day ledger, so later
- * runs cannot spend another 12. ODDS_CLOSE_CAPTURE_PROP_HEADROOM
- * (default 28) keeps that many of the 40 slots for later prop closes.
- * Game lines stop before they enter that headroom. Paid calls reserve
- * the credits under the ledger lock before the HTTP call.
+ * planned and fetched first. Game-line calls use their own
+ * ODDS_GAME_LINE_RESERVED_SLOTS (default 31 = 16 NFL + 15 NHL) and
+ * ODDS_GAME_LINE_CLOSE_DAILY_CAP (default 93 = 31 × h2h, spreads, totals).
+ * Those 31 calls are not drawn from the 40 prop captures, so a full
+ * NFL prop day cannot skip an NHL game line — including a game that
+ * also has a pending prop. The design is 40 prop captures + 31
+ * game-line captures per ET day, under the 1500 overall credit cap.
+ * Paid calls reserve the credits under the ledger lock before the HTTP call.
  *
  *   node scripts/capture-published-closes.js            # dry-run (default)
  *   node scripts/capture-published-closes.js --dry-run
  *   node scripts/capture-published-closes.js --apply
  *   node scripts/capture-published-closes.js --nfl-all --dry-run
  *   node scripts/capture-published-closes.js --nfl-all --apply
+ *   node scripts/capture-published-closes.js --nhl-all --apply
+ *   node scripts/capture-published-closes.js --nhl-all --spreads --apply
  *   npm run capture:published-closes:apply              # PowerShell-safe apply
  *   npm run capture:published-closes:nfl-all:apply
+ *   npm run capture:published-closes:nhl-all:apply
  *   CLV_APPLY=1 node scripts/capture-published-closes.js
  *
  * Schedule at :16 and :46 ET after record-mlb-window-props.
@@ -86,6 +95,7 @@ import {
   applyPublishedCloseUpdate,
   buildEventOddsUrl,
   buildSportOddsUrl,
+  capturedGameLineGameIds,
   capturedNflGameLineGameIds,
   classifyCloseCaptureGames,
   closeCapturePassForGame,
@@ -98,18 +108,22 @@ import {
   CLOSE_CAPTURE_DEFAULT_MIN_REMAINING,
   flattenEventOddsQuotes,
   formatCallsUsed,
+  formatCloseCaptureAlerts,
   formatCloseCaptureCounts,
   formatCloseCaptureStatus,
   formatCreditsUsed,
   formatGameLineCloseCounts,
   gameLineCloseMarkets,
   isGameLineCloseSport,
+  isGameLineMarketKey,
   gameLineClosesForCaptureJob,
   gameLineClosesForSportEvent,
   gameLineMarketsAlreadyCaptured,
   groupCaptureJobsByOddsApiEventId,
   includeNflWindowGamesForGameLines,
+  includeNhlWindowGamesForGameLines,
   isNflSport,
+  isNhlSport,
   isOpsWriteQuietPeriod,
   isTargetedCloseCapturePick,
   shouldSkipLiveCloseOverwrite,
@@ -117,6 +131,7 @@ import {
   loadExistingClosingOdds,
   marketsForCaptureJob,
   matchClosingQuote,
+  nhlGameLineMarkets,
   matchSportOddsEvents,
   oddsApiSportKey,
   parseCloseCaptureRegions,
@@ -140,6 +155,7 @@ import {
   formatOddsBudgetWarnLine,
   formatOddsCreditsRemaining,
   formatOddsCreditsUsed,
+  ODDS_BUDGET_CLOSE_CAP,
   ODDS_BUDGET_GAME_LINE_CAP,
   ODDS_BUDGET_OK,
   sanitizeOddsApiError,
@@ -178,7 +194,7 @@ export function shouldRecaptureStoredClose(game, now, minutes = ALREADY_CLOSED_R
 
 const KNOWN_FLAGS = new Set([
   '--dry-run', '--apply', '--help', '-h', '--max-calls', '--min-remaining',
-  '--max-credits', '--nfl-all', '--game-lines', '--spreads',
+  '--max-credits', '--nfl-all', '--nhl-all', '--game-lines', '--spreads',
 ])
 const FLAGS_WITH_VALUE = new Set(['--max-calls', '--min-remaining', '--max-credits'])
 
@@ -229,6 +245,21 @@ export function assertCaptureSecretIsNotPublishable(env = process.env) {
   return preferred
 }
 
+/** Flag name only. `--apiKey=secret` logs as `--apiKey`, never the value. */
+export function unknownArgLogLabel(arg) {
+  const text = String(arg ?? '')
+  if (text.startsWith('-')) {
+    const eq = text.indexOf('=')
+    const name = eq === -1 ? text : text.slice(0, eq)
+    return name || '--'
+  }
+  return 'positional'
+}
+
+export function formatUnknownCaptureArgs(args) {
+  return [...new Set((args || []).map((arg) => unknownArgLogLabel(arg)))].join(' ')
+}
+
 export function unknownCaptureArgs(argv = []) {
   const args = Array.isArray(argv) ? argv : []
   const unknown = []
@@ -272,23 +303,13 @@ export function parseCaptureClosesArgs(argv = [], env = process.env) {
     minRemaining,
     maxCredits: maxCredits.present ? maxCredits.value : null,
     nflAll: args.includes('--nfl-all'),
+    nhlAll: args.includes('--nhl-all'),
     gameLines: args.includes('--game-lines'),
     spreads: args.includes('--spreads'),
     disabled: isClosingCaptureDisabled(env),
     unknown,
     invalidFlags,
   }
-}
-
-/** A per-game retry with no props is a game-line fetch, not a prop fetch. */
-function isGameLineOnlyCaptureJob(job) {
-  if ((job?.picks || []).length > 0) return false
-  const markets = job?.markets || []
-  if (!markets.length) return false
-  return markets.every((market) => {
-    const key = String(market || '').toLowerCase().trim()
-    return key === 'h2h' || key === 'spreads' || key === 'totals'
-  })
 }
 
 async function defaultFetchEventOdds({
@@ -298,6 +319,8 @@ async function defaultFetchEventOdds({
   estimatedCredits,
   apiKey,
   gameLine = false,
+  gameLineCredits = null,
+  countPropCapture = false,
   reservation = null,
 } = {}) {
   const result = await fetchOddsApiJson(url, {
@@ -306,6 +329,8 @@ async function defaultFetchEventOdds({
     estimatedCredits,
     apiKey,
     gameLine,
+    gameLineCredits,
+    countPropCapture,
     reservation,
   })
   return {
@@ -346,6 +371,8 @@ export async function runCapturePublishedCloses({
     purpose: 'close-capture',
   })
   let skippedAlreadyClosed = 0
+  const missingGameIds = []
+  const missingMarketNotes = []
   const done = (result) => {
     const captured = result.captured ?? (result.updates?.length || 0)
     const skippedClosed = Number(result.skippedAlreadyClosed ?? skippedAlreadyClosed) || 0
@@ -377,6 +404,18 @@ export async function runCapturePublishedCloses({
       credits,
     }))
     log.log(`SKIPPED_ALREADY_CLOSED=${skippedClosed}`)
+    const gamesMissing = result.missingGameIds || missingGameIds
+    const marketsMissing = result.missingMarkets || missingMarketNotes
+    for (const line of formatCloseCaptureAlerts({
+      missingGames: gamesMissing.length,
+      missingMarkets: marketsMissing.length,
+      skippedBudget,
+      partial: captureStatus === CLOSE_CAPTURE_STATUS_PARTIAL,
+      missingGameIds: gamesMissing,
+      missingMarketNotes: marketsMissing,
+    })) {
+      log.log(line)
+    }
     if (captureStatus !== CLOSE_CAPTURE_STATUS_OK) {
       log.log(`⚠️ ${formatCloseCaptureStatus(captureStatus)} — treat as WARN in routine reports (exit 0)`)
     }
@@ -400,7 +439,7 @@ export async function runCapturePublishedCloses({
     }
   }
   if (args.help) {
-    log.log(`Usage: node scripts/capture-published-closes.js [--dry-run|--apply] [--nfl-all] [--game-lines] [--spreads] [--max-calls N] [--max-credits N] [--min-remaining N]
+    log.log(`Usage: node scripts/capture-published-closes.js [--dry-run|--apply] [--nfl-all] [--nhl-all] [--game-lines] [--spreads] [--max-calls N] [--max-credits N] [--min-remaining N]
 
 Dry-run (default): list in-window Published and shadow-published picks.
 NHL shares this --max-calls budget; NFL jobs run first so a busy NHL
@@ -417,17 +456,29 @@ key so alternate-line picks can match the exact recorded threshold.
 Game-line closes write to ClosingOdds. Near-start upserts on id
 (ClosingOdds TEXT PK / onConflict: id) — no duplicates. SQL 008 is
 not required for that upsert.
+--nhl-all: every scheduled NHL game in the window gets h2h and totals
+without a same-day EdgeSnapshot. --spreads adds the puck line. Also
+targets every pending NHL prop that is not a private shadow pick.
+Private shadow NHL (cohort:shadow-published, not auto-saved) is
+excluded from this public capture list and is not retagged published.
 --game-lines: today's EdgeSnapshot moneyline/total edges for NFL, NHL,
 and MLB in the same windows. One sport-level /odds call per
 start-time cluster (h2h,totals; --spreads adds spreads; same region
 as morning fetch). Writes clvclose: ClosingOdds rows, quoted_at from
 last_update. Prop jobs are planned and fetched first and keep the
 shared ODDS_CLOSE_CAPTURE_DAILY_CAP.
-Absent --nfl-all, only Published picks' markets are requested.
+Absent --nfl-all / --nhl-all, only Published picks' markets are requested.
 --game-lines does not add h2h/spreads/totals onto those prop calls.
-ODDS_GAME_LINE_CLOSE_DAILY_CAP (default 12 credits) is stored on the
-ET-day ledger. ODDS_CLOSE_CAPTURE_PROP_HEADROOM (default 28) is the
-part of the 40 capture slots game lines must leave for later props.
+ODDS_GAME_LINE_RESERVED_SLOTS (default 31 = 16 NFL + 15 NHL) is the
+game-line call pool. Prop closeCaptures cannot consume it. A game
+with a pending prop still uses a reserved slot once the 40 prop
+captures are full.
+ODDS_GAME_LINE_CLOSE_DAILY_CAP (default 93 credits = 31 × h2h,
+spreads/puck line, totals × 1 region) is stored on the ET-day ledger.
+The day is 40 prop captures + 31 game-line captures, under the 1500
+overall credit cap (ODDS_DAILY_CREDIT_CAP).
+ODDS_CLOSE_CAPTURE_PROP_HEADROOM (default 28) remains the documented
+prop remainder of the 40-slot day. Game lines do not draw those slots.
 PowerShell: prefer npm run capture:published-closes:apply or
             npm run capture:published-closes:nfl-all:apply.
             $env:CLV_APPLY=1 stays set for later plain runs.
@@ -458,7 +509,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
   }
 
   if (args.unknown.length) {
-    log.error(`❌ Unknown argument(s): ${args.unknown.join(' ')}`)
+    log.error(`❌ Unknown argument(s): ${formatUnknownCaptureArgs(args.unknown)}`)
     return done({
       updates: [],
       calls: 0,
@@ -562,6 +613,18 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       .order('id', { ascending: true }))
   }
 
+  async function loadNhlAllPendingPicks(select) {
+    const nhlGameIds = windowGames.filter((game) => isNhlSport(game.sport)).map((game) => game.id)
+    if (nhlGameIds.length === 0) return { rows: [], error: null }
+    return paginateSupabaseSelect(() => supabase
+      .from('PropValidation')
+      .select(select)
+      .eq('sport', 'nhl')
+      .eq('status', 'pending')
+      .in('gameIdRef', nhlGameIds.concat(['__none__']))
+      .order('id', { ascending: true }))
+  }
+
   async function loadGameLineEdges(client, gameIds) {
     const ids = [...new Set((gameIds || []).filter(Boolean))]
     if (!ids.length) return { rows: [], error: null }
@@ -578,11 +641,20 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
   async function loadCapturePicks(select) {
     const published = await loadPublishedPicks(select)
     if (published.error) return published
-    if (!args.nflAll) return published
-    const nflAll = await loadNflAllPendingPicks(select)
-    if (nflAll.error) return nflAll
+    const extra = []
+    if (args.nflAll) {
+      const nflAll = await loadNflAllPendingPicks(select)
+      if (nflAll.error) return nflAll
+      extra.push(...(nflAll.rows || []))
+    }
+    if (args.nhlAll) {
+      const nhlAll = await loadNhlAllPendingPicks(select)
+      if (nhlAll.error) return nhlAll
+      extra.push(...(nhlAll.rows || []))
+    }
+    if (!extra.length) return published
     const byId = new Map()
-    for (const row of [...(published.rows || []), ...(nflAll.rows || [])]) {
+    for (const row of [...(published.rows || []), ...extra]) {
       if (row?.id) byId.set(row.id, row)
     }
     return { rows: [...byId.values()], error: null }
@@ -626,13 +698,22 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       return false
     }
     const overwrite = passByGameId.get(row.gameIdRef) === CLOSE_CAPTURE_PASS_NEAR_START
-    return isTargetedCloseCapturePick(row, { nflAll: args.nflAll, overwrite })
+    return isTargetedCloseCapturePick(row, {
+      nflAll: args.nflAll,
+      nhlAll: args.nhlAll,
+      overwrite,
+    })
   })
 
   const closingOddsGameIds = []
   if (args.nflAll) {
     closingOddsGameIds.push(
       ...windowGames.filter((game) => isNflSport(game.sport)).map((game) => game.id),
+    )
+  }
+  if (args.nhlAll) {
+    closingOddsGameIds.push(
+      ...windowGames.filter((game) => isNhlSport(game.sport)).map((game) => game.id),
     )
   }
   if (args.gameLines) {
@@ -649,14 +730,34 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       existingClosingOdds = loaded.rows
     }
   }
-  const capturedGameIds = capturedNflGameLineGameIds(
-    classified.early.filter((game) => isNflSport(game.sport)),
-    existingClosingOdds,
-  )
+  const nhlLineMarkets = nhlGameLineMarkets({ spreads: args.spreads })
+  const capturedGameIds = new Set([
+    ...capturedNflGameLineGameIds(
+      classified.early.filter((game) => isNflSport(game.sport)),
+      existingClosingOdds,
+    ),
+    ...capturedGameLineGameIds(
+      classified.early.filter((game) => isNhlSport(game.sport)),
+      existingClosingOdds,
+      nhlLineMarkets,
+    ),
+  ])
+  if (args.nhlAll || args.nflAll) {
+    for (const game of windowGames) {
+      const wanted = (args.nhlAll && isNhlSport(game.sport))
+        || (args.nflAll && isNflSport(game.sport))
+      if (wanted && !game.oddsApiEventId) missingGameIds.push(game.id)
+    }
+  }
 
-  const byGame = includeNflWindowGamesForGameLines(new Map(), classified.early, {
+  let byGame = includeNflWindowGamesForGameLines(new Map(), classified.early, {
     nflAll: args.nflAll,
     capturedGameIds,
+  })
+  byGame = includeNhlWindowGamesForGameLines(byGame, windowGames, {
+    nhlAll: args.nhlAll,
+    capturedGameIds,
+    nearStartGameIds: new Set(classified.nearStart.map((game) => game.id)),
   })
   for (const pick of openPicks) {
     const list = byGame.get(pick.gameIdRef) || []
@@ -676,9 +777,12 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
   const remainingCaptures = oddsBudget.remainingCloseCaptures?.()
   const budgeted = selectCloseCaptureJobsWithinBudget(allJobs, {
     nflAll: args.nflAll,
+    nhlAll: args.nhlAll,
+    spreads: args.spreads,
     maxCalls: args.maxCalls,
     maxCredits: args.maxCredits,
     maxCaptures: remainingCaptures,
+    maxGameLineSlots: oddsBudget.remainingGameLineSlots?.() ?? null,
     regions,
     gameLinesCapturedByGameId: capturedGameIds,
   })
@@ -733,21 +837,21 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     })
     const propsPlanned = captureJobs.length > 0
     const gameLineCreditsLeft = oddsBudget.remainingGameLineCredits?.() ?? gameLineCap
+    const plannedGameLineJobs = captureJobs.filter((job) => Number(job.gameLineCredits) > 0).length
     const gameLineSlotsLeft = Math.max(
       0,
-      (oddsBudget.remainingGameLineSlots?.() ?? remainingCaptures ?? 0) - captureJobs.length,
+      (oddsBudget.remainingGameLineSlots?.() ?? 0) - plannedGameLineJobs,
     )
     gameLinePlan = selectGameLineClustersWithinBudget(clusters, {
       markets: gameLineMarkets,
       regions,
       maxCalls: args.maxCalls,
       maxCredits: args.maxCredits,
-      maxCaptures: remainingCaptures,
       maxGameLineCredits: gameLineCreditsLeft,
       maxGameLineSlots: gameLineSlotsLeft,
       callsAlready: propsPlanned ? plannedCalls : 0,
       creditsAlready: propsPlanned ? plannedCredits : 0,
-      capturesAlready: captureJobs.length,
+      capturesAlready: plannedGameLineJobs,
       includeQuota: !propsPlanned,
     })
   }
@@ -773,15 +877,28 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       + `Recommended: TZ=America/New_York ${CLOSE_CAPTURE_RECOMMENDED_CRON}`,
     )
   }
-  log.log(
-    args.nflAll
-      ? `Published + shadow + pending NFL props in window: ${openPicks.length}`
-      : `Published + shadow picks in window: ${openPicks.length}`,
-  )
+  const pickLabel = args.nflAll && args.nhlAll
+    ? 'Published + shadow + pending NFL/NHL props'
+    : args.nflAll
+      ? 'Published + shadow + pending NFL props'
+      : args.nhlAll
+        ? 'Published + pending NHL props (private shadow excluded)'
+        : 'Published + shadow picks'
+  log.log(`${pickLabel} in window: ${openPicks.length}`)
   if (args.nflAll) {
     log.log('NFL-all: pending props + h2h/spreads/totals (one call per game)')
     log.log('Near-start upserts clvclose: rows on id (ClosingOdds PK / onConflict: id); no duplicates.')
   }
+  if (args.nhlAll) {
+    log.log(
+      `NHL-all: pending props + h2h/totals${args.spreads ? '/spreads (puck line)' : ''}`
+      + ' (one call per scheduled game, no EdgeSnapshot)',
+    )
+  }
+  log.log(
+    `Game-line reserved slots remaining: ${oddsBudget.remainingGameLineSlots?.() ?? '?'}`
+    + ` (ODDS_GAME_LINE_RESERVED_SLOTS, default ${oddsBudget.config?.gameLineReservedSlots ?? '?'})`,
+  )
   log.log(`Odds API HTTP calls this run: ${reportedCalls}`)
   log.log(`Odds API credits this run: ${reportedCredits} (markets × regions=${regionCount})`)
   log.log(`Daily capture cap remaining: ${remainingCaptures ?? '?'} (ODDS_CLOSE_CAPTURE_DAILY_CAP)`)
@@ -792,8 +909,9 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       + `${gameLinePlan.creditCost ?? gameLineMarkets.length * regionCount} credit(s) each. `
       + `Daily cap ${gameLineCap} credits left ${oddsBudget.remainingGameLineCredits?.() ?? gameLineCap} `
       + `(ODDS_GAME_LINE_CLOSE_DAILY_CAP, persisted). `
-      + `Prop headroom ${oddsBudget.config?.closeCapturePropHeadroom ?? ''} slots `
-      + `(ODDS_CLOSE_CAPTURE_PROP_HEADROOM). NFL prop jobs are planned first.`,
+      + `Reserved slots ${oddsBudget.config?.gameLineReservedSlots ?? ''} `
+      + `(ODDS_GAME_LINE_RESERVED_SLOTS) are not shared with prop captures. `
+      + `NFL prop jobs are planned first.`,
     )
   }
 
@@ -872,6 +990,8 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
         `  would fetch ${job.gameIds.join(',')}  pass=${job.pass || 'early'}  event=${job.eventId || 'UNMAPPED'}  `
         + `markets=${(job.markets || marketsForCaptureJob(job, {
           nflAll: args.nflAll,
+          nhlAll: args.nhlAll,
+          spreads: args.spreads,
           gameLinesCaptured: job.pass === CLOSE_CAPTURE_PASS_NEAR_START
             ? false
             : capturedGameIds.has(job.gameId),
@@ -954,18 +1074,30 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     })
   }
   if (oddsBudget.status() !== ODDS_BUDGET_OK) {
-    log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
-    const warn = formatOddsBudgetWarnLine(oddsBudget.status())
-    if (warn) log.log(warn)
-    return done({
-      updates: [],
-      calls,
-      creditsUsed: 0,
-      lastQuota,
-      skippedBudget: true,
-      skippedBudgetCount: skippedBudgetCount || captureJobs.length,
-      skippedWindow,
-    })
+    const reservedLeft = oddsBudget.remainingGameLineSlots?.() ?? 0
+    const gameLineWorkLeft = gameLineClusters.length > 0
+      || captureJobs.some((job) => (job.markets || []).some((market) => isGameLineMarketKey(market)))
+    const propCapLeavesGameLines = oddsBudget.status() === ODDS_BUDGET_CLOSE_CAP
+      && gameLineWorkLeft
+      && reservedLeft > 0
+    if (!propCapLeavesGameLines) {
+      log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
+      const warn = formatOddsBudgetWarnLine(oddsBudget.status())
+      if (warn) log.log(warn)
+      return done({
+        updates: [],
+        calls,
+        creditsUsed: 0,
+        lastQuota,
+        skippedBudget: true,
+        skippedBudgetCount: skippedBudgetCount || captureJobs.length,
+        skippedWindow,
+      })
+    }
+    log.log(
+      `⏸️  ${formatOddsBudgetStatus(oddsBudget.status())} — prop slots are full; `
+      + 'continuing with reserved game-line slots.',
+    )
   }
 
   const gameLineWrites = []
@@ -1002,6 +1134,8 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     }
     const markets = job.markets || marketsForCaptureJob(job, {
       nflAll: args.nflAll,
+      nhlAll: args.nhlAll,
+      spreads: args.spreads,
       gameLinesCaptured: overwrite ? false : capturedGameIds.has(job.gameId),
     })
     if (markets.length === 0) {
@@ -1026,23 +1160,62 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       skippedBudgetDuringRun += 1
       break
     }
-    const gameLineOnly = isGameLineOnlyCaptureJob(job)
-    const budgetExtra = gameLineOnly
-      ? { captures: 1, gameLineCredits: jobCredits }
-      : { captures: 1 }
-    if (gameLineOnly && jobCredits > (oddsBudget.remainingGameLineCredits?.() ?? jobCredits)) {
+    const lineMarkets = markets.filter((market) => isGameLineMarketKey(market))
+    const propMarkets = markets.filter((market) => !isGameLineMarketKey(market))
+    const lineCredits = lineMarkets.length * regionCount
+    const slotsLeft = oddsBudget.remainingGameLineSlots?.() ?? 0
+    const lineCreditsLeft = oddsBudget.remainingGameLineCredits?.() ?? 0
+    const linesAffordable = lineMarkets.length > 0
+      && slotsLeft > 0
+      && lineCredits > 0
+      && lineCredits <= lineCreditsLeft
+    const requestMarkets = linesAffordable ? markets : propMarkets
+    if (lineMarkets.length > 0 && !linesAffordable) {
+      log.log(`⏸️  ${label}: game-line cap blocks h2h/spreads/totals`)
+    }
+    if (!requestMarkets.length) {
       log.log(`⏸️  ${formatOddsBudgetStatus(ODDS_BUDGET_GAME_LINE_CAP)}`)
       const warn = formatOddsBudgetWarnLine(ODDS_BUDGET_GAME_LINE_CAP)
       if (warn) log.log(warn)
       skippedBudgetDuringRun += 1
       continue
     }
-    if (!oddsBudget.allow(jobCredits, budgetExtra)) {
+    const requestCredits = requestMarkets.length * regionCount
+    const chargeLines = linesAffordable
+    let activeMarkets = requestMarkets
+    let activeCredits = requestCredits
+    let countPropCapture = propMarkets.length > 0
+      && requestMarkets.some((market) => !isGameLineMarketKey(market))
+      && (oddsBudget.remainingCloseCaptures?.() ?? 0) > 0
+    const budgetExtraFor = (countProp) => (chargeLines
+      ? {
+        captures: countProp ? 1 : 0,
+        gameLineCredits: lineCredits,
+        countPropCapture: countProp,
+      }
+      : { captures: 1 })
+    const propSlotTaken = () => countPropCapture
+      && chargeLines
+      && oddsBudget.status() === ODDS_BUDGET_CLOSE_CAP
+    const switchToLineOnly = () => {
+      activeMarkets = lineMarkets
+      activeCredits = lineCredits
+      countPropCapture = false
+    }
+    let admitted = oddsBudget.allow(activeCredits, budgetExtraFor(countPropCapture))
+    if (!admitted && propSlotTaken()) {
+      switchToLineOnly()
+      admitted = oddsBudget.allow(activeCredits, budgetExtraFor(false))
+    }
+    if (!admitted) {
       log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
       const warn = formatOddsBudgetWarnLine(oddsBudget.status())
       if (warn) log.log(warn)
       skippedBudgetDuringRun += 1
-      if (gameLineOnly && oddsBudget.status() === ODDS_BUDGET_GAME_LINE_CAP) continue
+      const budgetStatus = oddsBudget.status()
+      if (chargeLines && budgetStatus === ODDS_BUDGET_GAME_LINE_CAP) continue
+      if (!chargeLines && budgetStatus === ODDS_BUDGET_CLOSE_CAP) continue
+      if (chargeLines && budgetStatus === ODDS_BUDGET_CLOSE_CAP) continue
       break
     }
 
@@ -1053,38 +1226,78 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       markQuietStop(jobIndex)
       break
     }
-    const url = buildEventOddsUrl({
-      sportKey,
-      eventId: job.eventId,
-      markets,
+    const fetchActive = () => fetchEventOdds({
+      url: buildEventOddsUrl({
+        sportKey,
+        eventId: job.eventId,
+        markets: activeMarkets,
+        apiKey,
+        regions,
+      }),
+      budget: oddsBudget,
+      estimatedCredits: activeCredits,
       apiKey,
-      regions,
+      gameLine: chargeLines,
+      gameLineCredits: chargeLines ? lineCredits : 0,
+      countPropCapture,
     })
     calls += 1
-    creditsUsed += jobCredits
+    creditsUsed += activeCredits
     let payload
     try {
-      payload = await fetchEventOdds({
-        url,
-        budget: oddsBudget,
-        estimatedCredits: jobCredits,
-        apiKey,
-        gameLine: gameLineOnly,
-      })
+      payload = await fetchActive()
+      const reservedPropLost = payload?.skipped
+        && countPropCapture
+        && chargeLines
+        && (payload.status === ODDS_BUDGET_CLOSE_CAP || oddsBudget.status() === ODDS_BUDGET_CLOSE_CAP)
+      if (reservedPropLost) {
+        calls -= 1
+        creditsUsed -= activeCredits
+        if (isOpsWriteQuietPeriod(nowFn())) {
+          log.log('⏸️  Ops quiet period (:05–:15 ET) — not starting the line-only retry.')
+          markQuietStop(jobIndex)
+          break
+        }
+        if (shouldSkipPaidCloseCaptureFetch(nowFn())) {
+          log.log(
+            '⏸️  After :04:30 ET — not starting a line-only retry that quiet :05 would block.',
+          )
+          markQuietStop(jobIndex)
+          break
+        }
+        if (!closeCapturePassForGame(game, nowFn(), windowOpts)) {
+          log.log(`  skip ${label}: no longer in the close window`)
+          skippedWindowDuringRun += 1
+          continue
+        }
+        switchToLineOnly()
+        if (!oddsBudget.allow(activeCredits, budgetExtraFor(false))) {
+          log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
+          const warn = formatOddsBudgetWarnLine(oddsBudget.status())
+          if (warn) log.log(warn)
+          skippedBudgetDuringRun += 1
+          continue
+        }
+        calls += 1
+        creditsUsed += activeCredits
+        payload = await fetchActive()
+      }
       if (payload?.skipped) {
         log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
         const warn = formatOddsBudgetWarnLine(oddsBudget.status())
         if (warn) log.log(warn)
         skippedBudgetDuringRun += 1
+        if (chargeLines) continue
         break
       }
       if (payload?.quota) lastQuota = payload.quota
       if (!payload?.budgetRecorded) {
-        const spent = payload?.quota?.last ?? jobCredits
+        const spent = payload?.quota?.last ?? activeCredits
         oddsBudget.record(payload?.quota || {}, {
           credits: spent,
-          captures: 1,
-          gameLineCredits: gameLineOnly ? spent : 0,
+          captures: countPropCapture ? 1 : (chargeLines ? 0 : 1),
+          gameLineCredits: chargeLines ? lineCredits : 0,
+          countPropCapture,
         })
       }
     } catch (error) {
@@ -1094,7 +1307,9 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       continue
     }
 
-    if (args.nflAll && isNflSport(game?.sport)) {
+    const captureNflLines = args.nflAll && isNflSport(game?.sport)
+    const captureNhlLines = args.nhlAll && isNhlSport(game?.sport)
+    if ((captureNflLines || captureNhlLines) && chargeLines) {
       const liveSkip = overwrite
         ? shouldSkipLiveCloseOverwrite({ payload: payload.data, now: nowFn() })
         : null
@@ -1104,7 +1319,14 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
         const gameLineRows = gameLineClosesForCaptureJob(job, payload.data, nowFn(), {
           log,
           skipLiveOverwrite: overwrite,
+          markets: captureNhlLines ? nhlLineMarkets : undefined,
+          sport: game?.sport,
         })
+        for (const row of gameLineRows) {
+          if (String(row.book || '').toLowerCase() === 'attempted') {
+            missingMarketNotes.push(`${row.game_id}:${row.market}`)
+          }
+        }
         if (isOpsWriteQuietPeriod(nowFn())) {
           log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
           markQuietStop(jobIndex)
