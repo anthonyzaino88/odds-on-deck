@@ -20,6 +20,9 @@ function finish(payload, code) {
 
 try {
   const result = budget.reserve(config.credits, config.extra || {})
+  if (config.reconcile && result.ok) {
+    budget.reconcile(result, config.quota || { last: result.credits })
+  }
   finish({
     ok: result.ok,
     status: result.status,
