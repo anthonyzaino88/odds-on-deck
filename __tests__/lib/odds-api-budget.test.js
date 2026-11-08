@@ -353,16 +353,49 @@ describe('createOddsApiBudget', () => {
     })
     expect(missingLog.lines.join('\n')).toMatch(/ledger missing/)
 
+    const corruptPath = '/tmp/corrupt-odds-budget.json'
     const corruptFs = memoryFs()
-    corruptFs.files.set('/tmp/corrupt-odds-budget.json', '{not-json')
+    corruptFs.files.set(corruptPath, '{not-json')
     const corruptLog = quietLog()
-    loadOddsBudgetState({
-      persistPath: '/tmp/corrupt-odds-budget.json',
+    const corrupt = loadOddsBudgetState({
+      persistPath: corruptPath,
       persist: true,
       filesystem: corruptFs,
       log: corruptLog,
     })
-    expect(corruptLog.lines.join('\n')).toMatch(/ledger corrupt/)
+    expect(corrupt.unreadable).toBe(true)
+    expect(corruptLog.lines.join('\n')).toMatch(/refusing paid calls/)
+    expect(corruptLog.lines.join('\n')).not.toMatch(/starting empty/)
+    const refused = createOddsApiBudget({
+      persist: true,
+      filesystem: corruptFs,
+      now: NOON_ET,
+      purpose: 'close-capture',
+      env: closeCaptureEnv(corruptPath),
+      log: { log() {}, warn() {} },
+    })
+    const reserved = refused.reserve(1, { captures: 1 })
+    expect(reserved).toMatchObject({ ok: false, status: ODDS_BUDGET_LEDGER_UNREADABLE })
+    expect(corruptFs.existsSync(`${corruptPath}.fences/1`)).toBe(false)
+
+    const absentPath = '/tmp/absent-odds-budget.json'
+    const absentFs = memoryFs()
+    const absent = loadOddsBudgetState({
+      persistPath: absentPath,
+      persist: true,
+      filesystem: absentFs,
+      log: { log() {}, warn() {} },
+    })
+    expect(absent.unreadable).toBeUndefined()
+    const opened = createOddsApiBudget({
+      persist: true,
+      filesystem: absentFs,
+      now: NOON_ET,
+      purpose: 'close-capture',
+      env: closeCaptureEnv(absentPath),
+      log: { log() {}, warn() {} },
+    })
+    expect(opened.reserve(1, { captures: 1 }).ok).toBe(true)
   })
 
   test('adopts a fence commit when the ledger pointer is missing or stale', () => {
@@ -445,12 +478,6 @@ describe('createOddsApiBudget', () => {
         pointer: null,
         files: { 7: captured(7, 40) },
       },
-      {
-        name: 'corrupt',
-        path: '/tmp/odds-api-budget-corrupt-pointer-fence.json',
-        pointer: '{not-json',
-        files: { 7: captured(7, 40) },
-      },
     ]
     for (const entry of cases) {
       const fs = memoryFs()
@@ -483,6 +510,122 @@ describe('createOddsApiBudget', () => {
       expect(fs.existsSync(`${entry.path}.fences/${fenceFile + 1}`)).toBe(false)
       expect(JSON.parse(fs.readFileSync(`${entry.path}.fences/${fenceFile}`)).days[day].closeCaptures).toBe(40)
     }
+  })
+
+  test('a corrupt pointer refuses a reservation even when a fence file is valid', () => {
+    const day = '2026-11-04'
+    const path = '/tmp/odds-api-budget-corrupt-pointer-with-fence.json'
+    const fs = memoryFs()
+    fs.writeFileSync(path, '{not-json')
+    fs.writeFileSync(`${path}.fences/7`, JSON.stringify({
+      version: 1,
+      fence: 7,
+      fenceDay: day,
+      days: {
+        [day]: { credits: 0, calls: 0, closeCaptures: 0, gameLineCredits: 0 },
+      },
+    }))
+    const loaded = loadOddsBudgetState({
+      persistPath: path,
+      filesystem: fs,
+      warn: false,
+    })
+    expect(loaded.unreadable).toBe(true)
+    const budget = createOddsApiBudget({
+      persist: true,
+      filesystem: fs,
+      now: NOON_ET,
+      purpose: 'close-capture',
+      env: closeCaptureEnv(path),
+      log: { log() {}, warn() {} },
+    })
+    const first = budget.reserve(1, { captures: 1 })
+    const second = budget.reserve(1, { captures: 1 })
+    expect(first).toMatchObject({ ok: false, status: ODDS_BUDGET_LEDGER_UNREADABLE })
+    expect(second).toMatchObject({ ok: false, status: ODDS_BUDGET_LEDGER_UNREADABLE })
+    expect(fs.existsSync(`${path}.fences/8`)).toBe(false)
+  })
+
+  test('a corrupt or mismatched top fence does not fall back to a lower one', () => {
+    const day = '2026-11-04'
+    const lower = JSON.stringify({
+      version: 1,
+      fence: 1,
+      fenceDay: day,
+      days: {
+        [day]: { credits: 0, calls: 0, closeCaptures: 0, gameLineCredits: 0 },
+      },
+    })
+    const cases = [
+      {
+        path: '/tmp/odds-api-budget-gapped-corrupt.json',
+        top: '{not-json',
+      },
+      {
+        path: '/tmp/odds-api-budget-gapped-mismatch.json',
+        top: JSON.stringify({ fence: 1, days: { [day]: { closeCaptures: 40 } } }),
+      },
+    ]
+    for (const entry of cases) {
+      const fs = memoryFs()
+      fs.writeFileSync(`${entry.path}.fences/1`, lower)
+      fs.writeFileSync(`${entry.path}.fences/7`, entry.top)
+      const loaded = loadOddsBudgetState({
+        persistPath: entry.path,
+        filesystem: fs,
+        warn: false,
+      })
+      expect(loaded.unreadable).toBe(true)
+      expect(loaded.fence).not.toBe(1)
+      const budget = createOddsApiBudget({
+        persist: true,
+        filesystem: fs,
+        now: NOON_ET,
+        purpose: 'close-capture',
+        env: closeCaptureEnv(entry.path),
+        log: { log() {}, warn() {} },
+      })
+      const reserved = budget.reserve(1, { captures: 1 })
+      expect(reserved).toMatchObject({ ok: false, status: ODDS_BUDGET_LEDGER_UNREADABLE })
+      expect(fs.existsSync(`${entry.path}.fences/2`)).toBe(false)
+      expect(fs.existsSync(`${entry.path}.fences/8`)).toBe(false)
+    }
+  })
+
+  test('an invalid fence name next to a valid fence refuses a reservation', () => {
+    const day = '2026-11-04'
+    const path = '/tmp/odds-api-budget-oops-fence.json'
+    const fs = memoryFs()
+    const body = JSON.stringify({
+      version: 1,
+      fence: 1,
+      fenceDay: day,
+      days: {
+        [day]: { credits: 0, calls: 0, closeCaptures: 0, gameLineCredits: 0 },
+      },
+    })
+    fs.writeFileSync(path, body)
+    fs.writeFileSync(`${path}.fences/1`, body)
+    fs.writeFileSync(`${path}.fences/oops`, 'notes')
+    const loaded = loadOddsBudgetState({
+      persistPath: path,
+      filesystem: fs,
+      warn: false,
+    })
+    expect(loaded.unreadable).toBe(true)
+    const budget = createOddsApiBudget({
+      persist: true,
+      filesystem: fs,
+      now: NOON_ET,
+      purpose: 'close-capture',
+      env: closeCaptureEnv(path),
+      log: { log() {}, warn() {} },
+    })
+    expect(budget.reserve(1, { captures: 1 })).toMatchObject({
+      ok: false,
+      status: ODDS_BUDGET_LEDGER_UNREADABLE,
+    })
+    expect(fs.existsSync(`${path}.fences/2`)).toBe(false)
   })
 
   test('fence files that do not validate refuse another reservation', () => {
