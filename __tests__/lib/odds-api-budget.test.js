@@ -768,9 +768,12 @@ describe('daily game-line budget and locked reserve', () => {
 
   test('game lines stop at the prop headroom while a later prop reserve still fits', () => {
     const fs = memoryFs()
-    const budget = budgetOn(fs, {
+    fs.writeFileSync(ledgerPath, JSON.stringify({
+      version: 1,
+      fence: 3,
       days: { [day]: { credits: 24, calls: 12, closeCaptures: 12, gameLineCredits: 0 } },
-    })
+    }))
+    const budget = budgetOn(fs)
     expect(budget.remainingGameLineSlots()).toBe(0)
     const gameLine = budget.reserve(2, { captures: 1, gameLineCredits: 2 })
     expect(gameLine.ok).toBe(false)
@@ -1319,6 +1322,84 @@ describe('daily game-line budget and locked reserve', () => {
     }
   }, 20000)
 
+  test('a 39/40 admission cannot merge a newer snapshot into 41', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ood-budget-admit-'))
+    const ledger = join(dir, 'budget.json')
+    const gate = join(dir, 'gate')
+    const fenceDir = `${ledger}.fences`
+    writeFileSync(ledger, JSON.stringify({
+      version: 1,
+      fence: 5,
+      days: {
+        '2026-11-04': { credits: 39, calls: 39, closeCaptures: 39, gameLineCredits: 0 },
+      },
+    }))
+    const childPath = join(process.cwd(), '__tests__', 'helpers', 'odds-budget-race-child.mjs')
+    const children = []
+    const runChild = (envExtra) => new Promise((resolve, reject) => {
+      const child = fork(childPath, [JSON.stringify({
+        now: '2026-11-04T16:00:00.000Z',
+        credits: 1,
+        extra: { captures: 1 },
+        env: closeCaptureEnv(ledger),
+      })], {
+        execArgv: [],
+        env: { ...process.env, ODDS_BUDGET_LOCK_STALE_MS: '1000', ...envExtra },
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      })
+      children.push(child)
+      let out = ''
+      let err = ''
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL')
+        reject(new Error(`child timed out\n${err}\n${out}`))
+      }, 12000)
+      child.stdout.on('data', (chunk) => { out += chunk })
+      child.stderr.on('data', (chunk) => { err += chunk })
+      child.on('error', (error) => {
+        clearTimeout(timer)
+        reject(error)
+      })
+      child.on('exit', () => {
+        clearTimeout(timer)
+        const line = out.trim().split('\n').filter(Boolean).pop()
+        if (!line) {
+          reject(new Error(`child produced no result\n${err}`))
+          return
+        }
+        resolve({ stderr: err, ...JSON.parse(line) })
+      })
+    })
+    const holder = runChild({ ODDS_BUDGET_ADMIT_GATE: gate })
+    try {
+      const deadline = Date.now() + 8000
+      while (!existsSync(`${gate}.paused`)) {
+        if (Date.now() > deadline) throw new Error('holder did not reach the admit gate')
+        await new Promise((resolve) => setTimeout(resolve, 15))
+      }
+      utimesSync(`${ledger}.lock`, new Date(Date.now() - 10_000), new Date(Date.now() - 10_000))
+      const reclaimer = await runChild({ ODDS_BUDGET_ADMIT_GATE: '' })
+      writeFileSync(`${gate}.go`, '1')
+      const paused = await holder
+      expect(reclaimer).toMatchObject({ ok: true, error: null })
+      expect(paused).toMatchObject({ ok: false, status: 'close_cap', error: null })
+      const saved = JSON.parse(readFileSync(ledger, 'utf8'))
+      expect(saved.days['2026-11-04'].closeCaptures).toBe(40)
+      expect(saved.fence).toBe(6)
+      expect(existsSync(join(fenceDir, '6'))).toBe(true)
+      expect(existsSync(join(fenceDir, '7'))).toBe(false)
+      const committed = JSON.parse(readFileSync(join(fenceDir, '6'), 'utf8'))
+      expect(committed.days['2026-11-04'].closeCaptures).toBe(40)
+    } finally {
+      try { writeFileSync(`${gate}.go`, '1') } catch { /* removed */ }
+      for (const child of children) {
+        if (child.exitCode == null && child.signalCode == null) child.kill('SIGKILL')
+      }
+      await holder.catch(() => {})
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 20000)
+
   test('a reader retries when prune removes a listed fence and keeps captures it already saw', () => {
     const day = '2026-11-04'
     const body = (fence, captures) => JSON.stringify({
@@ -1390,7 +1471,7 @@ describe('daily game-line budget and locked reserve', () => {
     expect(seen.fence).toBe(5)
   })
 
-  test('pointer failure still removes fences older than 48h and more than 1000 behind', () => {
+  test('pointer failure keeps every fence and still drops temps older than 48h', () => {
     const fs = memoryFs()
     const ledger = '/tmp/odds-api-budget-prune.json'
     const day = '2026-11-04'
@@ -1439,7 +1520,7 @@ describe('daily game-line budget and locked reserve', () => {
     })
     const held = budget.reserve(1, { captures: 1 })
     expect(held.ok).toBe(true)
-    expect(fs.existsSync(`${ledger}.fences/1`)).toBe(false)
+    expect(fs.existsSync(`${ledger}.fences/1`)).toBe(true)
     expect(fs.existsSync(`${ledger}.fences/50`)).toBe(true)
     expect(fs.existsSync(`${ledger}.fences/1500`)).toBe(true)
     expect(fs.existsSync(`${ledger}.fences/2000`)).toBe(true)
