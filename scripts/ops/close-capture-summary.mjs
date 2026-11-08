@@ -58,6 +58,7 @@ const SUMMARY_REASONS = new Set([
   'plan-unknown',
   'cap-exhausted',
   'summary-failed',
+  'usage-blocked',
   'nothing-planned',
   'dry-run-only',
   'schedule',
@@ -480,6 +481,60 @@ export function acceptFinalizeUsage({
   }
 }
 
+export function blockedMarkerName(day) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(day || '')) ? `${day}.blocked` : ''
+}
+
+/** A fallback that does not verify blocks that ET day and exits non-zero. */
+export function blockUsageDay({ verified = false, day, markers } = {}) {
+  const marker = blockedMarkerName(day)
+  if (verified) return { exitCode: 0, blocked: false, marker, reason: '' }
+  if (marker && markers && typeof markers.add === 'function') markers.add(marker)
+  return { exitCode: 1, blocked: true, marker, reason: 'usage-blocked' }
+}
+
+/**
+ * A blocked day does not capture. The plan is zero calls and the run
+ * exits non-zero with reason usage-blocked.
+ */
+export function nextCapturePlan({
+  day,
+  markers,
+  planned = 0,
+  plannedKnown = false,
+  callsUsed = 0,
+  cap = DEFAULT_CALL_CAP,
+  ceiling = DEFAULT_CALL_CEILING,
+  capture,
+} = {}) {
+  const marker = blockedMarkerName(day)
+  if (marker && markers && typeof markers.has === 'function' && markers.has(marker)) {
+    return {
+      called: false,
+      exitCode: 1,
+      reason: 'usage-blocked',
+      plan: planScheduledCapture({
+        planned,
+        plannedKnown,
+        callsUsed,
+        cap,
+        ceiling,
+        blocked: true,
+      }),
+    }
+  }
+  if (typeof capture === 'function') capture()
+  const plan = planScheduledCapture({
+    planned,
+    plannedKnown,
+    callsUsed,
+    cap,
+    ceiling,
+    blocked: false,
+  })
+  return { called: true, exitCode: 0, reason: plan.reason, plan }
+}
+
 /** A native call must replace this before a 0 can count as success. */
 export const NATIVE_EXIT_SENTINEL = -999
 
@@ -656,7 +711,23 @@ export function planScheduledCapture({
   cap = DEFAULT_CALL_CAP,
   ceiling = DEFAULT_CALL_CEILING,
   dryRunOnly = false,
+  blocked = false,
 } = {}) {
+  if (blocked) {
+    return {
+      cap: Math.max(0, Math.floor(Number(cap) || 0)),
+      callsUsed: Math.max(0, Math.floor(Number(callsUsed) || 0)),
+      raisedBy: 0,
+      remaining: 0,
+      planned: 0,
+      maxCalls: 0,
+      maxCredits: 0,
+      ceiling: Math.max(0, Math.floor(Number(ceiling) || 0)),
+      ceilingHit: false,
+      action: 'exit',
+      reason: 'usage-blocked',
+    }
+  }
   const used = Math.max(0, Math.floor(Number(callsUsed) || 0))
   const startCap = Math.max(0, Math.floor(Number(cap) || 0))
   const hard = Math.max(0, Math.floor(Number(ceiling) || 0))
@@ -816,7 +887,7 @@ export function summarizeCaptureOutput(raw, {
     : 0
   const clock = easternNow(now)
   const skipReason = new Set([
-    'quiet', 'locked', 'bad-args', 'clock', 'usage-unreadable', 'summary-failed', 'plan-unknown',
+    'quiet', 'locked', 'bad-args', 'clock', 'usage-unreadable', 'summary-failed', 'usage-blocked', 'plan-unknown',
     'schedule', 'timezone', 'deadline', 'cap-ceiling', 'job',
   ])
   const line = buildCloseCaptureSummaryLine({

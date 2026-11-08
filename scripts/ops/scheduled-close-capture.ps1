@@ -23,7 +23,8 @@
   dry run still plans calls, the cap goes up by 20, but not past the
   hard ceiling (default 80, CLOSE_CAPTURE_CALL_CEILING). An empty or
   corrupt usage file is an error. Writes go to a temp file and rename
-  into place.
+  into place. If the reserved-count write also fails, the day gets
+  YYYY-MM-DD.blocked and later runs make no calls.
 
 .PARAMETER DryRunOnly
   Stop after the dry run. Does not apply, raise the cap, or change usage.
@@ -272,6 +273,25 @@ function Invoke-Helper {
   return @{
     Code = $code
     Text = (($raw | Out-String).Trim())
+  }
+}
+
+function Write-BlockedMarker {
+  param([string]$MarkerPath)
+  $dir = Split-Path -Parent $MarkerPath
+  $tmp = Join-Path $dir ('.blocked.' + [guid]::NewGuid().ToString('n') + '.tmp')
+  try {
+    [System.IO.File]::WriteAllText($tmp, "usage-blocked`r`n", $utf8)
+    if (Test-Path -LiteralPath $MarkerPath) {
+      Remove-Item -LiteralPath $tmp -Force
+      return
+    }
+    [System.IO.File]::Move($tmp, $MarkerPath)
+  } catch {
+    if (Test-Path -LiteralPath $tmp) {
+      Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+    throw
   }
 }
 
@@ -548,6 +568,7 @@ if (-not (Test-Path -LiteralPath $logDir)) {
   New-Item -ItemType Directory -Path $logDir | Out-Null
 }
 $usageFile = Join-Path $usageDir ($day + '.txt')
+$blockedMarker = Join-Path $usageDir ($day + '.blocked')
 $runId = [guid]::NewGuid().ToString('n')
 $lockPath = Join-Path $usageDir 'close-capture.lock'
 $lock = $null
@@ -566,6 +587,11 @@ try {
 }
 
 try {
+  if (Test-Path -LiteralPath $blockedMarker) {
+    $blockedLine = Invoke-Helper -HelperArgs @('line', '--reason', 'usage-blocked', '--status', 'failed')
+    Write-CloseLog -Line $blockedLine.Text -Day $day
+    exit 1
+  }
   Stop-OrphanedNode -Lock $lock
   $jobHandle = [CloseCaptureJob]::CreateKillOnCloseJob()
   if ($jobHandle -eq [IntPtr]::Zero) {
@@ -724,10 +750,12 @@ try {
       '--run', $runId
     )
     if ($fallbackWrite.Code -ne 0 -or -not (Test-UsageFile -File $usageFile -Calls ([string]$fallbackUsed) -Cap ([string]$nextCap) -Day $day -RunId $runId)) {
-      $final = Invoke-Helper -HelperArgs @('line', '--reason', 'summary-failed', '--status', 'failed')
-    } else {
-      $final = Invoke-Helper -HelperArgs @('line', '--reason', 'summary-failed', '--status', 'failed')
+      try { Write-BlockedMarker -MarkerPath $blockedMarker } catch { }
+      $final = Invoke-Helper -HelperArgs @('line', '--reason', 'usage-blocked', '--status', 'failed')
+      Write-CloseLog -Line $final.Text -Day $day
+      exit 1
     }
+    $final = Invoke-Helper -HelperArgs @('line', '--reason', 'summary-failed', '--status', 'failed')
   }
   Write-CloseLog -Line $final.Text -Day $day
   exit 0

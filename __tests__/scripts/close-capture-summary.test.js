@@ -20,8 +20,11 @@ import {
   orphanShouldKill,
   parseCaptureOutput,
   acceptFinalizeUsage,
+  blockUsageDay,
+  buildCloseCaptureSummaryLine,
   confirmUsageWrite,
   NATIVE_EXIT_SENTINEL,
+  nextCapturePlan,
   recordedUsageTotal,
   parseUsageText,
   planScheduledCapture,
@@ -541,8 +544,19 @@ describe('close capture schedule parsing', () => {
     for (const match of writes) {
       expect(wrapper.slice(match.index, match.index + 700)).toContain('Test-UsageFile')
     }
+    const dryAt = wrapper.indexOf("'--dry-run'")
+    const guardAt = wrapper.indexOf('Test-Path -LiteralPath $blockedMarker')
+    expect(guardAt).toBeGreaterThan(-1)
+    expect(guardAt).toBeLessThan(dryAt)
+    expect(wrapper.slice(guardAt, dryAt)).toContain("'usage-blocked'")
+    expect(wrapper.slice(guardAt, dryAt)).toContain('exit 1')
+    const blockedAt = wrapper.indexOf('Write-BlockedMarker -MarkerPath $blockedMarker')
+    expect(blockedAt).toBeGreaterThan(dryAt)
+    const blockedSlice = wrapper.slice(blockedAt, blockedAt + 600)
+    expect(blockedSlice).toContain("'usage-blocked'")
+    expect(blockedSlice).toContain('exit 1')
     const usageRecordAt = wrapper.lastIndexOf("'--record-calls'")
-    const afterRecord = wrapper.slice(usageRecordAt, usageRecordAt + 1800)
+    const afterRecord = wrapper.slice(usageRecordAt, usageRecordAt + 2400)
     const preciseAt = afterRecord.indexOf('Test-UsageFile')
     const fallbackAt = afterRecord.indexOf('$fallbackUsed')
     expect(afterRecord.indexOf('recorded-calls')).toBeGreaterThan(-1)
@@ -659,6 +673,54 @@ describe('close capture schedule parsing', () => {
     })
     expect(precise).toMatchObject({ ok: true, accepted: true, fallback: false, calls: 6 })
     expect(wroteFallback).toBe(false)
+  })
+
+  test('a double usage-write failure blocks the next run', () => {
+    const markers = new Set()
+    const failed = blockUsageDay({ verified: false, day: '2026-11-08', markers })
+    expect(failed.exitCode).not.toBe(0)
+    expect(failed.reason).toBe('usage-blocked')
+    expect([...markers]).toEqual(['2026-11-08.blocked'])
+    const line = buildCloseCaptureSummaryLine({
+      stamp: '2026-11-08 18:16:00 ET',
+      status: 'failed',
+      reason: 'usage-blocked',
+    })
+    expect(line).toContain('CLOSE_CAPTURE_STATUS=failed')
+    expect(line).toContain('reason=usage-blocked')
+
+    let calls = 0
+    const next = nextCapturePlan({
+      day: '2026-11-08',
+      markers,
+      planned: 6,
+      plannedKnown: true,
+      callsUsed: 0,
+      cap: 20,
+      capture() { calls += 1 },
+    })
+    expect(calls).toBe(0)
+    expect(next.called).toBe(false)
+    expect(next.exitCode).not.toBe(0)
+    expect(next.plan).toMatchObject({
+      action: 'exit',
+      reason: 'usage-blocked',
+      maxCalls: 0,
+      maxCredits: 0,
+    })
+
+    const later = nextCapturePlan({
+      day: '2026-11-09',
+      markers,
+      planned: 6,
+      plannedKnown: true,
+      callsUsed: 0,
+      cap: 20,
+      capture() { calls += 1 },
+    })
+    expect(later.called).toBe(true)
+    expect(later.plan.maxCalls).toBeGreaterThan(0)
+    expect(calls).toBe(1)
   })
 
   test('the helper module does not warn about a typeless package.json', () => {
