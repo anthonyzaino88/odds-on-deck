@@ -248,37 +248,26 @@ describe('sanitize-error', () => {
       expect(typed.name).toBe('TypeError')
       expect(typed.constructor).toBe(TypeError)
       expect(typed.message).toBe('bad [redacted]')
-      const proto = DOMException.prototype
-      const messageDesc = Object.getOwnPropertyDescriptor(proto, 'message')
-      const nameDesc = Object.getOwnPropertyDescriptor(proto, 'name')
-      const abortedInput = new DOMException(`stopped ${secret}`, 'AbortError')
-      let inheritedReads = 0
-      Object.defineProperty(proto, 'message', {
+      const aborted = sanitizeOddsApiError(new DOMException(`stopped ${secret}`, 'AbortError'))
+      expect(aborted).toBeInstanceOf(DOMException)
+      expect(aborted.constructor).toBe(DOMException)
+      expect(aborted.name).toBe('AbortError')
+      expect(aborted.message).toBe('stopped [redacted]')
+      const timedOut = sanitizeOddsApiError(new DOMException(`timed out ${secret}`, 'TimeoutError'))
+      expect(timedOut).toBeInstanceOf(DOMException)
+      expect(timedOut.name).toBe('TimeoutError')
+      expect(timedOut.message).toBe('timed out [redacted]')
+      expect(timedOut.code).toBe(23)
+      let userReads = 0
+      const custom = new DOMException('kept message', 'AbortError')
+      Object.defineProperty(custom, 'message', {
         configurable: true,
-        enumerable: messageDesc.enumerable,
-        get() {
-          if (this === abortedInput) inheritedReads += 1
-          return messageDesc.get.call(this)
-        },
+        get() { userReads += 1; return `leaked ${secret}` },
       })
-      Object.defineProperty(proto, 'name', {
-        configurable: true,
-        enumerable: nameDesc.enumerable,
-        get() {
-          if (this === abortedInput) inheritedReads += 1
-          return nameDesc.get.call(this)
-        },
-      })
-      try {
-        const aborted = sanitizeOddsApiError(abortedInput)
-        expect(aborted).toBeInstanceOf(DOMException)
-        expect(aborted.constructor).toBe(DOMException)
-        expect(aborted.message).not.toContain(secret)
-        expect(inheritedReads).toBe(0)
-      } finally {
-        Object.defineProperty(proto, 'message', messageDesc)
-        Object.defineProperty(proto, 'name', nameDesc)
-      }
+      const skipped = sanitizeOddsApiError(custom)
+      expect(userReads).toBe(0)
+      expect(skipped.message).toBe('kept message')
+      expect(skipped.message).not.toContain(secret)
       const sparse = []
       sparse[0] = 'keep'
       sparse[100000] = secret

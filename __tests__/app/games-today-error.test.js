@@ -27,4 +27,18 @@ describe('GET /api/games/today', () => {
     expect(JSON.stringify(body)).not.toContain('super-db-pass')
     expect(JSON.stringify(body)).not.toContain('live-key')
   })
+
+  test('a TimeoutError rethrow keeps a sanitized non-empty message', async () => {
+    getTodaysGames.mockRejectedValue(new DOMException(
+      'timeout Authorization: Bearer super-secret-token',
+      'TimeoutError',
+    ))
+    const res = await GET()
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.success).toBe(false)
+    expect(body.error).toBe('timeout Authorization: Bearer [redacted]')
+    expect(body.error).not.toBe('')
+    expect(body.error).not.toContain('super-secret-token')
+  })
 })
