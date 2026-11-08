@@ -2,7 +2,9 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   DEFAULT_CLOSE_CAPTURE_DAILY_CAP,
+  DEFAULT_CLOSE_CAPTURE_PROP_HEADROOM,
   DEFAULT_CLOSE_CAPTURE_RESERVE,
+  DEFAULT_GAME_LINE_CLOSE_DAILY_CAP,
   DEFAULT_DAILY_CREDIT_CAP,
   DEFAULT_MONTHLY_CREDIT_CAP,
   DEFAULT_PROBE_FAIL_CREDIT_CAP,
@@ -108,6 +110,8 @@ describe('readOddsBudgetConfig', () => {
       remainingFloor: DEFAULT_REMAINING_FLOOR,
       closeCaptureReserve: DEFAULT_CLOSE_CAPTURE_RESERVE,
       closeCaptureDailyCap: DEFAULT_CLOSE_CAPTURE_DAILY_CAP,
+      closeCapturePropHeadroom: DEFAULT_CLOSE_CAPTURE_PROP_HEADROOM,
+      gameLineCloseDailyCap: DEFAULT_GAME_LINE_CLOSE_DAILY_CAP,
       probeFailCreditCap: DEFAULT_PROBE_FAIL_CREDIT_CAP,
       persistPath: '.local/odds-api-budget.json',
     })
@@ -548,6 +552,232 @@ describe('fetchOddsApiJson', () => {
   })
 })
 
+function lockingFs(files = new Map()) {
+  const base = memoryFs(files)
+  const locks = new Map()
+  const opens = []
+  return {
+    ...base,
+    opens,
+    openSync(filePath, flag) {
+      opens.push([filePath, flag])
+      if (flag !== 'wx') {
+        const error = new Error(`unsupported flag ${flag}`)
+        error.code = 'EINVAL'
+        throw error
+      }
+      if (locks.has(filePath) || files.has(filePath)) {
+        const error = new Error('EEXIST')
+        error.code = 'EEXIST'
+        throw error
+      }
+      locks.set(filePath, { mtimeMs: Date.now() })
+      files.set(filePath, '')
+      return filePath
+    },
+    closeSync() {},
+    statSync(filePath) {
+      if (!files.has(filePath)) {
+        const error = new Error('ENOENT')
+        error.code = 'ENOENT'
+        throw error
+      }
+      return { mtimeMs: locks.get(filePath)?.mtimeMs || Date.now() }
+    },
+    unlinkSync(filePath) {
+      locks.delete(filePath)
+      files.delete(filePath)
+    },
+  }
+}
+
+function closeCaptureEnv(path, extra = {}) {
+  return {
+    ODDS_BUDGET_PATH: path,
+    ODDS_CLOSE_CAPTURE_RESERVE: '0',
+    ODDS_REMAINING_FLOOR: '0',
+    ODDS_DAILY_CREDIT_CAP: '5000',
+    ODDS_CLOSE_CAPTURE_DAILY_CAP: '40',
+    ODDS_GAME_LINE_CLOSE_DAILY_CAP: '12',
+    ODDS_CLOSE_CAPTURE_PROP_HEADROOM: '28',
+    ...extra,
+  }
+}
+
+describe('daily game-line budget and locked reserve', () => {
+  const ledgerPath = '/tmp/odds-api-budget-game-lines.json'
+  const day = '2026-11-04'
+
+  function budgetOn(fs, state, extraEnv = {}) {
+    return createOddsApiBudget({
+      persist: true,
+      filesystem: fs,
+      now: NOON_ET,
+      purpose: 'close-capture',
+      env: closeCaptureEnv(ledgerPath, extraEnv),
+      log: { log() {}, warn() {} },
+      state,
+    })
+  }
+
+  test('game-line credits persist across budget instances and leave prop slots', () => {
+    const fs = memoryFs()
+    const first = budgetOn(fs)
+    const reserved = first.reserve(2, { captures: 1, gameLineCredits: 2 })
+    expect(reserved.ok).toBe(true)
+    expect(first.todayGameLineCredits()).toBe(2)
+    expect(first.todayCloseCaptures()).toBe(1)
+
+    const second = createOddsApiBudget({
+      persist: true,
+      filesystem: fs,
+      now: NOON_ET,
+      purpose: 'close-capture',
+      env: closeCaptureEnv(ledgerPath),
+      log: { log() {}, warn() {} },
+    })
+    expect(second.todayGameLineCredits()).toBe(2)
+    expect(second.remainingGameLineCredits()).toBe(10)
+    const again = second.reserve(2, { captures: 1, gameLineCredits: 2 })
+    expect(again.ok).toBe(true)
+    expect(second.todayGameLineCredits()).toBe(4)
+
+    const capped = createOddsApiBudget({
+      persist: true,
+      filesystem: fs,
+      now: NOON_ET,
+      purpose: 'close-capture',
+      env: closeCaptureEnv(ledgerPath, { ODDS_GAME_LINE_CLOSE_DAILY_CAP: '4' }),
+      log: { log() {}, warn() {} },
+    })
+    const blocked = capped.reserve(2, { captures: 1, gameLineCredits: 2 })
+    expect(blocked.ok).toBe(false)
+    expect(blocked.status).toBe('game_line_cap')
+    expect(capped.todayGameLineCredits()).toBe(4)
+
+    const propped = capped.reserve(5, { captures: 1 })
+    expect(propped.ok).toBe(true)
+    expect(capped.allow(5, { captures: 1 })).toBe(true)
+    expect(capped.todayCloseCaptures()).toBe(3)
+  })
+
+  test('game lines stop at the prop headroom while a later prop reserve still fits', () => {
+    const fs = memoryFs()
+    const budget = budgetOn(fs, {
+      days: { [day]: { credits: 24, calls: 12, closeCaptures: 12, gameLineCredits: 0 } },
+    })
+    expect(budget.remainingGameLineSlots()).toBe(0)
+    const gameLine = budget.reserve(2, { captures: 1, gameLineCredits: 2 })
+    expect(gameLine.ok).toBe(false)
+    expect(gameLine.status).toBe('game_line_cap')
+    expect(budget.todayCloseCaptures()).toBe(12)
+    const prop = budget.reserve(5, { captures: 1 })
+    expect(prop.ok).toBe(true)
+    expect(budget.todayCloseCaptures()).toBe(13)
+    expect(budget.allow(5, { captures: 1 })).toBe(true)
+  })
+
+  test('two reserves at 39/40 cannot both pass, and a crash keeps the reservation', () => {
+    const fs = lockingFs()
+    fs.writeFileSync(ledgerPath, JSON.stringify({
+      version: 1,
+      days: { [day]: { credits: 39, calls: 39, closeCaptures: 39, gameLineCredits: 0 } },
+    }))
+    const env = closeCaptureEnv(ledgerPath)
+    const opts = {
+      persist: true,
+      filesystem: fs,
+      now: NOON_ET,
+      purpose: 'close-capture',
+      env,
+      log: { log() {}, warn() {} },
+    }
+    const left = createOddsApiBudget(opts)
+    const right = createOddsApiBudget(opts)
+    expect(left.allow(1, { captures: 1 })).toBe(true)
+    expect(right.allow(1, { captures: 1 })).toBe(true)
+    const first = left.reserve(1, { captures: 1 })
+    const second = right.reserve(1, { captures: 1 })
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(false)
+    expect(second.status).toBe('close_cap')
+    const saved = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'))
+    expect(saved.days[day].closeCaptures).toBe(40)
+    expect(saved.days[day].credits).toBe(40)
+    expect(fs.opens.some(([, flag]) => flag === 'wx')).toBe(true)
+
+    const crashPath = '/tmp/odds-api-budget-crash.json'
+    const crashFs = lockingFs()
+    const crash = createOddsApiBudget({
+      ...opts,
+      filesystem: crashFs,
+      env: closeCaptureEnv(crashPath),
+    })
+    const held = crash.reserve(4, { captures: 1, gameLineCredits: 4 })
+    expect(held.ok).toBe(true)
+    const reloaded = createOddsApiBudget({
+      persist: true,
+      filesystem: crashFs,
+      now: NOON_ET,
+      purpose: 'close-capture',
+      env: closeCaptureEnv(crashPath),
+      log: { log() {}, warn() {} },
+    })
+    expect(reloaded.todayCredits()).toBe(4)
+    expect(reloaded.todayGameLineCredits()).toBe(4)
+    expect(reloaded.todayCloseCaptures()).toBe(1)
+  })
+
+  test('reconcile lowers a reservation to x-requests-last and a thrown fetch keeps it', async () => {
+    const fs = lockingFs()
+    const budget = budgetOn(fs)
+    const held = budget.reserve(5, { captures: 1, gameLineCredits: 5 })
+    expect(held.ok).toBe(true)
+    budget.reconcile(held, { remaining: 100, used: 2, last: 2 })
+    expect(budget.todayCredits()).toBe(2)
+    expect(budget.todayGameLineCredits()).toBe(2)
+    expect(budget.runCredits()).toBe(2)
+    expect(budget.todayCloseCaptures()).toBe(1)
+    const saved = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'))
+    expect(saved.days[day].credits).toBe(2)
+    expect(saved.days[day].gameLineCredits).toBe(2)
+
+    const fetchFsPath = '/tmp/odds-api-budget-fetch.json'
+    const fetchFs = lockingFs()
+    const paying = createOddsApiBudget({
+      persist: true,
+      filesystem: fetchFs,
+      now: NOON_ET,
+      purpose: 'close-capture',
+      env: closeCaptureEnv(fetchFsPath),
+      log: { log() {}, warn() {} },
+    })
+    await expect(fetchOddsApiJson(
+      'https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds?regions=us&markets=h2h,totals',
+      {
+        budget: paying,
+        estimatedCredits: 2,
+        gameLine: true,
+        fetchImpl: async () => {
+          throw new Error('socket hang up')
+        },
+        log: { log() {}, warn() {} },
+      },
+    )).rejects.toThrow('socket hang up')
+    const afterThrow = createOddsApiBudget({
+      persist: true,
+      filesystem: fetchFs,
+      now: NOON_ET,
+      purpose: 'close-capture',
+      env: closeCaptureEnv(fetchFsPath),
+      log: { log() {}, warn() {} },
+    })
+    expect(afterThrow.todayCredits()).toBe(2)
+    expect(afterThrow.todayGameLineCredits()).toBe(2)
+    expect(afterThrow.todayCloseCaptures()).toBe(1)
+  })
+})
+
 describe('ops docs and script wiring', () => {
   test('operations README documents env vars, WARN status, and status lines', () => {
     const readme = readFileSync(join(process.cwd(), 'operations/README.md'), 'utf8')
@@ -558,7 +788,9 @@ describe('ops docs and script wiring', () => {
     expect(readme).toMatch(/ODDS_CLOSE_CAPTURE_DAILY_CAP/)
     expect(readme).toMatch(/ODDS_PROBE_FAIL_CREDIT_CAP/)
     expect(readme).toMatch(/ODDS_NFL_ADJACENT_PROPS_TTL_HOURS/)
-    expect(readme).toMatch(/ODDS_BUDGET_STATUS=ok\|floor\|daily_cap\|monthly_cap\|probe_failed\|close_cap/)
+    expect(readme).toMatch(/ODDS_BUDGET_STATUS=ok\|floor\|daily_cap\|monthly_cap\|probe_failed\|close_cap\|game_line_cap/)
+    expect(readme).toMatch(/ODDS_GAME_LINE_CLOSE_DAILY_CAP/)
+    expect(readme).toMatch(/ODDS_CLOSE_CAPTURE_PROP_HEADROOM/)
     expect(readme).toMatch(/ODDS_CREDITS_USED/)
     expect(readme).toMatch(/ODDS_CREDITS_REMAINING/)
     expect(readme).toMatch(/\.local\/odds-api-budget\.json/)

@@ -648,7 +648,7 @@ as usual.
 Footer lines:
 
 ```
-ODDS_BUDGET_STATUS=ok|floor|daily_cap|monthly_cap|probe_failed|close_cap
+ODDS_BUDGET_STATUS=ok|floor|daily_cap|monthly_cap|probe_failed|close_cap|game_line_cap
 ODDS_CREDITS_USED=<n>
 ODDS_CREDITS_REMAINING=<n|unknown>
 ```
@@ -666,6 +666,12 @@ extra layer. Morning fetch subtracts
 `ODDS_CLOSE_CAPTURE_RESERVE` from the daily cap so a heavy slate cannot
 spend the last ~200 credits before hourly close capture. Hitting the
 40-capture cap sets `ODDS_BUDGET_STATUS=close_cap`.
+Game-line closes persist `gameLineCredits` on that same ET day
+(`ODDS_GAME_LINE_CLOSE_DAILY_CAP`, default 12) and stay out of the prop
+headroom (`ODDS_CLOSE_CAPTURE_PROP_HEADROOM`, default 28 of the 40 slots).
+A paid call reserves its credits under a ledger lock before the request
+and reconciles to `x-requests-last` after the response. A dropped
+response keeps the reservation.
 
 Today's NFL props still use the midnight-ET cache clamp. Adjacent-day NFL
 games in the fetch window reuse a fresh PlayerPropCache row for that game

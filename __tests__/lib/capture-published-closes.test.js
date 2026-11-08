@@ -117,6 +117,7 @@ function nflEventOdds() {
         },
         {
           key: 'h2h',
+          last_update: '2026-07-15T22:40:00.000Z',
           outcomes: [
             { name: 'Kansas City Chiefs', price: -150 },
             { name: 'Buffalo Bills', price: 130 },
@@ -124,6 +125,7 @@ function nflEventOdds() {
         },
         {
           key: 'spreads',
+          last_update: '2026-07-15T22:40:00.000Z',
           outcomes: [
             { name: 'Kansas City Chiefs', price: -110, point: -3.5 },
             { name: 'Buffalo Bills', price: -110, point: 3.5 },
@@ -131,6 +133,7 @@ function nflEventOdds() {
         },
         {
           key: 'totals',
+          last_update: '2026-07-15T22:40:00.000Z',
           outcomes: [
             { name: 'Over', price: -108, point: 47.5 },
             { name: 'Under', price: -112, point: 47.5 },
@@ -151,6 +154,8 @@ function mockClient({
   closingInsert = null,
   edges = [],
   edgeError = null,
+  edgeTrace = null,
+  edgePages = null,
 } = {}) {
   return {
     from(table) {
@@ -163,7 +168,18 @@ function mockClient({
           error: edgeError,
         })
         const query = chainable(terminal)
-        query.in = () => terminal
+        query.in = () => query
+        if (edgeTrace || edgePages) {
+          query.order = (col, opts) => {
+            edgeTrace?.push(['order', col, Boolean(opts?.ascending)])
+            return query
+          }
+          query.range = (from, to) => {
+            edgeTrace?.push(['range', from, to])
+            const data = edgePages ? edgePages(from, to) : (edgeError ? null : edges)
+            return Promise.resolve({ data, error: edgeError })
+          }
+        }
         return { select() { return query } }
       }
       if (table === 'ClosingOdds') {
@@ -171,6 +187,10 @@ function mockClient({
           select() { return query },
           eq() { return query },
           in() { return query },
+          order() { return query },
+          range() {
+            return Promise.resolve({ data: closingOdds, error: null })
+          },
           then(resolve, reject) {
             return Promise.resolve({ data: closingOdds, error: null }).then(resolve, reject)
           },
@@ -1973,7 +1993,7 @@ describe('runCapturePublishedCloses', () => {
     expect(result.captureJobs?.[0]?.pass).toBe('near-start')
     expect(result.updates).toHaveLength(0)
     expect(updates).toHaveLength(0)
-    expect(log.lines.join('\n')).toMatch(/quote last_update at or after commence_time/)
+    expect(log.lines.join('\n')).toMatch(/quote last_update after capture/)
   })
 
   test('a :00 ET run re-checks quiet and stops at :05 before writes', async () => {
@@ -2170,7 +2190,7 @@ describe('runCapturePublishedCloses', () => {
         markets: [
           {
             key: 'h2h',
-            last_update: '2026-07-15T22:40:00.000Z',
+            last_update: '2026-07-15T22:44:00.000Z',
             outcomes: [
               { name: home, price: -140 },
               { name: away, price: 120 },
@@ -2178,7 +2198,7 @@ describe('runCapturePublishedCloses', () => {
           },
           {
             key: 'totals',
-            last_update: '2026-07-15T22:41:00.000Z',
+            last_update: '2026-07-15T22:45:00.000Z',
             outcomes: [
               { name: 'Over', price: -105, point: 6.5 },
               { name: 'Under', price: -115, point: 6.5 },
@@ -2273,7 +2293,7 @@ describe('runCapturePublishedCloses', () => {
     expect(priced).toHaveLength(4)
     expect(priced.every((row) => row.id.startsWith('clvclose:'))).toBe(true)
     expect(priced.every((row) => row.sport === 'nhl')).toBe(true)
-    expect(priced.find((row) => row.market === 'h2h').quoted_at).toBe('2026-07-15T22:40:00.000Z')
+    expect(priced.find((row) => row.market === 'h2h').quoted_at).toBe('2026-07-15T22:44:00.000Z')
 
     fetchEventOdds.mockClear()
     const secondLog = memoryLog()
@@ -2401,7 +2421,7 @@ describe('runCapturePublishedCloses', () => {
       'clvclose:bos_at_tor|fanduel|h2h',
       'clvclose:bos_at_tor|fanduel|totals',
     ])
-    expect(upserts.find((row) => row.market === 'totals').quoted_at).toBe('2026-07-15T22:41:00.000Z')
+    expect(upserts.find((row) => row.market === 'totals').quoted_at).toBe('2026-07-15T22:45:00.000Z')
   })
 
   test('--max-credits stops a game-line cluster before the sport call', async () => {
@@ -2473,5 +2493,224 @@ describe('runCapturePublishedCloses', () => {
     expect(result.plannedCredits).toBe(0)
     expect(result.calls).toBe(0)
     expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+
+  test('EdgeSnapshot load orders by ts then id and follows the next page', async () => {
+    const edgeTrace = []
+    const page = Array.from({ length: 1000 }, (_, index) => ({
+      id: `edge-${String(index).padStart(4, '0')}`,
+      gameId: 'BOS_at_TOR',
+      edgeMlHome: 0.04,
+      ts: '2026-07-15T18:00:00.000Z',
+    }))
+    const result = await runCapturePublishedCloses({
+      argv: ['--game-lines'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [nhlGame()],
+        picks: [],
+        edgeTrace,
+        edgePages: (from) => (from === 0 ? page : []),
+      }),
+      fetchEventOdds: jest.fn(),
+      log: memoryLog(),
+    })
+    expect(result.gameLineClusters).toHaveLength(1)
+    expect(edgeTrace).toEqual([
+      ['order', 'ts', false],
+      ['order', 'id', true],
+      ['range', 0, 999],
+      ['order', 'ts', false],
+      ['order', 'id', true],
+      ['range', 1000, 1999],
+    ])
+  })
+
+  test('a second run sees the persisted daily game-line credits and does not fetch', async () => {
+    const files = new Map()
+    const filesystem = {
+      files,
+      existsSync: (filePath) => files.has(filePath),
+      mkdirSync() {},
+      writeFileSync(filePath, data) { files.set(filePath, String(data)) },
+      readFileSync(filePath) { return files.get(filePath) },
+      renameSync(from, to) {
+        files.set(to, files.get(from))
+        files.delete(from)
+      },
+      unlinkSync(filePath) { files.delete(filePath) },
+    }
+    const budgetEnv = {
+      ODDS_BUDGET_PATH: '/tmp/capture-game-line-budget.json',
+      ODDS_GAME_LINE_CLOSE_DAILY_CAP: '2',
+      ODDS_CLOSE_CAPTURE_RESERVE: '0',
+      ODDS_REMAINING_FLOOR: '0',
+      ODDS_DAILY_CREDIT_CAP: '5000',
+    }
+    const budgetOpts = {
+      persist: true,
+      filesystem,
+      now: IN_WINDOW,
+      purpose: 'close-capture',
+      env: budgetEnv,
+      log: { log() {}, warn() {} },
+    }
+    const fetchEventOdds = jest.fn(async () => sportOdds([
+      nhlEvent('evt-bos', 'Boston Bruins', 'Toronto Maple Leafs'),
+    ]))
+    const closingOdds = []
+    const first = await runCapturePublishedCloses({
+      argv: ['--apply', '--game-lines'],
+      now: IN_WINDOW,
+      budget: createOddsApiBudget(budgetOpts),
+      createClient: () => mockClient({
+        games: [nhlGame()],
+        picks: [],
+        edges: [gameLineEdge()],
+        closingOdds,
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(first.calls).toBe(2)
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    const secondBudget = createOddsApiBudget(budgetOpts)
+    expect(secondBudget.todayGameLineCredits()).toBe(2)
+    fetchEventOdds.mockClear()
+    const second = await runCapturePublishedCloses({
+      argv: ['--apply', '--game-lines'],
+      now: IN_WINDOW,
+      budget: secondBudget,
+      createClient: () => mockClient({
+        games: [nhlGame()],
+        picks: [],
+        edges: [gameLineEdge()],
+        closingOdds,
+      }),
+      fetchEventOdds,
+      probeQuota: jest.fn(),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(second.calls).toBe(0)
+    expect(second.gameLineClusters).toHaveLength(0)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(secondBudget.todayGameLineCredits()).toBe(2)
+  })
+
+  test('game lines do not consume the prop headroom while a prop job still plans', async () => {
+    const budget = createOddsApiBudget({
+      persist: false,
+      now: IN_WINDOW,
+      purpose: 'close-capture',
+      env: {
+        ODDS_REMAINING_FLOOR: '0',
+        ODDS_CLOSE_CAPTURE_RESERVE: '0',
+      },
+      log: { log() {}, warn() {} },
+      state: {
+        days: {
+          '2026-07-15': { credits: 24, calls: 12, closeCaptures: 12, gameLineCredits: 0 },
+        },
+      },
+    })
+    const fetchEventOdds = jest.fn()
+    const result = await runCapturePublishedCloses({
+      argv: ['--game-lines'],
+      now: IN_WINDOW,
+      budget,
+      createClient: () => mockClient({
+        games: [windowGame(), nhlGame()],
+        picks: [publishedPick()],
+        edges: [gameLineEdge()],
+      }),
+      fetchEventOdds,
+      log: memoryLog(),
+    })
+    expect(result.captureJobs).toHaveLength(1)
+    expect(result.gameLineClusters).toHaveLength(0)
+    expect(result.plannedCalls).toBe(2)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+
+  test('live clock stops a paid game-line call once quiet or the window has passed', async () => {
+    const quietInWindow = new Date('2026-07-15T23:06:00.000Z')
+    const openMinute = new Date('2026-07-15T23:04:00.000Z')
+    const laterGame = nhlGame({ date: '2026-07-15T23:20:00.000Z' })
+    let ticks = 0
+    const quietBeforeFetch = jest.fn()
+    const quietRun = await runCapturePublishedCloses({
+      argv: ['--apply', '--game-lines'],
+      clock: () => {
+        ticks += 1
+        return ticks === 1 ? openMinute : quietInWindow
+      },
+      createClient: () => mockClient({
+        games: [laterGame],
+        picks: [],
+        edges: [gameLineEdge()],
+      }),
+      fetchEventOdds: quietBeforeFetch,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(quietBeforeFetch).not.toHaveBeenCalled()
+    expect(quietRun.calls).toBe(1)
+
+    const afterStart = new Date('2026-07-15T23:30:00.000Z')
+    let planned = true
+    const leftWindow = jest.fn()
+    const windowRun = await runCapturePublishedCloses({
+      argv: ['--apply', '--game-lines'],
+      clock: () => {
+        const instant = planned ? IN_WINDOW : afterStart
+        planned = false
+        return instant
+      },
+      createClient: () => mockClient({
+        games: [nhlGame()],
+        picks: [],
+        edges: [gameLineEdge()],
+      }),
+      fetchEventOdds: leftWindow,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(leftWindow).not.toHaveBeenCalled()
+    expect(windowRun.calls).toBe(1)
+    expect(windowRun.skippedWindow).toBeGreaterThan(0)
+  })
+
+  test('a fetch that lands in the quiet window does not insert the close', async () => {
+    const openMinute = new Date('2026-07-15T23:04:00.000Z')
+    const quietInWindow = new Date('2026-07-15T23:06:00.000Z')
+    let fetched = false
+    const closingInserts = []
+    const fetchEventOdds = jest.fn(async () => {
+      fetched = true
+      return sportOdds([nhlEvent('evt-bos', 'Boston Bruins', 'Toronto Maple Leafs')])
+    })
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--game-lines'],
+      clock: () => (fetched ? quietInWindow : openMinute),
+      createClient: () => mockClient({
+        games: [nhlGame({ date: '2026-07-15T23:20:00.000Z' })],
+        picks: [],
+        edges: [gameLineEdge()],
+        closingInserts,
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(result.calls).toBe(2)
+    expect(closingInserts).toEqual([])
+    expect(result.gameLineWrites).toEqual([])
   })
 })

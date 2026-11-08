@@ -36,9 +36,11 @@
  * clvclose: rows with quoted_at from last_update. Prop jobs are
  * planned and fetched first. Each sport call also uses one
  * ODDS_CLOSE_CAPTURE_DAILY_CAP slot. ODDS_GAME_LINE_CLOSE_DAILY_CAP
- * (default 12 credits) is a per-run sub-budget so one run cannot
- * spend the shared cap on game lines. A later run can spend another
- * 12 until that shared daily cap is gone.
+ * (default 12 credits) is persisted on the ET-day ledger, so later
+ * runs cannot spend another 12. ODDS_CLOSE_CAPTURE_PROP_HEADROOM
+ * (default 28) keeps that many of the 40 slots for later prop closes.
+ * Game lines stop before they enter that headroom. Paid calls reserve
+ * the credits under the ledger lock before the HTTP call.
  *
  *   node scripts/capture-published-closes.js            # dry-run (default)
  *   node scripts/capture-published-closes.js --dry-run
@@ -85,6 +87,7 @@ import {
   buildSportOddsUrl,
   capturedNflGameLineGameIds,
   classifyCloseCaptureGames,
+  closeCapturePassForGame,
   clusterGameLineCloseTargets,
   closeCapturePayload,
   closeCaptureRegionCount,
@@ -119,6 +122,7 @@ import {
   readCloseCaptureWindowConfig,
   readGameLineCloseDailyCreditCap,
   resetClosingOddsWriteGuard,
+  setClosingOddsClock,
   selectCloseCaptureJobsWithinBudget,
   selectGameLineCloseTargets,
   selectGameLineClustersWithinBudget,
@@ -277,12 +281,16 @@ async function defaultFetchEventOdds({
   budget,
   estimatedCredits,
   apiKey,
+  gameLine = false,
+  reservation = null,
 } = {}) {
   const result = await fetchOddsApiJson(url, {
     fetchImpl,
     budget,
     estimatedCredits,
     apiKey,
+    gameLine,
+    reservation,
   })
   return {
     data: result.data,
@@ -295,7 +303,7 @@ async function defaultFetchEventOdds({
 export async function runCapturePublishedCloses({
   argv = process.argv.slice(2),
   createClient = createScriptSupabaseClient,
-  now = new Date(),
+  now,
   clock,
   fetchEventOdds = defaultFetchEventOdds,
   probeQuota = probeOddsApiQuota,
@@ -307,7 +315,8 @@ export async function runCapturePublishedCloses({
   resetClosingOddsWriteGuard()
   const nowFn = typeof clock === 'function'
     ? clock
-    : () => (now instanceof Date ? now : new Date(now))
+    : (now == null ? () => new Date() : () => (now instanceof Date ? now : new Date(now)))
+  setClosingOddsClock(nowFn)
   const startedAt = nowFn()
   const args = parseCaptureClosesArgs(argv, env)
   const windowOpts = readCloseCaptureWindowConfig(env)
@@ -397,11 +406,12 @@ and MLB in the same windows. One sport-level /odds call per
 start-time cluster (h2h,totals; --spreads adds spreads; same region
 as morning fetch). Writes clvclose: ClosingOdds rows, quoted_at from
 last_update. Prop jobs are planned and fetched first and keep the
-shared ODDS_CLOSE_CAPTURE_DAILY_CAP. ODDS_GAME_LINE_CLOSE_DAILY_CAP
-(default 12 credits) is a per-run sub-budget on top of that cap.
-A later run can spend another 12 until the shared daily cap is gone.
+shared ODDS_CLOSE_CAPTURE_DAILY_CAP.
 Absent --nfl-all, only Published picks' markets are requested.
 --game-lines does not add h2h/spreads/totals onto those prop calls.
+ODDS_GAME_LINE_CLOSE_DAILY_CAP (default 12 credits) is stored on the
+ET-day ledger. ODDS_CLOSE_CAPTURE_PROP_HEADROOM (default 28) is the
+part of the 40 capture slots game lines must leave for later props.
 PowerShell: prefer npm run capture:published-closes:apply or
             npm run capture:published-closes:nfl-all:apply.
             $env:CLV_APPLY=1 stays set for later plain runs.
@@ -539,12 +549,14 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
   async function loadGameLineEdges(client, gameIds) {
     const ids = [...new Set((gameIds || []).filter(Boolean))]
     if (!ids.length) return { rows: [], error: null }
-    const { data, error } = await client
+    const page = await paginateSupabaseSelect(() => client
       .from('EdgeSnapshot')
       .select('id, gameId, edgeMlHome, edgeMlAway, edgeTotalO, edgeTotalU, ts')
       .in('gameId', ids)
-    if (error) return { rows: [], error }
-    return { rows: data || [], error: null }
+      .order('ts', { ascending: false })
+      .order('id', { ascending: true }))
+    if (page.error) return { rows: page.rows, error: page.error }
+    return { rows: page.rows, error: null }
   }
 
   async function loadCapturePicks(select) {
@@ -704,13 +716,19 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       windowMinutes: windowOpts.windowMinutes,
     })
     const propsPlanned = captureJobs.length > 0
+    const gameLineCreditsLeft = oddsBudget.remainingGameLineCredits?.() ?? gameLineCap
+    const gameLineSlotsLeft = Math.max(
+      0,
+      (oddsBudget.remainingGameLineSlots?.() ?? remainingCaptures ?? 0) - captureJobs.length,
+    )
     gameLinePlan = selectGameLineClustersWithinBudget(clusters, {
       markets: gameLineMarkets,
       regions,
       maxCalls: args.maxCalls,
       maxCredits: args.maxCredits,
       maxCaptures: remainingCaptures,
-      maxGameLineCredits: gameLineCap,
+      maxGameLineCredits: gameLineCreditsLeft,
+      maxGameLineSlots: gameLineSlotsLeft,
       callsAlready: propsPlanned ? plannedCalls : 0,
       creditsAlready: propsPlanned ? plannedCredits : 0,
       capturesAlready: captureJobs.length,
@@ -756,8 +774,10 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     log.log(
       `GAME LINES: ${gameLineClusters.length} sport call(s), markets=${gameLineMarkets.join(',')}, `
       + `${gameLinePlan.creditCost ?? gameLineMarkets.length * regionCount} credit(s) each. `
-      + `Sub-cap ${gameLineCap} credits this run (ODDS_GAME_LINE_CLOSE_DAILY_CAP). `
-      + `Each call also uses 1 ODDS_CLOSE_CAPTURE_DAILY_CAP slot. NFL prop jobs are planned first.`,
+      + `Daily cap ${gameLineCap} credits left ${oddsBudget.remainingGameLineCredits?.() ?? gameLineCap} `
+      + `(ODDS_GAME_LINE_CLOSE_DAILY_CAP, persisted). `
+      + `Prop headroom ${oddsBudget.config?.closeCapturePropHeadroom ?? ''} slots `
+      + `(ODDS_CLOSE_CAPTURE_PROP_HEADROOM). NFL prop jobs are planned first.`,
     )
   }
 
@@ -802,7 +822,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       })
     }
     if ((gameLinePlan.skipped || 0) > 0) {
-      log.log('⏸️  Game-line clusters did not fit the remaining call, credit, or per-run sub-cap. No Odds API calls.')
+      log.log('⏸️  Game-line clusters did not fit the remaining call, credit, capture, or daily game-line budget. No Odds API calls.')
       return done({
         updates: [],
         calls: 0,
@@ -877,6 +897,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
   }
 
   const updates = []
+  let skippedWindowDuringRun = 0
   let calls = 0
   let creditsUsed = 0
   let lastQuota = { remaining: null, used: null, last: null }
@@ -951,6 +972,11 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       break
     }
     const game = job.game
+    if (!closeCapturePassForGame(game, nowFn(), windowOpts)) {
+      log.log(`  skip ${job.gameIds.join(',')}: no longer in the close window`)
+      skippedWindowDuringRun += 1
+      continue
+    }
     const sportKey = oddsApiSportKey(game?.sport)
     const label = job.gameIds.join(',')
     const overwrite = job.pass === CLOSE_CAPTURE_PASS_NEAR_START
@@ -1136,10 +1162,17 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     if (skippedQuietDuringRun) break
   }
 
-  let gameLineCreditsUsed = 0
   if (args.gameLines && !skippedQuietDuringRun && !skippedBudgetDuringRun) {
     for (let clusterIndex = 0; clusterIndex < gameLineClusters.length; clusterIndex += 1) {
       const cluster = gameLineClusters[clusterIndex]
+      const dueTargets = (cluster.targets || []).filter((target) => (
+        closeCapturePassForGame(target.game, nowFn(), windowOpts)
+      ))
+      if (!dueTargets.length) {
+        log.log(`  skip game lines ${cluster.gameIds.join(',')}: no longer in the close window`)
+        skippedWindowDuringRun += 1
+        continue
+      }
       if (isOpsWriteQuietPeriod(nowFn())) {
         log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
         skippedQuietDuringRun = true
@@ -1169,14 +1202,6 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
         skippedBudgetDuringRun += 1
         break
       }
-      if (gameLineCreditsUsed + clusterCredits > gameLineCap) {
-        log.log(
-          `⏸️  ODDS_GAME_LINE_CLOSE_DAILY_CAP (${gameLineCap} credits this run) reached. `
-          + 'NFL prop closes keep the shared cap.',
-        )
-        skippedBudgetDuringRun += 1
-        break
-      }
       if (lastQuota.remaining != null && lastQuota.remaining < args.minRemaining) {
         log.log(
           `⏸️  Odds API remaining ${lastQuota.remaining} < min-remaining ${args.minRemaining}. Stopping.`,
@@ -1184,9 +1209,15 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
         skippedBudgetDuringRun += 1
         break
       }
-      if (!oddsBudget.allow(clusterCredits, { captures: 1 })) {
-        log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
-        const warn = formatOddsBudgetWarnLine(oddsBudget.status())
+      const reservation = typeof oddsBudget.reserve === 'function'
+        ? oddsBudget.reserve(clusterCredits, {
+          captures: 1,
+          gameLineCredits: clusterCredits,
+        })
+        : { ok: oddsBudget.allow(clusterCredits, { captures: 1, gameLineCredits: clusterCredits }) }
+      if (!reservation?.ok) {
+        log.log(`⏸️  ${formatOddsBudgetStatus(reservation?.status || oddsBudget.status())}`)
+        const warn = formatOddsBudgetWarnLine(reservation?.status || oddsBudget.status())
         if (warn) log.log(warn)
         skippedBudgetDuringRun += 1
         break
@@ -1201,7 +1232,6 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       })
       calls += 1
       creditsUsed += clusterCredits
-      gameLineCreditsUsed += clusterCredits
       let payload
       try {
         payload = await fetchEventOdds({
@@ -1209,6 +1239,8 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
           budget: oddsBudget,
           estimatedCredits: clusterCredits,
           apiKey,
+          gameLine: true,
+          reservation,
         })
         if (payload?.skipped) {
           log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
@@ -1218,10 +1250,15 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
           break
         }
         if (payload?.quota) lastQuota = payload.quota
-        if (!payload?.budgetRecorded) {
+        if (!payload?.budgetRecorded && typeof oddsBudget.reconcile === 'function') {
+          oddsBudget.reconcile(reservation, payload?.quota || {}, {
+            credits: payload?.quota?.last ?? clusterCredits,
+          })
+        } else if (!payload?.budgetRecorded) {
           oddsBudget.record(payload?.quota || {}, {
             credits: payload?.quota?.last ?? clusterCredits,
             captures: 1,
+            gameLineCredits: clusterCredits,
           })
         }
       } catch (error) {
@@ -1230,13 +1267,18 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
         continue
       }
       const events = Array.isArray(payload.data) ? payload.data : []
-      const { matched, unmatched } = matchSportOddsEvents(events, cluster.targets)
+      const { matched, unmatched } = matchSportOddsEvents(events, dueTargets)
       const pendingWrites = [
         ...matched.map((target) => ({ target, event: target.event })),
         ...unmatched.map((target) => ({ target, event: null })),
       ]
       for (const item of pendingWrites) {
-        const overwrite = item.target.pass === CLOSE_CAPTURE_PASS_NEAR_START
+        if (!closeCapturePassForGame(item.target.game, nowFn(), windowOpts)) {
+          log.log(`  skip ${item.target.game.id}: left the close window before write`)
+          skippedWindowDuringRun += 1
+          continue
+        }
+        const overwrite = closeCapturePassForGame(item.target.game, nowFn(), windowOpts) === CLOSE_CAPTURE_PASS_NEAR_START
         const rows = item.event
           ? gameLineClosesForSportEvent(item.event, item.target.game, nowFn(), {
             markets: cluster.markets || gameLineMarkets,
@@ -1296,7 +1338,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     fetchErrors,
     writeErrors,
     skippedBudgetCount: skippedBudgetTotal + skippedBudgetDuringRun,
-    skippedWindow,
+    skippedWindow: skippedWindow + skippedWindowDuringRun,
     skippedQuiet: skippedQuietDuringRun || undefined,
     skippedQuietCount,
   })
