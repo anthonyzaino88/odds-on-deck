@@ -24,10 +24,11 @@
   hard ceiling (default 80, CLOSE_CAPTURE_CALL_CEILING). An empty or
   corrupt usage file is an error. Writes go to a temp file and rename
   into place. A YYYY-MM-DD.pending marker is written under the repo,
-  or %LOCALAPPDATA%\OddsOnDeck when that write fails, before any paid
-  call. It is removed only after the usage file matches this run's id
-  and expected calls. Later runs make no calls while either pending
-  marker exists. The run exits non-zero even when both marker writes fail.
+  or %LOCALAPPDATA%\OddsOnDeck when that write fails, immediately
+  before the apply. It is removed when that apply is verified, and
+  also on any exit that made no paid call. Later runs make no calls
+  while either pending marker exists. The run exits non-zero even
+  when both marker writes fail.
 
 .PARAMETER DryRunOnly
   Stop after the dry run. Does not apply, raise the cap, or change usage.
@@ -347,7 +348,7 @@ function Save-MarkerPair {
   return $landed
 }
 
-function Clear-PendingMarkers {
+function Remove-PendingMarker {
   foreach ($path in @($pendingMarker, $fallbackPending)) {
     if ($path -and (Test-Path -LiteralPath $path)) {
       Remove-Item -LiteralPath $path -Force
@@ -681,13 +682,6 @@ try {
     exit 0
   }
 
-  $pendingLanded = Save-MarkerPair -Primary $pendingMarker -Fallback $fallbackPending -Body ("pending`r`nrun=" + $runId + "`r`n") -Label 'pending'
-  if (-not $pendingLanded) {
-    $pendingFailed = Invoke-Helper -HelperArgs @('line', '--reason', 'usage-blocked', '--status', 'failed')
-    Write-CloseLog -Line $pendingFailed.Text -Day $day
-    exit 1
-  }
-
   $dry = Invoke-NodeCapture -NodeArgs @(
     'scripts/capture-published-closes.js', '--nfl-all', '--nhl-all', '--game-lines', '--spreads', '--dry-run'
   ) -DeadlineIso $deadlineIso -Lock $lock -JobHandle $jobHandle
@@ -746,6 +740,7 @@ try {
   $ceilingHit = @()
   if ($plan.ceilingHit) { $ceilingHit = @('--ceiling-hit') }
   if ($action -ne 'apply') {
+    Remove-PendingMarker
     $reason = [string]$plan.reason
     $finishArgs = @(
       'finalize',
@@ -766,10 +761,17 @@ try {
 
   $stillLeft = Get-DeadlineRemaining -DeadlineIso $deadlineIso
   if ($stillLeft -le 0) {
+    Remove-PendingMarker
     $dueArgs = @('line', '--reason', 'deadline', '--status', 'failed', '--ceiling', $ceiling) + $ceilingHit
     $due = Invoke-Helper -HelperArgs $dueArgs
     Write-CloseLog -Line $due.Text -Day $day
     exit 0
+  }
+  $pendingLanded = Save-MarkerPair -Primary $pendingMarker -Fallback $fallbackPending -Body ("pending`r`nrun=" + $runId + "`r`n") -Label 'pending'
+  if (-not $pendingLanded) {
+    $pendingFailed = Invoke-Helper -HelperArgs @('line', '--reason', 'usage-blocked', '--status', 'failed')
+    Write-CloseLog -Line $pendingFailed.Text -Day $day
+    exit 1
   }
   $apply = Invoke-NodeCapture -NodeArgs @(
     'scripts/capture-published-closes.js', '--nfl-all', '--nhl-all', '--game-lines', '--spreads', '--apply',
@@ -777,6 +779,7 @@ try {
     '--max-credits', ([string]([int]$plan.maxCredits))
   ) -DeadlineIso $deadlineIso -Lock $lock -JobHandle $jobHandle
   if ($apply.Aborted) {
+    Remove-PendingMarker
     $applyAborted = Invoke-Helper -HelperArgs @('line', '--reason', 'job', '--status', 'failed')
     Write-CloseLog -Line $applyAborted.Text -Day $day
     exit 0
@@ -819,7 +822,7 @@ try {
   if ($final.Code -eq 0 -and $final.Text -and $expectedCalls -ge 0) {
     if (Test-UsageFile -File $usageFile -Calls ([string]$expectedCalls) -Cap ([string]$nextCap) -Day $day -RunId $runId) {
       $precise = $true
-      Clear-PendingMarkers
+      Remove-PendingMarker
     }
   }
   if (-not $precise) {
@@ -837,7 +840,7 @@ try {
       Write-CloseLog -Line $final.Text -Day $day
       exit 1
     }
-    Clear-PendingMarkers
+    Remove-PendingMarker
     $final = Invoke-Helper -HelperArgs @('line', '--reason', 'summary-failed', '--status', 'failed')
   }
   Write-CloseLog -Line $final.Text -Day $day

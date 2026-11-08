@@ -601,6 +601,31 @@ export function blockUsageDay({
  * calls. A self-consistent older file does not clear it. Blocked-marker
  * failures, including a log that throws, still leave pending in place.
  */
+/**
+ * A nothing-planned or dry-run-only exit made no paid call, so it
+ * removes any pending marker and leaves the next run free to capture.
+ */
+export function releaseUnpaidCapture({
+  day,
+  markers,
+  action = '',
+  dryRunOnly = false,
+} = {}) {
+  const paid = !dryRunOnly && action === 'apply'
+  if (paid) {
+    return {
+      exitCode: 0,
+      cleared: false,
+      pending: markerPresent(markers, [
+        pendingMarkerName(day),
+        fallbackPendingMarkerName(day),
+      ]),
+    }
+  }
+  clearPendingMarkers(markers, day)
+  return { exitCode: 0, cleared: true, pending: false }
+}
+
 export function accountPaidCapture({
   day,
   markers,

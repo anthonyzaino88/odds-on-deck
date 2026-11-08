@@ -21,6 +21,7 @@ import {
   parseCaptureOutput,
   acceptFinalizeUsage,
   accountPaidCapture,
+  releaseUnpaidCapture,
   blockUsageDay,
   buildCloseCaptureSummaryLine,
   confirmUsageWrite,
@@ -547,26 +548,34 @@ describe('close capture schedule parsing', () => {
       expect(wrapper.slice(match.index, match.index + 700)).toContain('Test-UsageFile')
     }
     const dryAt = wrapper.indexOf("'--dry-run'")
+    const applyAt = wrapper.indexOf("'--apply'")
     const pendingAt = wrapper.indexOf("-Label 'pending'")
-    expect(pendingAt).toBeGreaterThan(-1)
-    expect(pendingAt).toBeLessThan(dryAt)
-    expect(wrapper.slice(0, dryAt)).toContain('$pendingMarker')
-    expect(wrapper.slice(0, dryAt)).toContain('$fallbackPending')
-    expect(wrapper.slice(0, dryAt)).toContain('$env:LOCALAPPDATA')
-    expect(wrapper.slice(pendingAt, dryAt)).toContain('exit 1')
+    expect(pendingAt).toBeGreaterThan(dryAt)
+    expect(pendingAt).toBeLessThan(applyAt)
+    expect(wrapper).toContain('$env:LOCALAPPDATA')
+    expect(wrapper.slice(pendingAt - 180, applyAt)).toContain('$fallbackPending')
+    expect(wrapper.slice(pendingAt, applyAt)).toContain('exit 1')
+    const unpaidAt = wrapper.indexOf("if ($action -ne 'apply')")
+    const unpaidSlice = wrapper.slice(unpaidAt, pendingAt)
+    expect(unpaidSlice).toContain('Remove-PendingMarker')
+    expect(unpaidSlice).toContain('$DryRunOnly')
+    expect(unpaidSlice).toContain('exit 0')
+    const abortAt = wrapper.indexOf('if ($apply.Aborted)')
+    expect(wrapper.slice(abortAt, abortAt + 400)).toContain('Remove-PendingMarker')
     expect(wrapper).not.toContain('Test-LatestUsageWrite')
+    expect(wrapper).not.toContain('Clear-PendingMarkers')
     expect(wrapper).not.toMatch(/catch\s*\{\s*\}/)
     const saveAt = wrapper.indexOf('function Save-MarkerPair')
-    const saveBody = wrapper.slice(saveAt, wrapper.indexOf('function Clear-PendingMarkers'))
+    const saveBody = wrapper.slice(saveAt, wrapper.indexOf('function Remove-PendingMarker'))
     expect(saveBody.indexOf('-MarkerPath $Fallback')).toBeGreaterThan(saveBody.indexOf('Write-MarkerLog'))
     expect(wrapper).toContain('function Write-MarkerLog')
     const blockedAt = wrapper.indexOf("-Label 'blocked'")
-    expect(blockedAt).toBeGreaterThan(dryAt)
+    expect(blockedAt).toBeGreaterThan(applyAt)
     const blockedSlice = wrapper.slice(blockedAt, blockedAt + 500)
     const failExit = blockedSlice.indexOf('exit 1')
     expect(failExit).toBeGreaterThan(-1)
-    expect(blockedSlice.slice(0, failExit)).not.toContain('Clear-PendingMarkers')
-    expect(wrapper).toContain('Clear-PendingMarkers')
+    expect(blockedSlice.slice(0, failExit)).not.toContain('Remove-PendingMarker')
+    expect(wrapper).toContain('Remove-PendingMarker')
     const usageRecordAt = wrapper.lastIndexOf("'--record-calls'")
     const afterRecord = wrapper.slice(usageRecordAt, usageRecordAt + 2400)
     const preciseAt = afterRecord.indexOf('Test-UsageFile')
@@ -869,6 +878,38 @@ describe('close capture schedule parsing', () => {
     expect(result.exitCode).not.toBe(0)
     expect(result.fallback).toBe('localappdata:2026-11-08.blocked')
     expect([...markers]).toEqual(['localappdata:2026-11-08.blocked'])
+  })
+
+  test('nothing-planned and dry-run-only leave the next run free', () => {
+    for (const run of [
+      { action: 'exit', dryRunOnly: false },
+      { action: 'dry-run-only', dryRunOnly: true },
+    ]) {
+      const markers = new Set(['2026-11-08.pending', 'localappdata:2026-11-08.pending'])
+      const finished = releaseUnpaidCapture({
+        day: '2026-11-08',
+        markers,
+        action: run.action,
+        dryRunOnly: run.dryRunOnly,
+      })
+      expect(finished).toMatchObject({ exitCode: 0, cleared: true, pending: false })
+      expect([...markers]).toEqual([])
+      let calls = 0
+      const next = nextCapturePlan({
+        day: '2026-11-08',
+        markers,
+        usageText: '4\ncap=20\nrun=older-run\n',
+        planned: 6,
+        plannedKnown: true,
+        callsUsed: 0,
+        cap: 20,
+        capture() { calls += 1 },
+      })
+      expect(finished.exitCode).toBe(0)
+      expect(calls).toBe(1)
+      expect(next.called).toBe(true)
+      expect(next.plan.maxCalls).toBeGreaterThan(0)
+    }
   })
 
   test('the helper module does not warn about a typeless package.json', () => {
