@@ -62,9 +62,14 @@ if ($triggerSpecs.Count -lt 1 -or $triggerSpecs.Count -gt 48) {
 $triggers = @()
 foreach ($item in $triggerSpecs) {
   $at = Get-Date -Hour ([int]$item.startHour) -Minute ([int]$item.minute) -Second 0
-  $triggers += New-ScheduledTaskTrigger -Daily -At $at `
+  # -Daily and -RepetitionInterval are different parameter sets. Build the
+  # daily trigger, then copy Repetition from a -Once trigger.
+  $daily = New-ScheduledTaskTrigger -Daily -At $at
+  $once = New-ScheduledTaskTrigger -Once -At $at `
     -RepetitionInterval (New-TimeSpan -Minutes ([int]$item.intervalMinutes)) `
     -RepetitionDuration (New-TimeSpan -Minutes ([int]$item.durationMinutes))
+  $daily.Repetition = $once.Repetition
+  $triggers += $daily
 }
 
 $limitSeconds = [int]$spec.executionTimeLimitSeconds

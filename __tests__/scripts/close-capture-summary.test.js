@@ -10,15 +10,18 @@ import {
   callsToRecord,
   closeCaptureRepeatingTriggers,
   closeCaptureTaskSpec,
+  containCapturedChild,
   DEFAULT_CALL_CEILING,
   easternNow,
   expandRepeatingTrigger,
   formatUsageText,
   isQuietEtMinute,
   nextQuietDeadline,
+  orphanShouldKill,
   parseCaptureOutput,
   parseUsageText,
   planScheduledCapture,
+  remainingUntilDeadline,
   scheduledCaptureDecision,
   summarizeCaptureOutput,
   windowsTimeZoneOk,
@@ -263,6 +266,50 @@ describe('close capture schedule parsing', () => {
     const edt = nextQuietDeadline(new Date('2026-07-15T22:04:01.000Z'))
     expect(easternNow(new Date('2026-07-15T22:04:01.000Z'))).toMatchObject({ hour: 18, minute: 4, second: 1 })
     expect(edt.iso).toBe('2026-07-15T22:04:50.000Z')
+    const frozen = '2026-11-08T23:04:50.000Z'
+    const afterQuiet = remainingUntilDeadline(frozen, new Date('2026-11-08T23:06:00.000Z'))
+    expect(afterQuiet).toMatchObject({ ok: true, iso: frozen, remainingMs: 0 })
+    expect(nextQuietDeadline(new Date('2026-11-08T23:06:00.000Z')).iso).toBe('2026-11-09T00:04:50.000Z')
+    expect(afterQuiet.iso).not.toBe(nextQuietDeadline(new Date('2026-11-08T23:06:00.000Z')).iso)
+  })
+
+  test('a failed job assign does not resume the child', () => {
+    const resume = jest.fn(() => true)
+    const kill = jest.fn()
+    const recordPid = jest.fn()
+    const startSuspended = jest.fn(() => ({ pid: 42 }))
+    const missed = containCapturedChild({
+      jobReady: true,
+      startSuspended,
+      assign: () => false,
+      recordPid,
+      resume,
+      kill,
+    })
+    expect(missed).toMatchObject({ ran: false, resumed: false, reason: 'assign-failed' })
+    expect(startSuspended).toHaveBeenCalledTimes(1)
+    expect(recordPid).not.toHaveBeenCalled()
+    expect(resume).not.toHaveBeenCalled()
+    expect(kill).toHaveBeenCalledTimes(1)
+    const noJob = containCapturedChild({
+      jobReady: false,
+      startSuspended,
+      assign: () => true,
+      recordPid,
+      resume,
+      kill,
+    })
+    expect(noJob.ran).toBe(false)
+    expect(startSuspended).toHaveBeenCalledTimes(1)
+  })
+
+  test('a stale lock kills only when the pid and start time both match', () => {
+    const lock = 'pid=42\r\nstartTicks=100\r\n'
+    expect(orphanShouldKill(lock, { pid: 42, startTicks: '100' })).toBe(true)
+    expect(orphanShouldKill(lock, { pid: 42, startTicks: '101' })).toBe(false)
+    expect(orphanShouldKill(lock, { pid: 7, startTicks: '100' })).toBe(false)
+    expect(orphanShouldKill('pid=42\r\n', { pid: 42, startTicks: '100' })).toBe(false)
+    expect(orphanShouldKill('', { pid: 42, startTicks: '100' })).toBe(false)
   })
 
   test('auto-raise stays +20 and stops at the hard ceiling', () => {
@@ -355,6 +402,12 @@ describe('close capture schedule parsing', () => {
     expect(register).not.toContain('Enable-ScheduledTask')
     expect(register).toContain('RepetitionInterval')
     expect(register).toContain('RepetitionDuration')
+    expect(register).toContain('$daily.Repetition = $once.Repetition')
+    expect(register).toContain('-Once')
+    expect(register.split(/\r?\n/).filter((line) => {
+      const code = line.trim()
+      return !code.startsWith('#') && code.includes('-Daily') && code.includes('-RepetitionInterval')
+    })).toEqual([])
     expect(register).toContain('executionTimeLimitSeconds')
     expect(register).toContain('Eastern Standard Time')
     expect(register).toContain('-gt 48')
@@ -362,8 +415,21 @@ describe('close capture schedule parsing', () => {
     expect(wrapper).toContain('--deadline')
     expect(wrapper).toContain('Stop-Process')
     expect(wrapper).toContain('JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE')
+    expect(wrapper).toContain('CREATE_SUSPENDED')
+    expect(wrapper).toContain('SupportsShouldProcess')
     expect(wrapper).toContain('pid=')
+    expect(wrapper).toContain('startTicks=')
+    expect(wrapper).toContain('Clear-LockPid')
     expect(wrapper).toContain('schedule-now')
+    expect(wrapper).toContain("'remaining'")
+    expect(wrapper.match(/HelperArgs @\('deadline'\)/g)).toHaveLength(1)
+    expect(wrapper).not.toMatch(/catch\s*\{[^}]*\$jobHandle = \[IntPtr\]::Zero/)
+    const assignAt = wrapper.indexOf('[CloseCaptureJob]::Assign(')
+    const recordAt = wrapper.indexOf('Write-LockPid -Lock')
+    const resumeAt = wrapper.indexOf('[CloseCaptureJob]::Resume(')
+    expect(assignAt).toBeGreaterThan(-1)
+    expect(recordAt).toBeGreaterThan(assignAt)
+    expect(resumeAt).toBeGreaterThan(recordAt)
   })
 
   test('.local usage and logs stay gitignored', () => {

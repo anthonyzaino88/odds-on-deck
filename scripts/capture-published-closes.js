@@ -505,6 +505,16 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     return done({ updates: [], calls: 0, skippedQuiet: true })
   }
 
+  if (args.deadlineMs != null && startedAt.getTime() >= args.deadlineMs) {
+    log.log('⏸️  Close-capture deadline (:04:50 ET) — no Odds API calls.')
+    return done({
+      updates: [],
+      calls: 0,
+      creditsUsed: 0,
+      skippedQuiet: true,
+    })
+  }
+
   let supabase
   try {
     assertCaptureSecretIsNotPublishable(env)

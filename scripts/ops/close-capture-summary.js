@@ -64,6 +64,7 @@ const SUMMARY_REASONS = new Set([
   'timezone',
   'deadline',
   'cap-ceiling',
+  'job',
 ])
 
 function lastMatch(text, expression) {
@@ -180,6 +181,70 @@ export function nextQuietDeadline(date = new Date()) {
     remainingMs: Math.max(0, deadline.getTime() - date.getTime()),
     executionTimeLimitSeconds: CLOSE_CAPTURE_EXECUTION_LIMIT_SECONDS,
   }
+}
+
+/**
+ * Time left until a deadline chosen at the start of the run.
+ * This never rolls forward to the next hour's :04:50.
+ */
+export function remainingUntilDeadline(iso, now = new Date()) {
+  const text = String(iso || '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(text)) {
+    return { ok: false, iso: '', remainingMs: 0 }
+  }
+  const ms = Date.parse(text)
+  if (!Number.isFinite(ms)) return { ok: false, iso: '', remainingMs: 0 }
+  return {
+    ok: true,
+    iso: new Date(ms).toISOString(),
+    remainingMs: Math.max(0, ms - now.getTime()),
+  }
+}
+
+/**
+ * Start suspended, assign to the job, record the PID, then resume.
+ * A failed job, assign, or resume kills the child and does not resume it.
+ */
+export function containCapturedChild({
+  jobReady = false,
+  startSuspended,
+  assign,
+  recordPid,
+  resume,
+  kill,
+} = {}) {
+  if (!jobReady) return { ran: false, resumed: false, reason: 'job-create-failed' }
+  let child = null
+  try {
+    child = startSuspended()
+  } catch {
+    return { ran: false, resumed: false, reason: 'start-failed' }
+  }
+  if (!child) return { ran: false, resumed: false, reason: 'start-failed' }
+  try {
+    if (!assign(child)) {
+      kill(child)
+      return { ran: false, resumed: false, reason: 'assign-failed' }
+    }
+    recordPid(child)
+    if (!resume(child)) {
+      kill(child)
+      return { ran: false, resumed: false, reason: 'resume-failed' }
+    }
+    return { ran: true, resumed: true, reason: '' }
+  } catch {
+    try { kill(child) } catch { /* the child must not be left running */ }
+    return { ran: false, resumed: false, reason: 'contain-failed' }
+  }
+}
+
+export function orphanShouldKill(lockText, actual = {}) {
+  const text = String(lockText || '')
+  const pid = /^pid=(\d+)\s*$/m.exec(text)
+  const ticks = /^startTicks=(\d+)\s*$/m.exec(text)
+  if (!pid || !ticks) return false
+  if (actual.pid == null || actual.startTicks == null || actual.startTicks === '') return false
+  return pid[1] === String(actual.pid) && ticks[1] === String(actual.startTicks)
 }
 
 export function windowsTimeZoneOk(id) {
@@ -494,7 +559,7 @@ export function summarizeCaptureOutput(raw, {
   const clock = easternNow(now)
   const skipReason = new Set([
     'quiet', 'locked', 'bad-args', 'clock', 'usage-unreadable', 'summary-failed', 'plan-unknown',
-    'schedule', 'timezone', 'deadline', 'cap-ceiling',
+    'schedule', 'timezone', 'deadline', 'cap-ceiling', 'job',
   ])
   const line = buildCloseCaptureSummaryLine({
     stamp: stamp || clock.stamp,
@@ -580,7 +645,7 @@ function runCli(argv) {
     '--file', '--calls', '--cap', '--calls-used', '--dry-run-only',
     '--raised-by', '--planned', '--usage-file', '--record-calls',
     '--extra-errors', '--reason', '--stamp', '--status',
-    '--ceiling', '--id', '--ceiling-hit',
+    '--ceiling', '--id', '--ceiling-hit', '--deadline', '--pid', '--start-ticks',
   ])
   for (const arg of rest) {
     if (String(arg).startsWith('-') && !known.has(flagName(arg))) {
@@ -593,6 +658,20 @@ function runCli(argv) {
   }
   if (command === 'deadline') {
     printJson(nextQuietDeadline())
+    return
+  }
+  if (command === 'remaining') {
+    const iso = readFlag(rest, '--deadline')
+    if (iso == null) failClosed('missing --deadline')
+    printJson(remainingUntilDeadline(iso))
+    return
+  }
+  if (command === 'orphan-match') {
+    const pid = readFlag(rest, '--pid')
+    const startTicks = readFlag(rest, '--start-ticks')
+    printJson({
+      kill: orphanShouldKill(readStdin(), { pid, startTicks }),
+    })
     return
   }
   if (command === 'schedule-now') {

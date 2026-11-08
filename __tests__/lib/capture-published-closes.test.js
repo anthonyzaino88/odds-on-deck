@@ -696,6 +696,33 @@ describe('runCapturePublishedCloses', () => {
     expect(probeQuota).not.toHaveBeenCalled()
   })
 
+  test('an expired deadline is rejected before any database access', async () => {
+    const createClient = jest.fn(() => { throw new Error('should not connect') })
+    const fetchEventOdds = jest.fn()
+    const probeQuota = jest.fn()
+    for (const argv of [
+      ['--dry-run', '--deadline', '2026-07-15T22:04:50.000Z'],
+      ['--apply', '--deadline', '2026-07-15T22:04:50.000Z'],
+    ]) {
+      createClient.mockClear()
+      const log = memoryLog()
+      const result = await runCapturePublishedCloses({
+        argv,
+        now: IN_WINDOW,
+        createClient,
+        fetchEventOdds,
+        probeQuota,
+        apiKey: 'test-key',
+        log,
+      })
+      expect(createClient).not.toHaveBeenCalled()
+      expect(fetchEventOdds).not.toHaveBeenCalled()
+      expect(probeQuota).not.toHaveBeenCalled()
+      expect(result.calls).toBe(0)
+      expect(log.lines.join('\n')).toMatch(/:04:50 ET/)
+    }
+  })
+
   test('a deadline at or after :04:50 ET makes no paid request', async () => {
     const fetchEventOdds = jest.fn()
     const probeQuota = jest.fn()

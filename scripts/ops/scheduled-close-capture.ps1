@@ -52,6 +52,14 @@ using System.Runtime.InteropServices;
 public static class CloseCaptureJob {
     const int JobObjectExtendedLimitInformation = 9;
     const uint KillOnJobClose = 0x2000; // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    const uint CREATE_SUSPENDED = 0x00000004;
+    const uint CREATE_NO_WINDOW = 0x08000000;
+    const uint STARTF_USESTDHANDLES = 0x00000100;
+    const uint GENERIC_WRITE = 0x40000000;
+    const uint CREATE_ALWAYS = 2;
+    const uint FILE_ATTRIBUTE_NORMAL = 0x80;
+    const uint FILE_SHARE_READ = 0x00000001;
+    static readonly System.IntPtr InvalidHandle = new System.IntPtr(-1);
     [StructLayout(LayoutKind.Explicit)]
     struct Limits {
         [FieldOffset(0)] public long PerProcessUserTimeLimit;
@@ -82,6 +90,58 @@ public static class CloseCaptureJob {
     static extern bool AssignProcessToJobObject(System.IntPtr job, System.IntPtr process);
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool CloseHandle(System.IntPtr handle);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool CreateProcessW(string app, string cmd, System.IntPtr pa, System.IntPtr ta, bool inherit, uint flags, System.IntPtr env, string dir, ref STARTUPINFO si, out PROCESS_INFORMATION pi);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern System.IntPtr CreateFileW(string name, uint access, uint share, ref SECURITY_ATTRIBUTES sa, uint disp, uint flags, System.IntPtr template);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern uint ResumeThread(System.IntPtr thread);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool TerminateProcess(System.IntPtr process, uint code);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern uint WaitForSingleObject(System.IntPtr handle, uint ms);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool GetExitCodeProcess(System.IntPtr process, out uint code);
+    [StructLayout(LayoutKind.Sequential)]
+    struct SECURITY_ATTRIBUTES {
+        public int nLength;
+        public System.IntPtr lpSecurityDescriptor;
+        public int bInheritHandle;
+    }
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct STARTUPINFO {
+        public int cb;
+        public string lpReserved;
+        public string lpDesktop;
+        public string lpTitle;
+        public int dwX;
+        public int dwY;
+        public int dwXSize;
+        public int dwYSize;
+        public int dwXCountChars;
+        public int dwYCountChars;
+        public int dwFillAttribute;
+        public int dwFlags;
+        public short wShowWindow;
+        public short cbReserved2;
+        public System.IntPtr lpReserved2;
+        public System.IntPtr hStdInput;
+        public System.IntPtr hStdOutput;
+        public System.IntPtr hStdError;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct PROCESS_INFORMATION {
+        public System.IntPtr hProcess;
+        public System.IntPtr hThread;
+        public int dwProcessId;
+        public int dwThreadId;
+    }
+    public sealed class SuspendedProcess {
+        public System.IntPtr ProcessHandle;
+        public System.IntPtr ThreadHandle;
+        public int Pid;
+        public bool Ok;
+    }
     public static System.IntPtr CreateKillOnCloseJob() {
         if (System.IntPtr.Size != 8) return System.IntPtr.Zero;
         System.IntPtr handle = CreateJobObject(System.IntPtr.Zero, null);
@@ -104,6 +164,64 @@ public static class CloseCaptureJob {
     public static bool Assign(System.IntPtr job, System.IntPtr process) {
         if (job == System.IntPtr.Zero || process == System.IntPtr.Zero) return false;
         return AssignProcessToJobObject(job, process);
+    }
+    public static SuspendedProcess StartSuspended(string application, string commandLine, string workingDirectory, string stdoutPath, string stderrPath) {
+        var result = new SuspendedProcess();
+        var sa = new SECURITY_ATTRIBUTES();
+        sa.nLength = System.Runtime.InteropServices.Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES));
+        sa.bInheritHandle = 1;
+        System.IntPtr stdout = CreateFileW(stdoutPath, GENERIC_WRITE, FILE_SHARE_READ, ref sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, System.IntPtr.Zero);
+        System.IntPtr stderr = CreateFileW(stderrPath, GENERIC_WRITE, FILE_SHARE_READ, ref sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, System.IntPtr.Zero);
+        if (stdout == InvalidHandle || stderr == InvalidHandle || stdout == System.IntPtr.Zero || stderr == System.IntPtr.Zero) {
+            if (stdout != InvalidHandle && stdout != System.IntPtr.Zero) CloseHandle(stdout);
+            if (stderr != InvalidHandle && stderr != System.IntPtr.Zero) CloseHandle(stderr);
+            return result;
+        }
+        var si = new STARTUPINFO();
+        si.cb = System.Runtime.InteropServices.Marshal.SizeOf(typeof(STARTUPINFO));
+        si.dwFlags = (int)STARTF_USESTDHANDLES;
+        si.hStdInput = System.IntPtr.Zero;
+        si.hStdOutput = stdout;
+        si.hStdError = stderr;
+        PROCESS_INFORMATION pi;
+        bool created = CreateProcessW(application, commandLine, System.IntPtr.Zero, System.IntPtr.Zero, true, CREATE_SUSPENDED | CREATE_NO_WINDOW, System.IntPtr.Zero, workingDirectory, ref si, out pi);
+        CloseHandle(stdout);
+        CloseHandle(stderr);
+        if (!created) return result;
+        result.ProcessHandle = pi.hProcess;
+        result.ThreadHandle = pi.hThread;
+        result.Pid = pi.dwProcessId;
+        result.Ok = pi.dwProcessId > 0 && pi.hProcess != System.IntPtr.Zero && pi.hThread != System.IntPtr.Zero;
+        return result;
+    }
+    public static bool Resume(System.IntPtr thread) {
+        if (thread == System.IntPtr.Zero) return false;
+        uint previous = ResumeThread(thread);
+        return previous != 0xFFFFFFFFu;
+    }
+    public static bool Kill(System.IntPtr process) {
+        if (process == System.IntPtr.Zero) return false;
+        return TerminateProcess(process, 1);
+    }
+    public static uint Wait(System.IntPtr process, int milliseconds) {
+        if (process == System.IntPtr.Zero || milliseconds < 0) return 0xFFFFFFFFu;
+        return WaitForSingleObject(process, (uint)milliseconds);
+    }
+    public static int ExitCode(System.IntPtr process) {
+        uint code;
+        if (!GetExitCodeProcess(process, out code)) return 1;
+        return unchecked((int)code);
+    }
+    public static void Release(SuspendedProcess proc) {
+        if (proc == null) return;
+        if (proc.ThreadHandle != System.IntPtr.Zero) {
+            CloseHandle(proc.ThreadHandle);
+            proc.ThreadHandle = System.IntPtr.Zero;
+        }
+        if (proc.ProcessHandle != System.IntPtr.Zero) {
+            CloseHandle(proc.ProcessHandle);
+            proc.ProcessHandle = System.IntPtr.Zero;
+        }
     }
 }
 '@
@@ -162,25 +280,38 @@ function Read-LockText {
 }
 
 function Write-LockPid {
-  param($Lock, [int]$ProcessId)
-  $bytes = $utf8.GetBytes("pid=$ProcessId`r`n")
+  param($Lock, [int]$ProcessId, [string]$StartTicks)
+  $bytes = $utf8.GetBytes("pid=$ProcessId`r`nstartTicks=$StartTicks`r`n")
   $Lock.SetLength(0)
   $Lock.Position = 0
   $Lock.Write($bytes, 0, $bytes.Length)
   $Lock.Flush()
 }
 
+function Clear-LockPid {
+  param($Lock)
+  if (-not $Lock) { return }
+  $Lock.SetLength(0)
+  $Lock.Flush()
+}
+
 function Stop-OrphanedNode {
+  [CmdletBinding(SupportsShouldProcess = $true)]
   param($Lock)
   $text = Read-LockText -Lock $Lock
-  if ($text -match 'pid=(\d+)') {
-    $oldId = [int]$Matches[1]
-    if ($oldId -gt 0 -and $oldId -ne $PID) {
-      $proc = Get-Process -Id $oldId -ErrorAction SilentlyContinue
-      if ($proc -and $proc.ProcessName -eq 'node') {
-        Stop-Process -Id $oldId -Force -ErrorAction SilentlyContinue
-      }
-    }
+  $pidMatch = [regex]::Match($text, '(?m)^pid=(\d+)\s*$')
+  $tickMatch = [regex]::Match($text, '(?m)^startTicks=(\d+)\s*$')
+  if (-not $pidMatch.Success -or -not $tickMatch.Success) { return }
+  $oldId = [int]$pidMatch.Groups[1].Value
+  if ($oldId -le 0 -or $oldId -eq $PID) { return }
+  $proc = Get-Process -Id $oldId -ErrorAction SilentlyContinue
+  if (-not $proc -or $proc.ProcessName -ne 'node') { return }
+  $actualTicks = [string]$proc.StartTime.ToUniversalTime().Ticks
+  $decision = Convert-HelperJson (Invoke-Helper -HelperArgs @(
+    'orphan-match', '--pid', ([string]$oldId), '--start-ticks', $actualTicks
+  ) -StdinText $text)
+  if ($decision -and $decision.kill -and $PSCmdlet.ShouldProcess("pid=$oldId", 'Stop orphaned node')) {
+    Stop-Process -Id $oldId -Force -ErrorAction SilentlyContinue
   }
 }
 
@@ -191,11 +322,23 @@ function Get-CallCeiling {
   return $raw
 }
 
+function Format-ProcessArgument {
+  param([string]$Text)
+  if ($Text -notmatch '[\s"]') { return $Text }
+  return '"' + ($Text -replace '"', '\"') + '"'
+}
+
+function Get-DeadlineRemainingMs {
+  param([string]$DeadlineIso)
+  $left = Convert-HelperJson (Invoke-Helper -HelperArgs @('remaining', '--deadline', $DeadlineIso))
+  if (-not $left -or -not $left.ok) { return [int64]0 }
+  return [int64]$left.remainingMs
+}
+
 function Invoke-NodeCapture {
   param(
     [string[]]$NodeArgs,
     [string]$DeadlineIso,
-    [int64]$RemainingMs,
     $Lock,
     [IntPtr]$JobHandle
   )
@@ -203,26 +346,67 @@ function Invoke-NodeCapture {
   $errFile = Join-Path $repoRoot ('.local\logs\close-capture-node-{0}.err' -f ([guid]::NewGuid().ToString('n')))
   $argList = @($NodeArgs) + @('--deadline', $DeadlineIso)
   $timedOut = $false
+  $aborted = $false
   $code = 1
   $text = ''
-  $proc = $null
+  $started = $null
+  $recorded = $false
+  $storedTicks = ''
   try {
-    if ($RemainingMs -le 0) {
-      return @{ Code = 1; Text = ''; TimedOut = $true }
+    if ($JobHandle -eq [IntPtr]::Zero) {
+      return @{ Code = 1; Text = ''; TimedOut = $false; Aborted = $true }
     }
-    $waitMs = [int][Math]::Min(2147483647, $RemainingMs)
-    $proc = Start-Process -FilePath 'node' -ArgumentList $argList -WorkingDirectory $repoRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $outFile -RedirectStandardError $errFile
-    if ($JobHandle -ne [IntPtr]::Zero) {
-      [CloseCaptureJob]::Assign($JobHandle, $proc.Handle) | Out-Null
+    $beforeStart = Get-DeadlineRemainingMs -DeadlineIso $DeadlineIso
+    if ($beforeStart -le 0) {
+      return @{ Code = 1; Text = ''; TimedOut = $true; Aborted = $false }
     }
-    Write-LockPid -Lock $Lock -ProcessId $proc.Id
-    if (-not $proc.WaitForExit($waitMs)) {
+    $nodeExe = (Get-Command node -ErrorAction Stop).Source
+    $command = ((@($nodeExe) + $argList) | ForEach-Object { Format-ProcessArgument $_ }) -join ' '
+    # Same order as containCapturedChild: suspended, assign, record, resume.
+    $started = [CloseCaptureJob]::StartSuspended($nodeExe, $command, $repoRoot, $outFile, $errFile)
+    if (-not $started.Ok) {
+      return @{ Code = 1; Text = ''; TimedOut = $false; Aborted = $true }
+    }
+    $assigned = [CloseCaptureJob]::Assign($JobHandle, $started.ProcessHandle)
+    if (-not $assigned) {
+      [CloseCaptureJob]::Kill($started.ProcessHandle) | Out-Null
+      Stop-Process -Id $started.Pid -Force -ErrorAction SilentlyContinue
+      $aborted = $true
+      return @{ Code = 1; Text = ''; TimedOut = $false; Aborted = $true }
+    }
+    $live = Get-Process -Id $started.Pid -ErrorAction SilentlyContinue
+    if (-not $live -or $live.ProcessName -ne 'node') {
+      [CloseCaptureJob]::Kill($started.ProcessHandle) | Out-Null
+      Stop-Process -Id $started.Pid -Force -ErrorAction SilentlyContinue
+      $aborted = $true
+      return @{ Code = 1; Text = ''; TimedOut = $false; Aborted = $true }
+    }
+    $storedTicks = [string]$live.StartTime.ToUniversalTime().Ticks
+    Write-LockPid -Lock $Lock -ProcessId $started.Pid -StartTicks $storedTicks
+    $recorded = $true
+    $resumed = [CloseCaptureJob]::Resume($started.ThreadHandle)
+    if (-not $resumed) {
+      [CloseCaptureJob]::Kill($started.ProcessHandle) | Out-Null
+      Stop-Process -Id $started.Pid -Force -ErrorAction SilentlyContinue
+      $aborted = $true
+      return @{ Code = 1; Text = ''; TimedOut = $false; Aborted = $true }
+    }
+    $remaining = Get-DeadlineRemainingMs -DeadlineIso $DeadlineIso
+    if ($remaining -le 0) {
+      [CloseCaptureJob]::Kill($started.ProcessHandle) | Out-Null
+      Stop-Process -Id $started.Pid -Force -ErrorAction SilentlyContinue
       $timedOut = $true
-      Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-      $proc.WaitForExit(5000) | Out-Null
+      return @{ Code = 1; Text = ''; TimedOut = $true; Aborted = $false }
+    }
+    $waitMs = [int][Math]::Min(2147483647, $remaining)
+    $wait = [CloseCaptureJob]::Wait($started.ProcessHandle, $waitMs)
+    if ($wait -ne 0) {
+      $timedOut = $true
+      [CloseCaptureJob]::Kill($started.ProcessHandle) | Out-Null
+      Stop-Process -Id $started.Pid -Force -ErrorAction SilentlyContinue
       $code = 1
     } else {
-      $code = $proc.ExitCode
+      $code = [CloseCaptureJob]::ExitCode($started.ProcessHandle)
     }
     $stdout = ''
     $stderr = ''
@@ -230,10 +414,19 @@ function Invoke-NodeCapture {
     if (Test-Path -LiteralPath $errFile) { $stderr = [System.IO.File]::ReadAllText($errFile) }
     $text = $stdout + $stderr
   } finally {
+    if ($started -and $started.Ok -and $storedTicks) {
+      $still = Get-Process -Id $started.Pid -ErrorAction SilentlyContinue
+      if ($still -and $still.ProcessName -eq 'node' -and ([string]$still.StartTime.ToUniversalTime().Ticks) -eq $storedTicks) {
+        [CloseCaptureJob]::Kill($still.Handle) | Out-Null
+        Stop-Process -Id $started.Pid -Force -ErrorAction SilentlyContinue
+      }
+    }
+    if ($recorded) { Clear-LockPid -Lock $Lock }
+    if ($started) { [CloseCaptureJob]::Release($started) }
     if (Test-Path -LiteralPath $outFile) { Remove-Item -LiteralPath $outFile -Force -ErrorAction SilentlyContinue }
     if (Test-Path -LiteralPath $errFile) { Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue }
   }
-  return @{ Code = $code; Text = $text; TimedOut = $timedOut }
+  return @{ Code = $code; Text = $text; TimedOut = $timedOut; Aborted = $aborted }
 }
 
 if ([System.TimeZoneInfo]::Local.Id -ne 'Eastern Standard Time') {
@@ -288,7 +481,8 @@ if ($null -eq $ceiling) {
 }
 
 $deadline = Convert-HelperJson (Invoke-Helper -HelperArgs @('deadline'))
-if (-not $deadline -or [int64]$deadline.remainingMs -le 0) {
+$deadlineIso = if ($deadline) { [string]$deadline.iso } else { '' }
+if (-not $deadlineIso -or (Get-DeadlineRemainingMs -DeadlineIso $deadlineIso) -le 0) {
   $due = Invoke-Helper -HelperArgs @('line', '--reason', 'deadline', '--status', 'failed')
   Write-CloseLog -Line $due.Text -Day $day
   exit 0
@@ -321,10 +515,11 @@ try {
 
 try {
   Stop-OrphanedNode -Lock $lock
-  try {
-    $jobHandle = [CloseCaptureJob]::CreateKillOnCloseJob()
-  } catch {
-    $jobHandle = [IntPtr]::Zero
+  $jobHandle = [CloseCaptureJob]::CreateKillOnCloseJob()
+  if ($jobHandle -eq [IntPtr]::Zero) {
+    $noJob = Invoke-Helper -HelperArgs @('line', '--reason', 'job', '--status', 'failed')
+    Write-CloseLog -Line $noJob.Text -Day $day
+    exit 0
   }
 
   $usage = Convert-HelperJson (Invoke-Helper -HelperArgs @('read-usage', '--file', $usageFile))
@@ -336,7 +531,12 @@ try {
 
   $dry = Invoke-NodeCapture -NodeArgs @(
     'scripts/capture-published-closes.js', '--nfl-all', '--game-lines', '--dry-run'
-  ) -DeadlineIso ([string]$deadline.iso) -RemainingMs ([int64]$deadline.remainingMs) -Lock $lock -JobHandle $jobHandle
+  ) -DeadlineIso $deadlineIso -Lock $lock -JobHandle $jobHandle
+  if ($dry.Aborted) {
+    $aborted = Invoke-Helper -HelperArgs @('line', '--reason', 'job', '--status', 'failed')
+    Write-CloseLog -Line $aborted.Text -Day $day
+    exit 0
+  }
   if ($dry.TimedOut) {
     $killed = Invoke-Helper -HelperArgs @('line', '--reason', 'deadline', '--status', 'failed')
     Write-CloseLog -Line $killed.Text -Day $day
@@ -403,8 +603,8 @@ try {
     exit 0
   }
 
-  $again = Convert-HelperJson (Invoke-Helper -HelperArgs @('deadline'))
-  if (-not $again -or [int64]$again.remainingMs -le 0) {
+  $stillLeft = Get-DeadlineRemainingMs -DeadlineIso $deadlineIso
+  if ($stillLeft -le 0) {
     $dueArgs = @('line', '--reason', 'deadline', '--status', 'failed', '--ceiling', $ceiling) + $ceilingHit
     $due = Invoke-Helper -HelperArgs $dueArgs
     Write-CloseLog -Line $due.Text -Day $day
@@ -414,7 +614,12 @@ try {
     'scripts/capture-published-closes.js', '--nfl-all', '--game-lines', '--apply',
     '--max-calls', ([string]([int]$plan.maxCalls)),
     '--max-credits', ([string]([int]$plan.maxCredits))
-  ) -DeadlineIso ([string]$again.iso) -RemainingMs ([int64]$again.remainingMs) -Lock $lock -JobHandle $jobHandle
+  ) -DeadlineIso $deadlineIso -Lock $lock -JobHandle $jobHandle
+  if ($apply.Aborted) {
+    $applyAborted = Invoke-Helper -HelperArgs @('line', '--reason', 'job', '--status', 'failed')
+    Write-CloseLog -Line $applyAborted.Text -Day $day
+    exit 0
+  }
   $extraErrors = '0'
   $reasonArgs = @()
   if ($apply.TimedOut -or $apply.Code -ne 0) {
