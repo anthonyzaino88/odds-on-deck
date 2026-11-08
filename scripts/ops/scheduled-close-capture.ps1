@@ -697,11 +697,25 @@ try {
     '--day', $day,
     '--run', $runId
   ) + $ceilingHit + $reasonArgs + $readArgs
+  $recordArgs = @(
+    'recorded-calls',
+    '--calls-used', ([string]([int]$usage.callsUsed)),
+    '--planned', $plannedText,
+    '--reserved-calls', ([string]([int]$plan.maxCalls))
+  )
+  if ($apply.ReadFailed) { $recordArgs += '--read-failed' }
+  $recorded = Convert-HelperJson (Invoke-Helper -HelperArgs $recordArgs -StdinText $apply.Text)
+  $expectedCalls = -1
+  if ($recorded -and $null -ne $recorded.total) { $expectedCalls = [int]$recorded.total }
   $final = Invoke-Helper -HelperArgs $finalArgs -StdinText $apply.Text
-  if ($final.Code -ne 0 -or -not $final.Text) {
-    $charged = [int]$plannedText
-    if ($apply.ReadFailed) { $charged = [int]$plan.maxCalls }
-    $fallbackUsed = [int]$usage.callsUsed + $charged
+  $precise = $false
+  if ($final.Code -eq 0 -and $final.Text -and $expectedCalls -ge 0) {
+    if (Test-UsageFile -File $usageFile -Calls ([string]$expectedCalls) -Cap ([string]$nextCap) -Day $day -RunId $runId) {
+      $precise = $true
+    }
+  }
+  if (-not $precise) {
+    $fallbackUsed = [int]$usage.callsUsed + [int]$plan.maxCalls
     $fallbackWrite = Invoke-Helper -HelperArgs @(
       'write-usage', '--file', $usageFile,
       '--calls', [string]$fallbackUsed,

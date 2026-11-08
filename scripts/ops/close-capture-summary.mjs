@@ -376,6 +376,110 @@ export function usageMatchesRequest(text, {
   return { ok: true, reason: '' }
 }
 
+/** Read-back for a write. Day and run id are required only when the write requested them. */
+export function landedUsage(text, {
+  calls,
+  cap,
+  day = '',
+  runId = '',
+  fileDay = '',
+} = {}) {
+  const parsed = parseUsageText(text)
+  if (!parsed || !parsed.ok || parsed.missing) return { ok: false, reason: 'unreadable' }
+  const wantCalls = Number(calls)
+  const wantCap = Number(cap)
+  if (!Number.isInteger(wantCalls) || parsed.callsUsed !== wantCalls) {
+    return { ok: false, reason: 'calls' }
+  }
+  if (!Number.isInteger(wantCap) || parsed.cap !== wantCap) {
+    return { ok: false, reason: 'cap' }
+  }
+  if (String(day || '') !== '') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day)) || String(fileDay || '') !== String(day)) {
+      return { ok: false, reason: 'day' }
+    }
+  }
+  if (String(runId || '') !== '') {
+    if (!/^[A-Za-z0-9_-]+$/.test(String(runId)) || parsed.runId !== String(runId)) {
+      return { ok: false, reason: 'run' }
+    }
+  }
+  return { ok: true, reason: '' }
+}
+
+export function recordedUsageTotal({
+  prior = 0,
+  raw = '',
+  planned = 0,
+  readFailed = false,
+  reservedCalls = 0,
+} = {}) {
+  const parsed = parseCaptureOutput(raw)
+  const used = callsToRecord({
+    callsUsedPresent: parsed.callsUsedPresent,
+    callsUsed: parsed.callsUsed,
+    planned,
+    readFailed,
+    reservedCalls,
+  })
+  const start = Math.max(0, Math.floor(Number(prior) || 0))
+  return { used, total: start + used }
+}
+
+/**
+ * A finalize that exits 0 and prints a line is still rejected when the
+ * usage file is not prior + used for this run. The fallback charges the
+ * full reserved count and must itself read back.
+ */
+export function acceptFinalizeUsage({
+  finalize,
+  readFile,
+  writeFallback,
+  prior = 0,
+  used = 0,
+  reserved = 0,
+  cap,
+  day,
+  runId,
+} = {}) {
+  const finished = typeof finalize === 'function' ? finalize() : { exitCode: NATIVE_EXIT_SENTINEL, text: '' }
+  const exit = runNativeCommand({
+    priorExit: 0,
+    invoke({ setExit }) {
+      const code = finished && Object.prototype.hasOwnProperty.call(finished, 'exitCode')
+        ? finished.exitCode
+        : undefined
+      setExit(code)
+    },
+  })
+  const start = Math.max(0, Math.floor(Number(prior) || 0))
+  const expected = start + Math.max(0, Math.floor(Number(used) || 0))
+  const hasLine = Boolean(finished && String(finished.text || '').trim())
+  if (exit.ok && hasLine) {
+    const precise = confirmUsageWrite({
+      write: () => ({ exitCode: 0 }),
+      readFile,
+      requested: { calls: expected, cap, day, runId },
+    })
+    if (precise.ok) return { ok: true, accepted: true, fallback: false, calls: expected, reason: '' }
+  }
+  const conservative = start + Math.max(0, Math.floor(Number(reserved) || 0))
+  const fallback = confirmUsageWrite({
+    write: () => (typeof writeFallback === 'function'
+      ? writeFallback(conservative)
+      : { exitCode: NATIVE_EXIT_SENTINEL }),
+    readFile,
+    requested: { calls: conservative, cap, day, runId },
+  })
+  return {
+    ok: fallback.ok,
+    accepted: false,
+    fallback: true,
+    calls: conservative,
+    reason: fallback.reason,
+  }
+}
+
 /** A native call must replace this before a 0 can count as success. */
 export const NATIVE_EXIT_SENTINEL = -999
 
@@ -766,17 +870,44 @@ function printJson(value) {
   process.stdout.write(`${JSON.stringify(value)}\n`)
 }
 
-export function writeUsageFile(file, { callsUsed = 0, cap = DEFAULT_CALL_CAP, runId = '' } = {}) {
+export function writeUsageFile(file, { callsUsed = 0, cap = DEFAULT_CALL_CAP, runId = '', day = '' } = {}) {
+  const used = Math.max(0, Math.floor(Number(callsUsed) || 0))
+  const nextCap = Math.max(0, Math.floor(Number(cap) || 0))
+  const run = String(runId || '')
+  const fileDay = path.basename(file, path.extname(file))
+  if (String(day || '') !== '' && fileDay !== String(day)) {
+    const mismatch = new Error('usage write did not land')
+    mismatch.reason = 'day'
+    throw mismatch
+  }
   const dir = path.dirname(file)
   fs.mkdirSync(dir, { recursive: true })
   const tmp = path.join(dir, `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`)
-  const text = formatUsageText({ callsUsed, cap, runId })
+  const text = formatUsageText({ callsUsed: used, cap: nextCap, runId: run })
   try {
     fs.writeFileSync(tmp, text)
     fs.renameSync(tmp, file)
   } catch (error) {
     try { fs.rmSync(tmp, { force: true }) } catch { /* the rename owns the file */ }
     throw error
+  }
+  let readBack = null
+  try {
+    readBack = fs.readFileSync(file, 'utf8')
+  } catch {
+    readBack = null
+  }
+  const match = landedUsage(readBack, {
+    calls: used,
+    cap: nextCap,
+    day,
+    runId: run,
+    fileDay,
+  })
+  if (!match.ok) {
+    const missed = new Error('usage write did not land')
+    missed.reason = match.reason
+    throw missed
   }
 }
 
@@ -864,8 +995,28 @@ function runCli(argv) {
     if (!/^\d+$/.test(calls) || !/^\d+$/.test(cap)) failClosed('usage fields must be integers')
     if (day != null && path.basename(file, path.extname(file)) !== day) failClosed('usage day mismatch')
     if (runId && !/^[A-Za-z0-9_-]+$/.test(runId)) failClosed('usage run id rejected')
-    writeUsageFile(file, { callsUsed: Number(calls), cap: Number(cap), runId })
+    try {
+      writeUsageFile(file, { callsUsed: Number(calls), cap: Number(cap), runId, day: day || '' })
+    } catch {
+      failClosed('usage write did not land')
+    }
     printJson({ ok: true })
+    return
+  }
+  if (command === 'recorded-calls') {
+    const callsUsed = readFlag(rest, '--calls-used')
+    const planned = readFlag(rest, '--planned') || '0'
+    const reserved = optionalIntFlag(rest, '--reserved-calls')
+    if (callsUsed == null || !/^\d+$/.test(callsUsed) || !/^\d+$/.test(planned) || reserved.invalid) {
+      failClosed('recorded-calls needs integers')
+    }
+    printJson(recordedUsageTotal({
+      prior: Number(callsUsed),
+      raw: readStdin(),
+      planned: Number(planned),
+      readFailed: rest.includes('--read-failed'),
+      reservedCalls: reserved.present ? reserved.value : 0,
+    }))
     return
   }
   if (command === 'confirm-usage') {
@@ -964,11 +1115,27 @@ function runCli(argv) {
         failClosed('usage day mismatch')
       }
       if (runId && !/^[A-Za-z0-9_-]+$/.test(runId)) failClosed('usage run id rejected')
-      writeUsageFile(usageFile, {
-        callsUsed: Number(callsUsed) + summary.recordedCalls,
-        cap: Number(cap),
+      const totalCalls = Number(callsUsed) + summary.recordedCalls
+      const nextCap = Number(cap)
+      const fileDay = path.basename(usageFile, path.extname(usageFile))
+      try {
+        writeUsageFile(usageFile, {
+          callsUsed: totalCalls,
+          cap: nextCap,
+          runId,
+          day: day || '',
+        })
+      } catch {
+        failClosed('usage write did not land')
+      }
+      const landed = landedUsage(fs.readFileSync(usageFile, 'utf8'), {
+        calls: totalCalls,
+        cap: nextCap,
+        day: day || '',
         runId,
+        fileDay,
       })
+      if (!landed.ok) failClosed('usage write did not land')
     }
     process.stdout.write(`${summary.line}\n`)
     return
