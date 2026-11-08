@@ -8,14 +8,22 @@ import {
   MAX_CALLS_PER_RUN,
   MAX_CREDITS_PER_RUN,
   callsToRecord,
-  closeCaptureTaskTriggers,
+  closeCaptureRepeatingTriggers,
+  closeCaptureTaskSpec,
+  DEFAULT_CALL_CEILING,
   easternNow,
+  expandRepeatingTrigger,
   formatUsageText,
   isQuietEtMinute,
+  nextQuietDeadline,
   parseCaptureOutput,
   parseUsageText,
   planScheduledCapture,
+  scheduledCaptureDecision,
   summarizeCaptureOutput,
+  windowsTimeZoneOk,
+  WINDOWS_TRIGGER_LIMIT,
+  writeUsageFile,
 } from '../../scripts/ops/close-capture-summary.js'
 
 const helper = path.join(process.cwd(), 'scripts', 'ops', 'close-capture-summary.js')
@@ -60,12 +68,14 @@ describe('close capture schedule parsing', () => {
   })
 
   test('usage file is line 1 calls and optional cap=N, default 20', () => {
-    expect(parseUsageText('')).toEqual({
+    expect(parseUsageText(null)).toEqual({
       ok: true,
       missing: true,
       callsUsed: 0,
       cap: DEFAULT_CALL_CAP,
     })
+    expect(parseUsageText('')).toMatchObject({ ok: false, reason: 'usage-unreadable' })
+    expect(parseUsageText('   \n')).toMatchObject({ ok: false, reason: 'usage-unreadable' })
     expect(parseUsageText('7\n')).toMatchObject({ ok: true, callsUsed: 7, cap: 20 })
     expect(parseUsageText('7\ncap=40\n')).toMatchObject({ ok: true, callsUsed: 7, cap: 40 })
     expect(parseUsageText('nope\n')).toMatchObject({ ok: false, reason: 'usage-unreadable' })
@@ -199,27 +209,161 @@ describe('close capture schedule parsing', () => {
     expect(ledger.line).toContain('ODDS_BUDGET_STATUS=ledger_unreadable')
   })
 
-  test('task triggers are :04 :16 :26 :36 :46 :56 in the ET hour windows', () => {
-    const lines = closeCaptureTaskTriggers()
-    const minutes = new Set(lines.map((line) => line.slice(-2)))
-    expect([...minutes].sort()).toEqual(['04', '16', '26', '36', '46', '56'])
-    const byDay = {}
-    for (const line of lines) {
-      const [day, time] = line.split(' ')
-      const hour = Number(time.slice(0, 2))
-      if (!byDay[day]) byDay[day] = []
-      byDay[day].push(hour)
-    }
-    expect(Math.min(...byDay.Sunday)).toBe(9)
-    expect(Math.max(...byDay.Sunday)).toBe(23)
-    expect(Math.min(...byDay.Saturday)).toBe(12)
-    expect(Math.max(...byDay.Saturday)).toBe(23)
-    for (const day of ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']) {
-      expect(Math.min(...byDay[day])).toBe(18)
-      expect(Math.max(...byDay[day])).toBe(23)
-    }
-    expect(lines).toHaveLength((15 + 12 + (6 * 5)) * 6)
-    expect(lines.some((line) => line.endsWith(':05') || line.endsWith(':15') || line.endsWith(':00'))).toBe(false)
+  test('repeating triggers stay under the Windows limit and land on :04/:16', () => {
+    const spec = closeCaptureTaskSpec()
+    expect(spec.count).toBe(6)
+    expect(spec.count).toBeLessThanOrEqual(WINDOWS_TRIGGER_LIMIT)
+    expect(WINDOWS_TRIGGER_LIMIT).toBe(48)
+    expect(spec.executionTimeLimitSeconds).toBe((48 * 60) + 50)
+    expect(spec.windowsTimeZone).toBe('Eastern Standard Time')
+    expect(spec.enabledByDefault).toBe(false)
+    const triggers = closeCaptureRepeatingTriggers()
+    expect(triggers.map((trigger) => trigger.minute).sort((a, b) => a - b)).toEqual([4, 16, 26, 36, 46, 56])
+    const fires = triggers.flatMap((trigger) => expandRepeatingTrigger(trigger))
+    const minutes = new Set(fires.map((fire) => fire.minute))
+    expect([...minutes].sort((a, b) => a - b)).toEqual([4, 16, 26, 36, 46, 56])
+    expect(fires.some((fire) => fire.hour === 9 && fire.minute === 4)).toBe(true)
+    expect(fires.some((fire) => fire.hour === 23 && fire.minute === 56)).toBe(true)
+    expect(fires.some((fire) => fire.hour === 0 || fire.minute === 14 || fire.minute === 5)).toBe(false)
+  })
+
+  test('the wrapper gate keeps Sunday 09-23, Saturday 12-23, and weekdays 18-23', () => {
+    expect(scheduledCaptureDecision(new Date('2026-11-08T14:04:00.000Z'))).toMatchObject({
+      weekday: 'Sunday', hour: 9, minute: 4, allowed: true,
+    })
+    expect(scheduledCaptureDecision(new Date('2026-11-08T13:56:00.000Z')).allowed).toBe(false)
+    expect(scheduledCaptureDecision(new Date('2026-11-09T04:56:00.000Z'))).toMatchObject({
+      weekday: 'Sunday', hour: 23, minute: 56, allowed: true,
+    })
+    expect(scheduledCaptureDecision(new Date('2026-11-08T14:14:00.000Z')).allowed).toBe(false)
+    expect(scheduledCaptureDecision(new Date('2026-11-07T17:16:00.000Z'))).toMatchObject({
+      weekday: 'Saturday', hour: 12, minute: 16, allowed: true,
+    })
+    expect(scheduledCaptureDecision(new Date('2026-11-07T16:56:00.000Z')).allowed).toBe(false)
+    expect(scheduledCaptureDecision(new Date('2026-11-09T23:04:00.000Z'))).toMatchObject({
+      weekday: 'Monday', hour: 18, minute: 4, allowed: true,
+    })
+    expect(scheduledCaptureDecision(new Date('2026-11-09T22:56:00.000Z')).allowed).toBe(false)
+    expect(scheduledCaptureDecision(new Date('2026-07-15T22:46:00.000Z'))).toMatchObject({
+      weekday: 'Wednesday', hour: 18, minute: 46, allowed: true,
+    })
+    expect(scheduledCaptureDecision(new Date('2026-07-15T21:46:00.000Z')).allowed).toBe(false)
+  })
+
+  test('the quiet deadline is :04:50 ET in both EST and EDT', () => {
+    const est = nextQuietDeadline(new Date('2026-11-08T23:04:01.000Z'))
+    expect(easternNow(new Date('2026-11-08T23:04:01.000Z'))).toMatchObject({ hour: 18, minute: 4, second: 1 })
+    expect(est.iso).toBe('2026-11-08T23:04:50.000Z')
+    expect(est.remainingMs).toBe(49_000)
+    const later = nextQuietDeadline(new Date('2026-11-08T23:16:00.000Z'))
+    expect(later.iso).toBe('2026-11-09T00:04:50.000Z')
+    const due = nextQuietDeadline(new Date('2026-11-08T23:04:50.000Z'))
+    expect(due.iso).toBe('2026-11-08T23:04:50.000Z')
+    expect(due.remainingMs).toBe(0)
+    const edt = nextQuietDeadline(new Date('2026-07-15T22:04:01.000Z'))
+    expect(easternNow(new Date('2026-07-15T22:04:01.000Z'))).toMatchObject({ hour: 18, minute: 4, second: 1 })
+    expect(edt.iso).toBe('2026-07-15T22:04:50.000Z')
+  })
+
+  test('auto-raise stays +20 and stops at the hard ceiling', () => {
+    expect(DEFAULT_CALL_CEILING).toBe(80)
+    expect(planScheduledCapture({
+      planned: 4,
+      plannedKnown: true,
+      callsUsed: 80,
+      cap: 80,
+    })).toMatchObject({
+      action: 'exit',
+      reason: 'cap-ceiling',
+      raisedBy: 0,
+      cap: 80,
+      ceilingHit: true,
+    })
+    expect(planScheduledCapture({
+      planned: 4,
+      plannedKnown: true,
+      callsUsed: 70,
+      cap: 70,
+      ceiling: 80,
+    })).toMatchObject({
+      action: 'apply',
+      cap: 80,
+      raisedBy: 10,
+      ceilingHit: true,
+      maxCalls: 10,
+    })
+    expect(planScheduledCapture({
+      planned: 4,
+      plannedKnown: true,
+      callsUsed: 20,
+      cap: 20,
+      ceiling: 30,
+    })).toMatchObject({
+      action: 'apply',
+      cap: 30,
+      raisedBy: 10,
+      ceilingHit: true,
+    })
+    const blocked = summarizeCaptureOutput('Odds API HTTP calls this run: 4\n', {
+      reason: 'cap-ceiling',
+      cap: 80,
+      ceiling: 80,
+      stamp: '2026-11-08 18:16:00 ET',
+    })
+    expect(blocked.line).toContain('reason=cap-ceiling')
+    expect(blocked.line).toContain('cap_ceiling=80')
+    expect(planScheduledCapture({
+      planned: 4,
+      plannedKnown: true,
+      callsUsed: 20,
+      cap: 20,
+      dryRunOnly: true,
+    }).raisedBy).toBe(0)
+  })
+
+  test('usage writes are a temp file renamed into place', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'clv-atomic-'))
+    const file = path.join(dir, '2026-11-08.txt')
+    writeUsageFile(file, { callsUsed: 8, cap: 40 })
+    writeUsageFile(file, { callsUsed: 9, cap: 40 })
+    expect(fs.readFileSync(file, 'utf8')).toBe('9\ncap=40\n')
+    expect(fs.readdirSync(dir).filter((name) => name.includes('.tmp'))).toEqual([])
+    fs.writeFileSync(file, '')
+    expect(parseUsageText(fs.readFileSync(file, 'utf8'))).toMatchObject({
+      ok: false,
+      reason: 'usage-unreadable',
+    })
+    fs.writeFileSync(file, 'not-a-count\n')
+    expect(parseUsageText(fs.readFileSync(file, 'utf8')).ok).toBe(false)
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('the Windows time zone must be Eastern Standard Time', () => {
+    expect(windowsTimeZoneOk('Eastern Standard Time')).toBe(true)
+    expect(windowsTimeZoneOk('Eastern Daylight Time')).toBe(false)
+    expect(windowsTimeZoneOk('UTC')).toBe(false)
+  })
+
+  test('the task scripts register a disabled repeating task and kill Node by the deadline', () => {
+    const register = fs.readFileSync(path.join(process.cwd(), 'scripts', 'ops', 'register-close-capture-task.ps1'), 'utf8')
+    const wrapper = fs.readFileSync(path.join(process.cwd(), 'scripts', 'ops', 'scheduled-close-capture.ps1'), 'utf8')
+    const enabledAt = register.indexOf('$settings.Enabled = $false')
+    const registerAt = register.lastIndexOf('Register-ScheduledTask')
+    expect(enabledAt).toBeGreaterThan(-1)
+    expect(registerAt).toBeGreaterThan(enabledAt)
+    expect(register).not.toContain('Disable-ScheduledTask')
+    expect(register).not.toContain('Enable-ScheduledTask')
+    expect(register).toContain('RepetitionInterval')
+    expect(register).toContain('RepetitionDuration')
+    expect(register).toContain('executionTimeLimitSeconds')
+    expect(register).toContain('Eastern Standard Time')
+    expect(register).toContain('-gt 48')
+    expect(wrapper).toContain('Eastern Standard Time')
+    expect(wrapper).toContain('--deadline')
+    expect(wrapper).toContain('Stop-Process')
+    expect(wrapper).toContain('JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE')
+    expect(wrapper).toContain('pid=')
+    expect(wrapper).toContain('schedule-now')
   })
 
   test('.local usage and logs stay gitignored', () => {
@@ -264,6 +408,24 @@ describe('close capture schedule parsing', () => {
     expect(finalized.stdout).toContain('calls=2')
     expect(finalized.stdout).toContain('cap_raises=20')
     expect(fs.readFileSync(file, 'utf8')).toBe('6\ncap=40\n')
+    fs.writeFileSync(file, '')
+    const empty = runHelper(['read-usage', '--file', file])
+    expect(JSON.parse(empty.stdout)).toMatchObject({ ok: false, reason: 'usage-unreadable' })
+    const missing = runHelper(['read-usage', '--file', path.join(dir, 'missing.txt')])
+    expect(JSON.parse(missing.stdout)).toMatchObject({ ok: true, missing: true, callsUsed: 0 })
+    const capped = runHelper(
+      ['plan', '--calls-used', '80', '--cap', '80', '--ceiling', '80'],
+      'Odds API HTTP calls this run: 2\n',
+    )
+    expect(JSON.parse(capped.stdout)).toMatchObject({ action: 'exit', reason: 'cap-ceiling', raisedBy: 0 })
+    const leakedCeiling = runHelper(['plan', '--calls-used', '1', '--cap', '20', '--ceiling', 'nope'])
+    expect(leakedCeiling.status).not.toBe(0)
+    expect(`${leakedCeiling.stdout}\n${leakedCeiling.stderr}`).not.toContain('nope')
+    const triggers = runHelper(['triggers'])
+    expect(JSON.parse(triggers.stdout).count).toBeLessThanOrEqual(48)
+    const tz = runHelper(['assert-tz', '--id', 'Pacific Standard Time'])
+    expect(tz.stdout).not.toContain('Pacific')
+    expect(JSON.parse(tz.stdout)).toMatchObject({ ok: false, reason: 'timezone' })
     fs.rmSync(dir, { recursive: true, force: true })
   })
 })

@@ -696,6 +696,63 @@ describe('runCapturePublishedCloses', () => {
     expect(probeQuota).not.toHaveBeenCalled()
   })
 
+  test('a deadline at or after :04:50 ET makes no paid request', async () => {
+    const fetchEventOdds = jest.fn()
+    const probeQuota = jest.fn()
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--deadline', '2026-07-15T22:04:50.000Z'],
+      now: IN_WINDOW,
+      createClient: () => mockClient(),
+      fetchEventOdds,
+      probeQuota,
+      apiKey: 'test-key',
+      log,
+    })
+    expect(probeQuota).not.toHaveBeenCalled()
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(result.calls).toBe(0)
+    expect(log.lines.join('\n')).toMatch(/:04:50 ET/)
+  })
+
+  test('a clock that crosses the deadline before the fetch makes no paid event request', async () => {
+    let probed = false
+    const fetchEventOdds = jest.fn()
+    const probeQuota = jest.fn(async () => {
+      probed = true
+      return { remaining: 9000, used: 1, last: 0 }
+    })
+    await runCapturePublishedCloses({
+      argv: ['--apply', '--deadline', '2026-07-15T22:46:30.000Z'],
+      clock: () => (probed ? new Date('2026-07-15T22:46:31.000Z') : IN_WINDOW),
+      createClient: () => mockClient(),
+      fetchEventOdds,
+      probeQuota,
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(probeQuota).toHaveBeenCalledTimes(1)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+
+  test('an invalid deadline is rejected without logging the value', async () => {
+    const log = memoryLog()
+    const fetchEventOdds = jest.fn()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--deadline', 'not-a-time'],
+      now: IN_WINDOW,
+      createClient: () => { throw new Error('should not connect') },
+      fetchEventOdds,
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.captureStatus).toBe('failed')
+    expect(result.invalidFlags).toEqual(['--deadline'])
+    expect(log.lines.join('\n')).toContain('--deadline')
+    expect(log.lines.join('\n')).not.toContain('not-a-time')
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+  })
+
   test('--min-remaining stops before the first event call after the sports probe', async () => {
     const fetchEventOdds = jest.fn()
     const probeQuota = jest.fn(async () => ({ remaining: 40, used: 1960 }))

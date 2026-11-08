@@ -13,10 +13,28 @@ import { fileURLToPath } from 'node:url'
 
 export const DEFAULT_CALL_CAP = 20
 export const CAP_RAISE = 20
+export const DEFAULT_CALL_CEILING = 80
 export const MAX_CALLS_PER_RUN = 10
 export const MAX_CREDITS_PER_RUN = 150
 export const QUIET_MINUTE_START = 5
 export const QUIET_MINUTE_END = 15
+export const QUIET_DEADLINE_MINUTE = 4
+export const QUIET_DEADLINE_SECOND = 50
+/** Windows refuses a task with more than this many triggers. */
+export const WINDOWS_TRIGGER_LIMIT = 48
+/** Windows time-zone id for Eastern, including daylight time. */
+export const REQUIRED_WINDOWS_TZ = 'Eastern Standard Time'
+/**
+ * Longest scheduled gap is :16:00 → the next :04:50.
+ * The task ExecutionTimeLimit matches that span. The wrapper still
+ * kills the Node child at the live :04:50, which is sooner for a :04 start.
+ */
+export const CLOSE_CAPTURE_EXECUTION_LIMIT_SECONDS = (48 * 60) + 50
+const REPEATING_TRIGGER_START_HOUR = 9
+const REPEATING_TRIGGER_END_HOUR = 23
+const REPEATING_TRIGGER_INTERVAL_MINUTES = 60
+/** 09:MM through 23:MM. One extra minute keeps the 23:MM fire inside the window. */
+const REPEATING_TRIGGER_DURATION_MINUTES = ((REPEATING_TRIGGER_END_HOUR - REPEATING_TRIGGER_START_HOUR) * 60) + 1
 
 export const CLOSE_CAPTURE_TASK_MINUTES = Object.freeze([4, 16, 26, 36, 46, 56])
 
@@ -31,16 +49,6 @@ export const CLOSE_CAPTURE_TASK_HOURS = Object.freeze({
   Saturday: Object.freeze([12, 23]),
 })
 
-const TASK_DAYS = Object.freeze([
-  'Sunday',
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
-])
-
 const SUMMARY_REASONS = new Set([
   'quiet',
   'locked',
@@ -52,6 +60,10 @@ const SUMMARY_REASONS = new Set([
   'summary-failed',
   'nothing-planned',
   'dry-run-only',
+  'schedule',
+  'timezone',
+  'deadline',
+  'cap-ceiling',
 ])
 
 function lastMatch(text, expression) {
@@ -77,9 +89,10 @@ export function isQuietEtMinute(minute) {
   return Number.isInteger(n) && n >= QUIET_MINUTE_START && n <= QUIET_MINUTE_END
 }
 
-export function easternNow(date = new Date()) {
-  const fmt = new Intl.DateTimeFormat('en-CA', {
+export function easternParts(date = new Date()) {
+  const fmt = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York',
+    weekday: 'long',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -92,20 +105,108 @@ export function easternNow(date = new Date()) {
   for (const part of fmt.formatToParts(date)) {
     if (part.type !== 'literal') parts[part.type] = part.value
   }
-  let hour = parts.hour || '00'
-  if (hour === '24') hour = '00'
+  let hourText = parts.hour || '00'
+  if (hourText === '24') hourText = '00'
+  const hour = Number(hourText)
   const minute = Number(parts.minute)
+  const second = Number(parts.second)
   return {
-    date: `${parts.year}-${parts.month}-${parts.day}`,
-    stamp: `${parts.year}-${parts.month}-${parts.day} ${hour}:${parts.minute}:${parts.second} ET`,
+    year: Number(parts.year),
+    month: Number(parts.month),
+    day: Number(parts.day),
+    hour,
     minute,
+    second,
+    weekday: parts.weekday,
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    stamp: `${parts.year}-${parts.month}-${parts.day} ${hourText}:${parts.minute}:${parts.second} ET`,
     quiet: isQuietEtMinute(minute),
   }
 }
 
+export function easternNow(date = new Date()) {
+  const parts = easternParts(date)
+  return {
+    date: parts.date,
+    stamp: parts.stamp,
+    hour: parts.hour,
+    minute: parts.minute,
+    second: parts.second,
+    weekday: parts.weekday,
+    quiet: parts.quiet,
+  }
+}
+
+function easternOffsetMs(date) {
+  const parts = easternParts(date)
+  const asUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second)
+  return asUtc - date.getTime()
+}
+
+export function easternCivilToUtc(year, month, day, hour, minute, second) {
+  const guess = new Date(Date.UTC(year, month - 1, day, hour, minute, second))
+  const offset = easternOffsetMs(guess)
+  let utc = new Date(guess.getTime() - offset)
+  const offset2 = easternOffsetMs(utc)
+  if (offset2 !== offset) utc = new Date(guess.getTime() - offset2)
+  return utc
+}
+
+/**
+ * The next :04:50 ET, or the one that has already arrived this hour.
+ * A clock at 19:04:50 or later in that minute is already due.
+ * A clock past minute 4 waits for the following hour's :04:50.
+ */
+export function nextQuietDeadline(date = new Date()) {
+  const parts = easternParts(date)
+  let { year, month, day, hour } = parts
+  const dueThisHour = parts.minute < QUIET_DEADLINE_MINUTE
+    || (parts.minute === QUIET_DEADLINE_MINUTE && parts.second < QUIET_DEADLINE_SECOND)
+  const alreadyDue = parts.minute === QUIET_DEADLINE_MINUTE && parts.second >= QUIET_DEADLINE_SECOND
+  if (!dueThisHour && !alreadyDue) {
+    hour += 1
+    if (hour >= 24) {
+      hour = 0
+      const next = new Date(Date.UTC(year, month - 1, day) + (24 * 60 * 60 * 1000))
+      year = next.getUTCFullYear()
+      month = next.getUTCMonth() + 1
+      day = next.getUTCDate()
+    }
+  }
+  const deadline = easternCivilToUtc(year, month, day, hour, QUIET_DEADLINE_MINUTE, QUIET_DEADLINE_SECOND)
+  return {
+    deadline,
+    iso: deadline.toISOString(),
+    remainingMs: Math.max(0, deadline.getTime() - date.getTime()),
+    executionTimeLimitSeconds: CLOSE_CAPTURE_EXECUTION_LIMIT_SECONDS,
+  }
+}
+
+export function windowsTimeZoneOk(id) {
+  return id === REQUIRED_WINDOWS_TZ
+}
+
+/** Day and hour gate, plus :04/:16/:26/:36/:46/:56 alignment. */
+export function scheduledCaptureDecision(date = new Date()) {
+  const clock = easternNow(date)
+  const hours = CLOSE_CAPTURE_TASK_HOURS[clock.weekday] || [24, -1]
+  const [start, end] = hours
+  const minuteOk = CLOSE_CAPTURE_TASK_MINUTES.includes(clock.minute)
+  const hourOk = clock.hour >= start && clock.hour <= end
+  return {
+    ...clock,
+    minuteOk,
+    hourOk,
+    allowed: minuteOk && hourOk && !clock.quiet,
+  }
+}
+
 export function parseUsageText(text) {
-  if (text == null || String(text).trim() === '') {
+  if (text == null) {
     return { ok: true, missing: true, callsUsed: 0, cap: DEFAULT_CALL_CAP }
+  }
+  if (String(text).trim() === '') {
+    return { ok: false, missing: false, reason: 'usage-unreadable' }
   }
   const lines = String(text).split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0)
   if (!/^\d+$/.test(lines[0] || '')) {
@@ -135,17 +236,46 @@ export function remainingCalls(callsUsed, cap) {
   return Math.max(0, Math.floor(Number(cap) || 0) - Math.floor(Number(callsUsed) || 0))
 }
 
-export function closeCaptureTaskTriggers() {
-  const lines = []
-  for (const day of TASK_DAYS) {
-    const [start, end] = CLOSE_CAPTURE_TASK_HOURS[day]
-    for (let hour = start; hour <= end; hour += 1) {
-      for (const minute of CLOSE_CAPTURE_TASK_MINUTES) {
-        lines.push(`${day} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`)
-      }
-    }
+/**
+ * One daily repeating trigger per aligned minute. A single every-10-minute
+ * trigger that starts at :04 never lands on :16, so each aligned minute
+ * gets its own hourly repeat. The wrapper still drops fires outside the
+ * day/hour window and any minute that is not :04/:16/:26/:36/:46/:56.
+ */
+export function closeCaptureRepeatingTriggers() {
+  return CLOSE_CAPTURE_TASK_MINUTES.map((minute) => ({
+    startHour: REPEATING_TRIGGER_START_HOUR,
+    minute,
+    intervalMinutes: REPEATING_TRIGGER_INTERVAL_MINUTES,
+    durationMinutes: REPEATING_TRIGGER_DURATION_MINUTES,
+  }))
+}
+
+export function expandRepeatingTrigger(trigger) {
+  const fires = []
+  const start = (trigger.startHour * 60) + trigger.minute
+  const end = start + trigger.durationMinutes
+  for (let cursor = start; cursor < end; cursor += trigger.intervalMinutes) {
+    const hour = Math.floor(cursor / 60)
+    if (hour >= 24) break
+    fires.push({ hour, minute: cursor % 60 })
   }
-  return lines
+  return fires
+}
+
+export function closeCaptureTaskSpec() {
+  const triggers = closeCaptureRepeatingTriggers()
+  if (triggers.length > WINDOWS_TRIGGER_LIMIT) {
+    throw new Error('trigger count exceeds the Windows limit')
+  }
+  return {
+    triggers,
+    count: triggers.length,
+    limit: WINDOWS_TRIGGER_LIMIT,
+    executionTimeLimitSeconds: CLOSE_CAPTURE_EXECUTION_LIMIT_SECONDS,
+    windowsTimeZone: REQUIRED_WINDOWS_TZ,
+    enabledByDefault: false,
+  }
 }
 
 export function parseCaptureOutput(raw) {
@@ -205,18 +335,24 @@ export function planScheduledCapture({
   plannedKnown = false,
   callsUsed = 0,
   cap = DEFAULT_CALL_CAP,
+  ceiling = DEFAULT_CALL_CEILING,
   dryRunOnly = false,
 } = {}) {
   const used = Math.max(0, Math.floor(Number(callsUsed) || 0))
   const startCap = Math.max(0, Math.floor(Number(cap) || 0))
+  const hard = Math.max(0, Math.floor(Number(ceiling) || 0))
+  let nextCap = Math.min(startCap, hard)
+  let ceilingHit = nextCap < startCap
   const base = {
-    cap: startCap,
+    cap: nextCap,
     callsUsed: used,
     raisedBy: 0,
-    remaining: remainingCalls(used, startCap),
+    remaining: remainingCalls(used, nextCap),
     planned: plannedKnown ? Math.max(0, Math.floor(Number(planned) || 0)) : null,
     maxCalls: 0,
     maxCredits: MAX_CREDITS_PER_RUN,
+    ceiling: hard,
+    ceilingHit,
   }
   if (!plannedKnown) {
     return { ...base, action: 'exit', reason: 'plan-unknown' }
@@ -228,13 +364,25 @@ export function planScheduledCapture({
   if (dryRunOnly) {
     return { ...base, action: 'dry-run-only', reason: 'dry-run-only' }
   }
-  let nextCap = startCap
   let raisedBy = 0
-  let remaining = remainingCalls(used, nextCap)
+  let remaining = base.remaining
   if (remaining === 0) {
-    nextCap += CAP_RAISE
-    raisedBy = CAP_RAISE
+    if (nextCap >= hard) {
+      return {
+        ...base,
+        action: 'exit',
+        reason: 'cap-ceiling',
+        cap: nextCap,
+        raisedBy: 0,
+        remaining: 0,
+        ceilingHit: true,
+      }
+    }
+    const raisedTo = Math.min(hard, nextCap + CAP_RAISE)
+    raisedBy = raisedTo - nextCap
+    nextCap = raisedTo
     remaining = remainingCalls(used, nextCap)
+    ceilingHit = ceilingHit || nextCap >= hard
   }
   if (remaining <= 0) {
     return {
@@ -244,6 +392,7 @@ export function planScheduledCapture({
       cap: nextCap,
       raisedBy,
       remaining,
+      ceilingHit,
     }
   }
   return {
@@ -253,6 +402,7 @@ export function planScheduledCapture({
     cap: nextCap,
     raisedBy,
     remaining,
+    ceilingHit,
     maxCalls: Math.min(MAX_CALLS_PER_RUN, remaining),
     maxCredits: MAX_CREDITS_PER_RUN,
   }
@@ -276,6 +426,8 @@ export function buildCloseCaptureSummaryLine({
   credits = 0,
   cap = DEFAULT_CALL_CAP,
   capRaises = 0,
+  ceiling = null,
+  ceilingHit = false,
   budgetStatus = '',
   errors = 0,
   planned = null,
@@ -310,6 +462,10 @@ export function buildCloseCaptureSummaryLine({
       bits.push(`planned=${Math.max(0, Math.floor(Number(planned)))}`)
     }
   }
+  if (ceilingHit || reason === 'cap-ceiling') {
+    if (safeStatus === 'skipped') bits.push(`cap=${Math.max(0, Number(cap) || 0)}`)
+    bits.push(`cap_ceiling=${Math.max(0, Number(ceiling) || 0)}`)
+  }
   return bits.join(' ').replace(/[\r\n]+/g, ' ').trim()
 }
 
@@ -317,6 +473,8 @@ export function summarizeCaptureOutput(raw, {
   stamp,
   cap = DEFAULT_CALL_CAP,
   capRaises = 0,
+  ceiling = null,
+  ceilingHit = false,
   plannedFallback = 0,
   recordCalls = false,
   dryRunOnly = false,
@@ -336,6 +494,7 @@ export function summarizeCaptureOutput(raw, {
   const clock = easternNow(now)
   const skipReason = new Set([
     'quiet', 'locked', 'bad-args', 'clock', 'usage-unreadable', 'summary-failed', 'plan-unknown',
+    'schedule', 'timezone', 'deadline', 'cap-ceiling',
   ])
   const line = buildCloseCaptureSummaryLine({
     stamp: stamp || clock.stamp,
@@ -349,6 +508,8 @@ export function summarizeCaptureOutput(raw, {
     credits: parsed.credits,
     cap,
     capRaises,
+    ceiling,
+    ceilingHit: ceilingHit || reason === 'cap-ceiling',
     budgetStatus: parsed.budgetStatus,
     errors: parsed.errors + Math.max(0, Number(extraErrors) || 0),
     planned: parsed.plannedKnown ? parsed.planned : (recordCalls ? plannedFallback : null),
@@ -386,6 +547,27 @@ function printJson(value) {
   process.stdout.write(`${JSON.stringify(value)}\n`)
 }
 
+export function writeUsageFile(file, { callsUsed = 0, cap = DEFAULT_CALL_CAP } = {}) {
+  const dir = path.dirname(file)
+  fs.mkdirSync(dir, { recursive: true })
+  const tmp = path.join(dir, `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`)
+  const text = formatUsageText({ callsUsed, cap })
+  try {
+    fs.writeFileSync(tmp, text)
+    fs.renameSync(tmp, file)
+  } catch (error) {
+    try { fs.rmSync(tmp, { force: true }) } catch { /* the rename owns the file */ }
+    throw error
+  }
+}
+
+function optionalIntFlag(argv, name) {
+  if (!argv.includes(name)) return { present: false, value: null }
+  const raw = readFlag(argv, name)
+  if (raw == null || !/^\d+$/.test(raw)) return { present: true, value: null, invalid: true }
+  return { present: true, value: Number(raw), invalid: false }
+}
+
 function failClosed(message) {
   process.stderr.write(`${message}\n`)
   process.exit(1)
@@ -398,6 +580,7 @@ function runCli(argv) {
     '--file', '--calls', '--cap', '--calls-used', '--dry-run-only',
     '--raised-by', '--planned', '--usage-file', '--record-calls',
     '--extra-errors', '--reason', '--stamp', '--status',
+    '--ceiling', '--id', '--ceiling-hit',
   ])
   for (const arg of rest) {
     if (String(arg).startsWith('-') && !known.has(flagName(arg))) {
@@ -408,16 +591,33 @@ function runCli(argv) {
     printJson(easternNow())
     return
   }
+  if (command === 'deadline') {
+    printJson(nextQuietDeadline())
+    return
+  }
+  if (command === 'schedule-now') {
+    printJson(scheduledCaptureDecision())
+    return
+  }
+  if (command === 'assert-tz') {
+    const id = readFlag(rest, '--id')
+    if (id == null) failClosed('missing --id')
+    const ok = windowsTimeZoneOk(id)
+    printJson({ ok, reason: ok ? '' : 'timezone' })
+    return
+  }
   if (command === 'triggers') {
-    process.stdout.write(`${closeCaptureTaskTriggers().join('\n')}\n`)
+    printJson(closeCaptureTaskSpec())
     return
   }
   if (command === 'read-usage') {
     const file = readFlag(rest, '--file')
     if (!file) failClosed('missing --file')
-    let text = ''
-    if (fs.existsSync(file)) text = fs.readFileSync(file, 'utf8')
-    printJson(parseUsageText(text))
+    if (!fs.existsSync(file)) {
+      printJson(parseUsageText(null))
+      return
+    }
+    printJson(parseUsageText(fs.readFileSync(file, 'utf8')))
     return
   }
   if (command === 'write-usage') {
@@ -426,8 +626,7 @@ function runCli(argv) {
     const cap = readFlag(rest, '--cap')
     if (!file || calls == null || cap == null) failClosed('missing usage fields')
     if (!/^\d+$/.test(calls) || !/^\d+$/.test(cap)) failClosed('usage fields must be integers')
-    fs.mkdirSync(path.dirname(file), { recursive: true })
-    fs.writeFileSync(file, formatUsageText({ callsUsed: Number(calls), cap: Number(cap) }))
+    writeUsageFile(file, { callsUsed: Number(calls), cap: Number(cap) })
     printJson({ ok: true })
     return
   }
@@ -435,7 +634,8 @@ function runCli(argv) {
     const parsed = parseCaptureOutput(readStdin())
     const callsUsed = readFlag(rest, '--calls-used')
     const cap = readFlag(rest, '--cap')
-    if (callsUsed == null || cap == null || !/^\d+$/.test(callsUsed) || !/^\d+$/.test(cap)) {
+    const ceiling = optionalIntFlag(rest, '--ceiling')
+    if (callsUsed == null || cap == null || !/^\d+$/.test(callsUsed) || !/^\d+$/.test(cap) || ceiling.invalid) {
       failClosed('plan needs integer --calls-used and --cap')
     }
     printJson(planScheduledCapture({
@@ -443,6 +643,7 @@ function runCli(argv) {
       plannedKnown: parsed.plannedKnown,
       callsUsed: Number(callsUsed),
       cap: Number(cap),
+      ceiling: ceiling.present ? ceiling.value : DEFAULT_CALL_CEILING,
       dryRunOnly: rest.includes('--dry-run-only'),
     }))
     return
@@ -450,9 +651,14 @@ function runCli(argv) {
   if (command === 'line') {
     const reason = readFlag(rest, '--reason') || ''
     const status = readFlag(rest, '--status')
+    const ceiling = optionalIntFlag(rest, '--ceiling')
+    const safeReason = SUMMARY_REASONS.has(reason) ? reason : (reason ? 'bad-args' : '')
     process.stdout.write(`${buildCloseCaptureSummaryLine({
       status: status || 'skipped',
-      reason: SUMMARY_REASONS.has(reason) ? reason : (reason ? 'bad-args' : ''),
+      reason: safeReason,
+      ceiling: ceiling.present ? ceiling.value : DEFAULT_CALL_CEILING,
+      ceilingHit: safeReason === 'cap-ceiling' || rest.includes('--ceiling-hit'),
+      cap: Number(readFlag(rest, '--cap') || 0),
     })}\n`)
     return
   }
@@ -464,27 +670,29 @@ function runCli(argv) {
     const usageFile = readFlag(rest, '--usage-file')
     const extraErrors = readFlag(rest, '--extra-errors') || '0'
     const reason = readFlag(rest, '--reason') || ''
+    const ceiling = optionalIntFlag(rest, '--ceiling')
     if (cap == null || !/^\d+$/.test(cap) || !/^\d+$/.test(raisedBy) || !/^\d+$/.test(planned)
-      || !/^\d+$/.test(callsUsed) || !/^\d+$/.test(extraErrors)) {
+      || !/^\d+$/.test(callsUsed) || !/^\d+$/.test(extraErrors) || ceiling.invalid) {
       failClosed('finalize needs integer fields')
     }
+    const safeReason = SUMMARY_REASONS.has(reason) ? reason : ''
     const summary = summarizeCaptureOutput(readStdin(), {
       cap: Number(cap),
       capRaises: Number(raisedBy),
+      ceiling: ceiling.present ? ceiling.value : DEFAULT_CALL_CEILING,
+      ceilingHit: safeReason === 'cap-ceiling' || rest.includes('--ceiling-hit'),
       plannedFallback: Number(planned),
       recordCalls: rest.includes('--record-calls'),
       dryRunOnly: rest.includes('--dry-run-only'),
-      reason: SUMMARY_REASONS.has(reason) ? reason : '',
+      reason: safeReason,
       extraErrors: Number(extraErrors),
     })
     if (rest.includes('--record-calls')) {
       if (!usageFile) failClosed('missing --usage-file')
-      const next = {
+      writeUsageFile(usageFile, {
         callsUsed: Number(callsUsed) + summary.recordedCalls,
         cap: Number(cap),
-      }
-      fs.mkdirSync(path.dirname(usageFile), { recursive: true })
-      fs.writeFileSync(usageFile, formatUsageText(next))
+      })
     }
     process.stdout.write(`${summary.line}\n`)
     return

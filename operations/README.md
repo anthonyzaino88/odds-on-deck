@@ -494,38 +494,52 @@ npm run capture:published-closes:nfl-all:apply
 ### Windows Task Scheduler
 
 The ops laptop runs close capture from Task Scheduler, not a bot routine.
-Set the laptop clock to Eastern Time. Triggers use local time. The
-wrapper still checks the Eastern minute itself and skips 05–15.
+The Windows time zone must be `Eastern Standard Time` (that id covers
+daylight time too). Triggers use local time. The wrapper checks the
+same id and skips a machine set to anything else. It also checks the
+Eastern clock and skips minutes 05–15.
 
 Register once from an interactive PowerShell window, as the user who
-will stay logged on. The task is created **disabled**. It stores no
-password (`LogonType Interactive`), so it runs only while that user is
-logged on. A second start is ignored. Re-run with `-Enable` when the
-schedule should fire.
+will stay logged on. `Enabled` is set on the task settings **before**
+`Register-ScheduledTask`. The default is disabled. `-Enable` sets
+`Enabled = $true` on that same object. The script does not enable the
+task and then disable it. It stores no password (`LogonType Interactive`),
+so it runs only while that user is logged on. A second start is ignored.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ops/register-close-capture-task.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ops/register-close-capture-task.ps1 -Enable
 ```
 
-Task name: `OddsOnDeck Close Capture`. Minutes `:04`, `:16`, `:26`,
-`:36`, `:46`, `:56`. Sunday hours 09–23, Saturday 12–23, Monday–Friday
-18–23.
+Task name: `OddsOnDeck Close Capture`. Six daily repeating triggers,
+one per minute `:04`, `:16`, `:26`, `:36`, `:46`, `:56`, each starting
+at 09:MM and repeating every hour through 23:MM. That stays under
+Windows' 48-trigger limit. The wrapper keeps Sunday 09–23, Saturday
+12–23, and Monday–Friday 18–23, and ignores a fire that is not on that
+minute grid.
 
 Each run is `scripts/ops/scheduled-close-capture.ps1`. It `cd`s to the
 repo root, takes an exclusive lock under `.local/clv-capture-calls/`,
-and never retries.
+stops a node PID left in that lock, and puts the Node child in a
+kill-on-close job. The child is killed at `:04:50` ET, before the quiet
+window, and Node receives that instant as `--deadline`. The task
+`ExecutionTimeLimit` is 48 minutes 50 seconds, the longest gap from a
+`:16` start to the next `:04:50`. The wrapper never retries.
 
-1. Dry-run: `node scripts/capture-published-closes.js --nfl-all --game-lines --dry-run`
+1. Dry-run: `node scripts/capture-published-closes.js --nfl-all --game-lines --dry-run --deadline <iso>`
 2. If that plan is 0 HTTP calls, exit.
-3. Otherwise apply once: `--apply --max-calls` the minimum of 10 and the calls still left today, `--max-credits 150`.
+3. Otherwise apply once: `--apply --max-calls` the minimum of 10 and the calls still left today, `--max-credits 150`, with the same deadline.
 
 The per-ET-day usage file is `.local/clv-capture-calls/YYYY-MM-DD.txt`.
 Line 1 is calls used. Optional line 2 is `cap=N`. A missing file means
-0 used and cap 20. If remaining is 0 and the dry run still plans calls,
-the cap increases by 20 and that raise is logged. `CALLS_USED` from the
-apply is added to line 1. If that line is missing, the dry-run plan is
-added instead. A present `CALLS_USED=0` stays 0.
+0 used and cap 20. An empty or corrupt file is an error, not a zero.
+Writes go to a temp file in the same directory and rename into place.
+If remaining is 0 and the dry run still plans calls, the cap increases
+by 20 unless that would pass the hard ceiling. The ceiling defaults to
+80 calls and `CLOSE_CAPTURE_CALL_CEILING` can set another integer. Hitting
+the ceiling is logged as `reason=cap-ceiling` and `cap_ceiling=N`.
+`CALLS_USED` from the apply is added to line 1. If that line is missing,
+the dry-run plan is added instead. A present `CALLS_USED=0` stays 0.
 
 `-DryRunOnly` stops after the dry run. It does not apply, raise the
 cap, or change the usage file.

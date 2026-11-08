@@ -7,14 +7,17 @@
   Creates task "OddsOnDeck Close Capture" for the current user. Logon
   type is Interactive, so Windows stores no password and the task runs
   only while this user is logged on. A second start is ignored
-  (MultipleInstances IgnoreNew). The task is created disabled unless
-  -Enable is passed. Triggers come from close-capture-summary.js:
-  :04, :16, :26, :36, :46, :56 Eastern local time. Sunday 09-23,
-  Saturday 12-23, other days 18-23. The laptop clock must be Eastern.
+  (MultipleInstances IgnoreNew).
 
-.PARAMETER Enable
-  Leave the task enabled. Without this switch the task is registered
-  and then disabled.
+  Enabled is set on the task settings before Register-ScheduledTask.
+  The default is Enabled = $false. -Enable sets Enabled = $true on that
+  same object. This script never enables the task and then disables it.
+
+  Triggers are a handful of daily repeats (one per :04/:16/:26/:36/:46/:56),
+  not one trigger per hour. Windows allows 48. The wrapper drops fires
+  outside Sunday 09-23, Saturday 12-23, and Monday-Friday 18-23 ET.
+  The laptop time zone must be Eastern Standard Time. ExecutionTimeLimit
+  matches the longest run that still ends by the next :04:50.
 #>
 # Arguments are parsed by hand so an unexpected value is never echoed.
 $Enable = $false
@@ -29,6 +32,11 @@ foreach ($arg in @($args)) {
 
 $ErrorActionPreference = 'Stop'
 
+if ([System.TimeZoneInfo]::Local.Id -ne 'Eastern Standard Time') {
+  Write-Error 'The laptop time zone must be Eastern Standard Time. Triggers use local time.'
+  exit 1
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $wrapper = Join-Path $PSScriptRoot 'scheduled-close-capture.ps1'
 $helper = Join-Path $PSScriptRoot 'close-capture-summary.js'
@@ -39,36 +47,45 @@ if (-not (Test-Path -LiteralPath $wrapper)) {
   exit 1
 }
 
-$triggerLines = & node $helper triggers 2>$null
-if ($LASTEXITCODE -ne 0) {
+$raw = & node $helper triggers 2>$null
+if ($LASTEXITCODE -ne 0 -or -not $raw) {
   Write-Error 'Could not build the trigger list.'
+  exit 1
+}
+$spec = ($raw | Out-String).Trim() | ConvertFrom-Json
+$triggerSpecs = @($spec.triggers)
+if ($triggerSpecs.Count -lt 1 -or $triggerSpecs.Count -gt 48) {
+  Write-Error 'Refusing to register a task outside the Windows 48-trigger limit.'
   exit 1
 }
 
 $triggers = @()
-foreach ($line in @($triggerLines)) {
-  $text = ([string]$line).Trim()
-  if ($text -match '^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday) (\d{2}):(\d{2})$') {
-    $at = Get-Date -Hour ([int]$Matches[2]) -Minute ([int]$Matches[3]) -Second 0
-    $triggers += New-ScheduledTaskTrigger -Weekly -DaysOfWeek $Matches[1] -At $at
-  }
+foreach ($item in $triggerSpecs) {
+  $at = Get-Date -Hour ([int]$item.startHour) -Minute ([int]$item.minute) -Second 0
+  $triggers += New-ScheduledTaskTrigger -Daily -At $at `
+    -RepetitionInterval (New-TimeSpan -Minutes ([int]$item.intervalMinutes)) `
+    -RepetitionDuration (New-TimeSpan -Minutes ([int]$item.durationMinutes))
 }
-if ($triggers.Count -lt 1) {
-  Write-Error 'No triggers were created.'
+
+$limitSeconds = [int]$spec.executionTimeLimitSeconds
+if ($limitSeconds -lt 1) {
+  Write-Error 'Could not read the execution time limit.'
   exit 1
 }
 
 $argument = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$wrapper`""
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argument -WorkingDirectory $repoRoot
 $principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
-$settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable:$false -RestartCount 0 -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+$settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable:$false -RestartCount 0 -ExecutionTimeLimit (New-TimeSpan -Seconds $limitSeconds)
+$settings.Enabled = $false
+if ($Enable) {
+  $settings.Enabled = $true
+}
 $task = New-ScheduledTask -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Description 'OddsOnDeck close capture. Interactive only. Disabled until enabled.'
 
 Register-ScheduledTask -TaskName $taskName -InputObject $task -Force | Out-Null
 if ($Enable) {
-  Enable-ScheduledTask -TaskName $taskName | Out-Null
-  Write-Output "Registered '$taskName' and enabled it ($($triggers.Count) triggers)."
+  Write-Output "Registered '$taskName' enabled ($($triggers.Count) repeating triggers)."
 } else {
-  Disable-ScheduledTask -TaskName $taskName | Out-Null
-  Write-Output "Registered '$taskName' disabled ($($triggers.Count) triggers). Re-run with -Enable to turn it on."
+  Write-Output "Registered '$taskName' disabled ($($triggers.Count) repeating triggers). Re-run with -Enable to turn it on."
 }
