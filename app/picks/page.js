@@ -1,6 +1,6 @@
 'use client'
 
-import { sanitizeLoggedValue } from '../../lib/sanitize-error.js'
+import { sanitizeLoggedValue } from '../../lib/sanitize-error.client.js'
 // Editor's Picks — public shortlist of props we'd actually bet
 
 import Link from 'next/link'

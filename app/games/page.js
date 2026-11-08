@@ -1,6 +1,6 @@
 'use client'
 
-import { sanitizedErrorMessage, sanitizeLoggedValue } from '../../lib/sanitize-error.js'
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../../lib/sanitize-error.client.js'
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import { format } from 'date-fns'

@@ -1,4 +1,4 @@
-const { sanitizedErrorMessage } = require('../../lib/sanitize-error.cjs')
+const { sanitizedErrorMessage } = require('../../lib/sanitize-error.server.cjs')
 // Verify data freshness after refresh
 
 const { PrismaClient } = require('@prisma/client');

@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
 import { sanitizeLoggedValue, sanitizeOddsApiError, sanitizeOddsApiLogText, sanitizedErrorMessage } from '../../lib/sanitize-error.js'
@@ -247,10 +248,37 @@ describe('sanitize-error', () => {
       expect(typed.name).toBe('TypeError')
       expect(typed.constructor).toBe(TypeError)
       expect(typed.message).toBe('bad [redacted]')
-      const aborted = sanitizeOddsApiError(new DOMException(`stopped ${secret}`, 'AbortError'))
-      expect(aborted).toBeInstanceOf(DOMException)
-      expect(aborted.name).toBe('AbortError')
-      expect(aborted.message).not.toContain(secret)
+      const proto = DOMException.prototype
+      const messageDesc = Object.getOwnPropertyDescriptor(proto, 'message')
+      const nameDesc = Object.getOwnPropertyDescriptor(proto, 'name')
+      const abortedInput = new DOMException(`stopped ${secret}`, 'AbortError')
+      let inheritedReads = 0
+      Object.defineProperty(proto, 'message', {
+        configurable: true,
+        enumerable: messageDesc.enumerable,
+        get() {
+          if (this === abortedInput) inheritedReads += 1
+          return messageDesc.get.call(this)
+        },
+      })
+      Object.defineProperty(proto, 'name', {
+        configurable: true,
+        enumerable: nameDesc.enumerable,
+        get() {
+          if (this === abortedInput) inheritedReads += 1
+          return nameDesc.get.call(this)
+        },
+      })
+      try {
+        const aborted = sanitizeOddsApiError(abortedInput)
+        expect(aborted).toBeInstanceOf(DOMException)
+        expect(aborted.constructor).toBe(DOMException)
+        expect(aborted.message).not.toContain(secret)
+        expect(inheritedReads).toBe(0)
+      } finally {
+        Object.defineProperty(proto, 'message', messageDesc)
+        Object.defineProperty(proto, 'name', nameDesc)
+      }
       const sparse = []
       sparse[0] = 'keep'
       sparse[100000] = secret
@@ -263,6 +291,111 @@ describe('sanitize-error', () => {
       if (previous == null) delete process.env.ODDS_API_KEY
       else process.env.ODDS_API_KEY = previous
     }
+  })
+
+  test('redaction finishes before the length cut, including a JWT that crosses it', () => {
+    const max = 32 * 1024
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.signaturevalue'
+    const head = 'a'.repeat(max - 8)
+    const out = sanitizeOddsApiLogText(head + jwt)
+    expect(out.length).toBeLessThanOrEqual(max)
+    expect(out).not.toContain('eyJ')
+    expect(out).not.toContain('signaturevalue')
+    expect(out).not.toContain(jwt.slice(0, 8))
+  })
+
+  test('unterminated quoted bearer tokens and jwt forms redact with no env secrets', () => {
+    const script = `
+      import { sanitizeOddsApiLogText } from './lib/sanitize-error.js'
+      const three = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.signaturevalue'
+      const two = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0'
+      const cases = [
+        ['Authorization: Bearer "unterminated-bearer-token', 'unterminated-bearer-token'],
+        ['Bearer "unterminated-bearer-token', 'unterminated-bearer-token'],
+        ['see ' + three, 'signaturevalue'],
+        ['https://cdn.example/v1/' + three + '/file', 'signaturevalue'],
+        ['https://host/cb#' + three, 'eyJzdWIi'],
+        ['#' + two, 'eyJzdWIi'],
+        ['https://host/p/' + two + '/x', 'eyJzdWIi'],
+        ['partial ' + two, 'eyJzdWIi'],
+      ]
+      const out = cases.map(([input, leak]) => {
+        const text = sanitizeOddsApiLogText(input)
+        return { text, leaked: text.includes(leak) || text.includes('eyJ') }
+      })
+      process.stdout.write(JSON.stringify(out))
+    `
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: process.cwd(),
+      env: { PATH: process.env.PATH, NODE_NO_WARNINGS: '1' },
+      encoding: 'utf8',
+    })
+    expect(result.status).toBe(0)
+    const rows = JSON.parse(result.stdout)
+    for (const row of rows) expect(row.leaked).toBe(false)
+    expect(rows[0].text).toBe('Authorization: Bearer [redacted]')
+    expect(rows[1].text).toBe('Bearer [redacted]')
+    expect(rows[3].text).toBe('https://cdn.example/v1/[redacted]/file')
+    expect(rows[4].text).toBe('https://host/cb#[redacted]')
+    expect(rows[5].text).toBe('#[redacted]')
+  })
+
+  test('exact values match percent-encoding case, JSON unicode escapes, and property names', () => {
+    const previous = {
+      CRON_SECRET: process.env.CRON_SECRET,
+      SERVICE_TOKEN: process.env.SERVICE_TOKEN,
+      SUPABASE_SECRET_KEY: process.env.SUPABASE_SECRET_KEY,
+    }
+    const slashSecret = 'cron/secret'
+    const unicodeSecret = 'abc-defg'
+    const keySecret = 'bucket-label-99'
+    process.env.CRON_SECRET = slashSecret
+    process.env.SERVICE_TOKEN = unicodeSecret
+    process.env.SUPABASE_SECRET_KEY = keySecret
+    try {
+      const lower = encodeURIComponent(slashSecret).toLowerCase()
+      const mixed = encodeURIComponent(slashSecret).replace('%2F', '%2f')
+      expect(sanitizeOddsApiLogText(`encoded ${lower} and ${mixed}`)).not.toContain('cron')
+      expect(sanitizeOddsApiLogText('abc\\u002ddefg')).not.toContain('abc\\u002ddefg')
+      expect(sanitizeOddsApiLogText('abc\\u002Ddefg')).not.toContain('002D')
+      const safe = sanitizeLoggedValue({ [keySecret]: 'kept', other: keySecret })
+      expect(JSON.stringify(safe)).not.toContain(keySecret)
+      expect(safe['[redacted]']).toBe('kept')
+      expect(safe.other).toBe('[redacted]')
+    } finally {
+      for (const [name, value] of Object.entries(previous)) {
+        if (value == null) delete process.env[name]
+        else process.env[name] = value
+      }
+    }
+  })
+
+  test('secret env names stay in the server-only module', () => {
+    const client = [
+      readFileSync(require.resolve('../../lib/sanitize-error.client.js'), 'utf8'),
+      readFileSync(require.resolve('../../lib/sanitize-error.cjs'), 'utf8'),
+    ].join('\n')
+    expect(client).not.toMatch(/ODDS_API_KEY|CRON_SECRET|SUPABASE_SECRET_KEY|SUPABASE_SERVICE_ROLE_KEY|DATABASE_URL|DIRECT_URL/)
+    const secrets = readFileSync(require.resolve('../../lib/sanitize-secrets.js'), 'utf8')
+    expect(secrets).toMatch(/import 'server-only'/)
+    const names = readFileSync(require.resolve('../../lib/sanitize-secrets.cjs'), 'utf8')
+    expect(names).toMatch(/ODDS_API_KEY/)
+    expect(names).toMatch(/DATABASE_URL/)
+  })
+
+  test('inherited accessors are not executed', () => {
+    const proto = {}
+    let reads = 0
+    Object.defineProperty(proto, 'token', {
+      enumerable: true,
+      get() { reads += 1; return 'inherited-secret-value' },
+    })
+    const obj = Object.create(proto)
+    obj.note = 'visible'
+    const safe = sanitizeLoggedValue(obj)
+    expect(reads).toBe(0)
+    expect(safe.note).toBe('visible')
+    expect(JSON.stringify(safe)).not.toContain('inherited-secret-value')
   })
 
   test('malformed nested JSON is scanned in linear time', () => {

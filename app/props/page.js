@@ -1,6 +1,6 @@
 'use client'
 
-import { sanitizeLoggedValue } from '../../lib/sanitize-error.js'
+import { sanitizeLoggedValue } from '../../lib/sanitize-error.client.js'
 // Player Props Page - Display player prop betting opportunities
 
 import { useState, useEffect } from 'react'

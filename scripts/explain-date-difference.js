@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-const { sanitizeLoggedValue } = require('../lib/sanitize-error.cjs')
+const { sanitizeLoggedValue } = require('../lib/sanitize-error.server.cjs')
 
 /**
  * Explain why Odds API dates differ from ESPN dates

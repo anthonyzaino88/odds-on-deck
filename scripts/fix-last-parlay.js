@@ -1,4 +1,4 @@
-const { sanitizeLoggedValue } = require('../lib/sanitize-error.cjs')
+const { sanitizeLoggedValue } = require('../lib/sanitize-error.server.cjs')
 const { PrismaClient } = require('@prisma/client')
 const prisma = new PrismaClient()
 
