@@ -89,6 +89,7 @@ import {
   classifyCloseCaptureGames,
   closeCapturePassForGame,
   clusterGameLineCloseTargets,
+  gameLineClusterCommenceBounds,
   closeCapturePayload,
   closeCaptureRegionCount,
   closeCaptureRoutineMissesNearStart,
@@ -324,7 +325,7 @@ export async function runCapturePublishedCloses({
   const regionCount = closeCaptureRegionCount(regions)
   const oddsBudget = budget || createOddsApiBudget({
     env,
-    now: startedAt,
+    now: nowFn,
     log,
     apiKey,
     purpose: 'close-capture',
@@ -1222,13 +1223,14 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
         skippedBudgetDuringRun += 1
         break
       }
+      const bounds = gameLineClusterCommenceBounds(dueTargets)
       const url = buildSportOddsUrl({
         sportKey,
         markets: cluster.markets || gameLineMarkets,
         apiKey,
         regions,
-        commenceTimeFrom: cluster.commenceTimeFrom,
-        commenceTimeTo: cluster.commenceTimeTo,
+        commenceTimeFrom: bounds.commenceTimeFrom,
+        commenceTimeTo: bounds.commenceTimeTo,
       })
       calls += 1
       creditsUsed += clusterCredits

@@ -576,16 +576,20 @@ function lockingFs(files = new Map()) {
       return filePath
     },
     closeSync() {},
+    mtimes: new Map(),
+    setMtime(filePath, mtimeMs) { this.mtimes.set(filePath, mtimeMs) },
     statSync(filePath) {
       if (!files.has(filePath)) {
         const error = new Error('ENOENT')
         error.code = 'ENOENT'
         throw error
       }
+      if (this.mtimes.has(filePath)) return { mtimeMs: this.mtimes.get(filePath) }
       return { mtimeMs: locks.get(filePath)?.mtimeMs || Date.now() }
     },
     unlinkSync(filePath) {
       locks.delete(filePath)
+      this.mtimes.delete(filePath)
       files.delete(filePath)
     },
   }
@@ -775,6 +779,131 @@ describe('daily game-line budget and locked reserve', () => {
     expect(afterThrow.todayCredits()).toBe(2)
     expect(afterThrow.todayGameLineCredits()).toBe(2)
     expect(afterThrow.todayCloseCaptures()).toBe(1)
+  })
+
+  test('a missing, blank, or negative last header keeps the reserved credits', () => {
+    const fs = memoryFs()
+    const budget = budgetOn(fs)
+    const held = budget.reserve(2, { captures: 1, gameLineCredits: 2 })
+    expect(held.ok).toBe(true)
+    for (const last of [null, '', '   ', 'nope', Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+      budget.reconcile(held, { last, remaining: 80, used: 2 })
+      expect(budget.todayCredits()).toBe(2)
+      expect(budget.todayGameLineCredits()).toBe(2)
+    }
+    budget.reconcile(held, { last: 0, remaining: 80, used: 2 })
+    expect(budget.todayCredits()).toBe(0)
+    expect(budget.todayGameLineCredits()).toBe(0)
+    const saved = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'))
+    expect(saved.days[day].credits).toBe(0)
+    expect(saved.days[day].gameLineCredits).toBe(0)
+  })
+
+  test('a reservation after ET midnight lands on the new day and reconcile stays on the old one', () => {
+    const fs = memoryFs()
+    const path = '/tmp/odds-api-budget-rollover.json'
+    let current = new Date('2026-11-05T04:30:00.000Z')
+    const budget = createOddsApiBudget({
+      persist: true,
+      filesystem: fs,
+      now: () => current,
+      purpose: 'close-capture',
+      env: closeCaptureEnv(path, { ODDS_GAME_LINE_CLOSE_DAILY_CAP: '2' }),
+      log: { log() {}, warn() {} },
+    })
+    const first = budget.reserve(2, { captures: 1, gameLineCredits: 2 })
+    expect(first.ok).toBe(true)
+    expect(first.dayKey).toBe('2026-11-04')
+    expect(budget.todayGameLineCredits()).toBe(2)
+    current = new Date('2026-11-05T05:30:00.000Z')
+    expect(budget.todayCredits()).toBe(0)
+    expect(budget.todayGameLineCredits()).toBe(0)
+    const second = budget.reserve(2, { captures: 1, gameLineCredits: 2 })
+    expect(second.ok).toBe(true)
+    expect(second.dayKey).toBe('2026-11-05')
+    expect(budget.todayGameLineCredits()).toBe(2)
+    budget.reconcile(first, { last: null, remaining: 90, used: 4 })
+    let saved = JSON.parse(fs.readFileSync(path, 'utf8'))
+    expect(saved.days['2026-11-04'].credits).toBe(2)
+    expect(saved.days['2026-11-04'].gameLineCredits).toBe(2)
+    expect(saved.days['2026-11-05'].gameLineCredits).toBe(2)
+    budget.reconcile(first, { last: 1, remaining: 91, used: 3 })
+    saved = JSON.parse(fs.readFileSync(path, 'utf8'))
+    expect(saved.days['2026-11-04'].credits).toBe(1)
+    expect(saved.days['2026-11-04'].gameLineCredits).toBe(1)
+    expect(saved.days['2026-11-05'].credits).toBe(2)
+    expect(saved.days['2026-11-05'].gameLineCredits).toBe(2)
+    expect(budget.todayCredits()).toBe(2)
+    expect(budget.todayGameLineCredits()).toBe(2)
+  })
+
+  test('a stolen stale lock cannot commit the old holder, and a live steal bumps the fence', () => {
+    const fs = lockingFs()
+    fs.writeFileSync(ledgerPath, JSON.stringify({
+      version: 1,
+      fence: 2,
+      days: { [day]: { credits: 0, calls: 0, closeCaptures: 0, gameLineCredits: 0 } },
+    }))
+    const budget = budgetOn(fs)
+    const origRead = fs.readFileSync.bind(fs)
+    let ledgerReads = 0
+    fs.readFileSync = (filePath) => {
+      if (filePath === ledgerPath) {
+        ledgerReads += 1
+        if (ledgerReads >= 3) {
+          return JSON.stringify({
+            version: 1,
+            fence: 8,
+            days: { [day]: { credits: 4, calls: 1, closeCaptures: 1, gameLineCredits: 0 } },
+          })
+        }
+      }
+      return origRead(filePath)
+    }
+    expect(() => budget.reserve(2, { captures: 1, gameLineCredits: 2 })).toThrow(/fence moved/)
+    expect(budget.todayCredits()).toBe(0)
+    expect(budget.todayGameLineCredits()).toBe(0)
+    const untouched = JSON.parse(origRead(ledgerPath))
+    expect(untouched.fence).toBe(2)
+    expect(untouched.days[day].credits).toBe(0)
+
+    const stealFs = lockingFs()
+    const stealPath = '/tmp/odds-api-budget-steal.json'
+    const lockPath = `${stealPath}.lock`
+    stealFs.writeFileSync(stealPath, JSON.stringify({
+      version: 1,
+      fence: 4,
+      days: { [day]: { credits: 9, calls: 9, closeCaptures: 9, gameLineCredits: 0 } },
+    }))
+    stealFs.writeFileSync(lockPath, 'old-owner\n')
+    stealFs.setMtime(lockPath, Date.now() - 31_000)
+    const stealer = createOddsApiBudget({
+      persist: true,
+      filesystem: stealFs,
+      now: NOON_ET,
+      purpose: 'close-capture',
+      env: closeCaptureEnv(stealPath),
+      log: { log() {}, warn() {} },
+    })
+    const taken = stealer.reserve(1, { captures: 1 })
+    expect(taken.ok).toBe(true)
+    const saved = JSON.parse(stealFs.readFileSync(stealPath, 'utf8'))
+    expect(saved.fence).toBe(5)
+    expect(saved.days[day].credits).toBe(10)
+    expect(saved.days[day].closeCaptures).toBe(10)
+    expect(stealFs.existsSync(lockPath)).toBe(false)
+
+    const lostFs = lockingFs()
+    const lost = budgetOn(lostFs)
+    const origLostRead = lostFs.readFileSync.bind(lostFs)
+    lostFs.readFileSync = (filePath) => {
+      const data = origLostRead(filePath)
+      if (String(filePath).endsWith('.lock')) return 'intruder\n'
+      return data
+    }
+    expect(() => lost.reserve(2, { captures: 1, gameLineCredits: 2 })).toThrow(/lock lost/)
+    expect(lost.todayCredits()).toBe(0)
+    expect(lostFs.existsSync(ledgerPath)).toBe(false)
   })
 })
 

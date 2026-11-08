@@ -2713,4 +2713,37 @@ describe('runCapturePublishedCloses', () => {
     expect(closingInserts).toEqual([])
     expect(result.gameLineWrites).toEqual([])
   })
+
+  test('a dropped target rebuilds the sport request commence bounds', async () => {
+    const fetchEventOdds = jest.fn(async () => sportOdds([
+      nhlEvent('evt-bos', 'Boston Bruins', 'Toronto Maple Leafs'),
+    ]))
+    let ticks = 0
+    await runCapturePublishedCloses({
+      argv: ['--apply', '--game-lines'],
+      clock: () => {
+        ticks += 1
+        return ticks === 1 ? IN_WINDOW : new Date('2026-07-15T22:52:00.000Z')
+      },
+      createClient: () => mockClient({
+        games: [
+          nhlGame({ id: 'EARLY_NHL', oddsApiEventId: 'evt-early', date: '2026-07-15T22:50:00.000Z' }),
+          nhlGame({ date: '2026-07-15T23:10:00.000Z' }),
+        ],
+        picks: [],
+        edges: [
+          gameLineEdge({ id: 'edge-early', gameId: 'EARLY_NHL' }),
+          gameLineEdge(),
+        ],
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    const url = new URL(fetchEventOdds.mock.calls[0][0].url)
+    expect(url.searchParams.get('commenceTimeFrom')).toBe('2026-07-15T23:09:59.000Z')
+    expect(url.searchParams.get('commenceTimeTo')).toBe('2026-07-15T23:10:01.000Z')
+  })
 })

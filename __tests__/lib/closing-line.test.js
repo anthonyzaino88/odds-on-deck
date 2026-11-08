@@ -1982,6 +1982,56 @@ describe('game-line close capture for NHL, MLB, and NFL', () => {
     expect(rows).toEqual([])
   })
 
+  test('rejects null total points and accepts the contract quote window', () => {
+    const capturedAt = new Date('2026-07-15T22:50:00.000Z')
+    const kickoff = '2026-07-15T23:10:00.000Z'
+    const base = {
+      home_team: 'Boston Bruins',
+      away_team: 'Toronto Maple Leafs',
+    }
+    const totals = (overPoint, underPoint) => gameLineClosesFromEventOdds({
+      ...base,
+      bookmakers: [{
+        title: 'FanDuel',
+        markets: [{
+          key: 'totals',
+          last_update: '2026-07-15T22:40:00.000Z',
+          outcomes: [
+            { name: 'Over', price: -105, point: overPoint },
+            { name: 'Under', price: -115, point: underPoint },
+          ],
+        }],
+      }],
+    }, { gameId: 'BOS_at_TOR', sport: 'nhl', capturedAt, kickoff })
+    expect(totals(null, null)).toEqual([])
+    expect(totals(6.5, null)).toEqual([])
+    expect(totals(undefined, undefined)).toEqual([])
+    expect(totals(0, 0)).toEqual([
+      expect.objectContaining({ market: 'totals', total: 0, book: 'FanDuel' }),
+    ])
+
+    expect(gameLineQuoteFitsClose({
+      quotedAt: '2026-07-15T22:35:00.000Z',
+      snapshotAt: '2026-07-15T22:50:00.000Z',
+      kickoff,
+    })).toBe(false)
+    expect(gameLineQuoteFitsClose({
+      quotedAt: '2026-07-15T22:35:00.001Z',
+      snapshotAt: '2026-07-15T22:50:00.000Z',
+      kickoff,
+    })).toBe(true)
+    expect(gameLineQuoteFitsClose({
+      quotedAt: '2026-07-15T23:09:00.000Z',
+      snapshotAt: '2026-07-15T23:09:00.000Z',
+      kickoff,
+    })).toBe(true)
+    expect(gameLineQuoteFitsClose({
+      quotedAt: '2026-07-15T23:09:00.001Z',
+      snapshotAt: '2026-07-15T23:09:00.001Z',
+      kickoff,
+    })).toBe(false)
+  })
+
   test('the close write itself stops during the quiet window', async () => {
     setClosingOddsClock(() => new Date('2026-07-15T16:09:00.000Z'))
     const inserts = []
