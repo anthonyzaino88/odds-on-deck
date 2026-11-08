@@ -238,6 +238,50 @@ export function containCapturedChild({
   }
 }
 
+/**
+ * After a deadline kill, wait until the child has exited, then read its
+ * output, then drop the lock and the process handles. A failed read charges
+ * the full reserved call count.
+ */
+export async function settleCapturedChild({
+  timedOut = false,
+  kill,
+  waitForExit,
+  readOutput,
+  clearOwnership,
+  release,
+  reservedCalls = 0,
+} = {}) {
+  const reserved = Math.max(0, Math.floor(Number(reservedCalls) || 0))
+  let exited = !timedOut
+  if (timedOut) {
+    try {
+      kill()
+    } catch {
+      /* the wait below is what confirms the process is gone */
+    }
+    exited = Boolean(await waitForExit())
+  }
+  let text = ''
+  let readFailed = !exited
+  if (exited) {
+    try {
+      text = String(await readOutput())
+    } catch {
+      readFailed = true
+      text = ''
+    }
+    clearOwnership()
+    release()
+  }
+  return {
+    exited: Boolean(exited),
+    readFailed,
+    text,
+    calls: readFailed ? reserved : null,
+  }
+}
+
 export function orphanShouldKill(lockText, actual = {}) {
   const text = String(lockText || '')
   const pid = /^pid=(\d+)\s*$/m.exec(text)
@@ -390,7 +434,14 @@ export function parseCaptureOutput(raw) {
   }
 }
 
-export function callsToRecord({ callsUsedPresent = false, callsUsed = 0, planned = 0 } = {}) {
+export function callsToRecord({
+  callsUsedPresent = false,
+  callsUsed = 0,
+  planned = 0,
+  readFailed = false,
+  reservedCalls = 0,
+} = {}) {
+  if (readFailed) return Math.max(0, Math.floor(Number(reservedCalls) || 0))
   if (callsUsedPresent) return Math.max(0, Math.floor(Number(callsUsed) || 0))
   return Math.max(0, Math.floor(Number(planned) || 0))
 }
@@ -546,6 +597,8 @@ export function summarizeCaptureOutput(raw, {
   reason = '',
   status = '',
   extraErrors = 0,
+  readFailed = false,
+  reservedCalls = 0,
   now = new Date(),
 } = {}) {
   const parsed = parseCaptureOutput(raw)
@@ -554,6 +607,8 @@ export function summarizeCaptureOutput(raw, {
       callsUsedPresent: parsed.callsUsedPresent,
       callsUsed: parsed.callsUsed,
       planned: plannedFallback,
+      readFailed,
+      reservedCalls,
     })
     : 0
   const clock = easternNow(now)
@@ -646,6 +701,7 @@ function runCli(argv) {
     '--raised-by', '--planned', '--usage-file', '--record-calls',
     '--extra-errors', '--reason', '--stamp', '--status',
     '--ceiling', '--id', '--ceiling-hit', '--deadline', '--pid', '--start-ticks',
+    '--read-failed', '--reserved-calls',
   ])
   for (const arg of rest) {
     if (String(arg).startsWith('-') && !known.has(flagName(arg))) {
@@ -750,8 +806,11 @@ function runCli(argv) {
     const extraErrors = readFlag(rest, '--extra-errors') || '0'
     const reason = readFlag(rest, '--reason') || ''
     const ceiling = optionalIntFlag(rest, '--ceiling')
+    const reserved = optionalIntFlag(rest, '--reserved-calls')
+    const readFailed = rest.includes('--read-failed')
     if (cap == null || !/^\d+$/.test(cap) || !/^\d+$/.test(raisedBy) || !/^\d+$/.test(planned)
-      || !/^\d+$/.test(callsUsed) || !/^\d+$/.test(extraErrors) || ceiling.invalid) {
+      || !/^\d+$/.test(callsUsed) || !/^\d+$/.test(extraErrors) || ceiling.invalid || reserved.invalid
+      || (readFailed && !reserved.present)) {
       failClosed('finalize needs integer fields')
     }
     const safeReason = SUMMARY_REASONS.has(reason) ? reason : ''
@@ -765,6 +824,8 @@ function runCli(argv) {
       dryRunOnly: rest.includes('--dry-run-only'),
       reason: safeReason,
       extraErrors: Number(extraErrors),
+      readFailed,
+      reservedCalls: reserved.present ? reserved.value : 0,
     })
     if (rest.includes('--record-calls')) {
       if (!usageFile) failClosed('missing --usage-file')

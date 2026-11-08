@@ -23,6 +23,7 @@ import {
   planScheduledCapture,
   remainingUntilDeadline,
   scheduledCaptureDecision,
+  settleCapturedChild,
   summarizeCaptureOutput,
   windowsTimeZoneOk,
   WINDOWS_TRIGGER_LIMIT,
@@ -149,6 +150,13 @@ describe('close capture schedule parsing', () => {
     expect(callsToRecord({ callsUsedPresent: true, callsUsed: 3, planned: 9 })).toBe(3)
     expect(callsToRecord({ callsUsedPresent: true, callsUsed: 0, planned: 9 })).toBe(0)
     expect(callsToRecord({ callsUsedPresent: false, callsUsed: 0, planned: 9 })).toBe(9)
+    expect(callsToRecord({
+      callsUsedPresent: true,
+      callsUsed: 2,
+      planned: 4,
+      readFailed: true,
+      reservedCalls: 10,
+    })).toBe(10)
   })
 
   test('summary keeps counts and drops secret text', () => {
@@ -271,6 +279,52 @@ describe('close capture schedule parsing', () => {
     expect(afterQuiet).toMatchObject({ ok: true, iso: frozen, remainingMs: 0 })
     expect(nextQuietDeadline(new Date('2026-11-08T23:06:00.000Z')).iso).toBe('2026-11-09T00:04:50.000Z')
     expect(afterQuiet.iso).not.toBe(nextQuietDeadline(new Date('2026-11-08T23:06:00.000Z')).iso)
+  })
+
+  test('a timeout waits out an async kill before reading output', async () => {
+    let alive = true
+    const order = []
+    const settled = await settleCapturedChild({
+      timedOut: true,
+      reservedCalls: 10,
+      kill() {
+        order.push('kill')
+        setTimeout(() => { alive = false }, 20)
+      },
+      waitForExit() {
+        order.push('wait')
+        return new Promise((resolve) => {
+          const timer = setInterval(() => {
+            if (!alive) {
+              clearInterval(timer)
+              order.push('exited')
+              resolve(true)
+            }
+          }, 5)
+        })
+      },
+      readOutput() {
+        order.push('read')
+        if (alive) throw new Error('still running')
+        throw new Error('sharing violation')
+      },
+      clearOwnership() { order.push('clear') },
+      release() { order.push('release') },
+    })
+    expect(order).toEqual(['kill', 'wait', 'exited', 'read', 'clear', 'release'])
+    expect(settled).toMatchObject({ exited: true, readFailed: true, text: '', calls: 10 })
+    const readOutput = jest.fn()
+    const stuck = await settleCapturedChild({
+      timedOut: true,
+      reservedCalls: 10,
+      kill() {},
+      waitForExit: async () => false,
+      readOutput,
+      clearOwnership() { throw new Error('cleared before exit') },
+      release() { throw new Error('released before exit') },
+    })
+    expect(readOutput).not.toHaveBeenCalled()
+    expect(stuck).toMatchObject({ exited: false, readFailed: true, calls: 10 })
   })
 
   test('a failed job assign does not resume the child', () => {
@@ -430,6 +484,22 @@ describe('close capture schedule parsing', () => {
     expect(assignAt).toBeGreaterThan(-1)
     expect(recordAt).toBeGreaterThan(assignAt)
     expect(resumeAt).toBeGreaterThan(recordAt)
+    expect(wrapper).toContain('function Get-DeadlineRemaining')
+    expect(wrapper).not.toContain('Get-DeadlineRemainingMs')
+    expect(wrapper).toContain('--read-failed')
+    expect(wrapper).toContain('--reserved-calls')
+    expect(wrapper).toContain('$plan.maxCalls')
+    const timeoutAt = wrapper.indexOf('if ($wait -ne 0)')
+    const confirmAt = wrapper.indexOf('Wait-CapturedExit -Started $started', timeoutAt)
+    const readAt = wrapper.indexOf('ReadAllText', confirmAt)
+    const clearAt = wrapper.indexOf('Clear-LockPid -Lock $Lock', readAt)
+    const releaseAt = wrapper.indexOf('[CloseCaptureJob]::Release', readAt)
+    expect(confirmAt).toBeGreaterThan(timeoutAt)
+    expect(readAt).toBeGreaterThan(confirmAt)
+    expect(wrapper.lastIndexOf('try {', readAt)).toBeGreaterThan(confirmAt)
+    expect(wrapper.indexOf('} catch {', readAt)).toBeGreaterThan(readAt)
+    expect(clearAt).toBeGreaterThan(readAt)
+    expect(releaseAt).toBeGreaterThan(readAt)
   })
 
   test('.local usage and logs stay gitignored', () => {

@@ -328,11 +328,21 @@ function Format-ProcessArgument {
   return '"' + ($Text -replace '"', '\"') + '"'
 }
 
-function Get-DeadlineRemainingMs {
+function Get-DeadlineRemaining {
   param([string]$DeadlineIso)
   $left = Convert-HelperJson (Invoke-Helper -HelperArgs @('remaining', '--deadline', $DeadlineIso))
   if (-not $left -or -not $left.ok) { return [int64]0 }
   return [int64]$left.remainingMs
+}
+
+function Wait-CapturedExit {
+  param($Started)
+  if (-not $Started -or $Started.ProcessHandle -eq [IntPtr]::Zero) { return $false }
+  [CloseCaptureJob]::Kill($Started.ProcessHandle) | Out-Null
+  if ($Started.Pid -gt 0) {
+    Stop-Process -Id $Started.Pid -Force -ErrorAction SilentlyContinue
+  }
+  return ([CloseCaptureJob]::Wait($Started.ProcessHandle, 30000) -eq 0)
 }
 
 function Invoke-NodeCapture {
@@ -352,11 +362,13 @@ function Invoke-NodeCapture {
   $started = $null
   $recorded = $false
   $storedTicks = ''
+  $readFailed = $false
+  $exitConfirmed = $false
   try {
     if ($JobHandle -eq [IntPtr]::Zero) {
       return @{ Code = 1; Text = ''; TimedOut = $false; Aborted = $true }
     }
-    $beforeStart = Get-DeadlineRemainingMs -DeadlineIso $DeadlineIso
+    $beforeStart = Get-DeadlineRemaining -DeadlineIso $DeadlineIso
     if ($beforeStart -le 0) {
       return @{ Code = 1; Text = ''; TimedOut = $true; Aborted = $false }
     }
@@ -369,64 +381,69 @@ function Invoke-NodeCapture {
     }
     $assigned = [CloseCaptureJob]::Assign($JobHandle, $started.ProcessHandle)
     if (-not $assigned) {
-      [CloseCaptureJob]::Kill($started.ProcessHandle) | Out-Null
-      Stop-Process -Id $started.Pid -Force -ErrorAction SilentlyContinue
+      $exitConfirmed = Wait-CapturedExit -Started $started
       $aborted = $true
-      return @{ Code = 1; Text = ''; TimedOut = $false; Aborted = $true }
+      return @{ Code = 1; Text = ''; TimedOut = $false; Aborted = $true; ReadFailed = $true }
     }
     $live = Get-Process -Id $started.Pid -ErrorAction SilentlyContinue
     if (-not $live -or $live.ProcessName -ne 'node') {
-      [CloseCaptureJob]::Kill($started.ProcessHandle) | Out-Null
-      Stop-Process -Id $started.Pid -Force -ErrorAction SilentlyContinue
+      $exitConfirmed = Wait-CapturedExit -Started $started
       $aborted = $true
-      return @{ Code = 1; Text = ''; TimedOut = $false; Aborted = $true }
+      return @{ Code = 1; Text = ''; TimedOut = $false; Aborted = $true; ReadFailed = $true }
     }
     $storedTicks = [string]$live.StartTime.ToUniversalTime().Ticks
     Write-LockPid -Lock $Lock -ProcessId $started.Pid -StartTicks $storedTicks
     $recorded = $true
     $resumed = [CloseCaptureJob]::Resume($started.ThreadHandle)
     if (-not $resumed) {
-      [CloseCaptureJob]::Kill($started.ProcessHandle) | Out-Null
-      Stop-Process -Id $started.Pid -Force -ErrorAction SilentlyContinue
+      $exitConfirmed = Wait-CapturedExit -Started $started
       $aborted = $true
-      return @{ Code = 1; Text = ''; TimedOut = $false; Aborted = $true }
+      return @{ Code = 1; Text = ''; TimedOut = $false; Aborted = $true; ReadFailed = $true }
     }
-    $remaining = Get-DeadlineRemainingMs -DeadlineIso $DeadlineIso
+    $remaining = Get-DeadlineRemaining -DeadlineIso $DeadlineIso
     if ($remaining -le 0) {
-      [CloseCaptureJob]::Kill($started.ProcessHandle) | Out-Null
-      Stop-Process -Id $started.Pid -Force -ErrorAction SilentlyContinue
       $timedOut = $true
-      return @{ Code = 1; Text = ''; TimedOut = $true; Aborted = $false }
-    }
-    $waitMs = [int][Math]::Min(2147483647, $remaining)
-    $wait = [CloseCaptureJob]::Wait($started.ProcessHandle, $waitMs)
-    if ($wait -ne 0) {
-      $timedOut = $true
-      [CloseCaptureJob]::Kill($started.ProcessHandle) | Out-Null
-      Stop-Process -Id $started.Pid -Force -ErrorAction SilentlyContinue
       $code = 1
+      $exitConfirmed = Wait-CapturedExit -Started $started
     } else {
-      $code = [CloseCaptureJob]::ExitCode($started.ProcessHandle)
-    }
-    $stdout = ''
-    $stderr = ''
-    if (Test-Path -LiteralPath $outFile) { $stdout = [System.IO.File]::ReadAllText($outFile) }
-    if (Test-Path -LiteralPath $errFile) { $stderr = [System.IO.File]::ReadAllText($errFile) }
-    $text = $stdout + $stderr
-  } finally {
-    if ($started -and $started.Ok -and $storedTicks) {
-      $still = Get-Process -Id $started.Pid -ErrorAction SilentlyContinue
-      if ($still -and $still.ProcessName -eq 'node' -and ([string]$still.StartTime.ToUniversalTime().Ticks) -eq $storedTicks) {
-        [CloseCaptureJob]::Kill($still.Handle) | Out-Null
-        Stop-Process -Id $started.Pid -Force -ErrorAction SilentlyContinue
+      $waitMs = [int][Math]::Min(2147483647, $remaining)
+      $wait = [CloseCaptureJob]::Wait($started.ProcessHandle, $waitMs)
+      if ($wait -ne 0) {
+        $timedOut = $true
+        $code = 1
+        # Same order as settleCapturedChild: kill, confirm exit, then read.
+        $exitConfirmed = Wait-CapturedExit -Started $started
+      } else {
+        $code = [CloseCaptureJob]::ExitCode($started.ProcessHandle)
+        $exitConfirmed = $true
       }
     }
-    if ($recorded) { Clear-LockPid -Lock $Lock }
-    if ($started) { [CloseCaptureJob]::Release($started) }
-    if (Test-Path -LiteralPath $outFile) { Remove-Item -LiteralPath $outFile -Force -ErrorAction SilentlyContinue }
-    if (Test-Path -LiteralPath $errFile) { Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue }
+    if ($exitConfirmed) {
+      try {
+        $stdout = ''
+        $stderr = ''
+        if (Test-Path -LiteralPath $outFile) { $stdout = [System.IO.File]::ReadAllText($outFile) }
+        if (Test-Path -LiteralPath $errFile) { $stderr = [System.IO.File]::ReadAllText($errFile) }
+        $text = $stdout + $stderr
+      } catch {
+        $readFailed = $true
+        $text = ''
+      }
+    } else {
+      $readFailed = $true
+      $text = ''
+    }
+  } finally {
+    # Ownership and handles are dropped only after the exit is confirmed
+    # and the output read above has finished.
+    if ($exitConfirmed) {
+      if ($recorded) { Clear-LockPid -Lock $Lock }
+      if ($started) { [CloseCaptureJob]::Release($started) }
+      if (Test-Path -LiteralPath $outFile) { Remove-Item -LiteralPath $outFile -Force -ErrorAction SilentlyContinue }
+      if (Test-Path -LiteralPath $errFile) { Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue }
+    }
   }
-  return @{ Code = $code; Text = $text; TimedOut = $timedOut; Aborted = $aborted }
+  return @{ Code = $code; Text = $text; TimedOut = $timedOut; Aborted = $aborted; ReadFailed = $readFailed }
 }
 
 if ([System.TimeZoneInfo]::Local.Id -ne 'Eastern Standard Time') {
@@ -482,7 +499,7 @@ if ($null -eq $ceiling) {
 
 $deadline = Convert-HelperJson (Invoke-Helper -HelperArgs @('deadline'))
 $deadlineIso = if ($deadline) { [string]$deadline.iso } else { '' }
-if (-not $deadlineIso -or (Get-DeadlineRemainingMs -DeadlineIso $deadlineIso) -le 0) {
+if (-not $deadlineIso -or (Get-DeadlineRemaining -DeadlineIso $deadlineIso) -le 0) {
   $due = Invoke-Helper -HelperArgs @('line', '--reason', 'deadline', '--status', 'failed')
   Write-CloseLog -Line $due.Text -Day $day
   exit 0
@@ -542,7 +559,7 @@ try {
     Write-CloseLog -Line $killed.Text -Day $day
     exit 0
   }
-  if ($dry.Code -ne 0) {
+  if ($dry.ReadFailed -or $dry.Code -ne 0) {
     $crashed = Invoke-Helper -HelperArgs @('line', '--reason', 'plan-unknown', '--status', 'failed')
     Write-CloseLog -Line $crashed.Text -Day $day
     exit 0
@@ -603,7 +620,7 @@ try {
     exit 0
   }
 
-  $stillLeft = Get-DeadlineRemainingMs -DeadlineIso $deadlineIso
+  $stillLeft = Get-DeadlineRemaining -DeadlineIso $deadlineIso
   if ($stillLeft -le 0) {
     $dueArgs = @('line', '--reason', 'deadline', '--status', 'failed', '--ceiling', $ceiling) + $ceilingHit
     $due = Invoke-Helper -HelperArgs $dueArgs
@@ -622,9 +639,13 @@ try {
   }
   $extraErrors = '0'
   $reasonArgs = @()
-  if ($apply.TimedOut -or $apply.Code -ne 0) {
+  $readArgs = @()
+  if ($apply.TimedOut -or $apply.Code -ne 0 -or $apply.ReadFailed) {
     $extraErrors = '1'
     if ($apply.TimedOut) { $reasonArgs = @('--reason', 'deadline') }
+  }
+  if ($apply.ReadFailed) {
+    $readArgs = @('--read-failed', '--reserved-calls', ([string]([int]$plan.maxCalls)))
   }
   $finalArgs = @(
     'finalize',
@@ -636,10 +657,12 @@ try {
     '--usage-file', $usageFile,
     '--extra-errors', $extraErrors,
     '--record-calls'
-  ) + $ceilingHit + $reasonArgs
+  ) + $ceilingHit + $reasonArgs + $readArgs
   $final = Invoke-Helper -HelperArgs $finalArgs -StdinText $apply.Text
   if ($final.Code -ne 0 -or -not $final.Text) {
-    $fallbackUsed = [int]$usage.callsUsed + [int]$plannedText
+    $charged = [int]$plannedText
+    if ($apply.ReadFailed) { $charged = [int]$plan.maxCalls }
+    $fallbackUsed = [int]$usage.callsUsed + $charged
     Invoke-Helper -HelperArgs @(
       'write-usage', '--file', $usageFile,
       '--calls', [string]$fallbackUsed,
