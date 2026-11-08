@@ -24,7 +24,10 @@
   hard ceiling (default 80, CLOSE_CAPTURE_CALL_CEILING). An empty or
   corrupt usage file is an error. Writes go to a temp file and rename
   into place. If the reserved-count write also fails, the day gets
-  YYYY-MM-DD.blocked and later runs make no calls.
+  YYYY-MM-DD.blocked under the repo and, if that write fails,
+  %LOCALAPPDATA%\OddsOnDeck\YYYY-MM-DD.blocked. Later runs make no
+  calls when either marker is present or the usage file does not
+  verify. The run exits non-zero even when both marker writes fail.
 
 .PARAMETER DryRunOnly
   Stop after the dry run. Does not apply, raise the cap, or change usage.
@@ -293,6 +296,17 @@ function Write-BlockedMarker {
     }
     throw
   }
+}
+
+function Test-LatestUsageWrite {
+  param(
+    [string]$File,
+    [string]$Day
+  )
+  if (-not (Test-Path -LiteralPath $File)) { return $true }
+  $parsed = Convert-HelperJson (Invoke-Helper -HelperArgs @('read-usage', '--file', $File))
+  if (-not $parsed -or -not $parsed.ok -or $parsed.missing -or -not $parsed.runId) { return $false }
+  return Test-UsageFile -File $File -Calls ([string]$parsed.callsUsed) -Cap ([string]$parsed.cap) -Day $Day -RunId ([string]$parsed.runId)
 }
 
 function Test-UsageFile {
@@ -569,6 +583,12 @@ if (-not (Test-Path -LiteralPath $logDir)) {
 }
 $usageFile = Join-Path $usageDir ($day + '.txt')
 $blockedMarker = Join-Path $usageDir ($day + '.blocked')
+$fallbackRoot = $env:LOCALAPPDATA
+if (-not $fallbackRoot) { $fallbackRoot = [Environment]::GetFolderPath('LocalApplicationData') }
+$fallbackMarker = ''
+if ($fallbackRoot) {
+  $fallbackMarker = Join-Path (Join-Path $fallbackRoot 'OddsOnDeck') ($day + '.blocked')
+}
 $runId = [guid]::NewGuid().ToString('n')
 $lockPath = Join-Path $usageDir 'close-capture.lock'
 $lock = $null
@@ -587,7 +607,11 @@ try {
 }
 
 try {
-  if (Test-Path -LiteralPath $blockedMarker) {
+  $dayBlocked = $false
+  if (Test-Path -LiteralPath $blockedMarker) { $dayBlocked = $true }
+  if ($fallbackMarker -and (Test-Path -LiteralPath $fallbackMarker)) { $dayBlocked = $true }
+  if (-not $dayBlocked -and -not (Test-LatestUsageWrite -File $usageFile -Day $day)) { $dayBlocked = $true }
+  if ($dayBlocked) {
     $blockedLine = Invoke-Helper -HelperArgs @('line', '--reason', 'usage-blocked', '--status', 'failed')
     Write-CloseLog -Line $blockedLine.Text -Day $day
     exit 1
@@ -750,7 +774,24 @@ try {
       '--run', $runId
     )
     if ($fallbackWrite.Code -ne 0 -or -not (Test-UsageFile -File $usageFile -Calls ([string]$fallbackUsed) -Cap ([string]$nextCap) -Day $day -RunId $runId)) {
-      try { Write-BlockedMarker -MarkerPath $blockedMarker } catch { }
+      $primaryLanded = $false
+      try {
+        Write-BlockedMarker -MarkerPath $blockedMarker
+        if (Test-Path -LiteralPath $blockedMarker) { $primaryLanded = $true }
+      } catch {
+        Write-CloseLog -Line ("CLOSE_CAPTURE_STATUS=failed reason=usage-blocked marker=primary detail=" + ($_.Exception.Message -replace '[\r\n]+', ' ')) -Day $day
+      }
+      if (-not $primaryLanded -and $fallbackMarker) {
+        try {
+          $fallbackDir = Split-Path -Parent $fallbackMarker
+          if (-not (Test-Path -LiteralPath $fallbackDir)) {
+            New-Item -ItemType Directory -Path $fallbackDir | Out-Null
+          }
+          Write-BlockedMarker -MarkerPath $fallbackMarker
+        } catch {
+          Write-CloseLog -Line ("CLOSE_CAPTURE_STATUS=failed reason=usage-blocked marker=fallback detail=" + ($_.Exception.Message -replace '[\r\n]+', ' ')) -Day $day
+        }
+      }
       $final = Invoke-Helper -HelperArgs @('line', '--reason', 'usage-blocked', '--status', 'failed')
       Write-CloseLog -Line $final.Text -Day $day
       exit 1

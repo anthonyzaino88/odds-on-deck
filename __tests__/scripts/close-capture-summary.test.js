@@ -548,11 +548,19 @@ describe('close capture schedule parsing', () => {
     const guardAt = wrapper.indexOf('Test-Path -LiteralPath $blockedMarker')
     expect(guardAt).toBeGreaterThan(-1)
     expect(guardAt).toBeLessThan(dryAt)
+    expect(wrapper.slice(0, dryAt)).toContain('$env:LOCALAPPDATA')
+    expect(wrapper.slice(0, dryAt)).toContain('OddsOnDeck')
+    expect(wrapper.slice(guardAt, dryAt)).toContain('$fallbackMarker')
+    expect(wrapper.slice(guardAt, dryAt)).toContain('Test-LatestUsageWrite')
     expect(wrapper.slice(guardAt, dryAt)).toContain("'usage-blocked'")
     expect(wrapper.slice(guardAt, dryAt)).toContain('exit 1')
+    expect(wrapper).not.toMatch(/catch\s*\{\s*\}/)
     const blockedAt = wrapper.indexOf('Write-BlockedMarker -MarkerPath $blockedMarker')
     expect(blockedAt).toBeGreaterThan(dryAt)
-    const blockedSlice = wrapper.slice(blockedAt, blockedAt + 600)
+    const blockedSlice = wrapper.slice(blockedAt, blockedAt + 1400)
+    expect(blockedSlice).toContain('marker=primary')
+    expect(blockedSlice).toContain('marker=fallback')
+    expect(blockedSlice).toContain('$fallbackMarker')
     expect(blockedSlice).toContain("'usage-blocked'")
     expect(blockedSlice).toContain('exit 1')
     const usageRecordAt = wrapper.lastIndexOf("'--record-calls'")
@@ -721,6 +729,74 @@ describe('close capture schedule parsing', () => {
     expect(later.called).toBe(true)
     expect(later.plan.maxCalls).toBeGreaterThan(0)
     expect(calls).toBe(1)
+  })
+
+  test('a failed primary marker still blocks the same day', () => {
+    const markers = new Set()
+    const logs = []
+    const failed = blockUsageDay({
+      verified: false,
+      day: '2026-11-08',
+      markers,
+      primaryWrite() { throw new Error('primary marker denied') },
+      fallbackWrite(name) {
+        markers.add(name)
+        return true
+      },
+      log(message) { logs.push(message) },
+    })
+    expect(failed.exitCode).not.toBe(0)
+    expect(failed.marker).toBe('')
+    expect(failed.fallback).toBe('localappdata:2026-11-08.blocked')
+    expect(logs.join('\n')).toContain('primary marker denied')
+    expect(markers.has('2026-11-08.blocked')).toBe(false)
+    expect([...markers]).toEqual(['localappdata:2026-11-08.blocked'])
+
+    let calls = 0
+    const next = nextCapturePlan({
+      day: '2026-11-08',
+      markers,
+      usageText: '4\ncap=40\n',
+      planned: 6,
+      plannedKnown: true,
+      callsUsed: 0,
+      cap: 20,
+      capture() { calls += 1 },
+    })
+    expect(calls).toBe(0)
+    expect(next.called).toBe(false)
+    expect(next.exitCode).not.toBe(0)
+    expect(next.plan).toMatchObject({
+      action: 'exit',
+      reason: 'usage-blocked',
+      maxCalls: 0,
+    })
+
+    const unverified = nextCapturePlan({
+      day: '2026-11-09',
+      markers,
+      usageText: '4\ncap=40\n',
+      planned: 6,
+      plannedKnown: true,
+      callsUsed: 0,
+      cap: 20,
+      capture() { calls += 1 },
+    })
+    expect(unverified.called).toBe(false)
+    expect(unverified.plan.maxCalls).toBe(0)
+    expect(calls).toBe(0)
+
+    const bothMissed = blockUsageDay({
+      verified: false,
+      day: '2026-11-08',
+      markers: new Set(),
+      primaryWrite() { throw new Error('primary marker denied') },
+      fallbackWrite() { throw new Error('fallback marker denied') },
+      log(message) { logs.push(message) },
+    })
+    expect(bothMissed.exitCode).not.toBe(0)
+    expect(bothMissed.blocked).toBe(false)
+    expect(logs.join('\n')).toContain('fallback marker denied')
   })
 
   test('the helper module does not warn about a typeless package.json', () => {

@@ -485,21 +485,96 @@ export function blockedMarkerName(day) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(day || '')) ? `${day}.blocked` : ''
 }
 
-/** A fallback that does not verify blocks that ET day and exits non-zero. */
-export function blockUsageDay({ verified = false, day, markers } = {}) {
-  const marker = blockedMarkerName(day)
-  if (verified) return { exitCode: 0, blocked: false, marker, reason: '' }
-  if (marker && markers && typeof markers.add === 'function') markers.add(marker)
-  return { exitCode: 1, blocked: true, marker, reason: 'usage-blocked' }
+export function fallbackBlockedMarkerName(day) {
+  const name = blockedMarkerName(day)
+  return name ? `localappdata:${name}` : ''
 }
 
 /**
- * A blocked day does not capture. The plan is zero calls and the run
- * exits non-zero with reason usage-blocked.
+ * A missing usage file has no write to verify. A file on disk must
+ * round-trip its own calls, cap, ET day, and run id.
+ */
+export function usageWriteVerified(text, { day, fileDay } = {}) {
+  if (text == null) return { ok: true, reason: '' }
+  const parsed = parseUsageText(text)
+  if (!parsed || !parsed.ok || parsed.missing || !parsed.runId) {
+    return { ok: false, reason: 'usage-blocked' }
+  }
+  return usageMatchesRequest(text, {
+    calls: parsed.callsUsed,
+    cap: parsed.cap,
+    day,
+    runId: parsed.runId,
+    fileDay: fileDay || day,
+  })
+}
+
+/**
+ * A fallback that does not verify blocks that ET day and exits non-zero.
+ * The primary marker is tried first. A failed primary write is logged and
+ * the fallback location is tried. The run still exits non-zero when both
+ * marker writes fail.
+ */
+export function blockUsageDay({
+  verified = false,
+  day,
+  markers,
+  primaryWrite,
+  fallbackWrite,
+  log,
+} = {}) {
+  const marker = blockedMarkerName(day)
+  const fallback = fallbackBlockedMarkerName(day)
+  if (verified) return { exitCode: 0, blocked: false, marker, fallback: '', reason: '' }
+  const note = (message) => {
+    if (typeof log === 'function') log(message)
+  }
+  const writePrimary = typeof primaryWrite === 'function'
+    ? primaryWrite
+    : (name) => {
+      if (name && markers && typeof markers.add === 'function') markers.add(name)
+      return true
+    }
+  const writeFallback = typeof fallbackWrite === 'function'
+    ? fallbackWrite
+    : (name) => {
+      if (name && markers && typeof markers.add === 'function') markers.add(name)
+      return true
+    }
+  let primaryOk = false
+  try {
+    primaryOk = writePrimary(marker) === true
+  } catch (error) {
+    primaryOk = false
+    note(`primary ${error && error.message ? error.message : 'marker write failed'}`)
+  }
+  let fallbackOk = false
+  if (!primaryOk) {
+    try {
+      fallbackOk = writeFallback(fallback) === true
+    } catch (error) {
+      fallbackOk = false
+      note(`fallback ${error && error.message ? error.message : 'marker write failed'}`)
+    }
+  }
+  return {
+    exitCode: 1,
+    blocked: primaryOk || fallbackOk,
+    marker: primaryOk ? marker : '',
+    fallback: fallbackOk ? fallback : '',
+    reason: 'usage-blocked',
+  }
+}
+
+/**
+ * A blocked day does not capture. Either marker location, or a usage
+ * file whose latest write does not verify, plans zero calls and exits
+ * non-zero with reason usage-blocked.
  */
 export function nextCapturePlan({
   day,
   markers,
+  usageText,
   planned = 0,
   plannedKnown = false,
   callsUsed = 0,
@@ -507,8 +582,13 @@ export function nextCapturePlan({
   ceiling = DEFAULT_CALL_CEILING,
   capture,
 } = {}) {
-  const marker = blockedMarkerName(day)
-  if (marker && markers && typeof markers.has === 'function' && markers.has(marker)) {
+  const primary = blockedMarkerName(day)
+  const fallback = fallbackBlockedMarkerName(day)
+  const marked = [primary, fallback].some((name) => (
+    name && markers && typeof markers.has === 'function' && markers.has(name)
+  ))
+  const usage = usageWriteVerified(usageText, { day, fileDay: day })
+  if (marked || !usage.ok) {
     return {
       called: false,
       exitCode: 1,
