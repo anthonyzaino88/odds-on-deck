@@ -2539,6 +2539,26 @@ describe('runCapturePublishedCloses', () => {
         files.delete(from)
       },
       unlinkSync(filePath) { files.delete(filePath) },
+      linkSync(from, to) {
+        if (files.has(to)) {
+          const error = new Error(`EEXIST ${to}`)
+          error.code = 'EEXIST'
+          throw error
+        }
+        files.set(to, files.get(from))
+      },
+      readdirSync(dir) {
+        const prefix = dir.endsWith('/') ? dir : `${dir}/`
+        const names = []
+        for (const key of files.keys()) {
+          const name = String(key)
+          if (!name.startsWith(prefix)) continue
+          const rest = name.slice(prefix.length)
+          if (!rest || rest.includes('/')) continue
+          names.push(rest)
+        }
+        return names
+      },
     }
     const budgetEnv = {
       ODDS_BUDGET_PATH: '/tmp/capture-game-line-budget.json',
