@@ -1253,6 +1253,23 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       if (reservedPropLost) {
         calls -= 1
         creditsUsed -= activeCredits
+        if (isOpsWriteQuietPeriod(nowFn())) {
+          log.log('⏸️  Ops quiet period (:05–:15 ET) — not starting the line-only retry.')
+          markQuietStop(jobIndex)
+          break
+        }
+        if (shouldSkipPaidCloseCaptureFetch(nowFn())) {
+          log.log(
+            '⏸️  After :04:30 ET — not starting a line-only retry that quiet :05 would block.',
+          )
+          markQuietStop(jobIndex)
+          break
+        }
+        if (!closeCapturePassForGame(game, nowFn(), windowOpts)) {
+          log.log(`  skip ${label}: no longer in the close window`)
+          skippedWindowDuringRun += 1
+          continue
+        }
         switchToLineOnly()
         if (!oddsBudget.allow(activeCredits, budgetExtraFor(false))) {
           log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)

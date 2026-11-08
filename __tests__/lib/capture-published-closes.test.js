@@ -3374,6 +3374,131 @@ describe('runCapturePublishedCloses', () => {
     expect(budget.todayCloseCaptures()).toBe(40)
   })
 
+  test('a line-only retry at 19:05:01 ET makes no paid request', async () => {
+    const budget = createOddsApiBudget({
+      persist: false,
+      now: IN_WINDOW,
+      purpose: 'close-capture',
+      env: {
+        ODDS_REMAINING_FLOOR: '0',
+        ODDS_CLOSE_CAPTURE_RESERVE: '0',
+        ODDS_CLOSE_CAPTURE_DAILY_CAP: '40',
+        ODDS_GAME_LINE_RESERVED_SLOTS: '31',
+        ODDS_GAME_LINE_CLOSE_DAILY_CAP: '93',
+        ODDS_DAILY_CREDIT_CAP: '1500',
+      },
+      log: { log() {}, warn() {} },
+      state: {
+        days: {
+          '2026-07-15': {
+            credits: 39,
+            calls: 39,
+            closeCaptures: 39,
+            gameLineCredits: 0,
+            gameLineCaptures: 0,
+          },
+        },
+      },
+    })
+    let propAttempted = false
+    const fetchEventOdds = jest.fn(async ({ countPropCapture, estimatedCredits, gameLineCredits }) => {
+      expect(countPropCapture).toBe(true)
+      propAttempted = true
+      budget.reserve(1, { captures: 1 })
+      const blocked = budget.reserve(estimatedCredits, {
+        captures: 1,
+        gameLineCredits,
+        countPropCapture: true,
+      })
+      return { skipped: true, status: blocked.status, budgetRecorded: false, quota: budget.quota() }
+    })
+    const log = memoryLog()
+    await runCapturePublishedCloses({
+      argv: ['--apply', '--nhl-all'],
+      clock: () => (propAttempted
+        ? new Date('2026-07-15T23:05:01.000Z')
+        : IN_WINDOW),
+      budget,
+      createClient: () => mockClient({
+        games: [nhlGame()],
+        picks: [nhlPendingPick()],
+        edges: [],
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 39, last: 0 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(budget.todayGameLineCaptures()).toBe(0)
+    expect(budget.todayGameLineCredits()).toBe(0)
+    expect(log.lines.join('\n')).toMatch(/:05–:15 ET/)
+    expect(log.lines.join('\n')).toMatch(/line-only retry/)
+  })
+
+  test('a line-only retry past the capture window makes no paid request', async () => {
+    const budget = createOddsApiBudget({
+      persist: false,
+      now: IN_WINDOW,
+      purpose: 'close-capture',
+      env: {
+        ODDS_REMAINING_FLOOR: '0',
+        ODDS_CLOSE_CAPTURE_RESERVE: '0',
+        ODDS_CLOSE_CAPTURE_DAILY_CAP: '40',
+        ODDS_GAME_LINE_RESERVED_SLOTS: '31',
+        ODDS_GAME_LINE_CLOSE_DAILY_CAP: '93',
+        ODDS_DAILY_CREDIT_CAP: '1500',
+      },
+      log: { log() {}, warn() {} },
+      state: {
+        days: {
+          '2026-07-15': {
+            credits: 39,
+            calls: 39,
+            closeCaptures: 39,
+            gameLineCredits: 0,
+            gameLineCaptures: 0,
+          },
+        },
+      },
+    })
+    let propAttempted = false
+    const fetchEventOdds = jest.fn(async ({ countPropCapture, estimatedCredits, gameLineCredits }) => {
+      expect(countPropCapture).toBe(true)
+      propAttempted = true
+      budget.reserve(1, { captures: 1 })
+      const blocked = budget.reserve(estimatedCredits, {
+        captures: 1,
+        gameLineCredits,
+        countPropCapture: true,
+      })
+      return { skipped: true, status: blocked.status, budgetRecorded: false, quota: budget.quota() }
+    })
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--nhl-all'],
+      clock: () => (propAttempted
+        ? new Date('2026-07-15T23:16:00.000Z')
+        : IN_WINDOW),
+      budget,
+      createClient: () => mockClient({
+        games: [nhlGame()],
+        picks: [nhlPendingPick()],
+        edges: [],
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 39, last: 0 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(budget.todayGameLineCaptures()).toBe(0)
+    expect(budget.todayGameLineCredits()).toBe(0)
+    expect(log.lines.join('\n')).toMatch(/no longer in the close window/)
+    expect(result.skippedWindow).toBeGreaterThan(0)
+    expect(result.skippedQuiet).not.toBe(true)
+  })
+
   test('game-line caps at 0 do not request h2h or totals', async () => {
     const budget = createOddsApiBudget({
       persist: false,
