@@ -592,6 +592,70 @@ describe('createOddsApiBudget', () => {
     }
   })
 
+  test('a fractional fence number is not accepted as the floored integer', () => {
+    const day = '2026-11-04'
+    const row = {
+      credits: 0,
+      calls: 0,
+      closeCaptures: 0,
+      gameLineCredits: 0,
+    }
+    const filePath = '/tmp/odds-api-budget-fractional-fence.json'
+    const fileFs = memoryFs()
+    fileFs.writeFileSync(`${filePath}.fences/1`, JSON.stringify({
+      version: 1,
+      fence: 1.9,
+      fenceDay: day,
+      days: { [day]: row },
+    }))
+    const fromFile = loadOddsBudgetState({
+      persistPath: filePath,
+      filesystem: fileFs,
+      warn: false,
+    })
+    expect(fromFile.unreadable).toBe(true)
+    const fileBudget = createOddsApiBudget({
+      persist: true,
+      filesystem: fileFs,
+      now: NOON_ET,
+      purpose: 'close-capture',
+      env: closeCaptureEnv(filePath),
+      log: { log() {}, warn() {} },
+    })
+    expect(fileBudget.reserve(1, { captures: 1 })).toMatchObject({
+      ok: false,
+      status: ODDS_BUDGET_LEDGER_UNREADABLE,
+    })
+    expect(fileFs.existsSync(`${filePath}.fences/2`)).toBe(false)
+
+    const pointerPath = '/tmp/odds-api-budget-fractional-pointer.json'
+    const pointerFs = memoryFs()
+    pointerFs.writeFileSync(pointerPath, JSON.stringify({
+      version: 1,
+      fence: 1.9,
+      days: { [day]: row },
+    }))
+    const fromPointer = loadOddsBudgetState({
+      persistPath: pointerPath,
+      filesystem: pointerFs,
+      warn: false,
+    })
+    expect(fromPointer.unreadable).toBe(true)
+    const pointerBudget = createOddsApiBudget({
+      persist: true,
+      filesystem: pointerFs,
+      now: NOON_ET,
+      purpose: 'close-capture',
+      env: closeCaptureEnv(pointerPath),
+      log: { log() {}, warn() {} },
+    })
+    expect(pointerBudget.reserve(1, { captures: 1 })).toMatchObject({
+      ok: false,
+      status: ODDS_BUDGET_LEDGER_UNREADABLE,
+    })
+    expect(pointerFs.existsSync(`${pointerPath}.fences/1`)).toBe(false)
+  })
+
   test('an invalid fence name next to a valid fence refuses a reservation', () => {
     const day = '2026-11-04'
     const path = '/tmp/odds-api-budget-oops-fence.json'
