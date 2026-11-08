@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Report (and optionally repair) grades that settled on games that
  * were never truly final: postponed, cancelled, suspended, or MLB 0-0.
@@ -87,7 +88,7 @@ async function loadGames(supabase, scope) {
     if (scope.game) query = query.eq('id', scope.game)
     return applyGameDateScope(query, scope)
   })
-  if (unplayed.error) throw new Error(`Game lookup failed: ${unplayed.error.message}`)
+  if (unplayed.error) throw new Error(`Game lookup failed: ${sanitizedErrorMessage(unplayed.error)}`)
 
   let mlbZeroRows = []
   if (!scope.sport || scope.sport === 'mlb') {
@@ -103,7 +104,7 @@ async function loadGames(supabase, scope) {
       if (scope.game) query = query.eq('id', scope.game)
       return applyGameDateScope(query, scope)
     })
-    if (mlbZero.error) throw new Error(`MLB 0-0 lookup failed: ${mlbZero.error.message}`)
+    if (mlbZero.error) throw new Error(`MLB 0-0 lookup failed: ${sanitizedErrorMessage(mlbZero.error)}`)
     mlbZeroRows = mlbZero.rows
   }
 
@@ -131,7 +132,7 @@ async function loadParlays(supabase, gameIds) {
       .select(PARLAY_LEG_SELECT)
       .in('gameIdRef', chunk)
       .order('id', { ascending: true }))
-    if (page.error) throw new Error(`ParlayLeg lookup failed: ${page.error.message}`)
+    if (page.error) throw new Error(`ParlayLeg lookup failed: ${sanitizedErrorMessage(page.error)}`)
     flaggedLegs = flaggedLegs.concat(page.rows)
   }
 
@@ -145,7 +146,7 @@ async function loadParlays(supabase, gameIds) {
       .select('id, status, outcome, sport, notes, totalOdds')
       .in('id', chunk)
       .order('id', { ascending: true }))
-    if (page.error) throw new Error(`Parlay lookup failed: ${page.error.message}`)
+    if (page.error) throw new Error(`Parlay lookup failed: ${sanitizedErrorMessage(page.error)}`)
     rows = rows.concat(page.rows)
   }
 
@@ -156,7 +157,7 @@ async function loadParlays(supabase, gameIds) {
       .select(PARLAY_LEG_SELECT)
       .in('parlayId', chunk)
       .order('id', { ascending: true }))
-    if (page.error) throw new Error(`ParlayLeg lookup failed: ${page.error.message}`)
+    if (page.error) throw new Error(`ParlayLeg lookup failed: ${sanitizedErrorMessage(page.error)}`)
     legs = legs.concat(page.rows)
   }
 
@@ -224,6 +225,6 @@ from postponed, cancelled, suspended, or MLB 0-0 Game rows.
 }
 
 main().catch((error) => {
-  console.error('❌ report-unplayed-game-grades failed:', error)
+  console.error('❌ report-unplayed-game-grades failed:', sanitizeLoggedValue(error))
   process.exit(1)
 })

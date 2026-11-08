@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * Remap NHL Odds API Event IDs
@@ -52,7 +53,7 @@ async function callOddsAPI(endpoint, params = '') {
     }
     return await response.json()
   } catch (error) {
-    console.error(`  ❌ API call failed: ${error.message}`)
+    console.error(`  ❌ API call failed: ${sanitizedErrorMessage(error)}`)
     return null
   }
 }
@@ -78,7 +79,7 @@ async function remapNHLEventIds() {
     .not('oddsApiEventId', 'is', null)
 
   if (clearError) {
-    console.error('❌ Error clearing mappings:', clearError)
+    console.error('❌ Error clearing mappings:', sanitizeLoggedValue(clearError))
     return
   }
 
@@ -107,7 +108,7 @@ async function remapNHLEventIds() {
     .order('date', { ascending: true })
 
   if (fetchError) {
-    console.error('❌ Error fetching games:', fetchError)
+    console.error('❌ Error fetching games:', sanitizeLoggedValue(fetchError))
     return
   }
 
@@ -246,7 +247,7 @@ async function remapNHLEventIds() {
         .eq('id', game.id)
 
       if (updateError) {
-        console.error(`❌ Error updating game ${game.id}:`, updateError)
+        console.error(`❌ Error updating game ${game.id}:`, sanitizeLoggedValue(updateError))
       } else {
         console.log(`✅ Mapped ${game.away.abbr} @ ${game.home.abbr} (${gameDateStr}) → ${matchingOddsGame.id}`)
         mapped++
@@ -273,4 +274,4 @@ async function remapNHLEventIds() {
 // RUN SCRIPT
 // ============================================================================
 
-remapNHLEventIds().catch(console.error)
+remapNHLEventIds().catch((error) => console.error(sanitizeLoggedValue(error)))

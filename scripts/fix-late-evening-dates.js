@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
@@ -21,7 +22,7 @@ async function fixLateEveningDates() {
     .order('date')
   
   if (error) {
-    console.error('❌ Error:', error)
+    console.error('❌ Error:', sanitizeLoggedValue(error))
     return
   }
   
@@ -85,7 +86,7 @@ async function fixLateEveningDates() {
           .eq('id', game.id)
         
         if (updateError) {
-          console.error(`  ❌ Error: ${updateError.message}`)
+          console.error(`  ❌ Error: ${sanitizedErrorMessage(updateError)}`)
           errors++
         } else {
           updated++
@@ -108,5 +109,5 @@ async function fixLateEveningDates() {
   }
 }
 
-fixLateEveningDates().catch(console.error)
+fixLateEveningDates().catch((error) => console.error(sanitizeLoggedValue(error)))
 

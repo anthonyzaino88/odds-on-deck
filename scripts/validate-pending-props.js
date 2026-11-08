@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * VALIDATE PENDING PROPS (Standalone - no dev server required)
  * 
@@ -65,7 +66,7 @@ async function main() {
   if (sportFilter) query = query.eq('sport', sportFilter)
 
   const { data: pending, error } = await query
-  if (error) { console.error('❌ Query error:', error.message); process.exit(1) }
+  if (error) { console.error('❌ Query error:', sanitizedErrorMessage(error)); process.exit(1) }
 
   if (!pending || pending.length === 0) {
     console.log('\n✅ No pending validations!')
@@ -186,7 +187,7 @@ async function main() {
     const write = await writeVoid(v, game)
     if (write?.error) {
       errors++
-      console.error(`❌ Void write failed for ${v.playerName}: ${write.error.message}`)
+      console.error(`❌ Void write failed for ${v.playerName}: ${sanitizedErrorMessage(write.error)}`)
       continue
     }
     voids++
@@ -213,7 +214,7 @@ async function main() {
     )
     if (write?.error) {
       errors++
-      console.error(`❌ Timeout write failed for ${v.playerName}: ${write.error.message}`)
+      console.error(`❌ Timeout write failed for ${v.playerName}: ${sanitizedErrorMessage(write.error)}`)
       continue
     }
     needsReview++
@@ -404,7 +405,7 @@ async function main() {
         const write = await writeVoid(v, game, `DNP: ${dnpReason}`)
         if (write?.error) {
           errors++
-          console.error(`${prefix} ❌ Void write failed for ${v.playerName}: ${write.error.message}`)
+          console.error(`${prefix} ❌ Void write failed for ${v.playerName}: ${sanitizedErrorMessage(write.error)}`)
           continue
         }
         voids++
@@ -465,7 +466,7 @@ async function main() {
 
       if (write?.error) {
         errors++
-        console.error(`${prefix} ❌ Write failed for ${v.playerName}: ${write.error.message}`)
+        console.error(`${prefix} ❌ Write failed for ${v.playerName}: ${sanitizedErrorMessage(write.error)}`)
         continue
       }
 
@@ -479,7 +480,7 @@ async function main() {
       // Smaller delay between API calls to avoid rate limiting
       await new Promise(r => setTimeout(r, 150))
     } catch (err) {
-      console.error(`${prefix} ❌ Error: ${err.message}`)
+      console.error(`${prefix} ❌ Error: ${sanitizedErrorMessage(err)}`)
       errors++
     }
   }
@@ -537,7 +538,7 @@ async function main() {
                 archivedGames++
                 console.log(`  ✅ Archived ${rows.length} player stats for ${gid}`)
               } catch (bsErr) {
-                console.log(`  ⚠️  ${gid}: ${bsErr.message}`)
+                console.log(`  ⚠️  ${gid}: ${sanitizedErrorMessage(bsErr)}`)
               }
             }
           }
@@ -546,7 +547,7 @@ async function main() {
         //   node scripts/archive-nfl-box-scores.js
         // NHL archival is a documented follow-up (not in this job).
       } catch (bsError) {
-        console.log(`  ⚠️  Box score fetch failed for ${gid}: ${bsError.message}`)
+        console.log(`  ⚠️  Box score fetch failed for ${gid}: ${sanitizedErrorMessage(bsError)}`)
       }
       await new Promise(r => setTimeout(r, 200))
     }
@@ -559,7 +560,7 @@ async function main() {
     const gradedLines = await gradePendingGameLines()
     console.log(`\n📊 Sides & totals: graded ${gradedLines?.length || 0} game-line row(s)`)
   } catch (error) {
-    console.error(`⚠️ gradePendingGameLines failed: ${error.message}`)
+    console.error(`⚠️ gradePendingGameLines failed: ${sanitizedErrorMessage(error)}`)
   }
 
   const { count: remainingPending } = await supabase
@@ -570,4 +571,4 @@ async function main() {
   console.log('='.repeat(70) + '\n')
 }
 
-main().catch(err => { console.error('Fatal:', err); process.exit(1) })
+main().catch(err => { console.error('Fatal:', sanitizeLoggedValue(err)); process.exit(1) })

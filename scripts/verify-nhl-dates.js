@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * Verify NHL game dates match what ESPN says
@@ -45,7 +46,7 @@ async function verifyDates() {
     .order('date', { ascending: true })
   
   if (error) {
-    console.error('❌ Error:', error)
+    console.error('❌ Error:', sanitizeLoggedValue(error))
     return
   }
   
@@ -94,9 +95,9 @@ async function verifyDates() {
       }
     }
   } catch (error) {
-    console.error(`  ⚠️  Error fetching ESPN: ${error.message}`)
+    console.error(`  ⚠️  Error fetching ESPN: ${sanitizedErrorMessage(error)}`)
   }
 }
 
-verifyDates().catch(console.error)
+verifyDates().catch((error) => console.error(sanitizeLoggedValue(error)))
 

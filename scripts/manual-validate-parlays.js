@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage } from '../lib/sanitize-error.js'
 
 /**
  * MANUAL PARLAY VALIDATION
@@ -176,7 +177,7 @@ async function main() {
     const { error: parlayError } = await parlayQuery
 
     if (parlayError) {
-      console.error(`  ❌ Failed to update parlay ${parlay.id}:`, parlayError.message)
+      console.error(`  ❌ Failed to update parlay ${parlay.id}:`, sanitizedErrorMessage(parlayError))
       continue
     }
 
@@ -194,7 +195,7 @@ async function main() {
         .eq('propType', leg.propType)
 
       if (legError) {
-        console.error(`  ⚠️  ${leg.playerName} ${leg.propType}:`, legError.message)
+        console.error(`  ⚠️  ${leg.playerName} ${leg.propType}:`, sanitizedErrorMessage(legError))
         continue
       }
 
@@ -213,7 +214,7 @@ main()
     process.exit(0)
   })
   .catch(error => {
-    console.error('❌ Fatal error:', error.message)
+    console.error('❌ Fatal error:', sanitizedErrorMessage(error))
     process.exit(1)
   })
 

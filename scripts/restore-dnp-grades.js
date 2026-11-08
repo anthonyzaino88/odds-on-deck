@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Restore PropValidation rows from a DNP repair JSON backup.
  *
@@ -58,7 +59,7 @@ Dry-run (default): print every backup row that would be restored.
   try {
     backupRows = parseDnpBackupJson(String(readFile(backupPath, 'utf8')))
   } catch (error) {
-    log.error(`❌ ${error.message}`)
+    log.error(`❌ ${sanitizedErrorMessage(error)}`)
     return { exitCode: 1, previews: [], summary: summarizeRestorePreviews([]) }
   }
 
@@ -70,7 +71,7 @@ Dry-run (default): print every backup row that would be restored.
       .select('*')
       .in('id', chunk)
     if (error) {
-      log.error(`❌ PropValidation lookup failed: ${error.message}`)
+      log.error(`❌ PropValidation lookup failed: ${sanitizedErrorMessage(error)}`)
       return { exitCode: 1, previews: [], summary: summarizeRestorePreviews([]) }
     }
     for (const row of data || []) currentById.set(row.id, row)
@@ -110,7 +111,7 @@ Dry-run (default): print every backup row that would be restored.
     )
     if (write?.error) {
       applyErrors += 1
-      log.error(`❌ Write failed for ${preview.id}: ${write.error.message}`)
+      log.error(`❌ Write failed for ${preview.id}: ${sanitizedErrorMessage(write.error)}`)
       continue
     }
     applied += 1
@@ -138,7 +139,7 @@ if (invokedDirectly()) {
   runRestoreDnpGrades().then((result) => {
     process.exit(result.exitCode)
   }).catch((error) => {
-    console.error('Fatal:', error)
+    console.error('Fatal:', sanitizeLoggedValue(error))
     process.exit(1)
   })
 }

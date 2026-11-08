@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { createGameId } from '../lib/team-mapping.js'
@@ -32,7 +33,7 @@ async function fixNFLGameIds() {
     .order('date')
   
   if (error) {
-    console.error('❌ Error:', error)
+    console.error('❌ Error:', sanitizeLoggedValue(error))
     return
   }
   
@@ -95,7 +96,7 @@ async function fixNFLGameIds() {
           .eq('gameId', game.id)
         
         if (oddsError) {
-          console.error(`   ❌ Error updating Odds: ${oddsError.message}`)
+          console.error(`   ❌ Error updating Odds: ${sanitizedErrorMessage(oddsError)}`)
           errors++
           continue
         }
@@ -107,7 +108,7 @@ async function fixNFLGameIds() {
           .eq('gameId', game.id)
         
         if (edgeError) {
-          console.error(`   ❌ Error updating EdgeSnapshot: ${edgeError.message}`)
+          console.error(`   ❌ Error updating EdgeSnapshot: ${sanitizedErrorMessage(edgeError)}`)
           errors++
           continue
         }
@@ -119,7 +120,7 @@ async function fixNFLGameIds() {
           .eq('gameId', game.id)
         
         if (propsError) {
-          console.error(`   ❌ Error updating PlayerPropCache: ${propsError.message}`)
+          console.error(`   ❌ Error updating PlayerPropCache: ${sanitizedErrorMessage(propsError)}`)
           errors++
           continue
         }
@@ -131,7 +132,7 @@ async function fixNFLGameIds() {
           .eq('gameId', game.id)
         
         if (nflError) {
-          console.error(`   ❌ Error updating NFLGameData: ${nflError.message}`)
+          console.error(`   ❌ Error updating NFLGameData: ${sanitizedErrorMessage(nflError)}`)
           errors++
           continue
         }
@@ -143,7 +144,7 @@ async function fixNFLGameIds() {
           .eq('id', game.id)
         
         if (gameError) {
-          console.error(`   ❌ Error updating Game: ${gameError.message}`)
+          console.error(`   ❌ Error updating Game: ${sanitizedErrorMessage(gameError)}`)
           errors++
         } else {
           updated++
@@ -164,5 +165,5 @@ async function fixNFLGameIds() {
   }
 }
 
-fixNFLGameIds().catch(console.error)
+fixNFLGameIds().catch((error) => console.error(sanitizeLoggedValue(error)))
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * One-off repair for MLB Game rows frozen at pre_game / warmup / delayed.
@@ -55,7 +56,7 @@ async function fetchMLBFromESPN(espnGameId) {
     const data = await res.json()
     return parseEspnMlbSummary(data)
   } catch (err) {
-    console.error(`  ❌ ESPN fallback error: ${err.message}`)
+    console.error(`  ❌ ESPN fallback error: ${sanitizedErrorMessage(err)}`)
     return null
   }
 }
@@ -85,7 +86,7 @@ as 2026-10-01T00:00Z, so use --to 2026-10-01 for that Wild Card slate.`)
   try {
     key = assertRepairApplyAllowed(args.apply, process.env)
   } catch (err) {
-    console.error(`❌ ${err.message}`)
+    console.error(`❌ ${sanitizedErrorMessage(err)}`)
     process.exit(1)
   }
 
@@ -111,7 +112,7 @@ as 2026-10-01T00:00Z, so use --to 2026-10-01 for that Wild Card slate.`)
   })
 
   if (error) {
-    console.error(`❌ Query error: ${error.message}`)
+    console.error(`❌ Query error: ${sanitizedErrorMessage(error)}`)
     process.exit(1)
   }
 
@@ -135,7 +136,7 @@ as 2026-10-01T00:00Z, so use --to 2026-10-01 for that Wild Card slate.`)
       mlbLiveByPk = await fetchLiveGamesByDateRange(window.startDate, window.endDate, true)
       console.log(`📡 MLB schedule hydrate ${window.startDate}..${window.endDate}: ${mlbLiveByPk.size} game(s)\n`)
     } catch (err) {
-      console.warn(`  ⚠️  Hydrated schedule fetch failed (${err.message}); falling back to per-gamePk schedule`)
+      console.warn(`  ⚠️  Hydrated schedule fetch failed (${sanitizedErrorMessage(err)}); falling back to per-gamePk schedule`)
     }
   }
 
@@ -175,6 +176,6 @@ as 2026-10-01T00:00Z, so use --to 2026-10-01 for that Wild Card slate.`)
 }
 
 main().catch((err) => {
-  console.error('Fatal:', err)
+  console.error('Fatal:', sanitizeLoggedValue(err))
   process.exit(1)
 })

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * SNAPSHOT CLOSING LINES
@@ -50,7 +51,7 @@ async function main() {
   if (sportFilter) gameQuery = gameQuery.eq('sport', sportFilter)
 
   const { data: games, error: gErr } = await gameQuery
-  if (gErr) { console.error('Query error:', gErr.message); process.exit(1) }
+  if (gErr) { console.error('Query error:', sanitizedErrorMessage(gErr)); process.exit(1) }
 
   if (!games || games.length === 0) {
     console.log('\n✅ No games starting in this window.')
@@ -108,7 +109,7 @@ async function main() {
     const batch = closingRows.slice(i, i + 200)
     const archived = await insertClosingOddsArchive(supabase, batch)
     if (!archived.ok) {
-      console.error(`  ⚠️  Batch insert error: ${archived.error?.message}`)
+      console.error(`  ⚠️  Batch insert error: ${sanitizedErrorMessage(archived.error)}`)
     } else {
       saved += batch.length
     }
@@ -131,7 +132,7 @@ async function main() {
       try {
         propsArchived += appendJsonl(resolvePropLinesDir(), 'prop-lines', batch)
       } catch (err) {
-        console.error(`  ⚠️  Prop snapshot write error: ${err.message}`)
+        console.error(`  ⚠️  Prop snapshot write error: ${sanitizedErrorMessage(err)}`)
       }
     }
   }
@@ -143,4 +144,4 @@ async function main() {
   console.log('='.repeat(60) + '\n')
 }
 
-main().catch(err => { console.error('Fatal:', err); process.exit(1) })
+main().catch(err => { console.error('Fatal:', sanitizeLoggedValue(err)); process.exit(1) })

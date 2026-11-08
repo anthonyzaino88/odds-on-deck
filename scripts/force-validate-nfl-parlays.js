@@ -1,3 +1,4 @@
+const { sanitizeLoggedValue } = require('../lib/sanitize-error.js')
 const { PrismaClient } = require('@prisma/client')
 const prisma = new PrismaClient()
 
@@ -133,5 +134,5 @@ async function forceValidateParlays() {
   console.log('\n=== DONE ===')
 }
 
-forceValidateParlays().catch(console.error)
+forceValidateParlays().catch((error) => console.error(sanitizeLoggedValue(error)))
 

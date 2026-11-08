@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * Refresh NHL Live Scores
@@ -30,7 +31,7 @@ async function refreshNHLScores() {
     .order('date', { ascending: true })
   
   if (error) {
-    console.error('❌ Error fetching games:', error)
+    console.error('❌ Error fetching games:', sanitizeLoggedValue(error))
     return
   }
   
@@ -102,7 +103,7 @@ async function refreshNHLScores() {
         .eq('id', targetGameId)
       
       if (updateError) {
-        console.error(`  ❌ Update error: ${updateError.message}`)
+        console.error(`  ❌ Update error: ${sanitizedErrorMessage(updateError)}`)
         errors++
       } else {
         const scoreDisplay = `${liveData.awayScore || 0}-${liveData.homeScore || 0}`
@@ -115,7 +116,7 @@ async function refreshNHLScores() {
       await new Promise(resolve => setTimeout(resolve, 300))
       
     } catch (error) {
-      console.error(`  ❌ Error updating ${game.away.abbr} @ ${game.home.abbr}:`, error.message)
+      console.error(`  ❌ Error updating ${game.away.abbr} @ ${game.home.abbr}:`, sanitizedErrorMessage(error))
       errors++
     }
   }
@@ -126,5 +127,5 @@ async function refreshNHLScores() {
   console.log(`  📋 Total: ${games.length}`)
 }
 
-refreshNHLScores().catch(console.error)
+refreshNHLScores().catch((error) => console.error(sanitizeLoggedValue(error)))
 

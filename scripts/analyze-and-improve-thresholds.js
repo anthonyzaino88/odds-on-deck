@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Auto-Learning Script: Analyze validation results and recommend threshold improvements
  * 
@@ -316,5 +317,5 @@ if (!existsSync('config')) {
   mkdirSync('config')
 }
 
-analyzeAndImprove().catch(console.error)
+analyzeAndImprove().catch((error) => console.error(sanitizeLoggedValue(error)))
 

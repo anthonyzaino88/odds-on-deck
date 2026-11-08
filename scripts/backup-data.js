@@ -1,3 +1,4 @@
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 // Automated backup script - Export parlay data to CSV/JSON
 import fs from 'fs'
 import path from 'path'
@@ -33,7 +34,7 @@ async function backupData() {
         console.error('❌ Failed to fetch CSV data:', csvResponse.statusText)
       }
     } catch (error) {
-      console.error('❌ Error exporting CSV:', error.message)
+      console.error('❌ Error exporting CSV:', sanitizedErrorMessage(error))
     }
     
     try {
@@ -49,7 +50,7 @@ async function backupData() {
         console.error('❌ Failed to fetch stats data:', statsResponse.statusText)
       }
     } catch (error) {
-      console.error('❌ Error exporting stats:', error.message)
+      console.error('❌ Error exporting stats:', sanitizedErrorMessage(error))
     }
     
     try {
@@ -65,7 +66,7 @@ async function backupData() {
         console.error('❌ Failed to fetch JSON data:', jsonResponse.statusText)
       }
     } catch (error) {
-      console.error('❌ Error exporting JSON:', error.message)
+      console.error('❌ Error exporting JSON:', sanitizedErrorMessage(error))
     }
     
     try {
@@ -80,7 +81,7 @@ async function backupData() {
         console.warn('⚠️ Database file not found at:', dbSource)
       }
     } catch (error) {
-      console.error('❌ Error backing up database:', error.message)
+      console.error('❌ Error backing up database:', sanitizedErrorMessage(error))
     }
     
     // Create backup summary
@@ -111,7 +112,7 @@ To analyze in Excel:
     console.log(`📁 Location: ${backupDir}`)
     
   } catch (error) {
-    console.error('❌ Backup failed:', error)
+    console.error('❌ Backup failed:', sanitizeLoggedValue(error))
     process.exit(1)
   }
 }
@@ -128,7 +129,7 @@ backupData()
     process.exit(0)
   })
   .catch(error => {
-    console.error('❌ Backup process failed:', error)
+    console.error('❌ Backup process failed:', sanitizeLoggedValue(error))
     process.exit(1)
   })
 

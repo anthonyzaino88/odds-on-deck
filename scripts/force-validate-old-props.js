@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * FORCE VALIDATE OLD PROPS
  * 
@@ -89,7 +90,7 @@ function extractPlayerStat(espnData, playerName, statType) {
     
     return null
   } catch (error) {
-    console.error('Error extracting stat:', error.message)
+    console.error('Error extracting stat:', sanitizedErrorMessage(error))
     return null
   }
 }
@@ -115,7 +116,7 @@ async function forceValidateOldProps() {
     .order('timestamp', { ascending: true })
   
   if (error) {
-    console.error('❌ Error:', error)
+    console.error('❌ Error:', sanitizeLoggedValue(error))
     return
   }
   
@@ -213,7 +214,7 @@ async function forceValidateOldProps() {
       await new Promise(resolve => setTimeout(resolve, 500))
       
     } catch (err) {
-      console.error(`  ❌ Error:`, err.message)
+      console.error(`  ❌ Error:`, sanitizedErrorMessage(err))
       errors++
     }
   }
@@ -228,5 +229,5 @@ async function forceValidateOldProps() {
   console.log('\n💡 Check your /validation dashboard to see updated stats!\n')
 }
 
-forceValidateOldProps().catch(console.error)
+forceValidateOldProps().catch((error) => console.error(sanitizeLoggedValue(error)))
 

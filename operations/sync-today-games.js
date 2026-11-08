@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 // Sync today's games with ESPN - add missing games and fix existing ones
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
@@ -54,7 +55,7 @@ async function syncTodayGames() {
     .lte('date', `${todayStr}T23:59:59Z`)
 
   if (error) {
-    console.error('❌ Database error:', error)
+    console.error('❌ Database error:', sanitizeLoggedValue(error))
     return
   }
 
@@ -133,7 +134,7 @@ async function syncTodayGames() {
           added++
           console.log(`  ✅ Added successfully`)
         } else {
-          console.log(`  ❌ Error adding: ${insertError.message}`)
+          console.log(`  ❌ Error adding: ${sanitizedErrorMessage(insertError)}`)
         }
       } else {
         console.log(`  ❌ Missing team data: home=${homeTeam?.id}, away=${awayTeam?.id}`)
@@ -154,5 +155,5 @@ async function syncTodayGames() {
   }
 }
 
-syncTodayGames().catch(console.error)
+syncTodayGames().catch((error) => console.error(sanitizeLoggedValue(error)))
 

@@ -1,3 +1,4 @@
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../../../../lib/sanitize-error.js'
 // Simple API endpoint to get today's games
 // Using Supabase client instead of Prisma (no build-time dependency!)
 
@@ -14,18 +15,18 @@ export async function GET() {
     const result = await getTodaysGames()
 
     if (!result.success) {
-      console.error('❌ Database error:', result.error)
+      console.error('❌ Database error:', sanitizeLoggedValue(result.error))
       return NextResponse.json(result, { status: 500 })
     }
 
     console.log(`📊 Games: MLB=${result.data.mlb.length}, NFL=${result.data.nfl.length} (week), NHL=${result.data.nhl.length}`)
     return NextResponse.json(result)
   } catch (error) {
-    console.error('❌ API Error:', error.message)
+    console.error('❌ API Error:', sanitizedErrorMessage(error))
     const isSupabaseError = error.message?.includes('Supabase') || error.message?.includes('fetch failed') || error.message?.includes('ECONNREFUSED')
     const userMessage = isSupabaseError
       ? 'Database connection failed. Your Supabase project may be paused — check https://supabase.com/dashboard'
-      : error.message
+      : sanitizedErrorMessage(error)
     return NextResponse.json({ success: false, error: userMessage }, { status: 500 })
   }
 }

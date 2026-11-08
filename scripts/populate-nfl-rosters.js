@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 // Populate NFL rosters from ESPN API
 
 import { config } from 'dotenv'
@@ -18,11 +19,11 @@ async function populateRosters() {
       console.log(`   - Roster entries: ${result.rosterEntries || 0}`)
       console.log(`   - Teams processed: ${result.teamsProcessed || 0}`)
     } else {
-      console.error(`\n❌ Failed to populate rosters: ${result.error || result.message}`)
+      console.error(`\n❌ Failed to populate rosters: ${result.error || sanitizedErrorMessage(result)}`)
       process.exit(1)
     }
   } catch (error) {
-    console.error('❌ Error:', error)
+    console.error('❌ Error:', sanitizeLoggedValue(error))
     process.exit(1)
   }
 }

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Read-only: Featured cards whose stored grade used a PropValidation
  * from a different game (same player + market, other gameIdRef).
@@ -28,12 +29,12 @@ async function main() {
     .ilike('notes', `%${FEATURED_COHORT_TAG}%`)
     .order('createdAt', { ascending: true })
 
-  if (error) throw new Error(`Featured lookup failed: ${error.message}`)
+  if (error) throw new Error(`Featured lookup failed: ${sanitizedErrorMessage(error)}`)
 
   const parlays = filterFeaturedCohortRows(rows || [])
   const legs = parlays.flatMap((parlay) => parlay.legs || [])
   const { data: validations, error: pvError } = await fetchFeaturedPropValidations(supabaseAdmin, legs)
-  if (pvError) throw new Error(`PropValidation lookup failed: ${pvError.message}`)
+  if (pvError) throw new Error(`PropValidation lookup failed: ${sanitizedErrorMessage(pvError)}`)
 
   const changed = reportFeaturedGameMismatchGrades(parlays, validations || [])
   console.log(`📌 Featured cards scanned: ${parlays.length}`)
@@ -55,6 +56,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error('❌ report-featured-game-mismatch failed:', error)
+  console.error('❌ report-featured-game-mismatch failed:', sanitizeLoggedValue(error))
   process.exit(1)
 })

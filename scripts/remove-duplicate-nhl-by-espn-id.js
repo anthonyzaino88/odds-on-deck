@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * Remove duplicate NHL games by ESPN ID
@@ -38,7 +39,7 @@ async function removeDuplicatesByEspnId() {
     .order('date', { ascending: true })
   
   if (error) {
-    console.error('❌ Error:', error)
+    console.error('❌ Error:', sanitizeLoggedValue(error))
     return
   }
   
@@ -126,7 +127,7 @@ async function removeDuplicatesByEspnId() {
         .eq('id', gameId)
       
       if (deleteError) {
-        console.error(`   ❌ Error deleting ${gameId}: ${deleteError.message}`)
+        console.error(`   ❌ Error deleting ${gameId}: ${sanitizedErrorMessage(deleteError)}`)
       } else {
         totalDeleted++
         console.log(`   ✅ Deleted ${gameId}`)
@@ -139,7 +140,7 @@ async function removeDuplicatesByEspnId() {
 }
 
 removeDuplicatesByEspnId().catch(error => {
-  console.error('❌ Fatal error:', error)
+  console.error('❌ Fatal error:', sanitizeLoggedValue(error))
   process.exit(1)
 })
 

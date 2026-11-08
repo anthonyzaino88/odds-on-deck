@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 // Force map today's NHL games even if Odds API doesn't have data yet
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
@@ -55,7 +56,7 @@ async function forceMapTodayGames() {
     .lte('date', `${todayStr}T23:59:59Z`)
 
   if (error) {
-    console.error('❌ Database error:', error)
+    console.error('❌ Database error:', sanitizeLoggedValue(error))
     return
   }
 
@@ -94,7 +95,7 @@ async function forceMapTodayGames() {
       // Rate limiting
       await new Promise(resolve => setTimeout(resolve, 1000))
     } catch (error) {
-      console.log(`  ❌ Error: ${error.message}`)
+      console.log(`  ❌ Error: ${sanitizedErrorMessage(error)}`)
     }
   }
 
@@ -174,7 +175,7 @@ async function forceMapTodayGames() {
           .eq('id', dbGame.id)
 
         if (updateError) {
-          console.error(`   ❌ Error updating: ${updateError.message}`)
+          console.error(`   ❌ Error updating: ${sanitizedErrorMessage(updateError)}`)
         } else {
           console.log(`   ✅ Successfully mapped`)
           mapped++
@@ -196,5 +197,5 @@ async function forceMapTodayGames() {
   }
 }
 
-forceMapTodayGames().catch(console.error)
+forceMapTodayGames().catch((error) => console.error(sanitizeLoggedValue(error)))
 

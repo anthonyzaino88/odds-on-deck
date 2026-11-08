@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * ANALYZE NHL VALIDATION ISSUES
  * 
@@ -23,7 +24,7 @@ async function analyzeNHLIssues() {
     .eq('sport', 'nhl')
   
   if (error) {
-    console.error('❌ Error:', error)
+    console.error('❌ Error:', sanitizeLoggedValue(error))
     return
   }
   
@@ -122,7 +123,7 @@ async function analyzeNHLIssues() {
   console.log('\n')
 }
 
-analyzeNHLIssues().catch(console.error)
+analyzeNHLIssues().catch((error) => console.error(sanitizeLoggedValue(error)))
 
 
 

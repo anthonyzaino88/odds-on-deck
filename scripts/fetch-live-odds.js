@@ -399,7 +399,7 @@ async function findGameByTeamNames(oddsHome, oddsAway, sport, date, eventId) {
     })
     return resolveTeamNameFallback([], expanded, eventId)
   } catch (error) {
-    console.warn(`Error in findGameByTeamNames: ${error.message}`)
+    console.warn(`Error in findGameByTeamNames: ${sanitizedErrorMessage(error)}`)
     return null
   }
 }
@@ -527,7 +527,7 @@ async function callOddsAPI(endpoint) {
     return result.data
   } catch (error) {
     const safe = sanitizeOddsApiError(error, ODDS_API_KEY)
-    console.error(`  ❌ API Error: ${safe.message}`)
+    console.error(`  ❌ API Error: ${sanitizedErrorMessage(safe)}`)
     throw safe
   }
 }
@@ -557,7 +557,7 @@ async function checkCache(table, where, maxAgeMs, ignoreCache = false, tsColumn 
       }
     }
   } catch (error) {
-    console.error(`  ⚠️  Cache check error: ${error.message}`)
+    console.error(`  ⚠️  Cache check error: ${sanitizedErrorMessage(error)}`)
   }
   
   return false  // Cache is stale or doesn't exist
@@ -601,7 +601,7 @@ async function fetchGameOdds(sport, date, ignoreCache = false) {
         .lte('date', dateEnd.toISOString())
       
       if (allGamesError) {
-        console.log(`  ⚠️  Error querying games: ${allGamesError.message}`)
+        console.log(`  ⚠️  Error querying games: ${sanitizedErrorMessage(allGamesError)}`)
         return []
       }
       
@@ -623,7 +623,7 @@ async function fetchGameOdds(sport, date, ignoreCache = false) {
         .not('oddsApiEventId', 'is', null)
       
       if (error) {
-        console.log(`  ⚠️  Error querying mapped games: ${error.message}`)
+        console.log(`  ⚠️  Error querying mapped games: ${sanitizedErrorMessage(error)}`)
         return []
       }
       
@@ -716,7 +716,7 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
   }
   
   if (dbError) {
-    console.warn(`  ⚠️  Error querying games for mapping: ${dbError.message}`)
+    console.warn(`  ⚠️  Error querying games for mapping: ${sanitizedErrorMessage(dbError)}`)
   }
   
   if (dbGames && dbGames.length > 0) {
@@ -814,7 +814,7 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
         .eq('id', dbGame.id)
       
       if (error) {
-        console.error(`    ❌ Mapping error for ${dbGame.id}: ${error.message}`)
+        console.error(`    ❌ Mapping error for ${dbGame.id}: ${sanitizedErrorMessage(error)}`)
       } else {
         console.log(`    ✅ Mapped: ${dbGame.away.abbr} @ ${dbGame.home.abbr} → ${oddsGame.id.substring(0, 8)}...`)
         if (dbGame.oddsApiEventId) {
@@ -893,7 +893,7 @@ async function saveGameOdds(games, sport, date) {
     .in('oddsApiEventId', allEventIds)
   
   if (queryError) {
-    console.warn(`  ⚠️  Error querying games by event IDs: ${queryError.message}`)
+    console.warn(`  ⚠️  Error querying games by event IDs: ${sanitizedErrorMessage(queryError)}`)
     dbGames = []
   }
   
@@ -916,7 +916,7 @@ async function saveGameOdds(games, sport, date) {
       .not('oddsApiEventId', 'is', null)
     
     if (dateError) {
-      console.warn(`  ⚠️  Error querying games by date: ${dateError.message}`)
+      console.warn(`  ⚠️  Error querying games by date: ${sanitizedErrorMessage(dateError)}`)
     } else if (dateGames) {
       // Merge with existing results, avoiding duplicates
       const existingIds = new Set((dbGames || []).map(g => g.id))
@@ -944,7 +944,7 @@ async function saveGameOdds(games, sport, date) {
         .not('oddsApiEventId', 'is', null)
       
       if (expandedError) {
-        console.warn(`  ⚠️  Error querying expanded range: ${expandedError.message}`)
+        console.warn(`  ⚠️  Error querying expanded range: ${sanitizedErrorMessage(expandedError)}`)
       } else if (expandedGames) {
         const existingIds = new Set((dbGames || []).map(g => g.id))
         const newGames = expandedGames.filter(g => !existingIds.has(g.id))
@@ -1001,7 +1001,7 @@ async function saveGameOdds(games, sport, date) {
           eventIdToGameId[game.id] = teamMatch.id
           ourGameId = teamMatch.id
         } else {
-          console.warn(`    ⚠️  Failed to update mapping: ${updateError.message}`)
+          console.warn(`    ⚠️  Failed to update mapping: ${sanitizedErrorMessage(updateError)}`)
         }
       } else {
         console.warn(`    ⚠️  No database game found for Odds API event ${game.id.substring(0, 16)}... (${game.away_team} @ ${game.home_team})`)
@@ -1089,7 +1089,7 @@ async function saveGameOdds(games, sport, date) {
           // Ignore duplicate key errors (code 23505)
           if (error) {
             if (!error.code?.includes('23505')) {
-              console.error(`    ❌ Save error: ${error.message} (code: ${error.code})`)
+              console.error(`    ❌ Save error: ${sanitizedErrorMessage(error)} (code: ${error.code})`)
             }
           } else {
             saved++
@@ -1097,7 +1097,7 @@ async function saveGameOdds(games, sport, date) {
         }
       }
     } catch (error) {
-      console.error(`    ❌ Processing error: ${error.message}`)
+      console.error(`    ❌ Processing error: ${sanitizedErrorMessage(error)}`)
     }
   }
   
@@ -1142,7 +1142,7 @@ async function fetchPlayerProps(sport, date, oddsGames, ignoreCache = false) {
       .lte('date', dateEnd.toISOString())
 
     if (mappedError) {
-      console.log(`  ⚠️  Error loading mapped ESPN games for ${sport.toUpperCase()} props: ${mappedError.message}`)
+      console.log(`  ⚠️  Error loading mapped ESPN games for ${sport.toUpperCase()} props: ${sanitizedErrorMessage(mappedError)}`)
       console.log(`  ⚠️  No mapped ESPN games for ${sport.toUpperCase()} props — skipping ${oddsGames.length} Odds API events`)
       return []
     }
@@ -1312,7 +1312,7 @@ async function savePlayerProps(gameProps, sport) {
     .in('oddsApiEventId', eventIds)
   
   if (error) {
-    console.warn(`  ⚠️  Error querying games for props: ${error.message}`)
+    console.warn(`  ⚠️  Error querying games for props: ${sanitizedErrorMessage(error)}`)
   }
   
   // Final games may redirect props to the next scheduled sibling.
@@ -1530,7 +1530,7 @@ async function savePlayerProps(gameProps, sport) {
         }
       }
     } catch (error) {
-      console.error(`    ❌ Processing error: ${error.message}`)
+      console.error(`    ❌ Processing error: ${sanitizedErrorMessage(error)}`)
       errors++
     }
   }
@@ -1580,7 +1580,7 @@ async function savePlayerProps(gameProps, sport) {
       console.log(`    💾 Saved ${progress}/${propsToInsert.length} props...`)
       
     } catch (batchError) {
-      console.error(`    ❌ Batch error: ${batchError.message}`)
+      console.error(`    ❌ Batch error: ${sanitizedErrorMessage(batchError)}`)
       errors++
     }
   }
@@ -1611,7 +1611,7 @@ async function autoSaveTopPropsForValidation(sport) {
     .limit(250)
   
   if (error) {
-    console.log(`  ⚠️ Error fetching top props: ${error.message}`)
+    console.log(`  ⚠️ Error fetching top props: ${sanitizedErrorMessage(error)}`)
     return
   }
   
@@ -1724,7 +1724,7 @@ async function autoSavePublishedPropsForValidation(sport) {
       .limit(200)
 
     if (error) {
-      console.log(`  ⚠️ Published persist fetch failed: ${error.message}`)
+      console.log(`  ⚠️ Published persist fetch failed: ${sanitizedErrorMessage(error)}`)
       return
     }
 
@@ -1733,7 +1733,7 @@ async function autoSavePublishedPropsForValidation(sport) {
     console.log(`  ✅ Published track: ${saved.length} recorded (${eligible.length} cleared the bar)`)
     return saved
   } catch (error) {
-    console.log(`  ⚠️ Published persist failed: ${error.message}`)
+    console.log(`  ⚠️ Published persist failed: ${sanitizedErrorMessage(error)}`)
   }
 }
 
@@ -1798,7 +1798,7 @@ async function main() {
     console.log('='.repeat(60))
     
   } catch (error) {
-    console.error('\n❌ Fatal error:', error.message)
+    console.error('\n❌ Fatal error:', sanitizedErrorMessage(error))
     getOddsBudget().logSummary()
     process.exit(1)
   }

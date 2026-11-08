@@ -1,3 +1,4 @@
+import { sanitizeLoggedValue } from '../../../../lib/sanitize-error.js'
 // Parlay Generation API Endpoint
 
 // Force dynamic rendering (required for Vercel deployment)
@@ -23,7 +24,7 @@ async function persistFeaturedIfNeeded(parlays, isFeatured) {
     const results = await persistFeaturedClearedParlays(parlays)
     return results.filter((row) => row.ok).map((row) => row.parlay).filter(Boolean)
   } catch (error) {
-    console.error('⚠️ Featured persist failed (generate still returns the live card):', error)
+    console.error('⚠️ Featured persist failed (generate still returns the live card):', sanitizeLoggedValue(error))
     return []
   }
 }
@@ -42,7 +43,7 @@ async function resolveFeaturedGenerate(options) {
       return { parlays: [existing], savedParlays: [existing], fromSnapshot: true }
     }
   } catch (error) {
-    console.error('⚠️ Featured snapshot load failed (will generate live):', error)
+    console.error('⚠️ Featured snapshot load failed (will generate live):', sanitizeLoggedValue(error))
   }
 
   const parlays = await generateParlays()
@@ -57,7 +58,7 @@ async function resolveFeaturedGenerate(options) {
         return { parlays: [snapped], savedParlays, fromSnapshot: true }
       }
     } catch (error) {
-      console.error('⚠️ Featured snapshot reload failed:', error)
+      console.error('⚠️ Featured snapshot reload failed:', sanitizeLoggedValue(error))
     }
   }
 
@@ -137,7 +138,7 @@ export async function POST(request) {
     })
 
   } catch (error) {
-    console.error('❌ Error in parlay generation API:', error)
+    console.error('❌ Error in parlay generation API:', sanitizeLoggedValue(error))
     return NextResponse.json(
       { error: 'Failed to generate parlays' },
       { status: 500 }
@@ -191,7 +192,7 @@ export async function GET(request) {
     })
 
   } catch (error) {
-    console.error('❌ Error in parlay generation GET API:', error)
+    console.error('❌ Error in parlay generation GET API:', sanitizeLoggedValue(error))
     return NextResponse.json(
       { error: 'Failed to generate parlays' },
       { status: 500 }

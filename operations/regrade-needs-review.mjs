@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Regrade PropValidation rows that are still needs_review after the
  * name-matching / DNP / NFL-zero grading changes.
@@ -62,7 +63,7 @@ if (invokedDirectly()) {
   main().then((result) => {
     process.exit(result.exitCode)
   }).catch((error) => {
-    console.error('Fatal:', error)
+    console.error('Fatal:', sanitizeLoggedValue(error))
     process.exit(1)
   })
 }

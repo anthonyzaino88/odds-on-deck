@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * POPULATE TEAMS FROM GAMES DATA
@@ -64,7 +65,7 @@ async function extractTeamsFromGames(sport) {
     
     return Array.from(teamsMap.values())
   } catch (error) {
-    console.error(`❌ Error extracting ${sport} teams:`, error.message)
+    console.error(`❌ Error extracting ${sport} teams:`, sanitizedErrorMessage(error))
     return []
   }
 }
@@ -88,7 +89,7 @@ async function saveTeamsToSupabase(sport, teams) {
     console.log(`✅ Saved ${teams.length} teams`)
     return teams.length
   } catch (error) {
-    console.error(`❌ Error saving teams:`, error.message)
+    console.error(`❌ Error saving teams:`, sanitizedErrorMessage(error))
     return 0
   }
 }
@@ -111,6 +112,6 @@ async function main() {
 }
 
 main().catch(error => {
-  console.error('❌ Fatal error:', error)
+  console.error('❌ Fatal error:', sanitizeLoggedValue(error))
   process.exit(1)
 })

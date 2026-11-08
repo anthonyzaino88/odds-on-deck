@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+const { sanitizeLoggedValue } = require('../lib/sanitize-error.js')
 
 /**
  * Explain why Odds API dates differ from ESPN dates
@@ -75,5 +76,5 @@ async function explain() {
   console.log('  This is why we need to match by team names across date ranges!')
 }
 
-explain().catch(console.error)
+explain().catch((error) => console.error(sanitizeLoggedValue(error)))
 

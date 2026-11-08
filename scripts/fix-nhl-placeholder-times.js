@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * FIX NHL PLACEHOLDER TIMES
@@ -80,7 +81,7 @@ async function fetchGameDetail(espnGameId) {
       status: competition.status?.type?.name || 'STATUS_SCHEDULED'
     }
   } catch (error) {
-    console.error(`Error fetching detail for ${espnGameId}:`, error.message)
+    console.error(`Error fetching detail for ${espnGameId}:`, sanitizedErrorMessage(error))
     return null
   }
 }
@@ -99,7 +100,7 @@ async function main() {
     .order('date', { ascending: true })
   
   if (error) {
-    console.error('❌ Database error:', error)
+    console.error('❌ Database error:', sanitizeLoggedValue(error))
     process.exit(1)
   }
   
@@ -222,7 +223,7 @@ async function main() {
         .eq('id', update.id)
       
       if (updateError) {
-        console.log(`    ❌ Error: ${updateError.message}`)
+        console.log(`    ❌ Error: ${sanitizedErrorMessage(updateError)}`)
         errors++
       } else {
         console.log(`    ✅ Updated successfully`)
@@ -260,7 +261,7 @@ async function main() {
 }
 
 main().catch(error => {
-  console.error('❌ Fatal error:', error)
+  console.error('❌ Fatal error:', sanitizeLoggedValue(error))
   process.exit(1)
 })
 

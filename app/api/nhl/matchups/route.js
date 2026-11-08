@@ -1,3 +1,4 @@
+import { sanitizeLoggedValue } from '../../../../lib/sanitize-error.js'
 // NHL Matchup Analysis API
 
 export const dynamic = 'force-dynamic'
@@ -38,7 +39,7 @@ export async function GET(request) {
     return NextResponse.json(matchupAnalysis)
     
   } catch (error) {
-    console.error('Error in NHL matchup API:', error)
+    console.error('Error in NHL matchup API:', sanitizeLoggedValue(error))
     return NextResponse.json(
       { error: 'Failed to analyze matchup' },
       { status: 500 }

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
@@ -20,7 +21,7 @@ async function fixGameIds() {
     .order('date')
   
   if (error) {
-    console.error('❌ Error:', error)
+    console.error('❌ Error:', sanitizeLoggedValue(error))
     return
   }
   
@@ -107,7 +108,7 @@ async function fixGameIds() {
         .eq('gameId', game.id)
       
       if (oddsError) {
-        console.warn(`    ⚠️  Error deleting odds: ${oddsError.message}`)
+        console.warn(`    ⚠️  Error deleting odds: ${sanitizedErrorMessage(oddsError)}`)
       }
       
       // Then delete the game
@@ -117,7 +118,7 @@ async function fixGameIds() {
         .eq('id', game.id)
       
       if (deleteError) {
-        console.error(`    ❌ Error deleting game: ${deleteError.message}`)
+        console.error(`    ❌ Error deleting game: ${sanitizedErrorMessage(deleteError)}`)
       } else {
         console.log(`    ✅ Deleted`)
       }
@@ -130,5 +131,5 @@ async function fixGameIds() {
   }
 }
 
-fixGameIds().catch(console.error)
+fixGameIds().catch((error) => console.error(sanitizeLoggedValue(error)))
 

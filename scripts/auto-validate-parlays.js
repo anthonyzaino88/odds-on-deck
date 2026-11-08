@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * AUTO-VALIDATE PARLAYS
  *
@@ -289,7 +290,7 @@ async function fetchGameResults(sport, gameDate) {
 
     return results
   } catch (error) {
-    console.error(`❌ Error fetching game results:`, error.message)
+    console.error(`❌ Error fetching game results:`, sanitizedErrorMessage(error))
     return {}
   }
 }
@@ -662,6 +663,6 @@ async function autoValidateParlays() {
 }
 
 autoValidateParlays().catch(error => {
-  console.error('❌ Fatal error:', error)
+  console.error('❌ Fatal error:', sanitizeLoggedValue(error))
   process.exit(1)
 })

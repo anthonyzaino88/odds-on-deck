@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * Migrate all games to consistent game ID format
@@ -34,7 +35,7 @@ async function migrateGameIds() {
     `)
   
   if (gamesError) {
-    console.error('❌ Error fetching games:', gamesError)
+    console.error('❌ Error fetching games:', sanitizeLoggedValue(gamesError))
     return
   }
   
@@ -104,7 +105,7 @@ async function migrateGameIds() {
       })
     
     if (createError) {
-      console.error(`  ❌ Error creating new game: ${createError.message}`)
+      console.error(`  ❌ Error creating new game: ${sanitizedErrorMessage(createError)}`)
       errors++
       continue
     }
@@ -119,7 +120,7 @@ async function migrateGameIds() {
       .eq('id', oldId)
     
     if (deleteError) {
-      console.error(`  ⚠️  Error deleting old game: ${deleteError.message}`)
+      console.error(`  ⚠️  Error deleting old game: ${sanitizedErrorMessage(deleteError)}`)
     } else {
       migrated++
       console.log(`  ✅ Migrated`)
@@ -147,7 +148,7 @@ async function migrateGameData(oldGameId, newGameId, isMerge) {
     if (oddsError.code === '23503') {
       console.error(`    ⚠️  Odds migration: New game ${newGameId} doesn't exist yet`)
     } else if (!oddsError.code?.includes('23505')) {
-      console.error(`    ⚠️  Odds migration error: ${oddsError.message}`)
+      console.error(`    ⚠️  Odds migration error: ${sanitizedErrorMessage(oddsError)}`)
     }
   }
   
@@ -158,7 +159,7 @@ async function migrateGameData(oldGameId, newGameId, isMerge) {
     .eq('gameId', oldGameId)
   
   if (edgeError && edgeError.code !== '23503' && !edgeError.code?.includes('23505')) {
-    console.error(`    ⚠️  EdgeSnapshot migration error: ${edgeError.message}`)
+    console.error(`    ⚠️  EdgeSnapshot migration error: ${sanitizedErrorMessage(edgeError)}`)
   }
   
   // Update NFLGameData table
@@ -168,7 +169,7 @@ async function migrateGameData(oldGameId, newGameId, isMerge) {
     .eq('gameId', oldGameId)
   
   if (nflError && nflError.code !== '23503' && !nflError.code?.includes('23505')) {
-    console.error(`    ⚠️  NFLGameData migration error: ${nflError.message}`)
+    console.error(`    ⚠️  NFLGameData migration error: ${sanitizedErrorMessage(nflError)}`)
   }
   
   // Update LineupEntry table (if it exists - MLB only)
@@ -179,7 +180,7 @@ async function migrateGameData(oldGameId, newGameId, isMerge) {
       .eq('gameId', oldGameId)
     
     if (lineupError && lineupError.code !== '42P01' && lineupError.code !== '23503' && !lineupError.code?.includes('23505')) {
-      console.error(`    ⚠️  LineupEntry migration error: ${lineupError.message}`)
+      console.error(`    ⚠️  LineupEntry migration error: ${sanitizedErrorMessage(lineupError)}`)
     }
   } catch (err) {
     // Table doesn't exist, that's fine
@@ -195,7 +196,7 @@ async function migrateGameData(oldGameId, newGameId, isMerge) {
 }
 
 migrateGameIds().catch(error => {
-  console.error('❌ Fatal error:', error)
+  console.error('❌ Fatal error:', sanitizeLoggedValue(error))
   process.exit(1)
 })
 

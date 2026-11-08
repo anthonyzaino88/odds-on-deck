@@ -1,3 +1,4 @@
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../../../lib/sanitize-error.js'
 // Editor's Picks API - Fetch recommended picks with insights
 import { NextResponse } from 'next/server'
 import { generateEditorPicks, generateGameLines } from '../../../lib/picks.js'
@@ -78,12 +79,12 @@ export async function GET(request) {
     })
     
   } catch (error) {
-    console.error('Error in picks API:', error)
+    console.error('Error in picks API:', sanitizeLoggedValue(error))
     return NextResponse.json(
       { 
         success: false,
         error: 'Failed to generate picks', 
-        details: error.message 
+        details: sanitizedErrorMessage(error) 
       },
       { status: 500 }
     )

@@ -1,3 +1,4 @@
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../../../../lib/sanitize-error.js'
 // Featured-cleared parlay history. Explorer Builder rows stay out.
 
 export const dynamic = 'force-dynamic'
@@ -41,7 +42,7 @@ export async function GET(request) {
     const { data: rows, error } = await query
 
     if (error) {
-      throw new Error(`Database query failed: ${error.message}`)
+      throw new Error(`Database query failed: ${sanitizedErrorMessage(error)}`)
     }
 
     // Belt-and-suspenders: never let untagged Builder rows into the track.
@@ -53,7 +54,7 @@ export async function GET(request) {
     const legs = parlays.flatMap((parlay) => parlay.legs || [])
     const { data: validations, error: validationError } = await fetchFeaturedPropValidations(supabase, legs)
     if (validationError) {
-      throw new Error(`PropValidation lookup failed: ${validationError.message}`)
+      throw new Error(`PropValidation lookup failed: ${sanitizedErrorMessage(validationError)}`)
     }
 
     for (const parlay of parlays) {
@@ -71,9 +72,9 @@ export async function GET(request) {
     })
 
   } catch (error) {
-    console.error('❌ Error fetching Featured parlay history:', error)
+    console.error('❌ Error fetching Featured parlay history:', sanitizeLoggedValue(error))
     return NextResponse.json(
-      { error: 'Failed to fetch parlay history', details: error.message },
+      { error: 'Failed to fetch parlay history', details: sanitizedErrorMessage(error) },
       { status: 500 }
     )
   }

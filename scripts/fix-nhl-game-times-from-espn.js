@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * Fix NHL Game Times from ESPN
@@ -67,7 +68,7 @@ async function fetchGameTimeFromESPN(espnGameId) {
     
     return gameDate
   } catch (error) {
-    console.error(`  ❌ Error fetching from ESPN:`, error.message)
+    console.error(`  ❌ Error fetching from ESPN:`, sanitizedErrorMessage(error))
     return null
   }
 }
@@ -106,7 +107,7 @@ async function fixGameTimes(targetDate = null) {
   const { data: games, error } = await query.order('date', { ascending: true })
   
   if (error) {
-    console.error('❌ Error fetching games:', error)
+    console.error('❌ Error fetching games:', sanitizeLoggedValue(error))
     return
   }
   
@@ -172,7 +173,7 @@ async function fixGameTimes(targetDate = null) {
         .eq('id', game.id)
       
       if (updateError) {
-        console.error(`   ❌ Update error: ${updateError.message}`)
+        console.error(`   ❌ Update error: ${sanitizedErrorMessage(updateError)}`)
         errors++
       } else {
         updated++
@@ -185,7 +186,7 @@ async function fixGameTimes(targetDate = null) {
       await new Promise(resolve => setTimeout(resolve, 500))
       
     } catch (error) {
-      console.error(`  ❌ Error processing game ${game.id}:`, error.message)
+      console.error(`  ❌ Error processing game ${game.id}:`, sanitizedErrorMessage(error))
       errors++
     }
   }
@@ -202,5 +203,5 @@ async function fixGameTimes(targetDate = null) {
 // Get target date from command line if provided
 const targetDate = process.argv[2] || null
 
-fixGameTimes(targetDate).catch(console.error)
+fixGameTimes(targetDate).catch((error) => console.error(sanitizeLoggedValue(error)))
 

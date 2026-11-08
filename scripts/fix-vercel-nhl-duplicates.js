@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * Fix duplicate NHL games on Vercel/Production
@@ -57,7 +58,7 @@ async function fixDuplicates() {
     .order('date', { ascending: true })
   
   if (allError) {
-    console.error('❌ Error:', allError)
+    console.error('❌ Error:', sanitizeLoggedValue(allError))
     return
   }
   
@@ -202,7 +203,7 @@ async function fixDuplicates() {
         .eq('id', gameId)
       
       if (deleteError) {
-        console.error(`   ❌ Error deleting ${gameId}: ${deleteError.message}`)
+        console.error(`   ❌ Error deleting ${gameId}: ${sanitizedErrorMessage(deleteError)}`)
       } else {
         totalDeleted++
         console.log(`   ✅ Deleted ${gameId}`)
@@ -215,7 +216,7 @@ async function fixDuplicates() {
 }
 
 fixDuplicates().catch(error => {
-  console.error('❌ Fatal error:', error)
+  console.error('❌ Fatal error:', sanitizeLoggedValue(error))
   process.exit(1)
 })
 

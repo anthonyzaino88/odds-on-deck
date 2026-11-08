@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Read-only: count MLB Team.abbr and Game.id rows still using OAK/CWS
  * instead of stored ATH/CHW.
@@ -49,7 +50,7 @@ async function main() {
     .eq('sport', 'mlb')
     .in('abbr', ['OAK', 'CWS'])
 
-  if (teamError) throw new Error(`Team lookup failed: ${teamError.message}`)
+  if (teamError) throw new Error(`Team lookup failed: ${sanitizedErrorMessage(teamError)}`)
 
   const { data: games, error: gameError } = await supabase
     .from('Game')
@@ -57,7 +58,7 @@ async function main() {
     .eq('sport', 'mlb')
     .or('id.ilike.OAK_at_%,id.ilike.%_at_OAK_%,id.ilike.CWS_at_%,id.ilike.%_at_CWS_%')
 
-  if (gameError) throw new Error(`Game lookup failed: ${gameError.message}`)
+  if (gameError) throw new Error(`Game lookup failed: ${sanitizedErrorMessage(gameError)}`)
 
   const summary = summarizeLegacyMlbAbbrRows({
     teams: teams || [],
@@ -84,7 +85,7 @@ async function main() {
 const isDirect = process.argv[1] && process.argv[1].endsWith('report-mlb-legacy-abbr.js')
 if (isDirect) {
   main().catch((error) => {
-    console.error('❌ report-mlb-legacy-abbr failed:', error)
+    console.error('❌ report-mlb-legacy-abbr failed:', sanitizeLoggedValue(error))
     process.exit(1)
   })
 }

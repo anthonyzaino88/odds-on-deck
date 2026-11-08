@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 // Fix the Detroit @ NY Rangers game time in database
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
@@ -32,7 +33,7 @@ async function fixDetroitRangersTime() {
     .eq('espnGameId', '401802650') // From ESPN API
 
   if (error) {
-    console.error('❌ Database error:', error)
+    console.error('❌ Database error:', sanitizeLoggedValue(error))
     return
   }
 
@@ -59,7 +60,7 @@ async function fixDetroitRangersTime() {
     .eq('id', game.id)
 
   if (updateError) {
-    console.error('❌ Error updating game time:', updateError)
+    console.error('❌ Error updating game time:', sanitizeLoggedValue(updateError))
   } else {
     console.log('✅ Successfully updated Detroit @ NY Rangers game time!')
     console.log(`New time: 7:00 PM EST on 2025-11-16`)
@@ -74,7 +75,7 @@ async function fixDetroitRangersTime() {
   }
 }
 
-fixDetroitRangersTime().catch(console.error)
+fixDetroitRangersTime().catch((error) => console.error(sanitizeLoggedValue(error)))
 
 
 

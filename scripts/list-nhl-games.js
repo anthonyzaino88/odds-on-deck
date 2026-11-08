@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
@@ -19,5 +20,5 @@ async function listGames() {
   })
 }
 
-listGames().catch(console.error)
+listGames().catch((error) => console.error(sanitizeLoggedValue(error)))
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * NHL Time Fix Master Script
@@ -85,7 +86,7 @@ async function fetchActualGameTime(espnGameId) {
     
     return null // All dates are placeholders
   } catch (error) {
-    console.error(`  ❌ Error fetching from ESPN:`, error.message)
+    console.error(`  ❌ Error fetching from ESPN:`, sanitizedErrorMessage(error))
     return null
   }
 }
@@ -131,7 +132,7 @@ async function fixNHLTimes() {
   const { data: games, error } = await query.order('date', { ascending: true })
   
   if (error) {
-    console.error('❌ Error fetching games:', error)
+    console.error('❌ Error fetching games:', sanitizeLoggedValue(error))
     return
   }
   
@@ -192,7 +193,7 @@ async function fixNHLTimes() {
           .eq('id', game.id)
         
         if (updateError) {
-          console.error(`   ❌ Update error: ${updateError.message}`)
+          console.error(`   ❌ Update error: ${sanitizedErrorMessage(updateError)}`)
           stats.errors++
         } else {
           console.log(`   ✅ Updated successfully`)
@@ -256,7 +257,7 @@ async function fixNHLTimes() {
             .eq('id', game.id)
           
           if (error) {
-            console.error(`      ❌ Delete error: ${error.message}`)
+            console.error(`      ❌ Delete error: ${sanitizedErrorMessage(error)}`)
           }
         }
       }
@@ -291,5 +292,5 @@ async function fixNHLTimes() {
   console.log('')
 }
 
-fixNHLTimes().catch(console.error)
+fixNHLTimes().catch((error) => console.error(sanitizeLoggedValue(error)))
 

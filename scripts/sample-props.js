@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
@@ -37,5 +38,5 @@ async function main() {
   console.log('='.repeat(80) + '\n')
 }
 
-main().catch(console.error)
+main().catch((error) => console.error(sanitizeLoggedValue(error)))
 

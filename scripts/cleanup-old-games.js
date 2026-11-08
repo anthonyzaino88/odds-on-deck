@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * CLEANUP OLD GAMES FROM DATABASE
@@ -39,7 +40,7 @@ if (invokedDirectly()) {
       if (result?.exitCode) process.exit(result.exitCode)
     })
     .catch((error) => {
-      console.error('❌ Fatal error:', error)
+      console.error('❌ Fatal error:', sanitizeLoggedValue(error))
       process.exit(1)
     })
 }

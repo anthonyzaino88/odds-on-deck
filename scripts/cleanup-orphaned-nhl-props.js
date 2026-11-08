@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * CLEAN UP ORPHANED NHL PROPS
  * 
@@ -73,7 +74,7 @@ async function cleanupOrphanedProps() {
     .in('id', orphanedIds)
   
   if (error) {
-    console.error('❌ Error deleting props:', error)
+    console.error('❌ Error deleting props:', sanitizeLoggedValue(error))
     return
   }
   
@@ -85,7 +86,7 @@ async function cleanupOrphanedProps() {
   console.log('   Start fresh by saving new NHL props for tonight\'s games.\n')
 }
 
-cleanupOrphanedProps().catch(console.error)
+cleanupOrphanedProps().catch((error) => console.error(sanitizeLoggedValue(error)))
 
 
 

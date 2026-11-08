@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 // Local ops wrapper — same daily fetch as scripts/fetch-team-performance-data.js
 
 import { fileURLToPath } from 'node:url'
@@ -26,7 +27,7 @@ if (invokedDirectly()) {
       process.exit(summary?.exitCode ?? 0)
     })
     .catch((error) => {
-      console.error('❌ Fatal error:', error)
+      console.error('❌ Fatal error:', sanitizeLoggedValue(error))
       process.exit(1)
     })
 }

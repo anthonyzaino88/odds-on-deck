@@ -1090,7 +1090,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     } catch (error) {
       fetchErrors += 1
       const safe = sanitizeOddsApiError(error, apiKey)
-      log.error(`  ❌ ${label}: ${safe?.message || ''}`)
+      log.error(`  ❌ ${label}: ${sanitizedErrorMessage(safe) || ''}`)
       continue
     }
 
@@ -1297,7 +1297,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       } catch (error) {
         fetchErrors += 1
         const safe = sanitizeOddsApiError(error, apiKey)
-        log.error(`  ❌ game lines ${label}: ${safe?.message || ''}`)
+        log.error(`  ❌ game lines ${label}: ${sanitizedErrorMessage(safe) || ''}`)
         continue
       }
       const events = Array.isArray(payload.data) ? payload.data : []

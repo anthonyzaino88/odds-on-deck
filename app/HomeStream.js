@@ -1,3 +1,4 @@
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 import Link from 'next/link'
 import { unstable_cache } from 'next/cache'
 import PublishedProofStrip from '../components/PublishedProofStrip'
@@ -36,7 +37,7 @@ export async function HomeProof() {
       />
     )
   } catch (error) {
-    console.error('homepage: published proof failed', error)
+    console.error('homepage: published proof failed', sanitizeLoggedValue(error))
     return <PublishedProofStrip stats={null} yesterday={null} />
   }
 }

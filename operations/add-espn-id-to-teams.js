@@ -1,3 +1,4 @@
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 
 const supabase = createScriptSupabaseClient()
@@ -107,7 +108,7 @@ async function addEspnIdColumn() {
           .eq('id', team.id)
 
         if (updateError) {
-          console.error(`❌ Error updating ${team.abbr}:`, updateError.message)
+          console.error(`❌ Error updating ${team.abbr}:`, sanitizedErrorMessage(updateError))
         } else {
           console.log(`✅ Updated ${team.abbr} (${team.sport}) -> ESPN ID: ${espnId}`)
           updated++
@@ -123,10 +124,10 @@ async function addEspnIdColumn() {
     console.log(`⚠️ Teams skipped: ${skipped}`)
 
   } catch (error) {
-    console.error('❌ Error:', error.message)
+    console.error('❌ Error:', sanitizedErrorMessage(error))
   }
 
   console.log('\n' + '='.repeat(60))
 }
 
-addEspnIdColumn().catch(console.error)
+addEspnIdColumn().catch((error) => console.error(sanitizeLoggedValue(error)))

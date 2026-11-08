@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Read-only Published CLV report.
  *
@@ -69,7 +70,7 @@ export async function runReportPublishedClv({
     page = await load(PUBLISHED_STATS_SELECT)
   }
   if (page.error) {
-    log.error(`❌ Query error: ${page.error.message}`)
+    log.error(`❌ Query error: ${sanitizedErrorMessage(page.error)}`)
     return { exitCode: 1, summary: summarizePublishedClv([]) }
   }
 
@@ -99,7 +100,7 @@ if (invokedDirectly()) {
   runReportPublishedClv().then((result) => {
     process.exit(result.exitCode)
   }).catch((error) => {
-    console.error('Fatal:', error)
+    console.error('Fatal:', sanitizeLoggedValue(error))
     process.exit(1)
   })
 }

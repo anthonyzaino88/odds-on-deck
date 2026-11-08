@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * Safe Score Update Script
@@ -61,7 +62,7 @@ async function fetchMLBFromESPN(espnGameId) {
     const data = await res.json()
     return parseEspnMlbSummary(data)
   } catch (err) {
-    console.error(`  ❌ ESPN fallback error: ${err.message}`)
+    console.error(`  ❌ ESPN fallback error: ${sanitizedErrorMessage(err)}`)
     return null
   }
 }
@@ -92,12 +93,12 @@ async function fetchGamesForSport(sport) {
     .gte('lastUpdate', recheckAfter)
 
   if (finalsError) {
-    console.warn(`  ⚠️  Recent-final recheck query failed: ${finalsError.message}`)
+    console.warn(`  ⚠️  Recent-final recheck query failed: ${sanitizedErrorMessage(finalsError)}`)
   }
 
   const { games: resumeGames, error: resumeError } = await fetchMlbResumeGames(supabase)
   if (resumeError) {
-    console.warn(`  ⚠️  Postponed/suspended recheck query failed: ${resumeError.message}`)
+    console.warn(`  ⚠️  Postponed/suspended recheck query failed: ${sanitizedErrorMessage(resumeError)}`)
   }
 
   const games = mergeGameLists(
@@ -122,7 +123,7 @@ async function updateScoresForSport(sport) {
   const { games, error } = await fetchGamesForSport(sport)
   
   if (error) {
-    console.error(`❌ Error fetching ${sport} games:`, error.message)
+    console.error(`❌ Error fetching ${sport} games:`, sanitizedErrorMessage(error))
     return { updated: 0, errors: 1, live: [], changes: [] }
   }
   
@@ -142,7 +143,7 @@ async function updateScoresForSport(sport) {
         mlbLiveByPk = await fetchLiveGamesByDateRange(window.startDate, window.endDate, true)
         console.log(`📡 MLB schedule hydrate ${window.startDate}..${window.endDate}: ${mlbLiveByPk.size} game(s)\n`)
       } catch (err) {
-        console.warn(`  ⚠️  Hydrated schedule fetch failed (${err.message}); falling back to per-gamePk schedule`)
+        console.warn(`  ⚠️  Hydrated schedule fetch failed (${sanitizedErrorMessage(err)}); falling back to per-gamePk schedule`)
       }
     }
   }
@@ -204,4 +205,4 @@ async function main() {
   printScoreRecap({ live, changes, totalUpdated, totalErrors, duration })
 }
 
-main().catch(console.error)
+main().catch((error) => console.error(sanitizeLoggedValue(error)))

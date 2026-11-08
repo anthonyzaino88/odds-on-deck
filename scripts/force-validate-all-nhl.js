@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * FORCE VALIDATE ALL NHL PROPS
  * Validates both pending and needs_review NHL props
@@ -26,7 +27,7 @@ async function forceValidateAllNHL() {
     .order('timestamp', { ascending: true })
   
   if (error) {
-    console.error('❌ Error fetching props:', error)
+    console.error('❌ Error fetching props:', sanitizeLoggedValue(error))
     return
   }
   
@@ -147,7 +148,7 @@ async function forceValidateAllNHL() {
         .eq('id', prop.id)
       
       if (updateError) {
-        console.log(`   ❌ Error updating: ${updateError.message}`)
+        console.log(`   ❌ Error updating: ${sanitizedErrorMessage(updateError)}`)
         errors++
         continue
       }
@@ -158,7 +159,7 @@ async function forceValidateAllNHL() {
       await new Promise(resolve => setTimeout(resolve, 300))
       
     } catch (error) {
-      console.error(`   ❌ Error processing prop:`, error.message)
+      console.error(`   ❌ Error processing prop:`, sanitizedErrorMessage(error))
       errors++
     }
   }
@@ -196,7 +197,7 @@ async function forceValidateAllNHL() {
   console.log('\n💡 Check your /validation dashboard to see updated stats!\n')
 }
 
-forceValidateAllNHL().catch(console.error)
+forceValidateAllNHL().catch((error) => console.error(sanitizeLoggedValue(error)))
 
 
 

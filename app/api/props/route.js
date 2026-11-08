@@ -1,3 +1,4 @@
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../../../lib/sanitize-error.js'
 // Player Props API - Query PlayerPropCache from Supabase
 
 import { NextResponse } from 'next/server'
@@ -59,9 +60,9 @@ export async function GET(request) {
     const { data, error } = await query
     
     if (error) {
-      console.error('Error fetching player props:', error)
+      console.error('Error fetching player props:', sanitizeLoggedValue(error))
       return NextResponse.json(
-        { error: 'Failed to fetch player props', details: error.message },
+        { error: 'Failed to fetch player props', details: sanitizedErrorMessage(error) },
         { status: 500 }
       )
     }
@@ -86,9 +87,9 @@ export async function GET(request) {
     })
     
   } catch (error) {
-    console.error('Error in props API:', error)
+    console.error('Error in props API:', sanitizeLoggedValue(error))
     return NextResponse.json(
-      { error: 'Failed to fetch player props', details: error.message },
+      { error: 'Failed to fetch player props', details: sanitizedErrorMessage(error) },
       { status: 500 }
     )
   }

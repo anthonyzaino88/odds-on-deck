@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Snapshot today's Featured-cleared 3-leg NFL cards onto the tracked cohort.
  *
@@ -56,6 +57,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error('❌ record-featured-parlays failed:', error)
+  console.error('❌ record-featured-parlays failed:', sanitizeLoggedValue(error))
   process.exit(1)
 })

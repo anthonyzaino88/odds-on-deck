@@ -1,3 +1,4 @@
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 
 const supabase = createScriptSupabaseClient()
@@ -123,7 +124,7 @@ async function fixMismatchedGames() {
         .eq('id', gameId)
 
       if (updateError) {
-        console.error(`   ❌ Error updating game ${gameId}:`, updateError.message)
+        console.error(`   ❌ Error updating game ${gameId}:`, sanitizedErrorMessage(updateError))
         errors++
       } else {
         console.log(`   ✅ Successfully fixed game ${gameId}`)
@@ -131,7 +132,7 @@ async function fixMismatchedGames() {
       }
 
     } catch (error) {
-      console.error(`❌ Error fixing game ${gameId}:`, error.message)
+      console.error(`❌ Error fixing game ${gameId}:`, sanitizedErrorMessage(error))
       errors++
     }
   }
@@ -148,4 +149,4 @@ async function fixMismatchedGames() {
   console.log('\n' + '='.repeat(60))
 }
 
-fixMismatchedGames().catch(console.error)
+fixMismatchedGames().catch((error) => console.error(sanitizeLoggedValue(error)))

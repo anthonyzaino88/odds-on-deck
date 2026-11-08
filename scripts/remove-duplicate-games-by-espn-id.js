@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * Remove duplicate games - keep the one with odds mapped, or the one with more data
@@ -24,7 +25,7 @@ async function removeDuplicates() {
     .order('date', { ascending: true })
   
   if (error) {
-    console.error('❌ Error:', error)
+    console.error('❌ Error:', sanitizeLoggedValue(error))
     return
   }
   
@@ -127,7 +128,7 @@ async function removeDuplicates() {
         .in('id', ids)
       
       if (deleteError) {
-        console.error(`❌ Error deleting batch: ${deleteError.message}`)
+        console.error(`❌ Error deleting batch: ${sanitizedErrorMessage(deleteError)}`)
       } else {
         deleted += batch.length
         console.log(`   Deleted ${deleted}/${toDelete.length} games...`)
@@ -141,5 +142,5 @@ async function removeDuplicates() {
   }
 }
 
-removeDuplicates().catch(console.error)
+removeDuplicates().catch((error) => console.error(sanitizeLoggedValue(error)))
 

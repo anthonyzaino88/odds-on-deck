@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage } from '../lib/sanitize-error.js'
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
@@ -52,7 +53,7 @@ async function mapWeek12Games() {
     .lte('date', '2025-11-24T23:59:59')
 
   if (dbError) {
-    console.error('❌ Database error:', dbError.message)
+    console.error('❌ Database error:', sanitizedErrorMessage(dbError))
     return
   }
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
@@ -18,7 +19,7 @@ async function fixDate() {
     .single()
   
   if (error) {
-    console.error('❌ Error:', error)
+    console.error('❌ Error:', sanitizeLoggedValue(error))
     return
   }
   
@@ -46,11 +47,11 @@ async function fixDate() {
     .eq('id', game.id)
   
   if (updateError) {
-    console.error(`\n❌ Error updating: ${updateError.message}`)
+    console.error(`\n❌ Error updating: ${sanitizedErrorMessage(updateError)}`)
   } else {
     console.log(`\n✅ Successfully updated game date!`)
   }
 }
 
-fixDate().catch(console.error)
+fixDate().catch((error) => console.error(sanitizeLoggedValue(error)))
 

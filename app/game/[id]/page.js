@@ -1,3 +1,4 @@
+import { sanitizeLoggedValue } from '../../../lib/sanitize-error.js'
 // Game Detail Page - Detailed matchup analysis
 
 import { notFound } from 'next/navigation'
@@ -715,7 +716,7 @@ export default async function GameDetailPage({ params }) {
                   </div>
                 )
                 } catch (error) {
-                  console.error('Error rendering player stats:', error)
+                  console.error('Error rendering player stats:', sanitizeLoggedValue(error))
                   return (
                     <div className="mt-6 p-4 bg-red-500/[0.08] border border-red-500/20 rounded-[4px]">
                       <p className="text-sm text-red-400">Error displaying player statistics</p>

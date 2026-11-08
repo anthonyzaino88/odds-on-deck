@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Read-only preview of the honest Published card after dropping
  * legacy NFL generator rows (recorded before the current persist path).
@@ -105,7 +106,7 @@ rows back on the card.`)
     .order('id', { ascending: true }))
 
   if (page.error) {
-    log.error(`❌ Query error: ${page.error.message}`)
+    log.error(`❌ Query error: ${sanitizedErrorMessage(page.error)}`)
     return { exitCode: 1, excluded: [], comparison: null }
   }
 
@@ -164,7 +165,7 @@ if (invokedDirectly()) {
   runPreviewLegacyNflPublished().then((result) => {
     process.exit(result.exitCode)
   }).catch((error) => {
-    console.error('Fatal:', error)
+    console.error('Fatal:', sanitizeLoggedValue(error))
     process.exit(1)
   })
 }
