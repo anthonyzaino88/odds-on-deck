@@ -1182,17 +1182,32 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     }
     const requestCredits = requestMarkets.length * regionCount
     const chargeLines = linesAffordable
-    const countPropCapture = propMarkets.length > 0
+    let activeMarkets = requestMarkets
+    let activeCredits = requestCredits
+    let countPropCapture = propMarkets.length > 0
       && requestMarkets.some((market) => !isGameLineMarketKey(market))
       && (oddsBudget.remainingCloseCaptures?.() ?? 0) > 0
-    const budgetExtra = chargeLines
+    const budgetExtraFor = (countProp) => (chargeLines
       ? {
-        captures: countPropCapture ? 1 : 0,
+        captures: countProp ? 1 : 0,
         gameLineCredits: lineCredits,
-        countPropCapture,
+        countPropCapture: countProp,
       }
-      : { captures: 1 }
-    if (!oddsBudget.allow(requestCredits, budgetExtra)) {
+      : { captures: 1 })
+    const propSlotTaken = () => countPropCapture
+      && chargeLines
+      && oddsBudget.status() === ODDS_BUDGET_CLOSE_CAP
+    const switchToLineOnly = () => {
+      activeMarkets = lineMarkets
+      activeCredits = lineCredits
+      countPropCapture = false
+    }
+    let admitted = oddsBudget.allow(activeCredits, budgetExtraFor(countPropCapture))
+    if (!admitted && propSlotTaken()) {
+      switchToLineOnly()
+      admitted = oddsBudget.allow(activeCredits, budgetExtraFor(false))
+    }
+    if (!admitted) {
       log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
       const warn = formatOddsBudgetWarnLine(oddsBudget.status())
       if (warn) log.log(warn)
@@ -1211,26 +1226,45 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       markQuietStop(jobIndex)
       break
     }
-    const url = buildEventOddsUrl({
-      sportKey,
-      eventId: job.eventId,
-      markets: requestMarkets,
+    const fetchActive = () => fetchEventOdds({
+      url: buildEventOddsUrl({
+        sportKey,
+        eventId: job.eventId,
+        markets: activeMarkets,
+        apiKey,
+        regions,
+      }),
+      budget: oddsBudget,
+      estimatedCredits: activeCredits,
       apiKey,
-      regions,
+      gameLine: chargeLines,
+      gameLineCredits: chargeLines ? lineCredits : 0,
+      countPropCapture,
     })
     calls += 1
-    creditsUsed += requestCredits
+    creditsUsed += activeCredits
     let payload
     try {
-      payload = await fetchEventOdds({
-        url,
-        budget: oddsBudget,
-        estimatedCredits: requestCredits,
-        apiKey,
-        gameLine: chargeLines,
-        gameLineCredits: chargeLines ? lineCredits : 0,
-        countPropCapture,
-      })
+      payload = await fetchActive()
+      const reservedPropLost = payload?.skipped
+        && countPropCapture
+        && chargeLines
+        && (payload.status === ODDS_BUDGET_CLOSE_CAP || oddsBudget.status() === ODDS_BUDGET_CLOSE_CAP)
+      if (reservedPropLost) {
+        calls -= 1
+        creditsUsed -= activeCredits
+        switchToLineOnly()
+        if (!oddsBudget.allow(activeCredits, budgetExtraFor(false))) {
+          log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
+          const warn = formatOddsBudgetWarnLine(oddsBudget.status())
+          if (warn) log.log(warn)
+          skippedBudgetDuringRun += 1
+          continue
+        }
+        calls += 1
+        creditsUsed += activeCredits
+        payload = await fetchActive()
+      }
       if (payload?.skipped) {
         log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
         const warn = formatOddsBudgetWarnLine(oddsBudget.status())
@@ -1241,7 +1275,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       }
       if (payload?.quota) lastQuota = payload.quota
       if (!payload?.budgetRecorded) {
-        const spent = payload?.quota?.last ?? requestCredits
+        const spent = payload?.quota?.last ?? activeCredits
         oddsBudget.record(payload?.quota || {}, {
           credits: spent,
           captures: countPropCapture ? 1 : (chargeLines ? 0 : 1),

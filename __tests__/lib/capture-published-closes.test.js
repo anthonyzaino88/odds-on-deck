@@ -3296,6 +3296,84 @@ describe('runCapturePublishedCloses', () => {
     expect(result.calls).toBe(2)
   })
 
+  test('a prop slot taken before reserve retries the job as line-only', async () => {
+    const budget = createOddsApiBudget({
+      persist: false,
+      now: IN_WINDOW,
+      purpose: 'close-capture',
+      env: {
+        ODDS_REMAINING_FLOOR: '0',
+        ODDS_CLOSE_CAPTURE_RESERVE: '0',
+        ODDS_CLOSE_CAPTURE_DAILY_CAP: '40',
+        ODDS_GAME_LINE_RESERVED_SLOTS: '31',
+        ODDS_GAME_LINE_CLOSE_DAILY_CAP: '93',
+        ODDS_DAILY_CREDIT_CAP: '1500',
+      },
+      log: { log() {}, warn() {} },
+      state: {
+        days: {
+          '2026-07-15': {
+            credits: 39,
+            calls: 39,
+            closeCaptures: 39,
+            gameLineCredits: 0,
+            gameLineCaptures: 0,
+          },
+        },
+      },
+    })
+    const urls = []
+    const fetchEventOdds = jest.fn(async ({ url, countPropCapture, estimatedCredits, gameLineCredits }) => {
+      urls.push(url)
+      if (countPropCapture) {
+        const taken = budget.reserve(1, { captures: 1 })
+        expect(taken.ok).toBe(true)
+        const blocked = budget.reserve(estimatedCredits, {
+          captures: 1,
+          gameLineCredits,
+          countPropCapture: true,
+        })
+        expect(blocked.ok).toBe(false)
+        expect(blocked.status).toBe('close_cap')
+        return { skipped: true, status: blocked.status, budgetRecorded: false, quota: budget.quota() }
+      }
+      expect(url).toContain('h2h')
+      expect(url).toContain('totals')
+      expect(url).not.toContain('player_shots_on_goal')
+      const held = budget.reserve(estimatedCredits, {
+        captures: 0,
+        gameLineCredits,
+      })
+      expect(held.ok).toBe(true)
+      return {
+        data: nhlBoard(),
+        quota: { remaining: 9000, used: 42, last: gameLineCredits },
+        budgetRecorded: true,
+      }
+    })
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--nhl-all'],
+      now: IN_WINDOW,
+      budget,
+      createClient: () => mockClient({
+        games: [nhlGame()],
+        picks: [nhlPendingPick()],
+        edges: [],
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 39, last: 0 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(fetchEventOdds).toHaveBeenCalledTimes(2)
+    expect(urls).toHaveLength(2)
+    expect(urls[0]).toContain('player_shots_on_goal')
+    expect(urls[1]).not.toContain('player_shots_on_goal')
+    expect(result.calls).toBe(2)
+    expect(budget.todayGameLineCaptures()).toBe(1)
+    expect(budget.todayCloseCaptures()).toBe(40)
+  })
+
   test('game-line caps at 0 do not request h2h or totals', async () => {
     const budget = createOddsApiBudget({
       persist: false,

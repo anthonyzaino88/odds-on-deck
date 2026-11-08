@@ -13,6 +13,7 @@ import {
   DEFAULT_PROBE_FAIL_CREDIT_CAP,
   DEFAULT_REMAINING_FLOOR,
   createOddsApiBudget,
+  reconciledGameLineCredits,
   ODDS_BUDGET_LEDGER_UNREADABLE,
   estimateCreditsFromOddsEndpoint,
   fetchOddsApiJson,
@@ -1523,6 +1524,95 @@ describe('daily game-line budget and locked reserve', () => {
     expect(saved.settled[held.id].actual).toBe(2)
     expect(saved.settled[fresh.id].actual).toBe(0)
   })
+
+  test('a missing prop market does not scale game-line credits below the charge', () => {
+    expect(reconciledGameLineCredits({
+      reservedLine: 6,
+      reservedTotal: 8,
+      actual: 6,
+    })).toBe(6)
+    expect(reconciledGameLineCredits({
+      reservedLine: 6,
+      reservedTotal: 8,
+      actual: 6,
+      lineMarketsReturned: 3,
+      regions: 2,
+    })).toBe(6)
+    const fs = memoryFs()
+    const budget = budgetOn(fs, undefined, {
+      ODDS_GAME_LINE_CLOSE_DAILY_CAP: '93',
+      ODDS_DAILY_CREDIT_CAP: '5000',
+      ODDS_GAME_LINE_RESERVED_SLOTS: '31',
+    })
+    let accepted = 0
+    for (let i = 0; i < 18; i += 1) {
+      const held = budget.reserve(8, {
+        captures: 1,
+        gameLineCredits: 6,
+        countPropCapture: true,
+      })
+      if (!held.ok) break
+      budget.reconcile(held, { last: 6, remaining: 5000, used: (accepted + 1) * 6 })
+      accepted += 1
+    }
+    expect(accepted).toBe(15)
+    expect(budget.todayGameLineCredits()).toBe(90)
+    expect(budget.todayCredits()).toBe(90)
+  })
+
+  test('two processes sharing the ledger stop at 90 line credits, not 108', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ood-line-reconcile-'))
+    const ledger = join(dir, 'budget.json')
+    const childPath = join(process.cwd(), '__tests__', 'helpers', 'odds-budget-race-child.mjs')
+    const env = closeCaptureEnv(ledger, {
+      ODDS_GAME_LINE_CLOSE_DAILY_CAP: '93',
+      ODDS_DAILY_CREDIT_CAP: '5000',
+      ODDS_GAME_LINE_RESERVED_SLOTS: '31',
+    })
+    writeFileSync(ledger, JSON.stringify({ version: 1, fence: 0, days: {} }))
+    const runBatch = (attempts) => new Promise((resolve, reject) => {
+      const child = fork(childPath, [JSON.stringify({
+        mode: 'mixed-line-batch',
+        attempts,
+        now: '2026-11-04T16:00:00.000Z',
+        env,
+      })], { execArgv: [], stdio: ['ignore', 'pipe', 'pipe', 'ipc'] })
+      let out = ''
+      let err = ''
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL')
+        reject(new Error(`child timed out\n${err}\n${out}`))
+      }, 20000)
+      child.stdout.on('data', (chunk) => { out += chunk })
+      child.stderr.on('data', (chunk) => { err += chunk })
+      child.on('error', (error) => {
+        clearTimeout(timer)
+        reject(error)
+      })
+      child.on('exit', () => {
+        clearTimeout(timer)
+        const line = out.trim().split('\n').filter(Boolean).pop()
+        if (!line) {
+          reject(new Error(`child produced no result\n${err}`))
+          return
+        }
+        resolve(JSON.parse(line))
+      })
+    })
+    try {
+      const first = await runBatch(10)
+      const second = await runBatch(10)
+      expect(first.error).toBeNull()
+      expect(second.error).toBeNull()
+      expect(first.accepted + second.accepted).toBe(15)
+      expect(second.gameLineCredits).toBe(90)
+      const saved = JSON.parse(readFileSync(ledger, 'utf8'))
+      expect(saved.days[day].gameLineCredits).toBe(90)
+      expect(saved.days[day].credits).toBe(90)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 30000)
 
   test('a reservation after ET midnight lands on the new day and reconcile stays on the old one', () => {
     const fs = memoryFs()
