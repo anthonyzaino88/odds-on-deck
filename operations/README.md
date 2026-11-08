@@ -648,7 +648,7 @@ as usual.
 Footer lines:
 
 ```
-ODDS_BUDGET_STATUS=ok|floor|daily_cap|monthly_cap|probe_failed|close_cap|game_line_cap
+ODDS_BUDGET_STATUS=ok|floor|daily_cap|monthly_cap|probe_failed|close_cap|game_line_cap|ledger_unreadable
 ODDS_CREDITS_USED=<n>
 ODDS_CREDITS_REMAINING=<n|unknown>
 ```

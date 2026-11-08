@@ -12,6 +12,7 @@ import {
   DEFAULT_PROBE_FAIL_CREDIT_CAP,
   DEFAULT_REMAINING_FLOOR,
   createOddsApiBudget,
+  ODDS_BUDGET_LEDGER_UNREADABLE,
   estimateCreditsFromOddsEndpoint,
   fetchOddsApiJson,
   formatOddsBudgetStatus,
@@ -413,6 +414,208 @@ describe('createOddsApiBudget', () => {
     expect(orphan.fence).toBe(4)
     expect(orphan.days['2026-11-04'].credits).toBe(11)
     expect(orphanLog.lines.join('\n')).not.toMatch(/starting empty/)
+  })
+
+  test('a bad pointer cannot reset captures stored on the fence', () => {
+    const day = '2026-11-04'
+    const captured = (fence, captures) => JSON.stringify({
+      version: 1,
+      fence,
+      fenceDay: day,
+      days: {
+        [day]: { credits: captures, calls: captures, closeCaptures: captures, gameLineCredits: 0 },
+      },
+    })
+    const cases = [
+      {
+        name: 'ahead',
+        path: '/tmp/odds-api-budget-ahead-pointer.json',
+        pointer: captured(9999, 0),
+        files: { 1: captured(1, 40) },
+      },
+      {
+        name: 'same-fence',
+        path: '/tmp/odds-api-budget-same-fence-pointer.json',
+        pointer: captured(1, 0),
+        files: { 1: captured(1, 40) },
+      },
+      {
+        name: 'missing',
+        path: '/tmp/odds-api-budget-missing-pointer-fence.json',
+        pointer: null,
+        files: { 7: captured(7, 40) },
+      },
+      {
+        name: 'corrupt',
+        path: '/tmp/odds-api-budget-corrupt-pointer-fence.json',
+        pointer: '{not-json',
+        files: { 7: captured(7, 40) },
+      },
+    ]
+    for (const entry of cases) {
+      const fs = memoryFs()
+      if (entry.pointer != null) fs.writeFileSync(entry.path, entry.pointer)
+      for (const [fence, body] of Object.entries(entry.files)) {
+        fs.writeFileSync(`${entry.path}.fences/${fence}`, body)
+      }
+      const log = quietLog()
+      const loaded = loadOddsBudgetState({
+        persistPath: entry.path,
+        filesystem: fs,
+        log,
+      })
+      const fenceFile = Number(Object.keys(entry.files)[0])
+      expect({ name: entry.name, fence: loaded.fence }).toEqual({ name: entry.name, fence: fenceFile })
+      expect(loaded.days[day].closeCaptures).toBe(40)
+      expect(log.lines.join('\n')).not.toMatch(/starting empty/)
+      const budget = createOddsApiBudget({
+        persist: true,
+        filesystem: fs,
+        now: NOON_ET,
+        purpose: 'close-capture',
+        env: closeCaptureEnv(entry.path),
+        log: { log() {}, warn() {} },
+      })
+      const first = budget.reserve(1, { captures: 1 })
+      const second = budget.reserve(1, { captures: 1 })
+      expect(first).toMatchObject({ ok: false, status: 'close_cap' })
+      expect(second).toMatchObject({ ok: false, status: 'close_cap' })
+      expect(fs.existsSync(`${entry.path}.fences/${fenceFile + 1}`)).toBe(false)
+      expect(JSON.parse(fs.readFileSync(`${entry.path}.fences/${fenceFile}`)).days[day].closeCaptures).toBe(40)
+    }
+  })
+
+  test('fence files that do not validate refuse another reservation', () => {
+    const day = '2026-11-04'
+    const ledgers = [
+      {
+        path: '/tmp/odds-api-budget-mismatch-fence.json',
+        body: JSON.stringify({ fence: 1, days: { [day]: { closeCaptures: 40 } } }),
+        name: '7',
+      },
+      {
+        path: '/tmp/odds-api-budget-garbage-fence.json',
+        body: '{not-json',
+        name: '7',
+      },
+      {
+        path: '/tmp/odds-api-budget-junk-fence.json',
+        body: 'notes',
+        name: 'notes',
+      },
+    ]
+    for (const entry of ledgers) {
+      const fs = memoryFs()
+      fs.writeFileSync(`${entry.path}.fences/${entry.name}`, entry.body)
+      const log = quietLog()
+      const loaded = loadOddsBudgetState({
+        persistPath: entry.path,
+        filesystem: fs,
+        log,
+      })
+      expect(loaded.unreadable).toBe(true)
+      expect(log.lines.join('\n')).toMatch(/refusing paid calls/)
+      expect(log.lines.join('\n')).not.toMatch(/starting empty/)
+      const budget = createOddsApiBudget({
+        persist: true,
+        filesystem: fs,
+        now: NOON_ET,
+        purpose: 'close-capture',
+        env: closeCaptureEnv(entry.path),
+        log: { log() {}, warn() {} },
+      })
+      expect(budget.allow(1)).toBe(false)
+      expect(budget.status()).toBe(ODDS_BUDGET_LEDGER_UNREADABLE)
+      const first = budget.reserve(1, { captures: 1 })
+      const second = budget.reserve(1, { captures: 1 })
+      expect(first).toMatchObject({ ok: false, status: ODDS_BUDGET_LEDGER_UNREADABLE })
+      expect(second).toMatchObject({ ok: false, status: ODDS_BUDGET_LEDGER_UNREADABLE })
+      expect(fs.existsSync(`${entry.path}.fences/8`)).toBe(false)
+      expect(fs.existsSync(`${entry.path}.fences/1`)).toBe(false)
+    }
+  })
+
+  test('a 100000-step probe does not hide a later fence', () => {
+    const day = '2026-11-04'
+    const row = (captures) => ({
+      credits: captures,
+      calls: captures,
+      closeCaptures: captures,
+      gameLineCredits: 0,
+    })
+    const body = (fence, captures) => JSON.stringify({
+      version: 1,
+      fence,
+      fenceDay: day,
+      days: { [day]: row(captures) },
+    })
+    function cappedFs({ ledger, max, pointer }) {
+      const root = `${ledger}.fences`
+      const fenceNo = (filePath) => {
+        const prefix = `${root}/`
+        if (!String(filePath).startsWith(prefix)) return 0
+        const name = String(filePath).slice(prefix.length)
+        const fence = Number(name)
+        return Number.isInteger(fence) && String(fence) === name ? fence : 0
+      }
+      return {
+        existsSync(filePath) {
+          if (filePath === ledger) return pointer != null
+          if (filePath === root) return true
+          const fence = fenceNo(filePath)
+          return fence >= 1 && fence <= max
+        },
+        readFileSync(filePath) {
+          if (filePath === ledger) return pointer
+          const fence = fenceNo(filePath)
+          if (fence < 1 || fence > max) {
+            const error = new Error(`ENOENT ${filePath}`)
+            error.code = 'ENOENT'
+            throw error
+          }
+          return body(fence, fence === max ? 40 : 0)
+        },
+        readdirSync(dir) {
+          if (dir !== root) return []
+          return Array.from({ length: max }, (_, index) => String(index + 1))
+        },
+      }
+    }
+    // A walk that starts at 0 stops on 100000 and would miss 100001.
+    const open = cappedFs({
+      ledger: '/tmp/odds-api-budget-probe-cap-open.json',
+      max: 100001,
+      pointer: null,
+    })
+    const fromZero = loadOddsBudgetState({
+      persistPath: '/tmp/odds-api-budget-probe-cap-open.json',
+      filesystem: open,
+      warn: false,
+    })
+    expect(fromZero.fence).toBe(100001)
+    expect(fromZero.days[day].closeCaptures).toBe(40)
+    // A 100000-step walk from fence 1 stops on 100001 while 100002 exists.
+    const hinted = cappedFs({
+      ledger: '/tmp/odds-api-budget-probe-cap.json',
+      max: 100002,
+      pointer: body(1, 0),
+    })
+    const loaded = loadOddsBudgetState({
+      persistPath: '/tmp/odds-api-budget-probe-cap.json',
+      filesystem: hinted,
+      warn: false,
+    })
+    expect(loaded.fence).toBe(100002)
+    expect(loaded.days[day].closeCaptures).toBe(40)
+    const budget = createOddsApiBudget({
+      persist: true,
+      filesystem: hinted,
+      now: NOON_ET,
+      purpose: 'close-capture',
+      env: closeCaptureEnv('/tmp/odds-api-budget-probe-cap.json'),
+      log: { log() {}, warn() {} },
+    })
+    expect(budget.reserve(1, { captures: 1 })).toMatchObject({ ok: false, status: 'close_cap' })
   })
 
   test('logs remaining without the API key and warns when status is not ok', () => {
@@ -1478,7 +1681,7 @@ describe('daily game-line budget and locked reserve', () => {
     }
   }, 20000)
 
-  test('a reader probes the next fence and keeps captures it already saw', () => {
+  test('a reader retries when the newest fence disappears and does not trust the pointer', () => {
     const day = '2026-11-04'
     const body = (fence, captures) => JSON.stringify({
       version: 1,
@@ -1492,15 +1695,14 @@ describe('daily game-line budget and locked reserve', () => {
     const missed = memoryFs()
     const missedPath = '/tmp/odds-api-budget-reader-miss.json'
     const missedDir = `${missedPath}.fences`
-    missed.writeFileSync(missedPath, body(4, 40))
+    missed.writeFileSync(missedPath, body(4, 0))
     missed.writeFileSync(`${missedDir}/5`, body(5, 40))
     missed.writeFileSync(`${missedDir}/6`, body(6, 40))
     const missedRead = missed.readFileSync.bind(missed)
     missed.readFileSync = (filePath) => {
       if (filePath === `${missedDir}/6`) {
-        missed.files.delete(`${missedDir}/5`)
         missed.files.delete(`${missedDir}/6`)
-        missed.files.set(missedPath, body(6, 40))
+        missed.files.set(missedPath, body(9999, 0))
         const error = new Error(`ENOENT ${filePath}`)
         error.code = 'ENOENT'
         throw error
@@ -1513,12 +1715,13 @@ describe('daily game-line budget and locked reserve', () => {
       warn: false,
     })
     expect(retried.days[day].closeCaptures).toBe(40)
-    expect(retried.fence).toBe(6)
+    expect(retried.fence).toBe(5)
 
     const kept = memoryFs()
     const keptPath = '/tmp/odds-api-budget-reader-keep.json'
     const keptDir = `${keptPath}.fences`
-    kept.writeFileSync(keptPath, body(5, 40))
+    kept.writeFileSync(keptPath, body(5, 0))
+    kept.writeFileSync(`${keptDir}/5`, body(5, 40))
     kept.writeFileSync(`${keptDir}/6`, body(6, 40))
     const keptRead = kept.readFileSync.bind(kept)
     kept.readFileSync = (filePath) => {
@@ -1538,6 +1741,30 @@ describe('daily game-line budget and locked reserve', () => {
     })
     expect(seen.days[day].closeCaptures).toBe(40)
     expect(seen.fence).toBe(5)
+
+    const pointerOnly = memoryFs()
+    const pointerPath = '/tmp/odds-api-budget-reader-pointer-only.json'
+    const pointerDir = `${pointerPath}.fences`
+    pointerOnly.writeFileSync(pointerPath, body(5, 40))
+    pointerOnly.writeFileSync(`${pointerDir}/6`, body(6, 40))
+    const pointerRead = pointerOnly.readFileSync.bind(pointerOnly)
+    pointerOnly.readFileSync = (filePath) => {
+      if (filePath === `${pointerDir}/6`) {
+        pointerOnly.files.delete(`${pointerDir}/6`)
+        pointerOnly.files.set(pointerPath, body(5, 40))
+        const error = new Error(`ENOENT ${filePath}`)
+        error.code = 'ENOENT'
+        throw error
+      }
+      return pointerRead(filePath)
+    }
+    const closed = loadOddsBudgetState({
+      persistPath: pointerPath,
+      filesystem: pointerOnly,
+      warn: false,
+    })
+    expect(closed.unreadable).toBe(true)
+    expect(closed.days[day]).toBeUndefined()
   })
 
   test('pointer failure keeps every fence and still drops temps older than 48h', () => {
@@ -1662,7 +1889,7 @@ describe('ops docs and script wiring', () => {
     expect(readme).toMatch(/ODDS_CLOSE_CAPTURE_DAILY_CAP/)
     expect(readme).toMatch(/ODDS_PROBE_FAIL_CREDIT_CAP/)
     expect(readme).toMatch(/ODDS_NFL_ADJACENT_PROPS_TTL_HOURS/)
-    expect(readme).toMatch(/ODDS_BUDGET_STATUS=ok\|floor\|daily_cap\|monthly_cap\|probe_failed\|close_cap\|game_line_cap/)
+    expect(readme).toMatch(/ODDS_BUDGET_STATUS=ok\|floor\|daily_cap\|monthly_cap\|probe_failed\|close_cap\|game_line_cap\|ledger_unreadable/)
     expect(readme).toMatch(/ODDS_GAME_LINE_CLOSE_DAILY_CAP/)
     expect(readme).toMatch(/ODDS_CLOSE_CAPTURE_PROP_HEADROOM/)
     expect(readme).toMatch(/ODDS_CREDITS_USED/)
