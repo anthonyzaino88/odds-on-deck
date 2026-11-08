@@ -41,11 +41,12 @@
  * clvclose: rows with quoted_at from last_update. Prop jobs are
  * planned and fetched first. Game-line calls use their own
  * ODDS_GAME_LINE_RESERVED_SLOTS (default 31 = 16 NFL + 15 NHL) and
- * ODDS_GAME_LINE_CLOSE_DAILY_CAP (default 62 = 31 × h2h,totals).
- * Those slots are not drawn from the 40 prop captures, so a full NFL
- * prop day cannot skip NHL game lines. --spreads on every game is
- * 93 credits; raise the credit cap for that routine. Paid calls
- * reserve the credits under the ledger lock before the HTTP call.
+ * ODDS_GAME_LINE_CLOSE_DAILY_CAP (default 93 = 31 × h2h, spreads, totals).
+ * Those 31 calls are not drawn from the 40 prop captures, so a full
+ * NFL prop day cannot skip an NHL game line — including a game that
+ * also has a pending prop. The design is 40 prop captures + 31
+ * game-line captures per ET day, under the 1500 overall credit cap.
+ * Paid calls reserve the credits under the ledger lock before the HTTP call.
  *
  *   node scripts/capture-published-closes.js            # dry-run (default)
  *   node scripts/capture-published-closes.js --dry-run
@@ -114,6 +115,7 @@ import {
   formatGameLineCloseCounts,
   gameLineCloseMarkets,
   isGameLineCloseSport,
+  isGameLineMarketKey,
   gameLineClosesForCaptureJob,
   gameLineClosesForSportEvent,
   gameLineMarketsAlreadyCaptured,
@@ -243,6 +245,21 @@ export function assertCaptureSecretIsNotPublishable(env = process.env) {
   return preferred
 }
 
+/** Flag name only. `--apiKey=secret` logs as `--apiKey`, never the value. */
+export function unknownArgLogLabel(arg) {
+  const text = String(arg ?? '')
+  if (text.startsWith('-')) {
+    const eq = text.indexOf('=')
+    const name = eq === -1 ? text : text.slice(0, eq)
+    return name || '--'
+  }
+  return 'positional'
+}
+
+export function formatUnknownCaptureArgs(args) {
+  return [...new Set((args || []).map((arg) => unknownArgLogLabel(arg)))].join(' ')
+}
+
 export function unknownCaptureArgs(argv = []) {
   const args = Array.isArray(argv) ? argv : []
   const unknown = []
@@ -295,17 +312,6 @@ export function parseCaptureClosesArgs(argv = [], env = process.env) {
   }
 }
 
-/** A per-game retry with no props is a game-line fetch, not a prop fetch. */
-function isGameLineOnlyCaptureJob(job) {
-  if ((job?.picks || []).length > 0) return false
-  const markets = job?.markets || []
-  if (!markets.length) return false
-  return markets.every((market) => {
-    const key = String(market || '').toLowerCase().trim()
-    return key === 'h2h' || key === 'spreads' || key === 'totals'
-  })
-}
-
 async function defaultFetchEventOdds({
   url,
   fetchImpl = fetch,
@@ -313,6 +319,8 @@ async function defaultFetchEventOdds({
   estimatedCredits,
   apiKey,
   gameLine = false,
+  gameLineCredits = null,
+  countPropCapture = false,
   reservation = null,
 } = {}) {
   const result = await fetchOddsApiJson(url, {
@@ -321,6 +329,8 @@ async function defaultFetchEventOdds({
     estimatedCredits,
     apiKey,
     gameLine,
+    gameLineCredits,
+    countPropCapture,
     reservation,
   })
   return {
@@ -460,10 +470,13 @@ shared ODDS_CLOSE_CAPTURE_DAILY_CAP.
 Absent --nfl-all / --nhl-all, only Published picks' markets are requested.
 --game-lines does not add h2h/spreads/totals onto those prop calls.
 ODDS_GAME_LINE_RESERVED_SLOTS (default 31 = 16 NFL + 15 NHL) is the
-game-line call pool. Prop closeCaptures cannot consume it.
-ODDS_GAME_LINE_CLOSE_DAILY_CAP (default 62 credits = 31 × h2h,totals
-× 1 region) is stored on the ET-day ledger. A full-slate --spreads
-day is 93 credits; set the cap to 93 for that routine.
+game-line call pool. Prop closeCaptures cannot consume it. A game
+with a pending prop still uses a reserved slot once the 40 prop
+captures are full.
+ODDS_GAME_LINE_CLOSE_DAILY_CAP (default 93 credits = 31 × h2h,
+spreads/puck line, totals × 1 region) is stored on the ET-day ledger.
+The day is 40 prop captures + 31 game-line captures, under the 1500
+overall credit cap (ODDS_DAILY_CREDIT_CAP).
 ODDS_CLOSE_CAPTURE_PROP_HEADROOM (default 28) remains the documented
 prop remainder of the 40-slot day. Game lines do not draw those slots.
 PowerShell: prefer npm run capture:published-closes:apply or
@@ -496,7 +509,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
   }
 
   if (args.unknown.length) {
-    log.error(`❌ Unknown argument(s): ${args.unknown.join(' ')}`)
+    log.error(`❌ Unknown argument(s): ${formatUnknownCaptureArgs(args.unknown)}`)
     return done({
       updates: [],
       calls: 0,
@@ -824,7 +837,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     })
     const propsPlanned = captureJobs.length > 0
     const gameLineCreditsLeft = oddsBudget.remainingGameLineCredits?.() ?? gameLineCap
-    const plannedGameLineJobs = captureJobs.filter((job) => isGameLineOnlyCaptureJob(job)).length
+    const plannedGameLineJobs = captureJobs.filter((job) => Number(job.gameLineCredits) > 0).length
     const gameLineSlotsLeft = Math.max(
       0,
       (oddsBudget.remainingGameLineSlots?.() ?? 0) - plannedGameLineJobs,
@@ -1063,7 +1076,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
   if (oddsBudget.status() !== ODDS_BUDGET_OK) {
     const reservedLeft = oddsBudget.remainingGameLineSlots?.() ?? 0
     const gameLineWorkLeft = gameLineClusters.length > 0
-      || captureJobs.some((job) => isGameLineOnlyCaptureJob(job))
+      || captureJobs.some((job) => (job.markets || []).some((market) => isGameLineMarketKey(market)))
     const propCapLeavesGameLines = oddsBudget.status() === ODDS_BUDGET_CLOSE_CAP
       && gameLineWorkLeft
       && reservedLeft > 0
@@ -1147,25 +1160,47 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       skippedBudgetDuringRun += 1
       break
     }
-    const gameLineOnly = isGameLineOnlyCaptureJob(job)
-    const budgetExtra = gameLineOnly
-      ? { captures: 1, gameLineCredits: jobCredits }
-      : { captures: 1 }
-    if (gameLineOnly && jobCredits > (oddsBudget.remainingGameLineCredits?.() ?? jobCredits)) {
+    const lineMarkets = markets.filter((market) => isGameLineMarketKey(market))
+    const propMarkets = markets.filter((market) => !isGameLineMarketKey(market))
+    const lineCredits = lineMarkets.length * regionCount
+    const slotsLeft = oddsBudget.remainingGameLineSlots?.() ?? 0
+    const lineCreditsLeft = oddsBudget.remainingGameLineCredits?.() ?? 0
+    const linesAffordable = lineMarkets.length > 0
+      && slotsLeft > 0
+      && lineCredits > 0
+      && lineCredits <= lineCreditsLeft
+    const requestMarkets = linesAffordable ? markets : propMarkets
+    if (lineMarkets.length > 0 && !linesAffordable) {
+      log.log(`⏸️  ${label}: game-line cap blocks h2h/spreads/totals`)
+    }
+    if (!requestMarkets.length) {
       log.log(`⏸️  ${formatOddsBudgetStatus(ODDS_BUDGET_GAME_LINE_CAP)}`)
       const warn = formatOddsBudgetWarnLine(ODDS_BUDGET_GAME_LINE_CAP)
       if (warn) log.log(warn)
       skippedBudgetDuringRun += 1
       continue
     }
-    if (!oddsBudget.allow(jobCredits, budgetExtra)) {
+    const requestCredits = requestMarkets.length * regionCount
+    const chargeLines = linesAffordable
+    const countPropCapture = propMarkets.length > 0
+      && requestMarkets.some((market) => !isGameLineMarketKey(market))
+      && (oddsBudget.remainingCloseCaptures?.() ?? 0) > 0
+    const budgetExtra = chargeLines
+      ? {
+        captures: countPropCapture ? 1 : 0,
+        gameLineCredits: lineCredits,
+        countPropCapture,
+      }
+      : { captures: 1 }
+    if (!oddsBudget.allow(requestCredits, budgetExtra)) {
       log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
       const warn = formatOddsBudgetWarnLine(oddsBudget.status())
       if (warn) log.log(warn)
       skippedBudgetDuringRun += 1
       const budgetStatus = oddsBudget.status()
-      if (gameLineOnly && budgetStatus === ODDS_BUDGET_GAME_LINE_CAP) continue
-      if (!gameLineOnly && budgetStatus === ODDS_BUDGET_CLOSE_CAP) continue
+      if (chargeLines && budgetStatus === ODDS_BUDGET_GAME_LINE_CAP) continue
+      if (!chargeLines && budgetStatus === ODDS_BUDGET_CLOSE_CAP) continue
+      if (chargeLines && budgetStatus === ODDS_BUDGET_CLOSE_CAP) continue
       break
     }
 
@@ -1179,35 +1214,39 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     const url = buildEventOddsUrl({
       sportKey,
       eventId: job.eventId,
-      markets,
+      markets: requestMarkets,
       apiKey,
       regions,
     })
     calls += 1
-    creditsUsed += jobCredits
+    creditsUsed += requestCredits
     let payload
     try {
       payload = await fetchEventOdds({
         url,
         budget: oddsBudget,
-        estimatedCredits: jobCredits,
+        estimatedCredits: requestCredits,
         apiKey,
-        gameLine: gameLineOnly,
+        gameLine: chargeLines,
+        gameLineCredits: chargeLines ? lineCredits : 0,
+        countPropCapture,
       })
       if (payload?.skipped) {
         log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
         const warn = formatOddsBudgetWarnLine(oddsBudget.status())
         if (warn) log.log(warn)
         skippedBudgetDuringRun += 1
+        if (chargeLines) continue
         break
       }
       if (payload?.quota) lastQuota = payload.quota
       if (!payload?.budgetRecorded) {
-        const spent = payload?.quota?.last ?? jobCredits
+        const spent = payload?.quota?.last ?? requestCredits
         oddsBudget.record(payload?.quota || {}, {
           credits: spent,
-          captures: 1,
-          gameLineCredits: gameLineOnly ? spent : 0,
+          captures: countPropCapture ? 1 : (chargeLines ? 0 : 1),
+          gameLineCredits: chargeLines ? lineCredits : 0,
+          countPropCapture,
         })
       }
     } catch (error) {
@@ -1219,7 +1258,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
 
     const captureNflLines = args.nflAll && isNflSport(game?.sport)
     const captureNhlLines = args.nhlAll && isNhlSport(game?.sport)
-    if (captureNflLines || captureNhlLines) {
+    if ((captureNflLines || captureNhlLines) && chargeLines) {
       const liveSkip = overwrite
         ? shouldSkipLiveCloseOverwrite({ payload: payload.data, now: nowFn() })
         : null

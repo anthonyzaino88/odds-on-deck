@@ -70,6 +70,7 @@ import {
   filterNewClosingOddsRows,
   formatCallsUsed,
   gameLineClosesFromEventOdds,
+  gameLineClosesForCaptureJob,
   gameLineClosesForSportEvent,
   gameLineMarketsAlreadyCaptured,
   gameLineQuoteCloseDecision,
@@ -1051,6 +1052,65 @@ describe('NFL game-line ClosingOdds writes', () => {
     expect(rows.find((row) => row.market === 'player_receptions')).toBeUndefined()
     expect(rows.every((row) => row.quoted_at == null)).toBe(true)
     expect(rows.every((row) => row.quoted_at !== row.snapshot_at)).toBe(true)
+  })
+
+  test('a missing spread or puck-line point is attempted, never a null spread close', () => {
+    const capturedAt = new Date('2026-07-15T22:46:00.000Z')
+    const kickoff = '2026-07-15T23:10:00.000Z'
+    const quoted = '2026-07-15T22:40:00.000Z'
+    function event(home, away) {
+      return {
+        home_team: home,
+        away_team: away,
+        bookmakers: [{
+          title: 'FanDuel',
+          markets: [
+            {
+              key: 'h2h',
+              last_update: quoted,
+              outcomes: [
+                { name: home, price: -150 },
+                { name: away, price: 130 },
+              ],
+            },
+            {
+              key: 'spreads',
+              last_update: quoted,
+              outcomes: [
+                { name: home, price: -110 },
+                { name: away, price: -110 },
+              ],
+            },
+          ],
+        }],
+      }
+    }
+    for (const sport of ['nfl', 'nhl']) {
+      const home = sport === 'nfl' ? 'Kansas City Chiefs' : 'Toronto Maple Leafs'
+      const away = sport === 'nfl' ? 'Buffalo Bills' : 'Boston Bruins'
+      const direct = gameLineClosesFromEventOdds(event(home, away), {
+        gameId: 'GAME',
+        sport,
+        capturedAt,
+        kickoff,
+        markets: ['h2h', 'spreads', 'totals'],
+      })
+      expect(direct.some((row) => row.market === 'spreads')).toBe(false)
+      expect(direct.some((row) => row.book !== 'attempted' && row.spread == null && row.market === 'spreads')).toBe(false)
+      const filled = gameLineClosesForCaptureJob({
+        gameId: 'GAME',
+        gameIds: ['GAME'],
+        game: { id: 'GAME', sport, date: kickoff },
+      }, event(home, away), capturedAt, {
+        markets: ['h2h', 'spreads', 'totals'],
+        sport,
+      })
+      const realSpread = filled.filter((row) => row.market === 'spreads' && row.book !== 'attempted')
+      expect(realSpread).toEqual([])
+      const attempted = filled.find((row) => row.market === 'spreads' && row.book === 'attempted')
+      expect(attempted).toMatchObject({ game_id: 'GAME', sport, book: 'attempted' })
+      expect(filled.some((row) => row.market === 'h2h' && row.book === 'FanDuel')).toBe(true)
+    }
   })
 
   test('stores the market last_update on quoted_at and leaves snapshot_at as capture time', () => {

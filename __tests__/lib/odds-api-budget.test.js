@@ -267,7 +267,7 @@ describe('readOddsBudgetConfig', () => {
     })
     expect(DEFAULT_CLOSE_CAPTURE_DAILY_CAP).toBe(40)
     expect(DEFAULT_GAME_LINE_RESERVED_SLOTS).toBe(31)
-    expect(DEFAULT_GAME_LINE_CLOSE_DAILY_CAP).toBe(62)
+    expect(DEFAULT_GAME_LINE_CLOSE_DAILY_CAP).toBe(93)
     expect(parseEnvNonNegInt('nope', 7)).toBe(7)
     expect(readOddsBudgetConfig({
       ODDS_DAILY_CREDIT_CAP: '200',

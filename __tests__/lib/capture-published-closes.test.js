@@ -1021,7 +1021,23 @@ describe('runCapturePublishedCloses', () => {
     expect(result.captureStatus).toBe('failed')
     expect(result.unknown).toEqual(['3'])
     expect(log.lines.join('\n')).toMatch(/Unknown argument/)
+    expect(log.lines.join('\n')).toMatch(/positional/)
+    expect(log.lines.join('\n')).not.toMatch(/\b3\b/)
     expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_STATUS=failed/)
+
+    const secretLog = memoryLog()
+    const leaked = await runCapturePublishedCloses({
+      argv: ['--apiKey=secret-value'],
+      now: IN_WINDOW,
+      createClient: jest.fn(),
+      fetchEventOdds: jest.fn(),
+      log: secretLog,
+    })
+    expect(leaked.exitCode).toBe(0)
+    expect(leaked.captureStatus).toBe('failed')
+    expect(leaked.unknown).toEqual(['--apiKey=secret-value'])
+    expect(secretLog.lines.join('\n')).toMatch(/--apiKey/)
+    expect(secretLog.lines.join('\n')).not.toContain('secret-value')
   })
 
   test('0-row closeOdds update logs skipped instead of success', async () => {
@@ -3227,5 +3243,100 @@ describe('runCapturePublishedCloses', () => {
     expect(result.calls).toBe(2)
     expect(budget.todayCloseCaptures()).toBe(40)
     expect(budget.todayGameLineCaptures()).toBe(1)
+  })
+
+  test('a full prop day still fetches game lines for an NHL game that has a pending prop', async () => {
+    const budget = createOddsApiBudget({
+      persist: false,
+      now: IN_WINDOW,
+      purpose: 'close-capture',
+      env: {
+        ODDS_REMAINING_FLOOR: '0',
+        ODDS_CLOSE_CAPTURE_RESERVE: '0',
+        ODDS_CLOSE_CAPTURE_DAILY_CAP: '40',
+        ODDS_GAME_LINE_RESERVED_SLOTS: '31',
+        ODDS_GAME_LINE_CLOSE_DAILY_CAP: '93',
+        ODDS_DAILY_CREDIT_CAP: '1500',
+      },
+      log: { log() {}, warn() {} },
+      state: {
+        days: {
+          '2026-07-15': {
+            credits: 40,
+            calls: 40,
+            closeCaptures: 40,
+            gameLineCredits: 0,
+            gameLineCaptures: 0,
+          },
+        },
+      },
+    })
+    const fetchEventOdds = jest.fn(async ({ url }) => {
+      expect(url).toContain('icehockey_nhl')
+      expect(url).toContain('h2h')
+      expect(url).toContain('totals')
+      expect(url).toContain('player_shots_on_goal')
+      return { data: nhlBoard(), quota: { remaining: 9000, used: 43, last: 3 } }
+    })
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--nhl-all'],
+      now: IN_WINDOW,
+      budget,
+      createClient: () => mockClient({
+        games: [nhlGame()],
+        picks: [nhlPendingPick()],
+        edges: [],
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 40, last: 0 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(result.calls).toBe(2)
+  })
+
+  test('game-line caps at 0 do not request h2h or totals', async () => {
+    const budget = createOddsApiBudget({
+      persist: false,
+      now: IN_WINDOW,
+      purpose: 'close-capture',
+      env: {
+        ODDS_REMAINING_FLOOR: '0',
+        ODDS_CLOSE_CAPTURE_RESERVE: '0',
+        ODDS_CLOSE_CAPTURE_DAILY_CAP: '40',
+        ODDS_GAME_LINE_RESERVED_SLOTS: '0',
+        ODDS_GAME_LINE_CLOSE_DAILY_CAP: '0',
+        ODDS_DAILY_CREDIT_CAP: '1500',
+      },
+      log: { log() {}, warn() {} },
+    })
+    const fetchEventOdds = jest.fn(async ({ url }) => {
+      expect(url).not.toContain('h2h')
+      expect(url).not.toContain('totals')
+      expect(url).not.toContain('spreads')
+      expect(url).toContain('player_shots_on_goal')
+      return {
+        data: { bookmakers: [] },
+        quota: { remaining: 9000, used: 1, last: 1 },
+      }
+    })
+    await runCapturePublishedCloses({
+      argv: ['--apply', '--nhl-all'],
+      now: IN_WINDOW,
+      budget,
+      createClient: () => mockClient({
+        games: [nhlGame()],
+        picks: [nhlPendingPick()],
+        edges: [],
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(budget.todayGameLineCredits()).toBe(0)
+    expect(budget.todayGameLineCaptures()).toBe(0)
   })
 })
