@@ -237,7 +237,7 @@ describe('redaction', () => {
     expect(eastern).not.toContain('markets=h2h')
     expect(eastern).toContain('?[redacted]')
     expect(eastern).toContain('token=[redacted]')
-    expect(eastern).toContain('api_key: [redacted]')
+    expect(eastern).not.toContain(`api_key: ${key}`)
 
     const local = sanitizeOddsApiLogText(
       `Bearer ${key} password=${key}`,

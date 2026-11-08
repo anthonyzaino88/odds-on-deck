@@ -124,24 +124,153 @@ describe('sanitize-error', () => {
     expect(error.quota.apiKey).toBe('secret-key')
   })
 
-  test('throwing getters fall back to a placeholder and the sanitizer does not throw', () => {
+  test('accessors are skipped and a throwing getter never runs', () => {
+    let reads = 0
     const error = new Error('boom')
     Object.defineProperty(error, 'quota', {
       enumerable: true,
-      get() { throw new Error('quota getter') },
+      get() { reads += 1; throw new Error('quota getter') },
     })
     Object.defineProperty(error, 'apiKey', {
       enumerable: true,
-      get() { throw new Error('apiKey getter') },
+      get() { reads += 1; throw new Error('apiKey getter') },
     })
     expect(() => sanitizeOddsApiError(error)).not.toThrow()
     expect(() => sanitizeLoggedValue(error)).not.toThrow()
     const plain = {}
     Object.defineProperty(plain, 'password', {
       enumerable: true,
-      get() { throw new Error('password getter') },
+      get() { reads += 1; throw new Error('password getter') },
     })
     expect(sanitizeLoggedValue(plain).password).toBe('[redacted]')
+    expect(reads).toBe(0)
+  })
+
+  test('exact env secrets are removed before patterns, including encoded forms', () => {
+    const previous = {
+      ODDS_API_KEY: process.env.ODDS_API_KEY,
+      CRON_SECRET: process.env.CRON_SECRET,
+      SUPABASE_SECRET_KEY: process.env.SUPABASE_SECRET_KEY,
+      SERVICE_TOKEN: process.env.SERVICE_TOKEN,
+      DATABASE_URL: process.env.DATABASE_URL,
+      DIRECT_URL: process.env.DIRECT_URL,
+      TINY_TOKEN: process.env.TINY_TOKEN,
+    }
+    const odds = 'odds-key-fake-991'
+    const cron = 'line1\nline2-secret'
+    const service = 'service-token-fake'
+    const dbPassword = 'db-password-fake-1'
+    process.env.ODDS_API_KEY = odds
+    process.env.CRON_SECRET = cron
+    process.env.SUPABASE_SECRET_KEY = 'supabase-secret-fake'
+    process.env.SERVICE_TOKEN = service
+    process.env.DATABASE_URL = `postgresql://app:${dbPassword}@localhost:5432/odds`
+    process.env.DIRECT_URL = 'postgres://app:direct-password-fake@localhost/odds'
+    process.env.TINY_TOKEN = 'short'
+    try {
+      const encoded = encodeURIComponent(odds)
+      const b64 = Buffer.from(cron, 'utf8').toString('base64')
+      const escaped = JSON.stringify(cron).slice(1, -1)
+      const text = `raw ${odds} enc ${encoded} b64 ${b64} json ${escaped} db ${dbPassword} direct direct-password-fake token ${service} tiny short`
+      const out = sanitizeOddsApiLogText(text)
+      expect(out).not.toContain(odds)
+      expect(out).not.toContain(encoded)
+      expect(out).not.toContain(b64)
+      expect(out).not.toContain('line2-secret')
+      expect(out).not.toContain(dbPassword)
+      expect(out).not.toContain('direct-password-fake')
+      expect(out).not.toContain(service)
+      expect(out).toContain('tiny short')
+    } finally {
+      for (const [name, value] of Object.entries(previous)) {
+        if (value == null) delete process.env[name]
+        else process.env[name] = value
+      }
+    }
+  })
+
+  test('quoted secrets, unicode-escaped keys, and truncation do not leave a partial secret', () => {
+    const secret = 'quoted-secret-value'
+    const previous = process.env.CRON_SECRET
+    process.env.CRON_SECRET = secret
+    try {
+      expect(sanitizeOddsApiLogText('{"apiKey":\n"quoted-secret-value"}')).toBe('{"apiKey":\n"[redacted]"}')
+      expect(sanitizeOddsApiLogText('{"apiKey":   "quoted-secret-value"}')).toBe('{"apiKey":   "[redacted]"}')
+      expect(sanitizeOddsApiLogText('{"api\\u004bey":"quoted-secret-value"}')).toBe('{"api\\u004bey":"[redacted]"}')
+      const cause = new Error(`cause ${secret}`)
+      const error = new Error(`message ${secret}`)
+      error.cause = cause
+      Object.defineProperty(error, 'stack', {
+        configurable: true,
+        enumerable: false,
+        value: `stack line ${secret}`,
+      })
+      const safe = sanitizeOddsApiError(error)
+      expect(safe.message).not.toContain(secret)
+      expect(safe.cause.message).not.toContain(secret)
+      expect(safe.stack).not.toContain(secret)
+      expect(safe.stack).toContain('[redacted]')
+      const max = 32 * 1024
+      const filler = 'x'.repeat(max - 5)
+      const out = sanitizeOddsApiLogText(`${filler}"${secret}"`)
+      expect(out).toBe(filler)
+      expect(out).not.toContain(secret)
+      expect(out.length).toBeLessThanOrEqual(max)
+      const straddling = `${'y'.repeat(max - 4)}${secret}`
+      const cut = sanitizeOddsApiLogText(straddling)
+      expect(cut).toBe('y'.repeat(max - 4))
+      expect(cut).not.toContain(secret)
+      expect(cut).not.toContain('[red')
+    } finally {
+      if (previous == null) delete process.env.CRON_SECRET
+      else process.env.CRON_SECRET = previous
+    }
+  })
+
+  test('fragments, path secrets, repeated at-signs, and protocol-relative userinfo are masked', () => {
+    const jwt = JWT
+    expect(sanitizeOddsApiLogText(`https://host/cb#access_token=${jwt}`)).toBe('https://host/cb#[redacted]')
+    expect(sanitizeOddsApiLogText('https://host/cb#CRON_SECRET=cron-secret-fake-1')).toBe('https://host/cb#[redacted]')
+    expect(sanitizeOddsApiLogText(`https://proj.supabase.co/storage/v1/${SECRET}/file`)).toBe('https://proj.supabase.co/storage/v1/sb_secret_[redacted]/file')
+    expect(sanitizeOddsApiLogText('https://user:p@ssword@host/path')).toBe('https://[redacted]@host/path')
+    expect(sanitizeOddsApiLogText('https://user:p@ssword@host/path')).not.toContain('ssword')
+    expect(sanitizeOddsApiLogText('//user:pw@host/path')).toBe('//[redacted]@host/path')
+  })
+
+  test('built-in errors keep their type and a sparse array can be stringified', () => {
+    const secret = 'builtin-secret-value'
+    const previous = process.env.ODDS_API_KEY
+    process.env.ODDS_API_KEY = secret
+    try {
+      const typed = sanitizeOddsApiError(new TypeError(`bad ${secret}`))
+      expect(typed).toBeInstanceOf(TypeError)
+      expect(typed.name).toBe('TypeError')
+      expect(typed.constructor).toBe(TypeError)
+      expect(typed.message).toBe('bad [redacted]')
+      const aborted = sanitizeOddsApiError(new DOMException(`stopped ${secret}`, 'AbortError'))
+      expect(aborted).toBeInstanceOf(DOMException)
+      expect(aborted.name).toBe('AbortError')
+      expect(aborted.message).not.toContain(secret)
+      const sparse = []
+      sparse[0] = 'keep'
+      sparse[100000] = secret
+      const safe = sanitizeLoggedValue(sparse)
+      expect(safe.length).toBeUndefined()
+      expect(() => JSON.stringify(safe)).not.toThrow()
+      expect(JSON.stringify(safe)).not.toContain(secret)
+      expect(JSON.stringify(safe).length).toBeLessThan(200)
+    } finally {
+      if (previous == null) delete process.env.ODDS_API_KEY
+      else process.env.ODDS_API_KEY = previous
+    }
+  })
+
+  test('malformed nested JSON is scanned in linear time', () => {
+    const text = '{"apiKey":'.repeat(4000)
+    const started = Date.now()
+    const out = sanitizeOddsApiLogText(text)
+    expect(Date.now() - started).toBeLessThan(80)
+    expect(out.length).toBeLessThan(text.length)
   })
 
   test('long slash strings and wide objects stay fast', () => {
