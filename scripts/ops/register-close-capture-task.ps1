@@ -49,10 +49,16 @@ if (-not (Test-Path -LiteralPath $wrapper)) {
 
 $preference = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
-$nodeExit = 1
+$nodeExit = -999
 try {
+  $global:LASTEXITCODE = -999
   $raw = & node $helper triggers 2>$null
-  if ($null -ne $LASTEXITCODE) { $nodeExit = $LASTEXITCODE }
+  if ($global:LASTEXITCODE -ne 0) {
+    $nodeExit = -999
+    if ($null -ne $global:LASTEXITCODE) { $nodeExit = $global:LASTEXITCODE }
+  } else {
+    $nodeExit = 0
+  }
 } finally {
   $ErrorActionPreference = $preference
 }

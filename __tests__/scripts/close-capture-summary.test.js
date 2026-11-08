@@ -19,8 +19,11 @@ import {
   nextQuietDeadline,
   orphanShouldKill,
   parseCaptureOutput,
+  confirmUsageWrite,
+  NATIVE_EXIT_SENTINEL,
   parseUsageText,
   planScheduledCapture,
+  runNativeCommand,
   remainingUntilDeadline,
   scheduledCaptureDecision,
   settleCapturedChild,
@@ -515,13 +518,46 @@ describe('close capture schedule parsing', () => {
         const continueAt = before.lastIndexOf("$ErrorActionPreference = 'Continue'")
         const stopAt = before.lastIndexOf("$ErrorActionPreference = 'Stop'")
         expect(continueAt).toBeGreaterThan(stopAt)
-        const after = source.slice(match.index, match.index + 500)
-        const exitAt = after.indexOf('$LASTEXITCODE')
+        const lineStart = source.lastIndexOf('\n', match.index - 1) + 1
+        const previousLine = source.slice(source.lastIndexOf('\n', lineStart - 2) + 1, lineStart - 1).trim()
+        expect(previousLine).toBe('$global:LASTEXITCODE = -999')
+        const after = source.slice(match.index)
         const restoreAt = after.indexOf('$ErrorActionPreference = $preference')
-        expect(exitAt).toBeGreaterThan(-1)
-        expect(restoreAt).toBeGreaterThan(exitAt)
+        expect(restoreAt).toBeGreaterThan(-1)
+        expect(after.slice(0, restoreAt)).toContain('$global:LASTEXITCODE -ne 0')
       }
     }
+    const raiseAt = wrapper.indexOf("'write-usage'")
+    expect(wrapper.slice(raiseAt, raiseAt + 500)).toContain('Test-UsageFile')
+  })
+
+  test('a prior LASTEXITCODE of 0 with no update must fail', () => {
+    const stale = runNativeCommand({
+      priorExit: 0,
+      invoke() {},
+    })
+    expect(NATIVE_EXIT_SENTINEL).toBe(-999)
+    expect(stale).toEqual({ ok: false, code: -999 })
+    const fresh = runNativeCommand({
+      priorExit: 0,
+      invoke({ setExit }) { setExit(0) },
+    })
+    expect(fresh).toEqual({ ok: true, code: 0 })
+  })
+
+  test('a mocked write-usage that writes no file must fail', () => {
+    const missed = confirmUsageWrite({
+      write: () => ({ exitCode: 0 }),
+      readFile: () => null,
+      parse: () => ({ ok: true, callsUsed: 20, cap: 40 }),
+    })
+    expect(missed).toMatchObject({ ok: false, reason: 'missing' })
+    const landed = confirmUsageWrite({
+      write: () => ({ exitCode: 0 }),
+      readFile: () => '20\ncap=40\n',
+      parse: (text) => parseUsageText(text),
+    })
+    expect(landed.ok).toBe(true)
   })
 
   test('the helper module does not warn about a typeless package.json', () => {

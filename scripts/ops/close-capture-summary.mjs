@@ -341,6 +341,51 @@ export function formatUsageText({ callsUsed = 0, cap = DEFAULT_CALL_CAP } = {}) 
   return `${used}\ncap=${nextCap}\n`
 }
 
+/** A native call must replace this before a 0 can count as success. */
+export const NATIVE_EXIT_SENTINEL = -999
+
+/**
+ * priorExit is the sticky LASTEXITCODE from an earlier command.
+ * The call sets the sentinel first. If invoke never writes a new code,
+ * the prior 0 is not success.
+ */
+export function runNativeCommand({ priorExit = 0, invoke } = {}) {
+  let exitCode = NATIVE_EXIT_SENTINEL
+  if (typeof invoke === 'function') {
+    invoke({
+      priorExit,
+      setExit(code) { exitCode = code },
+    })
+  }
+  const code = exitCode == null || !Number.isFinite(Number(exitCode))
+    ? NATIVE_EXIT_SENTINEL
+    : Number(exitCode)
+  return { ok: code === 0, code }
+}
+
+/**
+ * A write-usage exit of 0 still fails when the usage file is missing
+ * or does not parse.
+ */
+export function confirmUsageWrite({ write, readFile, parse } = {}) {
+  const written = typeof write === 'function' ? write() : { exitCode: NATIVE_EXIT_SENTINEL }
+  const exit = runNativeCommand({
+    priorExit: 0,
+    invoke({ setExit }) { setExit(written && written.exitCode) },
+  })
+  if (!exit.ok) return { ok: false, reason: 'exit', code: exit.code }
+  let text = null
+  try {
+    text = readFile()
+  } catch {
+    text = null
+  }
+  if (text == null) return { ok: false, reason: 'missing', code: 0 }
+  const parsed = typeof parse === 'function' ? parse(text) : null
+  if (!parsed || parsed.ok !== true) return { ok: false, reason: 'unreadable', code: 0 }
+  return { ok: true, reason: '', code: 0 }
+}
+
 export function remainingCalls(callsUsed, cap) {
   return Math.max(0, Math.floor(Number(cap) || 0) - Math.floor(Number(callsUsed) || 0))
 }

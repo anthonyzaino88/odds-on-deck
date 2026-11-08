@@ -250,15 +250,22 @@ function Invoke-Helper {
   )
   $preference = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
-  $code = 1
+  $code = -999
   $raw = $null
   try {
     if ($null -eq $StdinText) {
+      $global:LASTEXITCODE = -999
       $raw = & node $helper @HelperArgs 2>$null
     } else {
+      $global:LASTEXITCODE = -999
       $raw = $StdinText | & node $helper @HelperArgs 2>$null
     }
-    if ($null -ne $LASTEXITCODE) { $code = $LASTEXITCODE }
+    if ($global:LASTEXITCODE -ne 0) {
+      $code = -999
+      if ($null -ne $global:LASTEXITCODE) { $code = $global:LASTEXITCODE }
+    } else {
+      $code = 0
+    }
   } finally {
     $ErrorActionPreference = $preference
   }
@@ -266,6 +273,13 @@ function Invoke-Helper {
     Code = $code
     Text = (($raw | Out-String).Trim())
   }
+}
+
+function Test-UsageFile {
+  param([string]$File)
+  if (-not (Test-Path -LiteralPath $File)) { return $false }
+  $parsed = Convert-HelperJson (Invoke-Helper -HelperArgs @('read-usage', '--file', $File))
+  return [bool]($parsed -and $parsed.ok)
 }
 
 function Convert-HelperJson {
@@ -598,7 +612,7 @@ try {
       '--calls', [string]([int]$usage.callsUsed),
       '--cap', [string]$nextCap
     )
-    if ($raised.Code -ne 0) {
+    if ($raised.Code -ne 0 -or -not (Test-UsageFile -File $usageFile)) {
       $writeFailed = Invoke-Helper -HelperArgs @('line', '--reason', 'summary-failed', '--status', 'failed')
       Write-CloseLog -Line $writeFailed.Text -Day $day
       exit 0
@@ -672,12 +686,16 @@ try {
     $charged = [int]$plannedText
     if ($apply.ReadFailed) { $charged = [int]$plan.maxCalls }
     $fallbackUsed = [int]$usage.callsUsed + $charged
-    Invoke-Helper -HelperArgs @(
+    $fallbackWrite = Invoke-Helper -HelperArgs @(
       'write-usage', '--file', $usageFile,
       '--calls', [string]$fallbackUsed,
       '--cap', [string]$nextCap
-    ) | Out-Null
-    $final = Invoke-Helper -HelperArgs @('line', '--reason', 'summary-failed', '--status', 'failed')
+    )
+    if ($fallbackWrite.Code -ne 0 -or -not (Test-UsageFile -File $usageFile)) {
+      $final = Invoke-Helper -HelperArgs @('line', '--reason', 'summary-failed', '--status', 'failed')
+    } else {
+      $final = Invoke-Helper -HelperArgs @('line', '--reason', 'summary-failed', '--status', 'failed')
+    }
   }
   Write-CloseLog -Line $final.Text -Day $day
   exit 0
