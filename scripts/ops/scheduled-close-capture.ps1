@@ -276,10 +276,21 @@ function Invoke-Helper {
 }
 
 function Test-UsageFile {
-  param([string]$File)
-  if (-not (Test-Path -LiteralPath $File)) { return $false }
-  $parsed = Convert-HelperJson (Invoke-Helper -HelperArgs @('read-usage', '--file', $File))
-  return [bool]($parsed -and $parsed.ok)
+  param(
+    [string]$File,
+    [string]$Calls,
+    [string]$Cap,
+    [string]$Day,
+    [string]$RunId
+  )
+  $checked = Convert-HelperJson (Invoke-Helper -HelperArgs @(
+    'confirm-usage', '--file', $File,
+    '--calls', $Calls,
+    '--cap', $Cap,
+    '--day', $Day,
+    '--run', $RunId
+  ))
+  return [bool]($checked -and $checked.ok)
 }
 
 function Convert-HelperJson {
@@ -537,6 +548,7 @@ if (-not (Test-Path -LiteralPath $logDir)) {
   New-Item -ItemType Directory -Path $logDir | Out-Null
 }
 $usageFile = Join-Path $usageDir ($day + '.txt')
+$runId = [guid]::NewGuid().ToString('n')
 $lockPath = Join-Path $usageDir 'close-capture.lock'
 $lock = $null
 $jobHandle = [IntPtr]::Zero
@@ -610,9 +622,11 @@ try {
     $raised = Invoke-Helper -HelperArgs @(
       'write-usage', '--file', $usageFile,
       '--calls', [string]([int]$usage.callsUsed),
-      '--cap', [string]$nextCap
+      '--cap', [string]$nextCap,
+      '--day', $day,
+      '--run', $runId
     )
-    if ($raised.Code -ne 0 -or -not (Test-UsageFile -File $usageFile)) {
+    if ($raised.Code -ne 0 -or -not (Test-UsageFile -File $usageFile -Calls ([string]([int]$usage.callsUsed)) -Cap ([string]$nextCap) -Day $day -RunId $runId)) {
       $writeFailed = Invoke-Helper -HelperArgs @('line', '--reason', 'summary-failed', '--status', 'failed')
       Write-CloseLog -Line $writeFailed.Text -Day $day
       exit 0
@@ -679,7 +693,9 @@ try {
     '--calls-used', [string]([int]$usage.callsUsed),
     '--usage-file', $usageFile,
     '--extra-errors', $extraErrors,
-    '--record-calls'
+    '--record-calls',
+    '--day', $day,
+    '--run', $runId
   ) + $ceilingHit + $reasonArgs + $readArgs
   $final = Invoke-Helper -HelperArgs $finalArgs -StdinText $apply.Text
   if ($final.Code -ne 0 -or -not $final.Text) {
@@ -689,9 +705,11 @@ try {
     $fallbackWrite = Invoke-Helper -HelperArgs @(
       'write-usage', '--file', $usageFile,
       '--calls', [string]$fallbackUsed,
-      '--cap', [string]$nextCap
+      '--cap', [string]$nextCap,
+      '--day', $day,
+      '--run', $runId
     )
-    if ($fallbackWrite.Code -ne 0 -or -not (Test-UsageFile -File $usageFile)) {
+    if ($fallbackWrite.Code -ne 0 -or -not (Test-UsageFile -File $usageFile -Calls ([string]$fallbackUsed) -Cap ([string]$nextCap) -Day $day -RunId $runId)) {
       $final = Invoke-Helper -HelperArgs @('line', '--reason', 'summary-failed', '--status', 'failed')
     } else {
       $final = Invoke-Helper -HelperArgs @('line', '--reason', 'summary-failed', '--status', 'failed')

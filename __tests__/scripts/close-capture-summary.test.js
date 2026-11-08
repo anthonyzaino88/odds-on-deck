@@ -80,6 +80,13 @@ describe('close capture schedule parsing', () => {
       missing: true,
       callsUsed: 0,
       cap: DEFAULT_CALL_CAP,
+      runId: '',
+    })
+    expect(parseUsageText('7\ncap=40\nrun=abc\n')).toMatchObject({
+      ok: true,
+      callsUsed: 7,
+      cap: 40,
+      runId: 'abc',
     })
     expect(parseUsageText('')).toMatchObject({ ok: false, reason: 'usage-unreadable' })
     expect(parseUsageText('   \n')).toMatchObject({ ok: false, reason: 'usage-unreadable' })
@@ -549,15 +556,28 @@ describe('close capture schedule parsing', () => {
     const missed = confirmUsageWrite({
       write: () => ({ exitCode: 0 }),
       readFile: () => null,
-      parse: () => ({ ok: true, callsUsed: 20, cap: 40 }),
+      requested: { calls: 20, cap: 40, day: '2026-11-08', runId: 'run-a' },
     })
     expect(missed).toMatchObject({ ok: false, reason: 'missing' })
+  })
+
+  test('an old 20/20 usage file is not a write of cap 40', () => {
+    const stale = confirmUsageWrite({
+      write: () => ({ exitCode: 0 }),
+      readFile: () => ({ text: '20\ncap=20\n', fileDay: '2026-11-08' }),
+      requested: { calls: 20, cap: 40, day: '2026-11-08', runId: 'run-new' },
+    })
+    expect(stale.ok).toBe(false)
+    expect(stale.reason).toBe('cap')
     const landed = confirmUsageWrite({
       write: () => ({ exitCode: 0 }),
-      readFile: () => '20\ncap=40\n',
-      parse: (text) => parseUsageText(text),
+      readFile: () => ({
+        text: '20\ncap=40\nrun=run-new\n',
+        fileDay: '2026-11-08',
+      }),
+      requested: { calls: 20, cap: 40, day: '2026-11-08', runId: 'run-new' },
     })
-    expect(landed.ok).toBe(true)
+    expect(landed).toMatchObject({ ok: true, reason: '' })
   })
 
   test('the helper module does not warn about a typeless package.json', () => {

@@ -312,7 +312,7 @@ export function scheduledCaptureDecision(date = new Date()) {
 
 export function parseUsageText(text) {
   if (text == null) {
-    return { ok: true, missing: true, callsUsed: 0, cap: DEFAULT_CALL_CAP }
+    return { ok: true, missing: true, callsUsed: 0, cap: DEFAULT_CALL_CAP, runId: '' }
   }
   if (String(text).trim() === '') {
     return { ok: false, missing: false, reason: 'usage-unreadable' }
@@ -327,18 +327,53 @@ export function parseUsageText(text) {
     if (!match) return { ok: false, missing: false, reason: 'usage-unreadable' }
     cap = Number(match[1])
   }
+  let runId = ''
+  for (const line of lines.slice(2)) {
+    const run = /^run=([A-Za-z0-9_-]+)$/.exec(line)
+    if (run) runId = run[1]
+  }
   return {
     ok: true,
     missing: false,
     callsUsed: Number(lines[0]),
     cap,
+    runId,
   }
 }
 
-export function formatUsageText({ callsUsed = 0, cap = DEFAULT_CALL_CAP } = {}) {
+export function formatUsageText({ callsUsed = 0, cap = DEFAULT_CALL_CAP, runId = '' } = {}) {
   const used = Math.max(0, Math.floor(Number(callsUsed) || 0))
   const nextCap = Math.max(0, Math.floor(Number(cap) || 0))
-  return `${used}\ncap=${nextCap}\n`
+  const body = `${used}\ncap=${nextCap}\n`
+  const run = String(runId || '')
+  if (!run || !/^[A-Za-z0-9_-]+$/.test(run)) return body
+  return `${body}run=${run}\n`
+}
+
+export function usageMatchesRequest(text, {
+  calls,
+  cap,
+  day,
+  runId,
+  fileDay,
+} = {}) {
+  const parsed = parseUsageText(text)
+  if (!parsed || !parsed.ok || parsed.missing) return { ok: false, reason: 'unreadable' }
+  const wantCalls = Number(calls)
+  const wantCap = Number(cap)
+  if (!Number.isInteger(wantCalls) || parsed.callsUsed !== wantCalls) {
+    return { ok: false, reason: 'calls' }
+  }
+  if (!Number.isInteger(wantCap) || parsed.cap !== wantCap) {
+    return { ok: false, reason: 'cap' }
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day || '')) || String(fileDay || '') !== String(day)) {
+    return { ok: false, reason: 'day' }
+  }
+  if (!/^[A-Za-z0-9_-]+$/.test(String(runId || '')) || parsed.runId !== String(runId)) {
+    return { ok: false, reason: 'run' }
+  }
+  return { ok: true, reason: '' }
 }
 
 /** A native call must replace this before a 0 can count as success. */
@@ -364,25 +399,44 @@ export function runNativeCommand({ priorExit = 0, invoke } = {}) {
 }
 
 /**
- * A write-usage exit of 0 still fails when the usage file is missing
- * or does not parse.
+ * A write-usage exit of 0 still fails unless the file read back has the
+ * requested calls, cap, ET day, and this run's id.
  */
-export function confirmUsageWrite({ write, readFile, parse } = {}) {
+export function confirmUsageWrite({ write, readFile, requested = {} } = {}) {
   const written = typeof write === 'function' ? write() : { exitCode: NATIVE_EXIT_SENTINEL }
   const exit = runNativeCommand({
     priorExit: 0,
-    invoke({ setExit }) { setExit(written && written.exitCode) },
+    invoke({ setExit }) {
+      const code = written && Object.prototype.hasOwnProperty.call(written, 'exitCode')
+        ? written.exitCode
+        : undefined
+      setExit(code)
+    },
   })
   if (!exit.ok) return { ok: false, reason: 'exit', code: exit.code }
   let text = null
+  let fileDay = ''
   try {
-    text = readFile()
+    const read = readFile()
+    if (read == null) return { ok: false, reason: 'missing', code: 0 }
+    if (typeof read === 'string') {
+      text = read
+    } else {
+      text = read.text
+      fileDay = String(read.fileDay || '')
+    }
   } catch {
-    text = null
+    return { ok: false, reason: 'missing', code: 0 }
   }
   if (text == null) return { ok: false, reason: 'missing', code: 0 }
-  const parsed = typeof parse === 'function' ? parse(text) : null
-  if (!parsed || parsed.ok !== true) return { ok: false, reason: 'unreadable', code: 0 }
+  const match = usageMatchesRequest(text, {
+    calls: requested.calls,
+    cap: requested.cap,
+    day: requested.day,
+    runId: requested.runId,
+    fileDay,
+  })
+  if (!match.ok) return { ok: false, reason: match.reason, code: 0 }
   return { ok: true, reason: '', code: 0 }
 }
 
@@ -712,11 +766,11 @@ function printJson(value) {
   process.stdout.write(`${JSON.stringify(value)}\n`)
 }
 
-export function writeUsageFile(file, { callsUsed = 0, cap = DEFAULT_CALL_CAP } = {}) {
+export function writeUsageFile(file, { callsUsed = 0, cap = DEFAULT_CALL_CAP, runId = '' } = {}) {
   const dir = path.dirname(file)
   fs.mkdirSync(dir, { recursive: true })
   const tmp = path.join(dir, `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`)
-  const text = formatUsageText({ callsUsed, cap })
+  const text = formatUsageText({ callsUsed, cap, runId })
   try {
     fs.writeFileSync(tmp, text)
     fs.renameSync(tmp, file)
@@ -746,7 +800,7 @@ function runCli(argv) {
     '--raised-by', '--planned', '--usage-file', '--record-calls',
     '--extra-errors', '--reason', '--stamp', '--status',
     '--ceiling', '--id', '--ceiling-hit', '--deadline', '--pid', '--start-ticks',
-    '--read-failed', '--reserved-calls',
+    '--read-failed', '--reserved-calls', '--run', '--day',
   ])
   for (const arg of rest) {
     if (String(arg).startsWith('-') && !known.has(flagName(arg))) {
@@ -804,10 +858,40 @@ function runCli(argv) {
     const file = readFlag(rest, '--file')
     const calls = readFlag(rest, '--calls')
     const cap = readFlag(rest, '--cap')
+    const day = readFlag(rest, '--day')
+    const runId = readFlag(rest, '--run') || ''
     if (!file || calls == null || cap == null) failClosed('missing usage fields')
     if (!/^\d+$/.test(calls) || !/^\d+$/.test(cap)) failClosed('usage fields must be integers')
-    writeUsageFile(file, { callsUsed: Number(calls), cap: Number(cap) })
+    if (day != null && path.basename(file, path.extname(file)) !== day) failClosed('usage day mismatch')
+    if (runId && !/^[A-Za-z0-9_-]+$/.test(runId)) failClosed('usage run id rejected')
+    writeUsageFile(file, { callsUsed: Number(calls), cap: Number(cap), runId })
     printJson({ ok: true })
+    return
+  }
+  if (command === 'confirm-usage') {
+    const file = readFlag(rest, '--file')
+    const calls = readFlag(rest, '--calls')
+    const cap = readFlag(rest, '--cap')
+    const day = readFlag(rest, '--day')
+    const runId = readFlag(rest, '--run')
+    if (!file || calls == null || cap == null || day == null || runId == null) {
+      failClosed('missing usage check')
+    }
+    if (!/^\d+$/.test(calls) || !/^\d+$/.test(cap)) failClosed('usage fields must be integers')
+    let text = null
+    try {
+      text = fs.readFileSync(file, 'utf8')
+    } catch {
+      printJson({ ok: false, reason: 'missing' })
+      return
+    }
+    printJson(usageMatchesRequest(text, {
+      calls: Number(calls),
+      cap: Number(cap),
+      day,
+      runId,
+      fileDay: path.basename(file, path.extname(file)),
+    }))
     return
   }
   if (command === 'plan') {
@@ -874,9 +958,16 @@ function runCli(argv) {
     })
     if (rest.includes('--record-calls')) {
       if (!usageFile) failClosed('missing --usage-file')
+      const runId = readFlag(rest, '--run') || ''
+      const day = readFlag(rest, '--day')
+      if (day != null && path.basename(usageFile, path.extname(usageFile)) !== day) {
+        failClosed('usage day mismatch')
+      }
+      if (runId && !/^[A-Za-z0-9_-]+$/.test(runId)) failClosed('usage run id rejected')
       writeUsageFile(usageFile, {
         callsUsed: Number(callsUsed) + summary.recordedCalls,
         cap: Number(cap),
+        runId,
       })
     }
     process.stdout.write(`${summary.line}\n`)
