@@ -13,6 +13,7 @@ import {
   oddsTableHasQuotedAt,
   omitQuotedAtFields,
 } from '../lib/odds-quote-time.js'
+import { sanitizeOddsApiError, sanitizedErrorMessage } from '../lib/odds-api-budget.js'
 import { config } from 'dotenv'
 
 config({ path: '.env.local' })
@@ -75,8 +76,16 @@ async function fetchOddsForGame(gameId) {
   try {
     const response = await fetch(url)
     if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(`API returned ${response.status}: ${errorText}`)
+      let errorText = ''
+      try {
+        errorText = await response.text()
+      } catch (error) {
+        throw sanitizeOddsApiError(error, ODDS_API_KEY)
+      }
+      throw sanitizeOddsApiError(
+        new Error(`API returned ${response.status}: ${errorText}`),
+        ODDS_API_KEY,
+      )
     }
     
     const oddsData = await response.json()
@@ -167,7 +176,7 @@ async function fetchOddsForGame(gameId) {
     console.log(`✅ Saved ${saved} odds records for ${game.away?.abbr} @ ${game.home?.abbr}`)
     
   } catch (error) {
-    console.error(`❌ Error fetching odds: ${error.message}`)
+    console.error(`❌ Error fetching odds: ${sanitizedErrorMessage(error, ODDS_API_KEY)}`)
   }
 }
 
@@ -180,7 +189,7 @@ if (!gameId) {
 }
 
 fetchOddsForGame(gameId).catch(error => {
-  console.error('❌ Fatal error:', error)
+  console.error('❌ Fatal error:', sanitizedErrorMessage(error, process.env.ODDS_API_KEY))
   process.exit(1)
 })
 

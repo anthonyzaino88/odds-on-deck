@@ -2716,6 +2716,35 @@ describe('runCapturePublishedCloses', () => {
     expect(log.lines.join('\n')).toMatch(/ODDS_BUDGET_STATUS=game_line_cap/)
   })
 
+  test('the default quota-probe JSON error is logged without the api key', async () => {
+    const key = 'odds-live-key-99'
+    const url = `https://api.the-odds-api.com/v4/sports?apiKey=${key}&regions=us`
+    const log = memoryLog()
+    await runCapturePublishedCloses({
+      argv: ['--apply', '--nfl-all'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [nflWindowGame()],
+        picks: [nflPendingPick()],
+      }),
+      fetchEventOdds: jest.fn(async () => ({
+        data: nflEventOdds(),
+        quota: { remaining: 9000, used: 1, last: 1 },
+      })),
+      probeQuota: async () => {
+        throw new Error(`Unexpected token < in JSON at ${url}`)
+      },
+      apiKey: key,
+      log,
+    })
+    const failure = log.lines.find((line) => line.includes('Quota probe failed'))
+    expect(failure).toBeTruthy()
+    expect(failure).not.toContain(key)
+    expect(failure).not.toContain('regions=us')
+    expect(failure).toContain('?[redacted]')
+    expect(log.lines.join('\n')).not.toContain(key)
+  })
+
   test('fetch failures log without the request query or api key', async () => {
     const key = 'odds-live-key-99'
     const eventUrl = `https://api.the-odds-api.com/v4/sports/americanfootball_nfl/events/evt-kc-buf/odds?apiKey=${key}&regions=us&markets=h2h,spreads,totals`

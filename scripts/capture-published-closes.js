@@ -143,6 +143,7 @@ import {
   ODDS_BUDGET_GAME_LINE_CAP,
   ODDS_BUDGET_OK,
   sanitizeOddsApiError,
+  sanitizedErrorMessage,
 } from '../lib/odds-api-budget.js'
 
 config({ path: '.env.local' })
@@ -492,7 +493,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     assertCaptureSecretIsNotPublishable(env)
     supabase = createClient(captureSupabaseEnv(env))
   } catch (error) {
-    log.error(`❌ ${error.message}`)
+    log.error(`❌ ${sanitizedErrorMessage(error, apiKey)}`)
     return done({
       updates: [],
       calls: 0,
@@ -510,7 +511,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     .lte('date', horizon.toISOString())
 
   if (gameError) {
-    log.error(`❌ Game query failed: ${gameError.message}`)
+    log.error(`❌ Game query failed: ${sanitizedErrorMessage(gameError, apiKey)}`)
     return done({
       updates: [],
       calls: 0,
@@ -596,7 +597,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
   }
 
   if (pickPage.error) {
-    log.error(`❌ Pick query failed: ${pickPage.error.message}`)
+    log.error(`❌ Pick query failed: ${sanitizedErrorMessage(pickPage.error, apiKey)}`)
     return done({
       updates: [],
       calls: 0,
@@ -643,7 +644,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
   if (closingOddsGameIds.length) {
     const loaded = await loadExistingClosingOdds(supabase, closingOddsGameIds)
     if (loaded.error) {
-      log.log(`⚠️ ClosingOdds read failed (${loaded.error.message}); planning game-line fetches without a skip list.`)
+      log.log(`⚠️ ClosingOdds read failed (${sanitizedErrorMessage(loaded.error, apiKey)}); planning game-line fetches without a skip list.`)
     } else {
       existingClosingOdds = loaded.rows
     }
@@ -700,7 +701,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       .map((game) => game.id)
     const edgePage = await loadGameLineEdges(supabase, edgeGameIds)
     if (edgePage.error) {
-      log.error(`❌ EdgeSnapshot query failed: ${edgePage.error.message}`)
+      log.error(`❌ EdgeSnapshot query failed: ${sanitizedErrorMessage(edgePage.error, apiKey)}`)
       return done({
         updates: [],
         calls: 0,
@@ -936,7 +937,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     calls += 1
   } catch (error) {
     calls += 1
-    log.log(`⚠️ Quota probe failed (${error.message}); continuing without a pre-check.`)
+    log.log(`⚠️ Quota probe failed (${sanitizedErrorMessage(error, apiKey)}); continuing without a pre-check.`)
   }
   if (lastQuota.remaining != null && lastQuota.remaining < args.minRemaining) {
     log.log(
@@ -1118,7 +1119,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
           const failedNote = writtenLines.failed
             ? ` (${writtenLines.failed} row(s) not captured)`
             : ''
-          log.error(`  ❌ ClosingOdds ${label}: ${writtenLines.error.message}${failedNote}`)
+          log.error(`  ❌ ClosingOdds ${label}: ${sanitizedErrorMessage(writtenLines.error, apiKey)}${failedNote}`)
         }
         log.log(formatGameLineCloseCounts({
           label,
@@ -1168,7 +1169,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       )
       if (write?.error) {
         writeErrors += 1
-        log.error(`  ❌ write ${pick.id}: ${write.error.message}`)
+        log.error(`  ❌ write ${pick.id}: ${sanitizedErrorMessage(write.error, apiKey)}`)
         continue
       }
       const written = closeUpdateRowCount(write)
@@ -1337,7 +1338,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
           const failedNote = writtenLines.failed
             ? ` (${writtenLines.failed} row(s) not captured)`
             : ''
-          log.error(`  ❌ ClosingOdds ${item.target.game.id}: ${writtenLines.error.message}${failedNote}`)
+          log.error(`  ❌ ClosingOdds ${item.target.game.id}: ${sanitizedErrorMessage(writtenLines.error, apiKey)}${failedNote}`)
         }
         log.log(formatGameLineCloseCounts({
           label: item.target.game.id,
@@ -1389,7 +1390,7 @@ if (invokedDirectly()) {
   runCapturePublishedCloses().then((result) => {
     process.exit(result.exitCode)
   }).catch((error) => {
-    console.error('Fatal:', error)
+    console.error('Fatal:', sanitizedErrorMessage(error, process.env.ODDS_API_KEY))
     console.log(formatCloseCaptureStatus(CLOSE_CAPTURE_STATUS_FAILED))
     console.log(formatCloseCaptureCounts({}))
     console.log(formatCallsUsed(0))

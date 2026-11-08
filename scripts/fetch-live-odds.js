@@ -46,6 +46,8 @@ import {
   fetchOddsApiJson,
   formatOddsBudgetStatus,
   runOddsQuotaProbe,
+  sanitizeOddsApiError,
+  sanitizedErrorMessage,
 } from '../lib/odds-api-budget.js'
 import { applyEventRemap, planEventRemap, shouldCheckPropsCache } from '../lib/odds-event-remap.js'
 import { isCancelledGameStatus } from '../lib/game-grade-eligibility.js'
@@ -524,8 +526,9 @@ async function callOddsAPI(endpoint) {
     if (result.skipped) return null
     return result.data
   } catch (error) {
-    console.error(`  ❌ API Error: ${error.message}`)
-    throw error
+    const safe = sanitizeOddsApiError(error, ODDS_API_KEY)
+    console.error(`  ❌ API Error: ${safe.message}`)
+    throw safe
   }
 }
 
@@ -659,7 +662,7 @@ async function fetchGameOdds(sport, date, ignoreCache = false) {
     return games
     
   } catch (error) {
-    console.error(`  ❌ Error fetching game odds: ${error.message}`)
+    console.error(`  ❌ Error fetching game odds: ${sanitizedErrorMessage(error, ODDS_API_KEY)}`)
     return []
   }
 }
@@ -1229,14 +1232,14 @@ async function fetchPlayerProps(sport, date, oddsGames, ignoreCache = false) {
         console.log(`    ✅ Fetched props for ${gameDisplayName}`)
         
       } catch (error) {
-        console.error(`    ⚠️  Error fetching props for ${gameDisplayName}: ${error.message}`)
+        console.error(`    ⚠️  Error fetching props for ${gameDisplayName}: ${sanitizedErrorMessage(error, ODDS_API_KEY)}`)
       }
     }
     
     return allProps
     
   } catch (error) {
-    console.error(`  ❌ Error fetching player props: ${error.message}`)
+    console.error(`  ❌ Error fetching player props: ${sanitizedErrorMessage(error, ODDS_API_KEY)}`)
     return []
   }
 }
