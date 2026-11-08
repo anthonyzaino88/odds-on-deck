@@ -390,6 +390,14 @@ describe('createOddsApiBudget', () => {
     expect(stale.settled['res-1'].actual).toBe(9)
 
     const orphanPath = '/tmp/odds-api-budget-orphan-fence.json'
+    for (const fence of [1, 2, 3]) {
+      fs.writeFileSync(`${orphanPath}.fences/${fence}`, JSON.stringify({
+        version: 1,
+        fence,
+        fenceDay: '2026-11-04',
+        days: { '2026-11-04': { credits: 1, calls: 1, closeCaptures: 1, gameLineCredits: 0 } },
+      }))
+    }
     fs.writeFileSync(`${orphanPath}.fences/4`, JSON.stringify({
       version: 1,
       fence: 4,
@@ -1400,7 +1408,77 @@ describe('daily game-line budget and locked reserve', () => {
     }
   }, 20000)
 
-  test('a reader retries when prune removes a listed fence and keeps captures it already saw', () => {
+  test('a stale reconcile cannot refund a reservation that landed after its snapshot', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ood-budget-refund-'))
+    const ledger = join(dir, 'budget.json')
+    const gate = join(dir, 'gate')
+    const idPath = join(dir, 'ids.json')
+    const childPath = join(process.cwd(), '__tests__', 'helpers', 'odds-budget-race-child.mjs')
+    const children = []
+    const runChild = (mode) => new Promise((resolve, reject) => {
+      const child = fork(childPath, [JSON.stringify({
+        mode,
+        idPath,
+        now: '2026-11-04T16:00:00.000Z',
+        env: closeCaptureEnv(ledger),
+      })], {
+        execArgv: [],
+        env: {
+          ...process.env,
+          ODDS_BUDGET_LOCK_STALE_MS: '1000',
+          ODDS_BUDGET_RECONCILE_GATE: mode === 'refund-holder' ? gate : '',
+        },
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      })
+      children.push(child)
+      let out = ''
+      let err = ''
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL')
+        reject(new Error(`child timed out\n${err}\n${out}`))
+      }, 12000)
+      child.stdout.on('data', (chunk) => { out += chunk })
+      child.stderr.on('data', (chunk) => { err += chunk })
+      child.on('error', (error) => {
+        clearTimeout(timer)
+        reject(error)
+      })
+      child.on('exit', () => {
+        clearTimeout(timer)
+        const line = out.trim().split('\n').filter(Boolean).pop()
+        if (!line) {
+          reject(new Error(`child produced no result\n${err}`))
+          return
+        }
+        resolve({ stderr: err, ...JSON.parse(line) })
+      })
+    })
+    const holder = runChild('refund-holder')
+    try {
+      const deadline = Date.now() + 8000
+      while (!existsSync(`${gate}.paused`)) {
+        if (Date.now() > deadline) throw new Error('holder did not reach the reconcile gate')
+        await new Promise((resolve) => setTimeout(resolve, 15))
+      }
+      utimesSync(`${ledger}.lock`, new Date(Date.now() - 10_000), new Date(Date.now() - 10_000))
+      const reclaimer = await runChild('refund-reclaimer')
+      writeFileSync(`${gate}.go`, '1')
+      const paused = await holder
+      expect(reclaimer).toMatchObject({ ok: true, error: null })
+      expect(paused).toMatchObject({ ok: true, error: null })
+      const saved = JSON.parse(readFileSync(ledger, 'utf8'))
+      expect(saved.days['2026-11-04'].credits).toBe(4)
+    } finally {
+      try { writeFileSync(`${gate}.go`, '1') } catch { /* removed */ }
+      for (const child of children) {
+        if (child.exitCode == null && child.signalCode == null) child.kill('SIGKILL')
+      }
+      await holder.catch(() => {})
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 20000)
+
+  test('a reader probes the next fence and keeps captures it already saw', () => {
     const day = '2026-11-04'
     const body = (fence, captures) => JSON.stringify({
       version: 1,
@@ -1414,22 +1492,20 @@ describe('daily game-line budget and locked reserve', () => {
     const missed = memoryFs()
     const missedPath = '/tmp/odds-api-budget-reader-miss.json'
     const missedDir = `${missedPath}.fences`
-    missed.writeFileSync(missedPath, body(0, 0))
+    missed.writeFileSync(missedPath, body(4, 40))
     missed.writeFileSync(`${missedDir}/5`, body(5, 40))
     missed.writeFileSync(`${missedDir}/6`, body(6, 40))
-    const missedList = missed.readdirSync.bind(missed)
-    let listedDay = 0
-    missed.readdirSync = (folder) => {
-      if (folder === missedDir) {
-        listedDay += 1
-        if (listedDay === 1) {
-          missed.files.delete(`${missedDir}/5`)
-          missed.files.delete(`${missedDir}/6`)
-          missed.files.set(missedPath, body(6, 40))
-          return ['5', '6']
-        }
+    const missedRead = missed.readFileSync.bind(missed)
+    missed.readFileSync = (filePath) => {
+      if (filePath === `${missedDir}/6`) {
+        missed.files.delete(`${missedDir}/5`)
+        missed.files.delete(`${missedDir}/6`)
+        missed.files.set(missedPath, body(6, 40))
+        const error = new Error(`ENOENT ${filePath}`)
+        error.code = 'ENOENT'
+        throw error
       }
-      return missedList(folder)
+      return missedRead(filePath)
     }
     const retried = loadOddsBudgetState({
       persistPath: missedPath,
@@ -1442,18 +1518,11 @@ describe('daily game-line budget and locked reserve', () => {
     const kept = memoryFs()
     const keptPath = '/tmp/odds-api-budget-reader-keep.json'
     const keptDir = `${keptPath}.fences`
-    kept.writeFileSync(keptPath, body(0, 0))
-    kept.writeFileSync(`${keptDir}/5`, body(5, 40))
+    kept.writeFileSync(keptPath, body(5, 40))
     kept.writeFileSync(`${keptDir}/6`, body(6, 40))
     const keptRead = kept.readFileSync.bind(kept)
-    const keptList = kept.readdirSync.bind(kept)
-    kept.readdirSync = (folder) => {
-      if (folder === keptDir) return kept.files.has(`${keptDir}/6`) ? ['5', '6'] : []
-      return keptList(folder)
-    }
     kept.readFileSync = (filePath) => {
       if (filePath === `${keptDir}/6`) {
-        kept.files.delete(`${keptDir}/5`)
         kept.files.delete(`${keptDir}/6`)
         kept.files.set(keptPath, body(0, 0))
         const error = new Error(`ENOENT ${filePath}`)
@@ -1487,15 +1556,11 @@ describe('daily game-line budget and locked reserve', () => {
       fenceDay: day,
       days: { [day]: row(captures) },
     })
-    fs.writeFileSync(ledger, snapshot(2000, 1))
-    fs.writeFileSync(`${ledger}.fences/2000`, snapshot(2000, 1))
+    fs.writeFileSync(ledger, snapshot(3, 1))
     fs.writeFileSync(`${ledger}.fences/1`, snapshot(1, 9))
-    fs.writeFileSync(`${ledger}.fences/50`, snapshot(50, 1))
-    fs.writeFileSync(`${ledger}.fences/1500`, snapshot(1500, 1))
+    fs.writeFileSync(`${ledger}.fences/2`, snapshot(2, 1))
+    fs.writeFileSync(`${ledger}.fences/3`, snapshot(3, 1))
     const oldMs = Date.now() - (49 * 60 * 60 * 1000)
-    fs.setMtime(`${ledger}.fences/1`, oldMs)
-    fs.setMtime(`${ledger}.fences/1500`, oldMs)
-    fs.setMtime(`${ledger}.fences/50`, Date.now())
     const oldTs = oldMs
     const keepTs = Date.now() - (60 * 60 * 1000)
     fs.writeFileSync(`${ledger}.9.${oldTs}.abcd.tmp`, 'old')
@@ -1521,10 +1586,9 @@ describe('daily game-line budget and locked reserve', () => {
     const held = budget.reserve(1, { captures: 1 })
     expect(held.ok).toBe(true)
     expect(fs.existsSync(`${ledger}.fences/1`)).toBe(true)
-    expect(fs.existsSync(`${ledger}.fences/50`)).toBe(true)
-    expect(fs.existsSync(`${ledger}.fences/1500`)).toBe(true)
-    expect(fs.existsSync(`${ledger}.fences/2000`)).toBe(true)
-    expect(fs.existsSync(`${ledger}.fences/2001`)).toBe(true)
+    expect(fs.existsSync(`${ledger}.fences/2`)).toBe(true)
+    expect(fs.existsSync(`${ledger}.fences/3`)).toBe(true)
+    expect(fs.existsSync(`${ledger}.fences/4`)).toBe(true)
     expect(fs.existsSync(`${ledger}.9.${oldTs}.abcd.tmp`)).toBe(false)
     expect(fs.existsSync(`${ledger}.9.${keepTs}.abcd.tmp`)).toBe(true)
     const adopted = loadOddsBudgetState({
@@ -1533,7 +1597,7 @@ describe('daily game-line budget and locked reserve', () => {
       warn: false,
     })
     expect(adopted.days[day].closeCaptures).toBe(2)
-    expect(adopted.fence).toBe(2001)
+    expect(adopted.fence).toBe(4)
   })
 
   test('a later ET day reserve survives pointer failure without deleting its fence', () => {
@@ -1543,14 +1607,14 @@ describe('daily game-line budget and locked reserve', () => {
     const nov7 = '2026-11-07'
     const prior = {
       version: 1,
-      fence: 4,
+      fence: 1,
       fenceDay: nov4,
       days: {
         [nov4]: { credits: 5, calls: 5, closeCaptures: 5, gameLineCredits: 0 },
       },
     }
     fs.writeFileSync(ledger, JSON.stringify(prior))
-    fs.writeFileSync(`${ledger}.fences/4`, JSON.stringify(prior))
+    fs.writeFileSync(`${ledger}.fences/1`, JSON.stringify(prior))
     const origWrite = fs.writeFileSync.bind(fs)
     const origRename = fs.renameSync.bind(fs)
     fs.writeFileSync = (filePath, data) => {
@@ -1573,8 +1637,8 @@ describe('daily game-line budget and locked reserve', () => {
     const held = budget.reserve(2)
     expect(held.ok).toBe(true)
     expect(held.dayKey).toBe(nov7)
-    expect(fs.existsSync(`${ledger}.fences/5`)).toBe(true)
-    expect(fs.existsSync(`${ledger}.fences/4`)).toBe(true)
+    expect(fs.existsSync(`${ledger}.fences/2`)).toBe(true)
+    expect(fs.existsSync(`${ledger}.fences/1`)).toBe(true)
     const reloaded = createOddsApiBudget(opts)
     expect(reloaded.todayCredits()).toBe(2)
     const adopted = loadOddsBudgetState({
@@ -1582,7 +1646,7 @@ describe('daily game-line budget and locked reserve', () => {
       filesystem: fs,
       warn: false,
     })
-    expect(adopted.fence).toBe(5)
+    expect(adopted.fence).toBe(2)
     expect(adopted.fenceDay).toBe(nov7)
     expect(adopted.days[nov7].credits).toBe(2)
   })

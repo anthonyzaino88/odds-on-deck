@@ -19,6 +19,23 @@ function finish(payload, code) {
 }
 
 try {
+  if (config.mode === 'refund-holder') {
+    const first = budget.reserve(2, { captures: 0 })
+    const second = budget.reserve(2, { captures: 0 })
+    fs.writeFileSync(config.idPath, JSON.stringify({ first, second }))
+    budget.reconcile(first, { last: 0 })
+    finish({ ok: Boolean(first.ok && second.ok), error: null, credits: first.credits }, 0)
+  } else if (config.mode === 'refund-reclaimer') {
+    const saved = JSON.parse(fs.readFileSync(config.idPath, 'utf8'))
+    budget.reconcile(saved.first, { last: 0 })
+    const third = budget.reserve(2, { captures: 0 })
+    finish({
+      ok: third.ok,
+      status: third.status,
+      credits: third.credits,
+      error: null,
+    }, 0)
+  } else {
   const result = budget.reserve(config.credits, config.extra || {})
   if (config.reconcile && result.ok) {
     budget.reconcile(result, config.quota || { last: result.credits })
@@ -29,6 +46,7 @@ try {
     credits: result.credits,
     error: null,
   }, 0)
+  }
 } catch (error) {
   finish({
     ok: false,
