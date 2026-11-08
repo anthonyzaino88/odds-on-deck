@@ -23,7 +23,12 @@
   dry run still plans calls, the cap goes up by 20, but not past the
   hard ceiling (default 80, CLOSE_CAPTURE_CALL_CEILING). An empty or
   corrupt usage file is an error. Writes go to a temp file and rename
-  into place.
+  into place. A YYYY-MM-DD.pending marker is written under the repo,
+  or %LOCALAPPDATA%\OddsOnDeck when that write fails, immediately
+  before the apply. It is removed when that apply is verified, and
+  also on any exit that made no paid call. Later runs make no calls
+  while either pending marker exists. The run exits non-zero even
+  when both marker writes fail.
 
 .PARAMETER DryRunOnly
   Stop after the dry run. Does not apply, raise the cap, or change usage.
@@ -272,6 +277,82 @@ function Invoke-Helper {
   return @{
     Code = $code
     Text = (($raw | Out-String).Trim())
+  }
+}
+
+function Write-BlockedMarker {
+  param(
+    [string]$MarkerPath,
+    [string]$Body = "usage-blocked`r`n"
+  )
+  $dir = Split-Path -Parent $MarkerPath
+  $tmp = Join-Path $dir ('.blocked.' + [guid]::NewGuid().ToString('n') + '.tmp')
+  try {
+    [System.IO.File]::WriteAllText($tmp, $Body, $utf8)
+    if (Test-Path -LiteralPath $MarkerPath) {
+      Remove-Item -LiteralPath $tmp -Force
+      return
+    }
+    [System.IO.File]::Move($tmp, $MarkerPath)
+  } catch {
+    if (Test-Path -LiteralPath $tmp) {
+      Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+    throw
+  }
+}
+
+function Write-MarkerLog {
+  param([string]$Line)
+  $logged = $false
+  try {
+    Write-CloseLog -Line $Line -Day $day | Out-Null
+    $logged = $true
+  } catch {
+    $script:markerLogFailed = $_.Exception.Message
+    $logged = $false
+  }
+  return $logged
+}
+
+function Save-MarkerPair {
+  param(
+    [string]$Primary,
+    [string]$Fallback,
+    [string]$Body,
+    [string]$Label
+  )
+  $landed = $false
+  try {
+    Write-BlockedMarker -MarkerPath $Primary -Body $Body
+    if (Test-Path -LiteralPath $Primary) { $landed = $true }
+  } catch {
+    $primaryError = $_.Exception.Message
+    if (-not $primaryError) { $primaryError = 'marker write failed' }
+    Write-MarkerLog -Line ("CLOSE_CAPTURE_STATUS=failed reason=usage-blocked marker=$Label-primary detail=" + ($primaryError -replace '[\r\n]+', ' ')) | Out-Null
+  }
+  if (-not $landed -and $Fallback) {
+    try {
+      $fallbackDir = Split-Path -Parent $Fallback
+      if (-not (Test-Path -LiteralPath $fallbackDir)) {
+        New-Item -ItemType Directory -Path $fallbackDir | Out-Null
+      }
+      Write-BlockedMarker -MarkerPath $Fallback -Body $Body
+      if (Test-Path -LiteralPath $Fallback) { $landed = $true }
+    } catch {
+      $fallbackError = $_.Exception.Message
+      if (-not $fallbackError) { $fallbackError = 'marker write failed' }
+      Write-MarkerLog -Line ("CLOSE_CAPTURE_STATUS=failed reason=usage-blocked marker=$Label-fallback detail=" + ($fallbackError -replace '[\r\n]+', ' ')) | Out-Null
+    }
+  }
+  return $landed
+}
+
+function Remove-PendingMarker {
+  foreach ($path in @($pendingMarker, $fallbackPending)) {
+    if ($path -and (Test-Path -LiteralPath $path)) {
+      Remove-Item -LiteralPath $path -Force
+    }
   }
 }
 
@@ -548,6 +629,17 @@ if (-not (Test-Path -LiteralPath $logDir)) {
   New-Item -ItemType Directory -Path $logDir | Out-Null
 }
 $usageFile = Join-Path $usageDir ($day + '.txt')
+$blockedMarker = Join-Path $usageDir ($day + '.blocked')
+$pendingMarker = Join-Path $usageDir ($day + '.pending')
+$fallbackRoot = $env:LOCALAPPDATA
+if (-not $fallbackRoot) { $fallbackRoot = [Environment]::GetFolderPath('LocalApplicationData') }
+$fallbackMarker = ''
+$fallbackPending = ''
+if ($fallbackRoot) {
+  $fallbackDir = Join-Path $fallbackRoot 'OddsOnDeck'
+  $fallbackMarker = Join-Path $fallbackDir ($day + '.blocked')
+  $fallbackPending = Join-Path $fallbackDir ($day + '.pending')
+}
 $runId = [guid]::NewGuid().ToString('n')
 $lockPath = Join-Path $usageDir 'close-capture.lock'
 $lock = $null
@@ -566,6 +658,15 @@ try {
 }
 
 try {
+  $dayBlocked = $false
+  foreach ($markerPath in @($blockedMarker, $fallbackMarker, $pendingMarker, $fallbackPending)) {
+    if ($markerPath -and (Test-Path -LiteralPath $markerPath)) { $dayBlocked = $true }
+  }
+  if ($dayBlocked) {
+    $blockedLine = Invoke-Helper -HelperArgs @('line', '--reason', 'usage-blocked', '--status', 'failed')
+    Write-CloseLog -Line $blockedLine.Text -Day $day
+    exit 1
+  }
   Stop-OrphanedNode -Lock $lock
   $jobHandle = [CloseCaptureJob]::CreateKillOnCloseJob()
   if ($jobHandle -eq [IntPtr]::Zero) {
@@ -639,6 +740,7 @@ try {
   $ceilingHit = @()
   if ($plan.ceilingHit) { $ceilingHit = @('--ceiling-hit') }
   if ($action -ne 'apply') {
+    Remove-PendingMarker
     $reason = [string]$plan.reason
     $finishArgs = @(
       'finalize',
@@ -659,10 +761,17 @@ try {
 
   $stillLeft = Get-DeadlineRemaining -DeadlineIso $deadlineIso
   if ($stillLeft -le 0) {
+    Remove-PendingMarker
     $dueArgs = @('line', '--reason', 'deadline', '--status', 'failed', '--ceiling', $ceiling) + $ceilingHit
     $due = Invoke-Helper -HelperArgs $dueArgs
     Write-CloseLog -Line $due.Text -Day $day
     exit 0
+  }
+  $pendingLanded = Save-MarkerPair -Primary $pendingMarker -Fallback $fallbackPending -Body ("pending`r`nrun=" + $runId + "`r`n") -Label 'pending'
+  if (-not $pendingLanded) {
+    $pendingFailed = Invoke-Helper -HelperArgs @('line', '--reason', 'usage-blocked', '--status', 'failed')
+    Write-CloseLog -Line $pendingFailed.Text -Day $day
+    exit 1
   }
   $apply = Invoke-NodeCapture -NodeArgs @(
     'scripts/capture-published-closes.js', '--nfl-all', '--nhl-all', '--game-lines', '--spreads', '--apply',
@@ -670,6 +779,7 @@ try {
     '--max-credits', ([string]([int]$plan.maxCredits))
   ) -DeadlineIso $deadlineIso -Lock $lock -JobHandle $jobHandle
   if ($apply.Aborted) {
+    Remove-PendingMarker
     $applyAborted = Invoke-Helper -HelperArgs @('line', '--reason', 'job', '--status', 'failed')
     Write-CloseLog -Line $applyAborted.Text -Day $day
     exit 0
@@ -712,6 +822,7 @@ try {
   if ($final.Code -eq 0 -and $final.Text -and $expectedCalls -ge 0) {
     if (Test-UsageFile -File $usageFile -Calls ([string]$expectedCalls) -Cap ([string]$nextCap) -Day $day -RunId $runId) {
       $precise = $true
+      Remove-PendingMarker
     }
   }
   if (-not $precise) {
@@ -724,10 +835,13 @@ try {
       '--run', $runId
     )
     if ($fallbackWrite.Code -ne 0 -or -not (Test-UsageFile -File $usageFile -Calls ([string]$fallbackUsed) -Cap ([string]$nextCap) -Day $day -RunId $runId)) {
-      $final = Invoke-Helper -HelperArgs @('line', '--reason', 'summary-failed', '--status', 'failed')
-    } else {
-      $final = Invoke-Helper -HelperArgs @('line', '--reason', 'summary-failed', '--status', 'failed')
+      Save-MarkerPair -Primary $blockedMarker -Fallback $fallbackMarker -Body "usage-blocked`r`n" -Label 'blocked' | Out-Null
+      $final = Invoke-Helper -HelperArgs @('line', '--reason', 'usage-blocked', '--status', 'failed')
+      Write-CloseLog -Line $final.Text -Day $day
+      exit 1
     }
+    Remove-PendingMarker
+    $final = Invoke-Helper -HelperArgs @('line', '--reason', 'summary-failed', '--status', 'failed')
   }
   Write-CloseLog -Line $final.Text -Day $day
   exit 0

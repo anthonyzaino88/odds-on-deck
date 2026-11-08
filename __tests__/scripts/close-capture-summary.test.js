@@ -20,8 +20,13 @@ import {
   orphanShouldKill,
   parseCaptureOutput,
   acceptFinalizeUsage,
+  accountPaidCapture,
+  releaseUnpaidCapture,
+  blockUsageDay,
+  buildCloseCaptureSummaryLine,
   confirmUsageWrite,
   NATIVE_EXIT_SENTINEL,
+  nextCapturePlan,
   recordedUsageTotal,
   parseUsageText,
   planScheduledCapture,
@@ -30,6 +35,7 @@ import {
   scheduledCaptureDecision,
   settleCapturedChild,
   summarizeCaptureOutput,
+  usageWriteVerified,
   windowsTimeZoneOk,
   WINDOWS_TRIGGER_LIMIT,
   writeUsageFile,
@@ -541,8 +547,37 @@ describe('close capture schedule parsing', () => {
     for (const match of writes) {
       expect(wrapper.slice(match.index, match.index + 700)).toContain('Test-UsageFile')
     }
+    const dryAt = wrapper.indexOf("'--dry-run'")
+    const applyAt = wrapper.indexOf("'--apply'")
+    const pendingAt = wrapper.indexOf("-Label 'pending'")
+    expect(pendingAt).toBeGreaterThan(dryAt)
+    expect(pendingAt).toBeLessThan(applyAt)
+    expect(wrapper).toContain('$env:LOCALAPPDATA')
+    expect(wrapper.slice(pendingAt - 180, applyAt)).toContain('$fallbackPending')
+    expect(wrapper.slice(pendingAt, applyAt)).toContain('exit 1')
+    const unpaidAt = wrapper.indexOf("if ($action -ne 'apply')")
+    const unpaidSlice = wrapper.slice(unpaidAt, pendingAt)
+    expect(unpaidSlice).toContain('Remove-PendingMarker')
+    expect(unpaidSlice).toContain('$DryRunOnly')
+    expect(unpaidSlice).toContain('exit 0')
+    const abortAt = wrapper.indexOf('if ($apply.Aborted)')
+    expect(wrapper.slice(abortAt, abortAt + 400)).toContain('Remove-PendingMarker')
+    expect(wrapper).not.toContain('Test-LatestUsageWrite')
+    expect(wrapper).not.toContain('Clear-PendingMarkers')
+    expect(wrapper).not.toMatch(/catch\s*\{\s*\}/)
+    const saveAt = wrapper.indexOf('function Save-MarkerPair')
+    const saveBody = wrapper.slice(saveAt, wrapper.indexOf('function Remove-PendingMarker'))
+    expect(saveBody.indexOf('-MarkerPath $Fallback')).toBeGreaterThan(saveBody.indexOf('Write-MarkerLog'))
+    expect(wrapper).toContain('function Write-MarkerLog')
+    const blockedAt = wrapper.indexOf("-Label 'blocked'")
+    expect(blockedAt).toBeGreaterThan(applyAt)
+    const blockedSlice = wrapper.slice(blockedAt, blockedAt + 500)
+    const failExit = blockedSlice.indexOf('exit 1')
+    expect(failExit).toBeGreaterThan(-1)
+    expect(blockedSlice.slice(0, failExit)).not.toContain('Remove-PendingMarker')
+    expect(wrapper).toContain('Remove-PendingMarker')
     const usageRecordAt = wrapper.lastIndexOf("'--record-calls'")
-    const afterRecord = wrapper.slice(usageRecordAt, usageRecordAt + 1800)
+    const afterRecord = wrapper.slice(usageRecordAt, usageRecordAt + 2400)
     const preciseAt = afterRecord.indexOf('Test-UsageFile')
     const fallbackAt = afterRecord.indexOf('$fallbackUsed')
     expect(afterRecord.indexOf('recorded-calls')).toBeGreaterThan(-1)
@@ -659,6 +694,222 @@ describe('close capture schedule parsing', () => {
     })
     expect(precise).toMatchObject({ ok: true, accepted: true, fallback: false, calls: 6 })
     expect(wroteFallback).toBe(false)
+  })
+
+  test('a double usage-write failure blocks the next run', () => {
+    const markers = new Set()
+    const failed = blockUsageDay({ verified: false, day: '2026-11-08', markers })
+    expect(failed.exitCode).not.toBe(0)
+    expect(failed.reason).toBe('usage-blocked')
+    expect([...markers]).toEqual(['2026-11-08.blocked'])
+    const line = buildCloseCaptureSummaryLine({
+      stamp: '2026-11-08 18:16:00 ET',
+      status: 'failed',
+      reason: 'usage-blocked',
+    })
+    expect(line).toContain('CLOSE_CAPTURE_STATUS=failed')
+    expect(line).toContain('reason=usage-blocked')
+
+    let calls = 0
+    const next = nextCapturePlan({
+      day: '2026-11-08',
+      markers,
+      planned: 6,
+      plannedKnown: true,
+      callsUsed: 0,
+      cap: 20,
+      capture() { calls += 1 },
+    })
+    expect(calls).toBe(0)
+    expect(next.called).toBe(false)
+    expect(next.exitCode).not.toBe(0)
+    expect(next.plan).toMatchObject({
+      action: 'exit',
+      reason: 'usage-blocked',
+      maxCalls: 0,
+      maxCredits: 0,
+    })
+
+    const later = nextCapturePlan({
+      day: '2026-11-09',
+      markers,
+      planned: 6,
+      plannedKnown: true,
+      callsUsed: 0,
+      cap: 20,
+      capture() { calls += 1 },
+    })
+    expect(later.called).toBe(true)
+    expect(later.plan.maxCalls).toBeGreaterThan(0)
+    expect(calls).toBe(1)
+  })
+
+  test('a failed primary marker still blocks the same day', () => {
+    const markers = new Set()
+    const logs = []
+    const failed = blockUsageDay({
+      verified: false,
+      day: '2026-11-08',
+      markers,
+      primaryWrite() { throw new Error('primary marker denied') },
+      fallbackWrite(name) {
+        markers.add(name)
+        return true
+      },
+      log(message) { logs.push(message) },
+    })
+    expect(failed.exitCode).not.toBe(0)
+    expect(failed.marker).toBe('')
+    expect(failed.fallback).toBe('localappdata:2026-11-08.blocked')
+    expect(logs.join('\n')).toContain('primary marker denied')
+    expect(markers.has('2026-11-08.blocked')).toBe(false)
+    expect([...markers]).toEqual(['localappdata:2026-11-08.blocked'])
+
+    let calls = 0
+    const next = nextCapturePlan({
+      day: '2026-11-08',
+      markers,
+      usageText: '4\ncap=40\n',
+      planned: 6,
+      plannedKnown: true,
+      callsUsed: 0,
+      cap: 20,
+      capture() { calls += 1 },
+    })
+    expect(calls).toBe(0)
+    expect(next.called).toBe(false)
+    expect(next.exitCode).not.toBe(0)
+    expect(next.plan).toMatchObject({
+      action: 'exit',
+      reason: 'usage-blocked',
+      maxCalls: 0,
+    })
+
+    const unverified = nextCapturePlan({
+      day: '2026-11-09',
+      markers,
+      usageText: '4\ncap=40\n',
+      planned: 6,
+      plannedKnown: true,
+      callsUsed: 0,
+      cap: 20,
+      capture() { calls += 1 },
+    })
+    expect(unverified.called).toBe(false)
+    expect(unverified.plan.maxCalls).toBe(0)
+    expect(calls).toBe(0)
+
+    const bothMissed = blockUsageDay({
+      verified: false,
+      day: '2026-11-08',
+      markers: new Set(),
+      primaryWrite() { throw new Error('primary marker denied') },
+      fallbackWrite() { throw new Error('fallback marker denied') },
+      log(message) { logs.push(message) },
+    })
+    expect(bothMissed.exitCode).not.toBe(0)
+    expect(bothMissed.blocked).toBe(false)
+    expect(logs.join('\n')).toContain('fallback marker denied')
+  })
+
+  test('failed usage and marker writes still block the next same-day run', () => {
+    const markers = new Set(['2026-11-08.pending'])
+    const oldFile = '20\ncap=20\nrun=older-run\n'
+    expect(usageWriteVerified(oldFile, { day: '2026-11-08', fileDay: '2026-11-08' }).ok).toBe(true)
+    const finished = accountPaidCapture({
+      day: '2026-11-08',
+      markers,
+      usageText: oldFile,
+      expectedCalls: 30,
+      cap: 40,
+      runId: 'this-run',
+      primaryWrite() { throw new Error('primary marker denied') },
+      fallbackWrite() { throw new Error('fallback marker denied') },
+      log() { throw new Error('log failed') },
+    })
+    expect(finished.exitCode).not.toBe(0)
+    expect(finished.cleared).toBe(false)
+    expect(markers.has('2026-11-08.pending')).toBe(true)
+
+    let calls = 0
+    const next = nextCapturePlan({
+      day: '2026-11-08',
+      markers,
+      usageText: oldFile,
+      planned: 6,
+      plannedKnown: true,
+      callsUsed: 0,
+      cap: 20,
+      capture() { calls += 1 },
+    })
+    expect(calls).toBe(0)
+    expect(next.called).toBe(false)
+    expect(next.exitCode).not.toBe(0)
+    expect(next.plan.maxCalls).toBe(0)
+
+    const missing = nextCapturePlan({
+      day: '2026-11-08',
+      markers,
+      usageText: null,
+      planned: 6,
+      plannedKnown: true,
+      callsUsed: 0,
+      cap: 20,
+      capture() { calls += 1 },
+    })
+    expect(missing.called).toBe(false)
+    expect(missing.plan.maxCalls).toBe(0)
+    expect(calls).toBe(0)
+  })
+
+  test('a throwing marker log still writes the fallback marker', () => {
+    const markers = new Set()
+    const result = blockUsageDay({
+      verified: false,
+      day: '2026-11-08',
+      markers,
+      primaryWrite() { throw new Error('primary marker denied') },
+      fallbackWrite(name) {
+        markers.add(name)
+        return true
+      },
+      log() { throw new Error('log failed') },
+    })
+    expect(result.exitCode).not.toBe(0)
+    expect(result.fallback).toBe('localappdata:2026-11-08.blocked')
+    expect([...markers]).toEqual(['localappdata:2026-11-08.blocked'])
+  })
+
+  test('nothing-planned and dry-run-only leave the next run free', () => {
+    for (const run of [
+      { action: 'exit', dryRunOnly: false },
+      { action: 'dry-run-only', dryRunOnly: true },
+    ]) {
+      const markers = new Set(['2026-11-08.pending', 'localappdata:2026-11-08.pending'])
+      const finished = releaseUnpaidCapture({
+        day: '2026-11-08',
+        markers,
+        action: run.action,
+        dryRunOnly: run.dryRunOnly,
+      })
+      expect(finished).toMatchObject({ exitCode: 0, cleared: true, pending: false })
+      expect([...markers]).toEqual([])
+      let calls = 0
+      const next = nextCapturePlan({
+        day: '2026-11-08',
+        markers,
+        usageText: '4\ncap=20\nrun=older-run\n',
+        planned: 6,
+        plannedKnown: true,
+        callsUsed: 0,
+        cap: 20,
+        capture() { calls += 1 },
+      })
+      expect(finished.exitCode).toBe(0)
+      expect(calls).toBe(1)
+      expect(next.called).toBe(true)
+      expect(next.plan.maxCalls).toBeGreaterThan(0)
+    }
   })
 
   test('the helper module does not warn about a typeless package.json', () => {
