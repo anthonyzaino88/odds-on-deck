@@ -19,8 +19,13 @@ import {
   nextQuietDeadline,
   orphanShouldKill,
   parseCaptureOutput,
+  acceptFinalizeUsage,
+  confirmUsageWrite,
+  NATIVE_EXIT_SENTINEL,
+  recordedUsageTotal,
   parseUsageText,
   planScheduledCapture,
+  runNativeCommand,
   remainingUntilDeadline,
   scheduledCaptureDecision,
   settleCapturedChild,
@@ -28,9 +33,9 @@ import {
   windowsTimeZoneOk,
   WINDOWS_TRIGGER_LIMIT,
   writeUsageFile,
-} from '../../scripts/ops/close-capture-summary.js'
+} from '../../scripts/ops/close-capture-summary.mjs'
 
-const helper = path.join(process.cwd(), 'scripts', 'ops', 'close-capture-summary.js')
+const helper = path.join(process.cwd(), 'scripts', 'ops', 'close-capture-summary.mjs')
 
 function runHelper(args, input = '') {
   return spawnSync(process.execPath, [helper, ...args], {
@@ -77,6 +82,13 @@ describe('close capture schedule parsing', () => {
       missing: true,
       callsUsed: 0,
       cap: DEFAULT_CALL_CAP,
+      runId: '',
+    })
+    expect(parseUsageText('7\ncap=40\nrun=abc\n')).toMatchObject({
+      ok: true,
+      callsUsed: 7,
+      cap: 40,
+      runId: 'abc',
     })
     expect(parseUsageText('')).toMatchObject({ ok: false, reason: 'usage-unreadable' })
     expect(parseUsageText('   \n')).toMatchObject({ ok: false, reason: 'usage-unreadable' })
@@ -500,6 +512,160 @@ describe('close capture schedule parsing', () => {
     expect(wrapper.indexOf('} catch {', readAt)).toBeGreaterThan(readAt)
     expect(clearAt).toBeGreaterThan(readAt)
     expect(releaseAt).toBeGreaterThan(readAt)
+    const productionFlags = "'--nfl-all', '--nhl-all', '--game-lines', '--spreads'"
+    expect(wrapper).toContain(`${productionFlags}, '--dry-run'`)
+    expect(wrapper).toContain(`${productionFlags}, '--apply'`)
+    expect(wrapper).toContain('close-capture-summary.mjs')
+    expect(register).toContain('close-capture-summary.mjs')
+    expect(wrapper).not.toContain('close-capture-summary.js')
+    expect(register).not.toContain('close-capture-summary.js')
+    for (const source of [wrapper, register]) {
+      const calls = [...source.matchAll(/& node\b/g)]
+      expect(calls.length).toBeGreaterThan(0)
+      for (const match of calls) {
+        const before = source.slice(0, match.index)
+        const continueAt = before.lastIndexOf("$ErrorActionPreference = 'Continue'")
+        const stopAt = before.lastIndexOf("$ErrorActionPreference = 'Stop'")
+        expect(continueAt).toBeGreaterThan(stopAt)
+        const lineStart = source.lastIndexOf('\n', match.index - 1) + 1
+        const previousLine = source.slice(source.lastIndexOf('\n', lineStart - 2) + 1, lineStart - 1).trim()
+        expect(previousLine).toBe('$global:LASTEXITCODE = -999')
+        const after = source.slice(match.index)
+        const restoreAt = after.indexOf('$ErrorActionPreference = $preference')
+        expect(restoreAt).toBeGreaterThan(-1)
+        expect(after.slice(0, restoreAt)).toContain('$global:LASTEXITCODE -ne 0')
+      }
+    }
+    const writes = [...wrapper.matchAll(/'write-usage'/g)]
+    expect(writes.length).toBe(2)
+    for (const match of writes) {
+      expect(wrapper.slice(match.index, match.index + 700)).toContain('Test-UsageFile')
+    }
+    const usageRecordAt = wrapper.lastIndexOf("'--record-calls'")
+    const afterRecord = wrapper.slice(usageRecordAt, usageRecordAt + 1800)
+    const preciseAt = afterRecord.indexOf('Test-UsageFile')
+    const fallbackAt = afterRecord.indexOf('$fallbackUsed')
+    expect(afterRecord.indexOf('recorded-calls')).toBeGreaterThan(-1)
+    expect(preciseAt).toBeGreaterThan(afterRecord.indexOf('recorded-calls'))
+    expect(fallbackAt).toBeGreaterThan(preciseAt)
+    expect(afterRecord.slice(fallbackAt)).toContain('$plan.maxCalls')
+    expect(afterRecord.slice(fallbackAt)).toContain('Test-UsageFile')
+  })
+
+  test('a prior LASTEXITCODE of 0 with no update must fail', () => {
+    const stale = runNativeCommand({
+      priorExit: 0,
+      invoke() {},
+    })
+    expect(NATIVE_EXIT_SENTINEL).toBe(-999)
+    expect(stale).toEqual({ ok: false, code: -999 })
+    const fresh = runNativeCommand({
+      priorExit: 0,
+      invoke({ setExit }) { setExit(0) },
+    })
+    expect(fresh).toEqual({ ok: true, code: 0 })
+  })
+
+  test('a mocked write-usage that writes no file must fail', () => {
+    const missed = confirmUsageWrite({
+      write: () => ({ exitCode: 0 }),
+      readFile: () => null,
+      requested: { calls: 20, cap: 40, day: '2026-11-08', runId: 'run-a' },
+    })
+    expect(missed).toMatchObject({ ok: false, reason: 'missing' })
+  })
+
+  test('an old 20/20 usage file is not a write of cap 40', () => {
+    const stale = confirmUsageWrite({
+      write: () => ({ exitCode: 0 }),
+      readFile: () => ({ text: '20\ncap=20\n', fileDay: '2026-11-08' }),
+      requested: { calls: 20, cap: 40, day: '2026-11-08', runId: 'run-new' },
+    })
+    expect(stale.ok).toBe(false)
+    expect(stale.reason).toBe('cap')
+    const landed = confirmUsageWrite({
+      write: () => ({ exitCode: 0 }),
+      readFile: () => ({
+        text: '20\ncap=40\nrun=run-new\n',
+        fileDay: '2026-11-08',
+      }),
+      requested: { calls: 20, cap: 40, day: '2026-11-08', runId: 'run-new' },
+    })
+    expect(landed).toMatchObject({ ok: true, reason: '' })
+  })
+
+  test('a no-op finalize must not be accepted', () => {
+    let text = '4\ncap=40\n'
+    let fallbackCalls = null
+    const noop = acceptFinalizeUsage({
+      finalize: () => ({ exitCode: 0, text: 'CLOSE_CAPTURE_STATUS=ok calls=2 cap=40' }),
+      readFile: () => ({ text, fileDay: '2026-11-08' }),
+      writeFallback(calls) {
+        fallbackCalls = calls
+        return { exitCode: 0 }
+      },
+      prior: 4,
+      used: 2,
+      reserved: 10,
+      cap: 40,
+      day: '2026-11-08',
+      runId: 'run-1',
+    })
+    expect(noop.accepted).toBe(false)
+    expect(noop.ok).toBe(false)
+    expect(fallbackCalls).toBe(14)
+    expect(recordedUsageTotal({
+      prior: 4,
+      raw: 'CALLS_USED=2\n',
+      planned: 3,
+      reservedCalls: 10,
+    })).toEqual({ used: 2, total: 6 })
+
+    text = '4\ncap=40\nrun=run-1\n'
+    const charged = acceptFinalizeUsage({
+      finalize: () => ({ exitCode: 0, text: 'CLOSE_CAPTURE_STATUS=ok calls=2 cap=40' }),
+      readFile: () => ({ text, fileDay: '2026-11-08' }),
+      writeFallback(calls) {
+        text = `${calls}\ncap=40\nrun=run-1\n`
+        return { exitCode: 0 }
+      },
+      prior: 4,
+      used: 2,
+      reserved: 10,
+      cap: 40,
+      day: '2026-11-08',
+      runId: 'run-1',
+    })
+    expect(charged.accepted).toBe(false)
+    expect(charged.ok).toBe(true)
+    expect(charged.fallback).toBe(true)
+    expect(charged.calls).toBe(14)
+    expect(text).toBe('14\ncap=40\nrun=run-1\n')
+
+    let wroteFallback = false
+    const precise = acceptFinalizeUsage({
+      finalize: () => ({ exitCode: 0, text: 'CLOSE_CAPTURE_STATUS=ok calls=2 cap=40' }),
+      readFile: () => ({ text: '6\ncap=40\nrun=run-1\n', fileDay: '2026-11-08' }),
+      writeFallback() {
+        wroteFallback = true
+        return { exitCode: 0 }
+      },
+      prior: 4,
+      used: 2,
+      reserved: 10,
+      cap: 40,
+      day: '2026-11-08',
+      runId: 'run-1',
+    })
+    expect(precise).toMatchObject({ ok: true, accepted: true, fallback: false, calls: 6 })
+    expect(wroteFallback).toBe(false)
+  })
+
+  test('the helper module does not warn about a typeless package.json', () => {
+    const result = runHelper(['triggers'])
+    expect(result.status).toBe(0)
+    expect(result.stderr || '').not.toMatch(/MODULE_TYPELESS_PACKAGE_JSON/)
+    expect(JSON.parse(result.stdout).triggers.length).toBeGreaterThan(0)
   })
 
   test('.local usage and logs stay gitignored', () => {

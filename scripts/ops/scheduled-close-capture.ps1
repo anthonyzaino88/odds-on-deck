@@ -1,7 +1,7 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-  One NFL close-capture pass for the Windows ops laptop.
+  One NFL and NHL close-capture pass for the Windows ops laptop.
 
 .DESCRIPTION
   Runs from the repo root. Requires the Windows time zone Eastern
@@ -42,7 +42,7 @@ foreach ($arg in @($args)) {
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 Set-Location -LiteralPath $repoRoot
-$helper = Join-Path $PSScriptRoot 'close-capture-summary.js'
+$helper = Join-Path $PSScriptRoot 'close-capture-summary.mjs'
 $utf8 = New-Object System.Text.UTF8Encoding $false
 
 if (-not ('CloseCaptureJob' -as [type])) {
@@ -248,15 +248,49 @@ function Invoke-Helper {
     [string[]]$HelperArgs,
     [string]$StdinText
   )
-  if ($null -eq $StdinText) {
-    $raw = & node $helper @HelperArgs 2>$null
-  } else {
-    $raw = $StdinText | & node $helper @HelperArgs 2>$null
+  $preference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  $code = -999
+  $raw = $null
+  try {
+    if ($null -eq $StdinText) {
+      $global:LASTEXITCODE = -999
+      $raw = & node $helper @HelperArgs 2>$null
+    } else {
+      $global:LASTEXITCODE = -999
+      $raw = $StdinText | & node $helper @HelperArgs 2>$null
+    }
+    if ($global:LASTEXITCODE -ne 0) {
+      $code = -999
+      if ($null -ne $global:LASTEXITCODE) { $code = $global:LASTEXITCODE }
+    } else {
+      $code = 0
+    }
+  } finally {
+    $ErrorActionPreference = $preference
   }
   return @{
-    Code = $LASTEXITCODE
+    Code = $code
     Text = (($raw | Out-String).Trim())
   }
+}
+
+function Test-UsageFile {
+  param(
+    [string]$File,
+    [string]$Calls,
+    [string]$Cap,
+    [string]$Day,
+    [string]$RunId
+  )
+  $checked = Convert-HelperJson (Invoke-Helper -HelperArgs @(
+    'confirm-usage', '--file', $File,
+    '--calls', $Calls,
+    '--cap', $Cap,
+    '--day', $Day,
+    '--run', $RunId
+  ))
+  return [bool]($checked -and $checked.ok)
 }
 
 function Convert-HelperJson {
@@ -514,6 +548,7 @@ if (-not (Test-Path -LiteralPath $logDir)) {
   New-Item -ItemType Directory -Path $logDir | Out-Null
 }
 $usageFile = Join-Path $usageDir ($day + '.txt')
+$runId = [guid]::NewGuid().ToString('n')
 $lockPath = Join-Path $usageDir 'close-capture.lock'
 $lock = $null
 $jobHandle = [IntPtr]::Zero
@@ -547,7 +582,7 @@ try {
   }
 
   $dry = Invoke-NodeCapture -NodeArgs @(
-    'scripts/capture-published-closes.js', '--nfl-all', '--game-lines', '--dry-run'
+    'scripts/capture-published-closes.js', '--nfl-all', '--nhl-all', '--game-lines', '--spreads', '--dry-run'
   ) -DeadlineIso $deadlineIso -Lock $lock -JobHandle $jobHandle
   if ($dry.Aborted) {
     $aborted = Invoke-Helper -HelperArgs @('line', '--reason', 'job', '--status', 'failed')
@@ -587,9 +622,11 @@ try {
     $raised = Invoke-Helper -HelperArgs @(
       'write-usage', '--file', $usageFile,
       '--calls', [string]([int]$usage.callsUsed),
-      '--cap', [string]$nextCap
+      '--cap', [string]$nextCap,
+      '--day', $day,
+      '--run', $runId
     )
-    if ($raised.Code -ne 0) {
+    if ($raised.Code -ne 0 -or -not (Test-UsageFile -File $usageFile -Calls ([string]([int]$usage.callsUsed)) -Cap ([string]$nextCap) -Day $day -RunId $runId)) {
       $writeFailed = Invoke-Helper -HelperArgs @('line', '--reason', 'summary-failed', '--status', 'failed')
       Write-CloseLog -Line $writeFailed.Text -Day $day
       exit 0
@@ -628,7 +665,7 @@ try {
     exit 0
   }
   $apply = Invoke-NodeCapture -NodeArgs @(
-    'scripts/capture-published-closes.js', '--nfl-all', '--game-lines', '--apply',
+    'scripts/capture-published-closes.js', '--nfl-all', '--nhl-all', '--game-lines', '--spreads', '--apply',
     '--max-calls', ([string]([int]$plan.maxCalls)),
     '--max-credits', ([string]([int]$plan.maxCredits))
   ) -DeadlineIso $deadlineIso -Lock $lock -JobHandle $jobHandle
@@ -656,19 +693,41 @@ try {
     '--calls-used', [string]([int]$usage.callsUsed),
     '--usage-file', $usageFile,
     '--extra-errors', $extraErrors,
-    '--record-calls'
+    '--record-calls',
+    '--day', $day,
+    '--run', $runId
   ) + $ceilingHit + $reasonArgs + $readArgs
+  $recordArgs = @(
+    'recorded-calls',
+    '--calls-used', ([string]([int]$usage.callsUsed)),
+    '--planned', $plannedText,
+    '--reserved-calls', ([string]([int]$plan.maxCalls))
+  )
+  if ($apply.ReadFailed) { $recordArgs += '--read-failed' }
+  $recorded = Convert-HelperJson (Invoke-Helper -HelperArgs $recordArgs -StdinText $apply.Text)
+  $expectedCalls = -1
+  if ($recorded -and $null -ne $recorded.total) { $expectedCalls = [int]$recorded.total }
   $final = Invoke-Helper -HelperArgs $finalArgs -StdinText $apply.Text
-  if ($final.Code -ne 0 -or -not $final.Text) {
-    $charged = [int]$plannedText
-    if ($apply.ReadFailed) { $charged = [int]$plan.maxCalls }
-    $fallbackUsed = [int]$usage.callsUsed + $charged
-    Invoke-Helper -HelperArgs @(
+  $precise = $false
+  if ($final.Code -eq 0 -and $final.Text -and $expectedCalls -ge 0) {
+    if (Test-UsageFile -File $usageFile -Calls ([string]$expectedCalls) -Cap ([string]$nextCap) -Day $day -RunId $runId) {
+      $precise = $true
+    }
+  }
+  if (-not $precise) {
+    $fallbackUsed = [int]$usage.callsUsed + [int]$plan.maxCalls
+    $fallbackWrite = Invoke-Helper -HelperArgs @(
       'write-usage', '--file', $usageFile,
       '--calls', [string]$fallbackUsed,
-      '--cap', [string]$nextCap
-    ) | Out-Null
-    $final = Invoke-Helper -HelperArgs @('line', '--reason', 'summary-failed', '--status', 'failed')
+      '--cap', [string]$nextCap,
+      '--day', $day,
+      '--run', $runId
+    )
+    if ($fallbackWrite.Code -ne 0 -or -not (Test-UsageFile -File $usageFile -Calls ([string]$fallbackUsed) -Cap ([string]$nextCap) -Day $day -RunId $runId)) {
+      $final = Invoke-Helper -HelperArgs @('line', '--reason', 'summary-failed', '--status', 'failed')
+    } else {
+      $final = Invoke-Helper -HelperArgs @('line', '--reason', 'summary-failed', '--status', 'failed')
+    }
   }
   Write-CloseLog -Line $final.Text -Day $day
   exit 0
