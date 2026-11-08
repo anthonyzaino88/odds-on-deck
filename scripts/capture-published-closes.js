@@ -194,9 +194,10 @@ export function shouldRecaptureStoredClose(game, now, minutes = ALREADY_CLOSED_R
 
 const KNOWN_FLAGS = new Set([
   '--dry-run', '--apply', '--help', '-h', '--max-calls', '--min-remaining',
-  '--max-credits', '--nfl-all', '--nhl-all', '--game-lines', '--spreads',
+  '--max-credits', '--nfl-all', '--nhl-all', '--game-lines', '--spreads', '--deadline',
 ])
-const FLAGS_WITH_VALUE = new Set(['--max-calls', '--min-remaining', '--max-credits'])
+const FLAGS_WITH_VALUE = new Set(['--max-calls', '--min-remaining', '--max-credits', '--deadline'])
+const DEADLINE_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/
 
 /** Non-negative integer flag. Missing or invalid values fail closed. */
 export function parseNonNegIntFlag(args, flag) {
@@ -215,6 +216,19 @@ export function parseNonNegIntFlag(args, flag) {
     return { present: true, value: null, invalid: true }
   }
   return { present: true, value: n, invalid: false }
+}
+
+/** UTC instant. The value is never logged; a bad one fails closed. */
+export function parseDeadlineFlag(args) {
+  const i = args.indexOf('--deadline')
+  if (i < 0) return { present: false, value: null, invalid: false }
+  const raw = args[i + 1]
+  if (raw == null || String(raw).startsWith('--') || !DEADLINE_INSTANT.test(String(raw).trim())) {
+    return { present: true, value: null, invalid: true }
+  }
+  const ms = Date.parse(String(raw).trim())
+  if (!Number.isFinite(ms)) return { present: true, value: null, invalid: true }
+  return { present: true, value: ms, invalid: false }
 }
 
 export function isClosingCaptureDisabled(env = process.env) {
@@ -283,12 +297,14 @@ export function parseCaptureClosesArgs(argv = [], env = process.env) {
   const maxCalls = parseNonNegIntFlag(args, '--max-calls')
   const minRemainingFlag = parseNonNegIntFlag(args, '--min-remaining')
   const maxCredits = parseNonNegIntFlag(args, '--max-credits')
+  const deadline = parseDeadlineFlag(args)
   const envMinRemaining = Number(env.CLOSING_CAPTURE_MIN_REMAINING)
   const unknown = unknownCaptureArgs(args)
   const invalidFlags = [
     maxCalls.invalid ? '--max-calls' : null,
     minRemainingFlag.invalid ? '--min-remaining' : null,
     maxCredits.invalid ? '--max-credits' : null,
+    deadline.invalid ? '--deadline' : null,
   ].filter(Boolean)
   const minRemaining = minRemainingFlag.present
     ? minRemainingFlag.value
@@ -306,6 +322,7 @@ export function parseCaptureClosesArgs(argv = [], env = process.env) {
     nhlAll: args.includes('--nhl-all'),
     gameLines: args.includes('--game-lines'),
     spreads: args.includes('--spreads'),
+    deadlineMs: deadline.value,
     disabled: isClosingCaptureDisabled(env),
     unknown,
     invalidFlags,
@@ -537,6 +554,16 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
   if (isOpsWriteQuietPeriod(startedAt)) {
     log.log('⏸️  Ops quiet period (:05–:15 ET) — no close capture writes or Odds API calls.')
     return done({ updates: [], calls: 0, skippedQuiet: true })
+  }
+
+  if (args.deadlineMs != null && startedAt.getTime() >= args.deadlineMs) {
+    log.log('⏸️  Close-capture deadline (:04:50 ET) — no Odds API calls.')
+    return done({
+      updates: [],
+      calls: 0,
+      creditsUsed: 0,
+      skippedQuiet: true,
+    })
   }
 
   let supabase
@@ -1040,6 +1067,18 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
   let fetchErrors = 0
   let writeErrors = 0
   let skippedBudgetDuringRun = 0
+  const deadlineReached = () => args.deadlineMs != null && nowFn().getTime() >= args.deadlineMs
+  if (deadlineReached()) {
+    log.log('⏸️  Close-capture deadline (:04:50 ET) — no Odds API calls.')
+    return done({
+      updates: [],
+      calls: 0,
+      creditsUsed: 0,
+      skippedQuiet: true,
+      skippedQuietCount: captureJobs.length + gameLineClusters.length,
+      skippedWindow,
+    })
+  }
   if (args.maxCalls != null && args.maxCalls <= 0) {
     log.log(`⏸️  --max-calls ${args.maxCalls} reached. No Odds API calls.`)
     return done({
@@ -1116,6 +1155,11 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     }
     if (shouldSkipPaidCloseCaptureFetch(nowFn())) {
       log.log('⏸️  After :04:30 ET — not starting a paid fetch that quiet :05 would block.')
+      markQuietStop(jobIndex)
+      break
+    }
+    if (deadlineReached()) {
+      log.log('⏸️  Close-capture deadline (:04:50 ET) — not starting a paid fetch.')
       markQuietStop(jobIndex)
       break
     }
@@ -1226,6 +1270,13 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       markQuietStop(jobIndex)
       break
     }
+    if (deadlineReached()) {
+      log.log(
+        `⏸️  skipped ${label} paid fetch before the :04:50 ET deadline (quiet :05 would block the write)`,
+      )
+      markQuietStop(jobIndex)
+      break
+    }
     const fetchActive = () => fetchEventOdds({
       url: buildEventOddsUrl({
         sportKey,
@@ -1262,6 +1313,11 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
           log.log(
             '⏸️  After :04:30 ET — not starting a line-only retry that quiet :05 would block.',
           )
+          markQuietStop(jobIndex)
+          break
+        }
+        if (deadlineReached()) {
+          log.log('⏸️  Close-capture deadline (:04:50 ET) — not starting the line-only retry.')
           markQuietStop(jobIndex)
           break
         }
@@ -1435,6 +1491,12 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       }
       if (shouldSkipPaidCloseCaptureFetch(nowFn())) {
         log.log('⏸️  After :04:30 ET — not starting a paid fetch that quiet :05 would block.')
+        skippedQuietDuringRun = true
+        skippedQuietCount += gameLineClusters.length - clusterIndex
+        break
+      }
+      if (deadlineReached()) {
+        log.log('⏸️  Close-capture deadline (:04:50 ET) — not starting a paid game-line fetch.')
         skippedQuietDuringRun = true
         skippedQuietCount += gameLineClusters.length - clusterIndex
         break
