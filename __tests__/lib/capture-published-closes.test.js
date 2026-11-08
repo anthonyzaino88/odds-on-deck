@@ -2655,6 +2655,116 @@ describe('runCapturePublishedCloses', () => {
     expect(fetchEventOdds).not.toHaveBeenCalled()
   })
 
+  test('attempted game-line retries under --nfl-all --game-lines stay inside the 12-credit cap', async () => {
+    const games = Array.from({ length: 10 }, (_, index) => nflWindowGame({
+      id: `NFL_${index}`,
+      oddsApiEventId: `evt-${index}`,
+      date: `2026-07-15T23:${String(10 + index).padStart(2, '0')}:00.000Z`,
+    }))
+    const closingOdds = games.flatMap((game) => (
+      ['h2h', 'spreads', 'totals'].map((market) => ({
+        id: `clvclose:${game.id.toLowerCase()}|attempted|${market}`,
+        game_id: game.id,
+        book: 'attempted',
+        market,
+      }))
+    ))
+    const budget = createOddsApiBudget({
+      persist: false,
+      now: IN_WINDOW,
+      purpose: 'close-capture',
+      env: {
+        ODDS_REMAINING_FLOOR: '0',
+        ODDS_CLOSE_CAPTURE_RESERVE: '0',
+        ODDS_DAILY_CREDIT_CAP: '5000',
+        ODDS_CLOSE_CAPTURE_DAILY_CAP: '40',
+        ODDS_GAME_LINE_CLOSE_DAILY_CAP: '12',
+        ODDS_CLOSE_CAPTURE_PROP_HEADROOM: '28',
+      },
+      log: { log() {}, warn() {} },
+    })
+    const fetchEventOdds = jest.fn(async () => ({
+      data: nflEventOdds(),
+      quota: { remaining: 9000, used: 30, last: 3 },
+    }))
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--nfl-all', '--game-lines'],
+      now: IN_WINDOW,
+      budget,
+      createClient: () => mockClient({
+        games,
+        picks: [],
+        edges: games.map((game, index) => gameLineEdge({
+          id: `edge-${index}`,
+          gameId: game.id,
+        })),
+        closingOdds,
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.gameLineClusters).toHaveLength(0)
+    expect(fetchEventOdds).toHaveBeenCalledTimes(4)
+    expect(fetchEventOdds.mock.calls.every((call) => call[0].gameLine === true)).toBe(true)
+    expect(result.creditsUsed).toBe(12)
+    expect(result.calls).toBe(5)
+    expect(budget.todayGameLineCredits()).toBe(12)
+    expect(budget.todayCloseCaptures()).toBe(4)
+    expect(log.lines.join('\n')).toMatch(/ODDS_BUDGET_STATUS=game_line_cap/)
+  })
+
+  test('fetch failures log without the request query or api key', async () => {
+    const key = 'odds-live-key-99'
+    const eventUrl = `https://api.the-odds-api.com/v4/sports/americanfootball_nfl/events/evt-kc-buf/odds?apiKey=${key}&regions=us&markets=h2h,spreads,totals`
+    const sportUrl = `https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds?apiKey=${key}&regions=us&markets=h2h,totals`
+    const boom = (url) => {
+      const cause = new Error(`connect ECONNRESET ${url}`)
+      const error = new Error(`fetch failed: ${url}`, { cause })
+      error.stack = `TypeError: fetch failed: ${url}\n    at fetch (${url})`
+      return error
+    }
+    const propLog = memoryLog()
+    await runCapturePublishedCloses({
+      argv: ['--apply', '--nfl-all'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [nflWindowGame()],
+        picks: [nflPendingPick()],
+      }),
+      fetchEventOdds: jest.fn(async () => { throw boom(eventUrl) }),
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: key,
+      log: propLog,
+    })
+    const sportLog = memoryLog()
+    await runCapturePublishedCloses({
+      argv: ['--apply', '--game-lines'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [nhlGame()],
+        picks: [],
+        edges: [gameLineEdge()],
+      }),
+      fetchEventOdds: jest.fn(async () => { throw boom(sportUrl) }),
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: key,
+      log: sportLog,
+    })
+    for (const lines of [propLog.lines, sportLog.lines]) {
+      const text = lines.join('\n')
+      const failure = lines.find((line) => line.includes('fetch failed:'))
+      expect(failure).toBeTruthy()
+      expect(text).not.toContain(key)
+      expect(failure).not.toContain('regions=us')
+      expect(failure).not.toContain('markets=')
+      expect(failure).toContain('?[redacted]')
+      expect(failure).not.toContain(key)
+    }
+  })
+
   test('live clock stops a paid game-line call once quiet or the window has passed', async () => {
     const quietInWindow = new Date('2026-07-15T23:06:00.000Z')
     const openMinute = new Date('2026-07-15T23:04:00.000Z')

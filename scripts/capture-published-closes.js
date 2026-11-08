@@ -140,7 +140,9 @@ import {
   formatOddsBudgetWarnLine,
   formatOddsCreditsRemaining,
   formatOddsCreditsUsed,
+  ODDS_BUDGET_GAME_LINE_CAP,
   ODDS_BUDGET_OK,
+  sanitizeOddsApiError,
 } from '../lib/odds-api-budget.js'
 
 config({ path: '.env.local' })
@@ -275,6 +277,17 @@ export function parseCaptureClosesArgs(argv = [], env = process.env) {
     unknown,
     invalidFlags,
   }
+}
+
+/** A per-game retry with no props is a game-line fetch, not a prop fetch. */
+function isGameLineOnlyCaptureJob(job) {
+  if ((job?.picks || []).length > 0) return false
+  const markets = job?.markets || []
+  if (!markets.length) return false
+  return markets.every((market) => {
+    const key = String(market || '').toLowerCase().trim()
+    return key === 'h2h' || key === 'spreads' || key === 'totals'
+  })
 }
 
 async function defaultFetchEventOdds({
@@ -1012,11 +1025,23 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       skippedBudgetDuringRun += 1
       break
     }
-    if (!oddsBudget.allow(jobCredits, { captures: 1 })) {
+    const gameLineOnly = isGameLineOnlyCaptureJob(job)
+    const budgetExtra = gameLineOnly
+      ? { captures: 1, gameLineCredits: jobCredits }
+      : { captures: 1 }
+    if (gameLineOnly && jobCredits > (oddsBudget.remainingGameLineCredits?.() ?? jobCredits)) {
+      log.log(`⏸️  ${formatOddsBudgetStatus(ODDS_BUDGET_GAME_LINE_CAP)}`)
+      const warn = formatOddsBudgetWarnLine(ODDS_BUDGET_GAME_LINE_CAP)
+      if (warn) log.log(warn)
+      skippedBudgetDuringRun += 1
+      continue
+    }
+    if (!oddsBudget.allow(jobCredits, budgetExtra)) {
       log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
       const warn = formatOddsBudgetWarnLine(oddsBudget.status())
       if (warn) log.log(warn)
       skippedBudgetDuringRun += 1
+      if (gameLineOnly && oddsBudget.status() === ODDS_BUDGET_GAME_LINE_CAP) continue
       break
     }
 
@@ -1043,6 +1068,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
         budget: oddsBudget,
         estimatedCredits: jobCredits,
         apiKey,
+        gameLine: gameLineOnly,
       })
       if (payload?.skipped) {
         log.log(`⏸️  ${formatOddsBudgetStatus(oddsBudget.status())}`)
@@ -1053,14 +1079,17 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       }
       if (payload?.quota) lastQuota = payload.quota
       if (!payload?.budgetRecorded) {
+        const spent = payload?.quota?.last ?? jobCredits
         oddsBudget.record(payload?.quota || {}, {
-          credits: payload?.quota?.last ?? jobCredits,
+          credits: spent,
           captures: 1,
+          gameLineCredits: gameLineOnly ? spent : 0,
         })
       }
     } catch (error) {
       fetchErrors += 1
-      log.error(`  ❌ ${label}: ${error.message}`)
+      const safe = sanitizeOddsApiError(error, apiKey)
+      log.error(`  ❌ ${label}: ${safe?.message || ''}`)
       continue
     }
 
@@ -1266,7 +1295,8 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
         }
       } catch (error) {
         fetchErrors += 1
-        log.error(`  ❌ game lines ${label}: ${error.message}`)
+        const safe = sanitizeOddsApiError(error, apiKey)
+        log.error(`  ❌ game lines ${label}: ${safe?.message || ''}`)
         continue
       }
       const events = Array.isArray(payload.data) ? payload.data : []
