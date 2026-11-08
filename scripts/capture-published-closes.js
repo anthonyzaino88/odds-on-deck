@@ -73,6 +73,7 @@ import { paginateSupabaseSelect } from '../lib/unplayed-game-grades.js'
 import {
   CLOSE_CAPTURE_SPORTS,
   PUBLISHED_STATS_PREFILTER,
+  parseRecordInstant,
 } from '../lib/published-picks.js'
 import { isMissingColumnError } from '../lib/grade-audit.js'
 import {
@@ -164,10 +165,10 @@ export function publishedCloseAlreadyStored(row) {
 }
 
 export function shouldRecaptureStoredClose(game, now, minutes = ALREADY_CLOSED_RECAPTURE_MINUTES) {
-  const startMs = Date.parse(game?.date || game?.gameDate || '')
-  const nowMs = now instanceof Date ? now.getTime() : Date.parse(now)
-  if (!Number.isFinite(startMs) || !Number.isFinite(nowMs)) return false
-  const leadMs = startMs - nowMs
+  const start = parseRecordInstant(game?.date || game?.gameDate)
+  const instant = now instanceof Date ? now : parseRecordInstant(now)
+  if (!start || !instant) return false
+  const leadMs = start.getTime() - instant.getTime()
   const windowMs = Number(minutes) * 60 * 1000
   return leadMs > 0 && leadMs <= windowMs
 }
