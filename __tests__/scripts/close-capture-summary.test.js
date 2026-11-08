@@ -28,9 +28,9 @@ import {
   windowsTimeZoneOk,
   WINDOWS_TRIGGER_LIMIT,
   writeUsageFile,
-} from '../../scripts/ops/close-capture-summary.js'
+} from '../../scripts/ops/close-capture-summary.mjs'
 
-const helper = path.join(process.cwd(), 'scripts', 'ops', 'close-capture-summary.js')
+const helper = path.join(process.cwd(), 'scripts', 'ops', 'close-capture-summary.mjs')
 
 function runHelper(args, input = '') {
   return spawnSync(process.execPath, [helper, ...args], {
@@ -500,6 +500,35 @@ describe('close capture schedule parsing', () => {
     expect(wrapper.indexOf('} catch {', readAt)).toBeGreaterThan(readAt)
     expect(clearAt).toBeGreaterThan(readAt)
     expect(releaseAt).toBeGreaterThan(readAt)
+    const productionFlags = "'--nfl-all', '--nhl-all', '--game-lines', '--spreads'"
+    expect(wrapper).toContain(`${productionFlags}, '--dry-run'`)
+    expect(wrapper).toContain(`${productionFlags}, '--apply'`)
+    expect(wrapper).toContain('close-capture-summary.mjs')
+    expect(register).toContain('close-capture-summary.mjs')
+    expect(wrapper).not.toContain('close-capture-summary.js')
+    expect(register).not.toContain('close-capture-summary.js')
+    for (const source of [wrapper, register]) {
+      const calls = [...source.matchAll(/& node\b/g)]
+      expect(calls.length).toBeGreaterThan(0)
+      for (const match of calls) {
+        const before = source.slice(0, match.index)
+        const continueAt = before.lastIndexOf("$ErrorActionPreference = 'Continue'")
+        const stopAt = before.lastIndexOf("$ErrorActionPreference = 'Stop'")
+        expect(continueAt).toBeGreaterThan(stopAt)
+        const after = source.slice(match.index, match.index + 500)
+        const exitAt = after.indexOf('$LASTEXITCODE')
+        const restoreAt = after.indexOf('$ErrorActionPreference = $preference')
+        expect(exitAt).toBeGreaterThan(-1)
+        expect(restoreAt).toBeGreaterThan(exitAt)
+      }
+    }
+  })
+
+  test('the helper module does not warn about a typeless package.json', () => {
+    const result = runHelper(['triggers'])
+    expect(result.status).toBe(0)
+    expect(result.stderr || '').not.toMatch(/MODULE_TYPELESS_PACKAGE_JSON/)
+    expect(JSON.parse(result.stdout).triggers.length).toBeGreaterThan(0)
   })
 
   test('.local usage and logs stay gitignored', () => {

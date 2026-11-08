@@ -526,9 +526,9 @@ window, and Node receives that instant as `--deadline`. The task
 `ExecutionTimeLimit` is 48 minutes 50 seconds, the longest gap from a
 `:16` start to the next `:04:50`. The wrapper never retries.
 
-1. Dry-run: `node scripts/capture-published-closes.js --nfl-all --game-lines --dry-run --deadline <iso>`
+1. Dry-run: `node scripts/capture-published-closes.js --nfl-all --nhl-all --game-lines --spreads --dry-run --deadline <iso>`
 2. If that plan is 0 HTTP calls, exit.
-3. Otherwise apply once: `--apply --max-calls` the minimum of 10 and the calls still left today, `--max-credits 150`, with the same deadline.
+3. Otherwise apply once with the same `--nfl-all --nhl-all --game-lines --spreads` flags, plus `--apply --max-calls` the minimum of 10 and the calls still left today, `--max-credits 150`, and the same deadline.
 
 The per-ET-day usage file is `.local/clv-capture-calls/YYYY-MM-DD.txt`.
 Line 1 is calls used. Optional line 2 is `cap=N`. A missing file means

@@ -39,7 +39,7 @@ if ([System.TimeZoneInfo]::Local.Id -ne 'Eastern Standard Time') {
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $wrapper = Join-Path $PSScriptRoot 'scheduled-close-capture.ps1'
-$helper = Join-Path $PSScriptRoot 'close-capture-summary.js'
+$helper = Join-Path $PSScriptRoot 'close-capture-summary.mjs'
 $taskName = 'OddsOnDeck Close Capture'
 
 if (-not (Test-Path -LiteralPath $wrapper)) {
@@ -47,8 +47,16 @@ if (-not (Test-Path -LiteralPath $wrapper)) {
   exit 1
 }
 
-$raw = & node $helper triggers 2>$null
-if ($LASTEXITCODE -ne 0 -or -not $raw) {
+$preference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$nodeExit = 1
+try {
+  $raw = & node $helper triggers 2>$null
+  if ($null -ne $LASTEXITCODE) { $nodeExit = $LASTEXITCODE }
+} finally {
+  $ErrorActionPreference = $preference
+}
+if ($nodeExit -ne 0 -or -not $raw) {
   Write-Error 'Could not build the trigger list.'
   exit 1
 }

@@ -1,7 +1,7 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-  One NFL close-capture pass for the Windows ops laptop.
+  One NFL and NHL close-capture pass for the Windows ops laptop.
 
 .DESCRIPTION
   Runs from the repo root. Requires the Windows time zone Eastern
@@ -42,7 +42,7 @@ foreach ($arg in @($args)) {
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 Set-Location -LiteralPath $repoRoot
-$helper = Join-Path $PSScriptRoot 'close-capture-summary.js'
+$helper = Join-Path $PSScriptRoot 'close-capture-summary.mjs'
 $utf8 = New-Object System.Text.UTF8Encoding $false
 
 if (-not ('CloseCaptureJob' -as [type])) {
@@ -248,13 +248,22 @@ function Invoke-Helper {
     [string[]]$HelperArgs,
     [string]$StdinText
   )
-  if ($null -eq $StdinText) {
-    $raw = & node $helper @HelperArgs 2>$null
-  } else {
-    $raw = $StdinText | & node $helper @HelperArgs 2>$null
+  $preference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  $code = 1
+  $raw = $null
+  try {
+    if ($null -eq $StdinText) {
+      $raw = & node $helper @HelperArgs 2>$null
+    } else {
+      $raw = $StdinText | & node $helper @HelperArgs 2>$null
+    }
+    if ($null -ne $LASTEXITCODE) { $code = $LASTEXITCODE }
+  } finally {
+    $ErrorActionPreference = $preference
   }
   return @{
-    Code = $LASTEXITCODE
+    Code = $code
     Text = (($raw | Out-String).Trim())
   }
 }
@@ -547,7 +556,7 @@ try {
   }
 
   $dry = Invoke-NodeCapture -NodeArgs @(
-    'scripts/capture-published-closes.js', '--nfl-all', '--game-lines', '--dry-run'
+    'scripts/capture-published-closes.js', '--nfl-all', '--nhl-all', '--game-lines', '--spreads', '--dry-run'
   ) -DeadlineIso $deadlineIso -Lock $lock -JobHandle $jobHandle
   if ($dry.Aborted) {
     $aborted = Invoke-Helper -HelperArgs @('line', '--reason', 'job', '--status', 'failed')
@@ -628,7 +637,7 @@ try {
     exit 0
   }
   $apply = Invoke-NodeCapture -NodeArgs @(
-    'scripts/capture-published-closes.js', '--nfl-all', '--game-lines', '--apply',
+    'scripts/capture-published-closes.js', '--nfl-all', '--nhl-all', '--game-lines', '--spreads', '--apply',
     '--max-calls', ([string]([int]$plan.maxCalls)),
     '--max-credits', ([string]([int]$plan.maxCredits))
   ) -DeadlineIso $deadlineIso -Lock $lock -JobHandle $jobHandle
