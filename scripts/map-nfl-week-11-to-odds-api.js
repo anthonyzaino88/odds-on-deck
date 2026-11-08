@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
+import { sanitizeOddsApiError, sanitizedErrorMessage } from '../lib/odds-api-budget.js'
 import { config } from 'dotenv'
 
 config({ path: '.env.local' })
@@ -33,7 +34,7 @@ async function mapWeek11Games() {
     .lte('date', '2025-11-19T00:00:00')
   
   if (dbError) {
-    console.error('❌ Database error:', dbError.message)
+    console.error('❌ Database error:', sanitizedErrorMessage(dbError, ODDS_API_KEY))
     return
   }
   
@@ -43,7 +44,12 @@ async function mapWeek11Games() {
   const response = await fetch(
     `https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?apiKey=${ODDS_API_KEY}&regions=us&markets=h2h&dateFormat=iso`
   )
-  const oddsGames = await response.json()
+  let oddsGames
+  try {
+    oddsGames = await response.json()
+  } catch (error) {
+    throw sanitizeOddsApiError(error, ODDS_API_KEY)
+  }
   
   console.log(`Found ${oddsGames.length} games from Odds API\n`)
   
@@ -86,5 +92,8 @@ async function mapWeek11Games() {
   console.log(`\n🎯 Now run: node scripts/fetch-live-odds.js nfl --cache-fresh`)
 }
 
-mapWeek11Games()
+mapWeek11Games().catch((error) => {
+  console.error('❌ Fatal:', sanitizedErrorMessage(error, ODDS_API_KEY))
+  process.exit(1)
+})
 

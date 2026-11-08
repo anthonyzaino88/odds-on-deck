@@ -71,7 +71,10 @@ import {
   formatCallsUsed,
   gameLineClosesFromEventOdds,
   gameLineClosesForSportEvent,
+  gameLineMarketsAlreadyCaptured,
+  gameLineQuoteCloseDecision,
   gameLineQuoteFitsClose,
+  nflGameLineMarketsAlreadyCaptured,
   loadExistingClosingOdds,
   setClosingOddsClock,
   buildSportOddsUrl,
@@ -84,6 +87,7 @@ import {
   isTargetedCloseCapturePick,
   NFL_GAME_LINE_MARKETS,
 } from '../../lib/closing-line.js'
+import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -2030,6 +2034,185 @@ describe('game-line close capture for NHL, MLB, and NFL', () => {
       snapshotAt: '2026-07-15T23:09:00.001Z',
       kickoff,
     })).toBe(false)
+  })
+
+  test('a timezone-less kickoff accepts the same quote in Eastern time and UTC', () => {
+    const kickoff = '2026-11-08T14:30:00'
+    const quotedAt = '2026-11-08T13:58:00.000Z'
+    const snapshotAt = '2026-11-08T13:58:00.000Z'
+    const script = `
+      import { gameLineQuoteFitsClose, gameLineClusterCommenceBounds } from './lib/closing-line.js'
+      import { shouldRecaptureStoredClose } from './scripts/capture-published-closes.js'
+      const accepted = gameLineQuoteFitsClose({
+        quotedAt: ${JSON.stringify(quotedAt)},
+        snapshotAt: ${JSON.stringify(snapshotAt)},
+        kickoff: ${JSON.stringify(kickoff)},
+      })
+      const bounds = gameLineClusterCommenceBounds([{ game: { date: ${JSON.stringify(kickoff)} } }])
+      const recapture = shouldRecaptureStoredClose(
+        { date: ${JSON.stringify(kickoff)} },
+        new Date('2026-11-08T14:25:00.000Z'),
+      )
+      process.stdout.write(JSON.stringify({ accepted, from: bounds.commenceTimeFrom, recapture }))
+    `
+    const run = (tz) => {
+      const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+        cwd: process.cwd(),
+        env: { ...process.env, TZ: tz, NODE_NO_WARNINGS: '1' },
+        encoding: 'utf8',
+      })
+      expect(result.status).toBe(0)
+      const line = result.stdout.trim().split('\n').filter(Boolean).at(-1)
+      return JSON.parse(line)
+    }
+    const eastern = run('America/New_York')
+    const utc = run('UTC')
+    expect(eastern).toEqual(utc)
+    expect(eastern.accepted).toBe(true)
+    expect(eastern.from).toBe('2026-11-08T14:29:59.000Z')
+    expect(eastern.recapture).toBe(true)
+
+    const decision = gameLineQuoteCloseDecision({ quotedAt, snapshotAt, kickoff })
+    expect(decision).toMatchObject({
+      ok: true,
+      kickoffAt: '2026-11-08T14:30:00.000Z',
+      quoteAt: quotedAt,
+      captureAt: snapshotAt,
+      windowStart: '2026-11-08T13:55:00.000Z',
+      windowEnd: '2026-11-08T14:29:00.000Z',
+    })
+    const logs = []
+    const rows = gameLineClosesFromEventOdds({
+      home_team: 'Atlanta Falcons',
+      away_team: 'Cincinnati Bengals',
+      bookmakers: [{
+        title: 'FanDuel',
+        markets: [{
+          key: 'h2h',
+          last_update: quotedAt,
+          outcomes: [
+            { name: 'Atlanta Falcons', price: -150 },
+            { name: 'Cincinnati Bengals', price: 130 },
+          ],
+        }],
+      }],
+    }, {
+      gameId: 'CIN_at_ATL',
+      sport: 'nfl',
+      capturedAt: new Date(snapshotAt),
+      kickoff,
+      log: { log: (line) => logs.push(line) },
+    })
+    expect(rows).toEqual([
+      expect.objectContaining({
+        book: 'FanDuel',
+        market: 'h2h',
+        game_id: 'CIN_at_ATL',
+        quoted_at: quotedAt,
+      }),
+    ])
+    expect(logs).toEqual([])
+
+    const rejected = []
+    gameLineClosesFromEventOdds({
+      home_team: 'Atlanta Falcons',
+      away_team: 'Cincinnati Bengals',
+      bookmakers: [{
+        title: 'FanDuel',
+        markets: [{
+          key: 'h2h',
+          last_update: '2026-11-08T13:50:00.000Z',
+          outcomes: [
+            { name: 'Atlanta Falcons', price: -150 },
+            { name: 'Cincinnati Bengals', price: 130 },
+          ],
+        }],
+      }],
+    }, {
+      gameId: 'CIN_at_ATL',
+      sport: 'nfl',
+      capturedAt: new Date(snapshotAt),
+      kickoff,
+      log: { log: (line) => rejected.push(String(line)) },
+    })
+    expect(rejected[0]).toMatch(/quote before close window/)
+    expect(rejected[0]).toMatch(/quote=2026-11-08T13:50:00.000Z/)
+    expect(rejected[0]).toMatch(/kickoff=2026-11-08T14:30:00.000Z/)
+    expect(rejected[0]).toMatch(/capture=2026-11-08T13:58:00.000Z/)
+    expect(rejected[0]).toMatch(/window=\(2026-11-08T13:55:00.000Z, 2026-11-08T14:29:00.000Z\]/)
+    expect(rejected[0]).not.toMatch(/apiKey|secret/)
+  })
+
+  test('attempted game-line rows do not block a later real close', async () => {
+    const game = { id: 'CIN_at_ATL', sport: 'nfl', date: '2026-11-08T14:30:00' }
+    const attempted = ['h2h', 'spreads', 'totals'].map((market) => ({
+      id: `clvclose:cin_at_atl|attempted|${market}`,
+      game_id: 'CIN_at_ATL',
+      book: 'attempted',
+      market,
+    }))
+    expect(nflGameLineMarketsAlreadyCaptured(game, attempted)).toBe(false)
+    expect(gameLineMarketsAlreadyCaptured(game, attempted, ['h2h', 'totals'])).toBe(false)
+    const realRows = ['h2h', 'totals'].map((market) => ({
+      id: `clvclose:cin_at_atl|fanduel|${market}`,
+      game_id: 'CIN_at_ATL',
+      book: 'FanDuel',
+      market,
+    }))
+    expect(gameLineMarketsAlreadyCaptured(game, [...attempted, ...realRows], ['h2h', 'totals'])).toBe(true)
+    expect(nflGameLineMarketsAlreadyCaptured(game, [...attempted, ...realRows])).toBe(false)
+
+    const quotedAt = '2026-11-08T13:58:00.000Z'
+    const proposed = gameLineClosesFromEventOdds({
+      home_team: 'Atlanta Falcons',
+      away_team: 'Cincinnati Bengals',
+      bookmakers: [{
+        title: 'FanDuel',
+        markets: [{
+          key: 'h2h',
+          last_update: quotedAt,
+          outcomes: [
+            { name: 'Atlanta Falcons', price: -150 },
+            { name: 'Cincinnati Bengals', price: 130 },
+          ],
+        }],
+      }],
+    }, {
+      gameId: 'CIN_at_ATL',
+      sport: 'nfl',
+      capturedAt: new Date(quotedAt),
+      kickoff: game.date,
+    })
+    expect(proposed.map((row) => row.book)).toEqual(['FanDuel'])
+    const existing = [...attempted]
+    const inserts = []
+    const supabase = {
+      from() {
+        return {
+          select() { return this },
+          in() { return Promise.resolve({ data: existing, error: null }) },
+          insert(body) {
+            inserts.push(...body)
+            existing.push(...body)
+            return Promise.resolve({ data: body, error: null })
+          },
+        }
+      },
+    }
+    resetClosingOddsWriteGuard()
+    setClosingOddsClock(() => new Date('2026-11-08T13:58:00.000Z'))
+    try {
+      const first = await writeGameLineCloses(supabase, proposed)
+      expect(first.inserted).toBe(1)
+      expect(inserts.map((row) => row.id)).toEqual(['clvclose:cin_at_atl|fanduel|h2h'])
+      resetClosingOddsWriteGuard()
+      const second = await writeGameLineCloses(supabase, proposed)
+      expect(second.inserted).toBe(0)
+      expect(second.skipped).toBe(1)
+      expect(inserts).toHaveLength(1)
+    } finally {
+      resetClosingOddsWriteGuard()
+    }
   })
 
   test('the close write itself stops during the quiet window', async () => {

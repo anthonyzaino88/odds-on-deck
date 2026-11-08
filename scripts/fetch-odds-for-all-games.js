@@ -13,6 +13,7 @@ import {
   oddsTableHasQuotedAt,
   omitQuotedAtFields,
 } from '../lib/odds-quote-time.js'
+import { sanitizeOddsApiError, sanitizedErrorMessage } from '../lib/odds-api-budget.js'
 import { config } from 'dotenv'
 
 config({ path: '.env.local' })
@@ -49,8 +50,16 @@ async function fetchOddsForGame(game, sportConfig) {
   try {
     const response = await fetch(url)
     if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(`API returned ${response.status}: ${errorText}`)
+      let errorText = ''
+      try {
+        errorText = await response.text()
+      } catch (error) {
+        throw sanitizeOddsApiError(error, ODDS_API_KEY)
+      }
+      throw sanitizeOddsApiError(
+        new Error(`API returned ${response.status}: ${errorText}`),
+        ODDS_API_KEY,
+      )
     }
     
     const oddsData = await response.json()
@@ -140,7 +149,7 @@ async function fetchOddsForGame(game, sportConfig) {
     return { success: true, saved }
     
   } catch (error) {
-    return { error: error.message }
+    return { error: sanitizedErrorMessage(error, ODDS_API_KEY) }
   }
 }
 
@@ -199,7 +208,7 @@ async function fetchOddsForAllGames(sportFilter = null) {
         console.log(`    ⏭️  Skipped: ${result.reason}`)
         totalSkipped++
       } else if (result.error) {
-        console.error(`    ❌ Error: ${result.error}`)
+        console.error(`    ❌ Error: ${sanitizedErrorMessage(result.error, ODDS_API_KEY)}`)
         totalErrors++
       } else if (result.success) {
         console.log(`    ✅ Fetched and saved ${result.saved} odds records`)
@@ -228,7 +237,7 @@ if (sportFilter && !SPORT_CONFIGS[sportFilter]) {
 }
 
 fetchOddsForAllGames(sportFilter).catch(error => {
-  console.error('❌ Fatal error:', error)
+  console.error('❌ Fatal error:', sanitizedErrorMessage(error, process.env.ODDS_API_KEY))
   process.exit(1)
 })
 

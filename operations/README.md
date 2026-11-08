@@ -472,8 +472,10 @@ captured.
 Close capture is idempotent via the `clvclose:` primary key. T−30
 snapshot rows are outside SQL 008's partial unique index. If a fetch
 returns no book for a market, one
-`book=attempted` `clvclose:` row marks that market so the game is not
-refetched every run.
+`book=attempted` `clvclose:` row records the miss. That sentinel does
+not count as a captured market, so a later pass in the window can
+write a real close. A real `clvclose:` row still counts, and the
+deterministic id keeps that real row from being inserted twice.
 
 `--max-credits N` stops before the next game would exceed markets ×
 regions (us=1), soonest kickoff first. Dry-run prints planned HTTP

@@ -72,6 +72,7 @@ import {
   formatOddsCreditsRemaining,
   formatOddsCreditsUsed,
   ODDS_BUDGET_OK,
+  sanitizedErrorMessage,
 } from '../lib/odds-api-budget.js'
 import {
   acquireSnapshotPassLock,
@@ -641,7 +642,7 @@ NFL_ALT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
       calls += 1
     } catch (error) {
       calls += 1
-      log.log(`⚠️ Quota probe failed (${error.message}); continuing without a pre-check.`)
+      log.log(`⚠️ Quota probe failed (${sanitizedErrorMessage(error, apiKey)}); continuing without a pre-check.`)
     }
 
     if (lastQuota.remaining != null && lastQuota.remaining < args.minRemaining) {
@@ -716,7 +717,7 @@ NFL_ALT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
         })
       } catch (error) {
         fetchErrors += 1
-        log.log(`  ❌ ${job.gameIds.join(',')} fetch failed: ${error.message}`)
+        log.log(`  ❌ ${job.gameIds.join(',')} fetch failed: ${sanitizedErrorMessage(error, apiKey)}`)
         continue
       }
       if (fetched?.skipped) {
@@ -827,7 +828,7 @@ if (invokedDirectly()) {
   runFetchPublishedNflAltLines().then((result) => {
     process.exit(result.exitCode)
   }).catch((error) => {
-    console.error('Fatal:', error)
+    console.error('Fatal:', sanitizedErrorMessage(error, process.env.ODDS_API_KEY))
     console.log(formatNflAltStatus(NFL_ALT_STATUS_FAILED))
     console.log(formatNflAltEvents(0))
     console.log(formatCallsUsed(0))

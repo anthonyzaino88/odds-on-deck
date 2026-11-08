@@ -1,4 +1,4 @@
-import { fork } from 'node:child_process'
+import { fork, spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -20,8 +20,9 @@ import {
   parseEnvNonNegInt,
   parseOddsApiQuota,
   readOddsBudgetConfig,
-  redactOddsApiKey,
   refreshOddsApiQuota,
+  sanitizeOddsApiError,
+  sanitizeOddsApiLogText,
   resolveOddsBudgetPath,
   runOddsQuotaProbe,
   stripOddsApiKeyFromUrl,
@@ -156,8 +157,96 @@ describe('redaction', () => {
     const key = 'super-secret-key'
     expect(stripOddsApiKeyFromUrl(`https://api.the-odds-api.com/v4/sports?apiKey=${key}`))
       .toBe('https://api.the-odds-api.com/v4/sports?apiKey=[redacted]')
-    expect(redactOddsApiKey(`Odds API 401: invalid ${key}`, key)).toBe('Odds API 401: invalid [redacted]')
-    expect(redactOddsApiKey('no secret here', key)).toBe('no secret here')
+    expect(sanitizeOddsApiLogText(`Odds API 401: invalid ${key}`, key)).toBe('Odds API 401: invalid [redacted]')
+    expect(sanitizeOddsApiLogText('no secret here', key)).toBe('no secret here')
+    expect(sanitizeOddsApiLogText('Authorization: Bearer TOKEN')).toBe('Authorization: Bearer [redacted]')
+    expect(sanitizeOddsApiLogText('Authorization: Basic dXNlcjpwYXNz')).toBe('Authorization: Basic [redacted]')
+    expect(sanitizeOddsApiLogText('Authorization: Bearer TOKEN')).not.toContain('TOKEN')
+  })
+
+  test('a frozen error and a cyclic cause are not the objects that get returned', () => {
+    const key = 'odds-live-key-99'
+    const url = `https://api.the-odds-api.com/v4/sports?apiKey=${key}&regions=us`
+    const cyclic = new Error(`fetch failed ${url}`)
+    cyclic.cause = cyclic
+    Object.freeze(cyclic)
+    const safe = sanitizeOddsApiError(cyclic, key)
+    expect(safe).not.toBe(cyclic)
+    expect(safe.message).not.toContain(key)
+    expect(safe.message).not.toContain('regions=us')
+    expect(cyclic.message).toContain(key)
+    const seen = new Set()
+    let cursor = safe
+    while (cursor && typeof cursor === 'object' && !seen.has(cursor)) {
+      expect(cursor).not.toBe(cyclic)
+      expect(String(cursor.message || '')).not.toContain(key)
+      expect(String(cursor.stack || '')).not.toContain(key)
+      seen.add(cursor)
+      cursor = cursor.cause
+    }
+    let deep = new Error('tail ' + key)
+    const tail = deep
+    for (let i = 0; i < 12; i += 1) {
+      const next = new Error(`depth ${i} ${url}`)
+      next.cause = deep
+      deep = next
+    }
+    const clipped = sanitizeOddsApiError(deep, key)
+    const clippedNodes = []
+    const clippedSeen = new Set()
+    cursor = clipped
+    while (cursor && typeof cursor === 'object' && !clippedSeen.has(cursor)) {
+      clippedNodes.push(cursor)
+      expect(cursor).not.toBe(tail)
+      expect(cursor).not.toBe(deep)
+      expect(String(cursor.message || '')).not.toContain(key)
+      clippedSeen.add(cursor)
+      cursor = cursor.cause
+    }
+    expect(clippedNodes.length).toBeLessThan(12)
+  })
+
+  test('transport errors drop query strings, causes, and stacks in Eastern time and UTC', () => {
+    const key = 'odds-live-key-99'
+    const script = `
+      import { sanitizeOddsApiError } from './lib/odds-api-budget.js'
+      const key = ${JSON.stringify(key)}
+      const url = 'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?apiKey=' + key + '&regions=us&markets=h2h,spreads,totals'
+      const cause = new Error('connect ECONNRESET ' + url + ' token=' + key)
+      const error = new Error('fetch failed: ' + url, { cause })
+      error.stack = 'TypeError: fetch failed: ' + url + '\\n    at fetchOddsApiJson (' + url + ')\\n    api_key: ' + key
+      const safe = sanitizeOddsApiError(error, key)
+      const blob = [safe.message, safe.stack, safe.cause && safe.cause.message].join('\\n')
+      process.stdout.write(JSON.stringify({ blob }))
+    `
+    const run = (tz) => {
+      const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+        cwd: process.cwd(),
+        env: { ...process.env, TZ: tz, NODE_NO_WARNINGS: '1' },
+        encoding: 'utf8',
+      })
+      expect(result.status).toBe(0)
+      const line = result.stdout.trim().split('\n').filter(Boolean).at(-1)
+      return JSON.parse(line).blob
+    }
+    const eastern = run('America/New_York')
+    const utc = run('UTC')
+    expect(eastern).toBe(utc)
+    expect(eastern).not.toContain(key)
+    expect(eastern).not.toContain('regions=us')
+    expect(eastern).not.toContain('markets=h2h')
+    expect(eastern).toContain('?[redacted]')
+    expect(eastern).toContain('token=[redacted]')
+    expect(eastern).toContain('api_key: [redacted]')
+
+    const local = sanitizeOddsApiLogText(
+      `Bearer ${key} password=${key}`,
+      key,
+    )
+    expect(local).toBe('Bearer [redacted] password=[redacted]')
+    const failed = sanitizeOddsApiError(new Error(`apiKey=${key}`), key)
+    expect(failed.message).toBe('apiKey=[redacted]')
+    expect(failed.message).not.toContain(key)
   })
 })
 
@@ -887,6 +976,84 @@ describe('fetchOddsApiJson', () => {
     expect(logs.join('\n')).toMatch(/ODDS_BUDGET_STATUS=floor/)
     expect(logs.join('\n')).toMatch(/treat as WARN/)
     expect(logs.join('\n')).not.toMatch(/secret-key-value/)
+  })
+
+  test('quota-probe JSON, body-read, and HTTP errors drop the api key', async () => {
+    const key = 'odds-live-key-99'
+    const url = `https://api.the-odds-api.com/v4/sports?apiKey=${key}&regions=us`
+    const headers = headerMap({
+      'x-requests-remaining': '9000',
+      'x-requests-used': '1',
+      'x-requests-last': '0',
+    })
+    const logs = []
+    const log = { log: (msg) => logs.push(String(msg)), warn: (msg) => logs.push(String(msg)) }
+    const probe = await runOddsQuotaProbe({
+      apiKey: key,
+      log,
+      fetchImpl: async () => ({
+        ok: true,
+        headers,
+        json: async () => {
+          throw new Error(`Unexpected token < in JSON at ${url}`)
+        },
+      }),
+    })
+    expect(logs.join('\n')).toMatch(/Quota probe failed/)
+    expect(logs.join('\n')).not.toContain(key)
+    expect(logs.join('\n')).not.toContain('regions=us')
+    expect(probe.error.message).not.toContain(key)
+    expect(String(probe.error.stack || '')).not.toContain(key)
+    expect(probe.error).not.toBeInstanceOf(String)
+
+    await expect(fetchOddsApiJson(url, {
+      apiKey: key,
+      fetchImpl: async () => ({
+        ok: false,
+        status: 500,
+        headers,
+        text: async () => {
+          throw new Error(`body read failed ${url}`)
+        },
+      }),
+    })).rejects.toMatchObject({
+      message: expect.not.stringContaining(key),
+    })
+    try {
+      await fetchOddsApiJson(url, {
+        apiKey: key,
+        fetchImpl: async () => ({
+          ok: false,
+          status: 500,
+          headers,
+          text: async () => { throw new Error(`body read failed ${url}`) },
+        }),
+      })
+    } catch (error) {
+      expect(error.message).toContain('[redacted]')
+      expect(error.message).not.toContain('regions=us')
+      expect(String(error.stack || '')).not.toContain(key)
+    }
+
+    try {
+      await fetchOddsApiJson(url, {
+        apiKey: key,
+        fetchImpl: async () => ({
+          ok: false,
+          status: 401,
+          headers,
+          text: async () => `invalid key ${key} see ${url}`,
+        }),
+      })
+      throw new Error('HTTP error should have thrown')
+    } catch (error) {
+      expect(error.message).toMatch(/Odds API 401/)
+      expect(error.message).not.toContain(key)
+      expect(error.message).not.toContain('regions=us')
+      expect(error.message).toContain('[redacted]')
+      expect(String(error.stack || '')).not.toContain(key)
+      expect(error.quota).toEqual({ remaining: 9000, used: 1, last: 0 })
+    }
   })
 
   test('recovers after a floor hit once /v4/sports shows the quota reset', async () => {

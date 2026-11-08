@@ -65,6 +65,7 @@ import {
   formatOddsCreditsRemaining,
   formatOddsCreditsUsed,
   ODDS_BUDGET_OK,
+  sanitizedErrorMessage,
 } from '../lib/odds-api-budget.js'
 import {
   SNAPSHOT_REGIONS,
@@ -632,7 +633,7 @@ SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
       calls += 1
     } catch (error) {
       calls += 1
-      log.log(`⚠️ Quota probe failed (${error.message}); continuing without a pre-check.`)
+      log.log(`⚠️ Quota probe failed (${sanitizedErrorMessage(error, apiKey)}); continuing without a pre-check.`)
     }
     const startQuota = {
       used: lastQuota.used ?? null,
@@ -699,7 +700,7 @@ SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
         })
       } catch (error) {
         fetchErrors += 1
-        log.log(`  ❌ ${job.gameIds.join(',')} fetch failed: ${error.message}`)
+        log.log(`  ❌ ${job.gameIds.join(',')} fetch failed: ${sanitizedErrorMessage(error, apiKey)}`)
         continue
       }
       if (fetched?.skipped) {
@@ -805,7 +806,7 @@ if (invokedDirectly()) {
   runSnapshotPublishedOdds().then((result) => {
     process.exit(result.exitCode)
   }).catch((error) => {
-    console.error('Fatal:', error)
+    console.error('Fatal:', sanitizedErrorMessage(error, process.env.ODDS_API_KEY))
     console.log(formatSnapshotStatus(SNAPSHOT_STATUS_FAILED))
     console.log(formatSnapshotEvents(0))
     console.log(formatCallsUsed(0))
