@@ -22,7 +22,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Local Odds API credit-budget ledger (laptop only; never commit)
+# Local laptop state (never commit): Odds API budget ledger,
+# .local/clv-capture-calls/YYYY-MM-DD.txt, and .local/logs/close-capture-*.log
 /.local/
 
 # Local env files

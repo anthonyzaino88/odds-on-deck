@@ -491,6 +491,53 @@ npm run capture:published-closes:nfl-all
 npm run capture:published-closes:nfl-all:apply
 ```
 
+### Windows Task Scheduler
+
+The ops laptop runs close capture from Task Scheduler, not a bot routine.
+Set the laptop clock to Eastern Time. Triggers use local time. The
+wrapper still checks the Eastern minute itself and skips 05–15.
+
+Register once from an interactive PowerShell window, as the user who
+will stay logged on. The task is created **disabled**. It stores no
+password (`LogonType Interactive`), so it runs only while that user is
+logged on. A second start is ignored. Re-run with `-Enable` when the
+schedule should fire.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ops/register-close-capture-task.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ops/register-close-capture-task.ps1 -Enable
+```
+
+Task name: `OddsOnDeck Close Capture`. Minutes `:04`, `:16`, `:26`,
+`:36`, `:46`, `:56`. Sunday hours 09–23, Saturday 12–23, Monday–Friday
+18–23.
+
+Each run is `scripts/ops/scheduled-close-capture.ps1`. It `cd`s to the
+repo root, takes an exclusive lock under `.local/clv-capture-calls/`,
+and never retries.
+
+1. Dry-run: `node scripts/capture-published-closes.js --nfl-all --game-lines --dry-run`
+2. If that plan is 0 HTTP calls, exit.
+3. Otherwise apply once: `--apply --max-calls` the minimum of 10 and the calls still left today, `--max-credits 150`.
+
+The per-ET-day usage file is `.local/clv-capture-calls/YYYY-MM-DD.txt`.
+Line 1 is calls used. Optional line 2 is `cap=N`. A missing file means
+0 used and cap 20. If remaining is 0 and the dry run still plans calls,
+the cap increases by 20 and that raise is logged. `CALLS_USED` from the
+apply is added to line 1. If that line is missing, the dry-run plan is
+added instead. A present `CALLS_USED=0` stays 0.
+
+`-DryRunOnly` stops after the dry run. It does not apply, raise the
+cap, or change the usage file.
+
+A one-line summary is appended to
+`.local/logs/close-capture-YYYY-MM-DD.log`: ET time,
+`CLOSE_CAPTURE_STATUS`, `CAPTURED`, game-line proposed/inserted/skipped/failed,
+nonzero `SKIPPED_*`, calls, credits, cap raises, `close_cap` or
+`ledger_unreadable`, and an error count. The wrapper does not print
+environment values or secret material. Both `.local` paths are
+gitignored by `/.local/`.
+
 Same-day doubleheaders are skipped when StatsAPI `doubleHeader` is
 `Y` or `S` (fetch-fresh-games keeps one row / first gamePk). Safe to
 run when there are no MLB games — record prints "No MLB games in the

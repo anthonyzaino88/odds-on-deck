@@ -216,7 +216,11 @@ npm run capture:published-closes:nfl-all:apply
 # Or: node scripts/capture-published-closes.js --nfl-all --dry-run
 #     node scripts/capture-published-closes.js --nfl-all --apply --max-calls 8 --max-credits 24
 # Close capture is idempotent (clvclose: ids; onConflict id uses the TEXT PK).
-# Recommended cron: TZ=America/New_York 0,4,16,26,36,46,56 8-22 * * *
+# Windows ops laptop: Task Scheduler, not a bot routine. See operations/README.md.
+# powershell -File scripts/ops/register-close-capture-task.ps1
+# The task is created disabled. Pass -Enable to turn it on.
+# Triggers (laptop clock set to Eastern): :04,:16,:26,:36,:46,:56
+# Sunday 09-23, Saturday 12-23, other days 18-23. Skips ET minutes 05-15.
 # Empty window costs 0 Odds API credits.
 
 # Export
