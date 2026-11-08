@@ -490,6 +490,27 @@ export function fallbackBlockedMarkerName(day) {
   return name ? `localappdata:${name}` : ''
 }
 
+export function pendingMarkerName(day) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(day || '')) ? `${day}.pending` : ''
+}
+
+export function fallbackPendingMarkerName(day) {
+  const name = pendingMarkerName(day)
+  return name ? `localappdata:${name}` : ''
+}
+
+function markerPresent(markers, names) {
+  return names.some((name) => (
+    name && markers && typeof markers.has === 'function' && markers.has(name)
+  ))
+}
+
+function clearPendingMarkers(markers, day) {
+  if (!markers || typeof markers.delete !== 'function') return
+  markers.delete(pendingMarkerName(day))
+  markers.delete(fallbackPendingMarkerName(day))
+}
+
 /**
  * A missing usage file has no write to verify. A file on disk must
  * round-trip its own calls, cap, ET day, and run id.
@@ -527,7 +548,16 @@ export function blockUsageDay({
   const fallback = fallbackBlockedMarkerName(day)
   if (verified) return { exitCode: 0, blocked: false, marker, fallback: '', reason: '' }
   const note = (message) => {
-    if (typeof log === 'function') log(message)
+    let logged = false
+    try {
+      if (typeof log === 'function') {
+        log(message)
+        logged = true
+      }
+    } catch {
+      logged = false
+    }
+    return logged
   }
   const writePrimary = typeof primaryWrite === 'function'
     ? primaryWrite
@@ -567,6 +597,50 @@ export function blockUsageDay({
 }
 
 /**
+ * Pending stays until the usage file matches this run's id and expected
+ * calls. A self-consistent older file does not clear it. Blocked-marker
+ * failures, including a log that throws, still leave pending in place.
+ */
+export function accountPaidCapture({
+  day,
+  markers,
+  usageText,
+  expectedCalls,
+  cap,
+  runId,
+  primaryWrite,
+  fallbackWrite,
+  log,
+} = {}) {
+  const verified = usageText != null && usageMatchesRequest(usageText, {
+    calls: expectedCalls,
+    cap,
+    day,
+    runId,
+    fileDay: day,
+  }).ok
+  if (verified) {
+    clearPendingMarkers(markers, day)
+    return { exitCode: 0, cleared: true, reason: '' }
+  }
+  const blocked = blockUsageDay({
+    verified: false,
+    day,
+    markers,
+    primaryWrite,
+    fallbackWrite,
+    log,
+  })
+  return {
+    exitCode: 1,
+    cleared: false,
+    reason: 'usage-blocked',
+    blocked: blocked.blocked,
+    fallback: blocked.fallback,
+  }
+}
+
+/**
  * A blocked day does not capture. Either marker location, or a usage
  * file whose latest write does not verify, plans zero calls and exits
  * non-zero with reason usage-blocked.
@@ -582,13 +656,17 @@ export function nextCapturePlan({
   ceiling = DEFAULT_CALL_CEILING,
   capture,
 } = {}) {
-  const primary = blockedMarkerName(day)
-  const fallback = fallbackBlockedMarkerName(day)
-  const marked = [primary, fallback].some((name) => (
-    name && markers && typeof markers.has === 'function' && markers.has(name)
-  ))
+  const pendingOn = markerPresent(markers, [
+    pendingMarkerName(day),
+    fallbackPendingMarkerName(day),
+  ])
+  const blockedOn = markerPresent(markers, [
+    blockedMarkerName(day),
+    fallbackBlockedMarkerName(day),
+  ])
   const usage = usageWriteVerified(usageText, { day, fileDay: day })
-  if (marked || !usage.ok) {
+  const missingAfterPending = pendingOn && usageText == null
+  if (pendingOn || blockedOn || missingAfterPending || !usage.ok) {
     return {
       called: false,
       exitCode: 1,
