@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * CLEANUP TEAM IDs - Standardize format to SPORT_ID
@@ -41,7 +42,7 @@ async function main() {
         .eq('id', oldId)
       
       if (error) {
-        console.error(`  ❌ Error: ${error.message}`)
+        console.error(`  ❌ Error: ${sanitizedErrorMessage(error)}`)
       } else {
         console.log(`  ✅ Fixed`)
         fixed++
@@ -54,6 +55,6 @@ async function main() {
 }
 
 main().catch(error => {
-  console.error('❌ Fatal error:', error)
+  console.error('❌ Fatal error:', sanitizeLoggedValue(error))
   process.exit(1)
 })

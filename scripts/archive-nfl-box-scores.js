@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * NFL BOX-SCORE ARCHIVE (independent of PropValidation)
@@ -68,6 +69,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('Fatal:', err)
+  console.error('Fatal:', sanitizeLoggedValue(err))
   process.exit(1)
 })

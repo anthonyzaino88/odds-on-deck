@@ -1,3 +1,4 @@
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 config({ path: '.env.local' })
@@ -109,4 +110,4 @@ async function run() {
   }
 }
 
-run().catch(e => console.error(e))
+run().catch(e => console.error(sanitizeLoggedValue(e)))

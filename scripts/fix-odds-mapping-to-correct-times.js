@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * Move odds mapping from games with wrong times (7pm/12:00 AM) to games with correct times
@@ -32,7 +33,7 @@ async function fixOddsMapping() {
     .order('date', { ascending: true })
   
   if (error) {
-    console.error('❌ Error:', error)
+    console.error('❌ Error:', sanitizeLoggedValue(error))
     return
   }
   
@@ -127,7 +128,7 @@ async function fixOddsMapping() {
       .eq('id', fix.toGame.id)
     
     if (updateError) {
-      console.error(`  ❌ Error: ${updateError.message}`)
+      console.error(`  ❌ Error: ${sanitizedErrorMessage(updateError)}`)
     } else {
       // Clear odds from old game
       await supabase
@@ -142,5 +143,5 @@ async function fixOddsMapping() {
   console.log(`\n✅ Fixed ${toFix.length} odds mappings!`)
 }
 
-fixOddsMapping().catch(console.error)
+fixOddsMapping().catch((error) => console.error(sanitizeLoggedValue(error)))
 

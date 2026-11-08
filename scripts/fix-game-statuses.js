@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * Fix game statuses in database - remove "status_" prefix
@@ -24,7 +25,7 @@ async function fixStatuses() {
     .like('status', 'status_%')
   
   if (error) {
-    console.error('❌ Error:', error)
+    console.error('❌ Error:', sanitizeLoggedValue(error))
     return
   }
   
@@ -66,7 +67,7 @@ async function fixStatuses() {
       .in('id', gameIds)
     
     if (updateError) {
-      console.error(`  ❌ Error updating ${oldStatus}: ${updateError.message}`)
+      console.error(`  ❌ Error updating ${oldStatus}: ${sanitizedErrorMessage(updateError)}`)
       errors++
     } else {
       console.log(`  ✅ Updated ${gameList.length} games: "${oldStatus}" → "${newStatus}"`)
@@ -82,5 +83,5 @@ async function fixStatuses() {
   console.log(`\n✅ Status fix complete!`)
 }
 
-fixStatuses().catch(console.error)
+fixStatuses().catch((error) => console.error(sanitizeLoggedValue(error)))
 

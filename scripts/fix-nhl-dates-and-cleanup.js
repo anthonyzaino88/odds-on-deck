@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * Fix NHL game dates and remove incorrect games
@@ -67,7 +68,7 @@ async function fixAndCleanup() {
       
       await new Promise(r => setTimeout(r, 200))
     } catch (error) {
-      console.warn(`  ⚠️  Error fetching ${targetDate.toISOString().split('T')[0]}: ${error.message}`)
+      console.warn(`  ⚠️  Error fetching ${targetDate.toISOString().split('T')[0]}: ${sanitizedErrorMessage(error)}`)
     }
   }
   
@@ -82,7 +83,7 @@ async function fixAndCleanup() {
     .order('date', { ascending: true })
   
   if (error) {
-    console.error('❌ Error:', error)
+    console.error('❌ Error:', sanitizeLoggedValue(error))
     return
   }
   
@@ -111,7 +112,7 @@ async function fixAndCleanup() {
         .eq('id', dbGame.id)
       
       if (deleteError) {
-        console.error(`  ❌ Error deleting: ${deleteError.message}`)
+        console.error(`  ❌ Error deleting: ${sanitizedErrorMessage(deleteError)}`)
         errors++
       } else {
         deleted++
@@ -131,7 +132,7 @@ async function fixAndCleanup() {
         .eq('id', dbGame.id)
       
       if (updateError) {
-        console.error(`  ❌ Error: ${updateError.message}`)
+        console.error(`  ❌ Error: ${sanitizedErrorMessage(updateError)}`)
         errors++
       } else {
         updated++
@@ -157,5 +158,5 @@ async function fixAndCleanup() {
   console.log(`\n📊 NHL games for today after cleanup: ${todayGames?.length || 0}`)
 }
 
-fixAndCleanup().catch(console.error)
+fixAndCleanup().catch((error) => console.error(sanitizeLoggedValue(error)))
 

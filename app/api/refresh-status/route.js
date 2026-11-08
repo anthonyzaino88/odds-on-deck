@@ -1,3 +1,4 @@
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../../../lib/sanitize-error.js'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
@@ -73,7 +74,7 @@ export async function getLatestOddsFreshness(client = supabase) {
       quoteUpdatedAtColumnMissing = true
       return getLatestOddsFreshness(client)
     }
-    console.error('getLatestOddsFreshness:', error)
+    console.error('getLatestOddsFreshness:', sanitizeLoggedValue(error))
     return empty
   }
 
@@ -114,9 +115,9 @@ export async function GET() {
       cooldownMinutes: API_CONFIG.REFRESH_COOLDOWN_MINUTES
     })
   } catch (error) {
-    console.error('Error checking refresh status:', error)
+    console.error('Error checking refresh status:', sanitizeLoggedValue(error))
     return NextResponse.json(
-      { error: 'Failed to check refresh status', message: error.message },
+      { error: 'Failed to check refresh status', message: sanitizedErrorMessage(error) },
       { status: 500 }
     )
   }

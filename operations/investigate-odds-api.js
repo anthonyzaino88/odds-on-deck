@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 // Investigate Odds API behavior for same-day games
 import { config } from 'dotenv'
@@ -94,7 +95,7 @@ async function investigateOddsAPI() {
       }
 
     } catch (error) {
-      console.log(`   ❌ Error: ${error.message}`)
+      console.log(`   ❌ Error: ${sanitizedErrorMessage(error)}`)
     }
 
     console.log('')
@@ -123,7 +124,7 @@ async function investigateOddsAPI() {
   console.log('\n💡 Recommendation: Contact The Odds API support about same-day availability')
 }
 
-investigateOddsAPI().catch(console.error)
+investigateOddsAPI().catch((error) => console.error(sanitizeLoggedValue(error)))
 
 
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage } from '../lib/sanitize-error.js'
 /**
  * Morning ESPN injury + NHL starting-goalie snapshot.
  *
@@ -40,7 +41,7 @@ export async function runFetchInjuriesCli({
   try {
     client = createClient(env, { logger: log })
   } catch (error) {
-    (log.warn || log.log)?.(`⚠️ Supabase client unavailable (${error.message}); fetch continues without persist`)
+    (log.warn || log.log)?.(`⚠️ Supabase client unavailable (${sanitizedErrorMessage(error)}); fetch continues without persist`)
   }
   try {
     return await runFetchInjuries({
@@ -50,7 +51,7 @@ export async function runFetchInjuriesCli({
       log,
     })
   } catch (error) {
-    (log.error || log.log)?.(`⚠️ fetch-injuries failed: ${error.message}`)
+    (log.error || log.log)?.(`⚠️ fetch-injuries failed: ${sanitizedErrorMessage(error)}`)
     log.log?.(formatInjuriesStatus('failed'))
     return { exitCode: 0, status: 'failed', errors: [{ message: error.message }] }
   }
@@ -68,7 +69,7 @@ if (invokedDirectly()) {
   runFetchInjuriesCli().then((result) => {
     process.exit(result.exitCode || 0)
   }).catch((error) => {
-    console.error('⚠️ fetch-injuries failed:', error.message)
+    console.error('⚠️ fetch-injuries failed:', sanitizedErrorMessage(error))
     console.log(formatInjuriesStatus('failed'))
     process.exit(0)
   })

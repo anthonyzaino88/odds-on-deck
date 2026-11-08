@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 // Automatically save top quality player props from cache to validation system
 // Run daily before games start to track performance of our best picks
 
@@ -220,7 +221,7 @@ async function saveTopPropsForValidation() {
           .single()
         
         if (saveError) {
-          console.log(`   ❌ Error: ${saveError.message}\n`)
+          console.log(`   ❌ Error: ${sanitizedErrorMessage(saveError)}\n`)
           errors++
         } else {
           console.log(`   ✅ Saved for validation (ID: ${validation.id})\n`)
@@ -228,7 +229,7 @@ async function saveTopPropsForValidation() {
         }
         
       } catch (error) {
-        console.error(`   ❌ Error:`, error.message, '\n')
+        console.error(`   ❌ Error:`, sanitizedErrorMessage(error), '\n')
         errors++
       }
     }
@@ -242,7 +243,7 @@ async function saveTopPropsForValidation() {
     console.log('='.repeat(60) + '\n')
     
   } catch (error) {
-    console.error('❌ Fatal error:', error)
+    console.error('❌ Fatal error:', sanitizeLoggedValue(error))
   }
 }
 

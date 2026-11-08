@@ -1,3 +1,4 @@
+import { sanitizeLoggedValue } from '../../../../lib/sanitize-error.js'
 // NFL Matchup Analysis API
 
 // Force dynamic rendering (required for Vercel deployment)
@@ -39,7 +40,13 @@ export async function GET(request) {
     return NextResponse.json(matchupAnalysis)
     
   } catch (error) {
-    console.error('Error in NFL matchup API:', error)
+    let logged = '[redacted]'
+    try {
+      logged = sanitizeLoggedValue(error)
+    } catch {
+      logged = '[redacted]'
+    }
+    console.error('Error in NFL matchup API:', logged)
     return NextResponse.json(
       { error: 'Failed to analyze matchup' },
       { status: 500 }

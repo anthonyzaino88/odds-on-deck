@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * List pending / needs_review PropValidation rows with game resolution hints.
  * Helps debug why validations are stuck.
@@ -82,7 +83,7 @@ async function main() {
     .limit(limit)
 
   if (error) {
-    console.error('❌ Error fetching validations:', error.message)
+    console.error('❌ Error fetching validations:', sanitizedErrorMessage(error))
     process.exit(1)
   }
 
@@ -111,7 +112,7 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error('❌ Unexpected error:', e)
+  console.error('❌ Unexpected error:', sanitizeLoggedValue(e))
   process.exit(1)
 })
 

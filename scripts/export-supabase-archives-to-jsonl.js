@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * One-time export: copy ArchivedPropLine + GameBoxScore from Supabase to local JSONL.
@@ -40,7 +41,7 @@ async function fetchAllRows(supabase, table, columns = '*') {
       .from(table)
       .select(columns)
       .range(from, from + PAGE_SIZE - 1)
-    if (error) throw new Error(`${table}: ${error.message}`)
+    if (error) throw new Error(`${table}: ${sanitizedErrorMessage(error)}`)
     if (!data || data.length === 0) break
     all.push(...data)
     if (data.length < PAGE_SIZE) break
@@ -132,6 +133,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('❌ Fatal error:', err)
+  console.error('❌ Fatal error:', sanitizeLoggedValue(err))
   process.exit(1)
 })

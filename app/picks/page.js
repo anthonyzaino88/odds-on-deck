@@ -1,6 +1,7 @@
-// Editor's Picks — public shortlist of props we'd actually bet
-
 'use client'
+
+import { sanitizeLoggedValue } from '../../lib/sanitize-error.client.js'
+// Editor's Picks — public shortlist of props we'd actually bet
 
 import Link from 'next/link'
 import { format } from 'date-fns'
@@ -32,13 +33,13 @@ export default function PicksPage() {
         setSidesTotals(data.sidesTotals || null)
         setLastUpdated(new Date())
       } else {
-        console.error('Failed to fetch picks:', data.error)
+        console.error('Failed to fetch picks:', sanitizeLoggedValue(data.error))
         setPicks([])
         setGameLines([])
         setSidesTotals(null)
       }
     } catch (err) {
-      console.error('Error fetching picks:', err)
+      console.error('Error fetching picks:', sanitizeLoggedValue(err))
       setPicks([])
       setGameLines([])
       setSidesTotals(null)

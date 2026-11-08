@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 
+const path = require('path')
+
 const isDev = process.env.NODE_ENV !== 'production'
 
 // Content Security Policy. 'unsafe-inline' is required for Google Analytics,
@@ -35,6 +37,15 @@ const securityHeaders = [
 const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ['@prisma/client'],
+  },
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.resolve.alias[path.join(__dirname, 'lib/sanitize-secrets.cjs')] = path.join(
+        __dirname,
+        'lib/sanitize-secrets.stub.cjs',
+      )
+    }
+    return config
   },
   images: {
     domains: ['img.mlbstatic.com'],

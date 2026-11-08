@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * Fetch odds for all games that are mapped to Odds API but missing odds
@@ -139,7 +140,7 @@ async function fetchOddsForGame(game, sportConfig) {
         }
         
         if (error && !error.code?.includes('23505')) {
-          console.error(`    ❌ Error saving ${bookmaker.title} ${market.key}: ${error.message}`)
+          console.error(`    ❌ Error saving ${bookmaker.title} ${market.key}: ${sanitizedErrorMessage(error)}`)
         } else {
           saved++
         }
@@ -187,7 +188,7 @@ async function fetchOddsForAllGames(sportFilter = null) {
       .not('oddsApiEventId', 'is', null)
     
     if (gamesError) {
-      console.error(`❌ Error fetching ${sport} games:`, gamesError)
+      console.error(`❌ Error fetching ${sport} games:`, sanitizeLoggedValue(gamesError))
       continue
     }
     

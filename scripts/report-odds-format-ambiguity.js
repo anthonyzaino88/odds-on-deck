@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Dry-run: classify stored PropValidation.odds without rewriting.
  *
@@ -28,7 +29,7 @@ async function main() {
       .not('odds', 'is', null)
       .order('id', { ascending: true })
       .range(from, from + pageSize - 1)
-    if (error) throw new Error(`PropValidation odds lookup failed: ${error.message}`)
+    if (error) throw new Error(`PropValidation odds lookup failed: ${sanitizedErrorMessage(error)}`)
     const page = data || []
     rows.push(...page)
     if (page.length < pageSize) break
@@ -80,6 +81,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error('❌ report-odds-format-ambiguity failed:', error)
+  console.error('❌ report-odds-format-ambiguity failed:', sanitizeLoggedValue(error))
   process.exit(1)
 })

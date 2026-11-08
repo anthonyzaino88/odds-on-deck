@@ -1,3 +1,4 @@
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
 import { withPreservedCohortNotes } from '../lib/published-picks.js'
@@ -93,7 +94,7 @@ async function revalidateNHLProps() {
         .eq('id', validation.id)
       
       if (updateError) {
-        console.log(`   ❌ Error updating: ${updateError.message}`)
+        console.log(`   ❌ Error updating: ${sanitizedErrorMessage(updateError)}`)
         errors++
         continue
       }
@@ -103,7 +104,7 @@ async function revalidateNHLProps() {
       updated++
       
     } catch (error) {
-      console.error(`❌ Error processing ${validation.id}:`, error.message)
+      console.error(`❌ Error processing ${validation.id}:`, sanitizedErrorMessage(error))
       errors++
     }
   }
@@ -134,5 +135,5 @@ async function revalidateNHLProps() {
   }
 }
 
-revalidateNHLProps().catch(console.error)
+revalidateNHLProps().catch((error) => console.error(sanitizeLoggedValue(error)))
 

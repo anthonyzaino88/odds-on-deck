@@ -370,7 +370,7 @@ NFL_ALT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
     assertNflAltSecretIsNotPublishable(env)
     supabase = createClient(nflAltSupabaseEnv(env))
   } catch (error) {
-    log.error(`❌ ${error.message}`)
+    log.error(`❌ ${sanitizedErrorMessage(error)}`)
     return done({
       altJobs: [],
       calls: 0,
@@ -398,7 +398,7 @@ NFL_ALT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
 
   const pickPage = await loadPublishedPicks()
   if (pickPage.error) {
-    log.error(`❌ Pick query failed: ${pickPage.error.message}`)
+    log.error(`❌ Pick query failed: ${sanitizedErrorMessage(pickPage.error)}`)
     return done({
       altJobs: [],
       calls: 0,
@@ -421,7 +421,7 @@ NFL_ALT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
     .lte('date', horizon.toISOString())
 
   if (gameError) {
-    log.error(`❌ Game query failed: ${gameError.message}`)
+    log.error(`❌ Game query failed: ${sanitizedErrorMessage(gameError)}`)
     return done({
       altJobs: [],
       calls: 0,
@@ -461,7 +461,7 @@ NFL_ALT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
       .in('gameId', [...gamesById.keys(), '__none__']))
   }
   if (cachePage.error) {
-    log.log(`⚠️ PlayerPropCache read failed (${cachePage.error.message}); planning without freshness skips.`)
+    log.log(`⚠️ PlayerPropCache read failed (${sanitizedErrorMessage(cachePage.error)}); planning without freshness skips.`)
   } else {
     cacheRows = cachePage.rows || []
   }
@@ -785,7 +785,7 @@ NFL_ALT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
         }
         if (write?.error) {
           writeErrors += 1
-          log.error(`❌ PlayerPropCache altQuotes update failed: ${write.error.message}`)
+          log.error(`❌ PlayerPropCache altQuotes update failed: ${sanitizedErrorMessage(write.error)}`)
         } else {
           wrote += 1
         }

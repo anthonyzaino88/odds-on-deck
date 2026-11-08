@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * Safe Score Update Script
@@ -66,7 +67,7 @@ async function updateScoresForSport(sport) {
     .order('date', { ascending: true })
   
   if (error) {
-    console.error(`❌ Error fetching ${sport} games:`, error.message)
+    console.error(`❌ Error fetching ${sport} games:`, sanitizedErrorMessage(error))
     return { updated: 0, errors: 1 }
   }
   
@@ -149,7 +150,7 @@ async function updateScoresForSport(sport) {
         .eq('id', targetGameId)
       
       if (updateError) {
-        console.error(`  ❌ Update error: ${updateError.message}`)
+        console.error(`  ❌ Update error: ${sanitizedErrorMessage(updateError)}`)
         errors++
       } else {
         const scoreDisplay = `${updateData.awayScore ?? 0}-${updateData.homeScore ?? 0}`
@@ -162,7 +163,7 @@ async function updateScoresForSport(sport) {
       await new Promise(resolve => setTimeout(resolve, 300))
       
     } catch (error) {
-      console.error(`  ❌ Error updating ${game.away.abbr} @ ${game.home.abbr}:`, error.message)
+      console.error(`  ❌ Error updating ${game.away.abbr} @ ${game.home.abbr}:`, sanitizedErrorMessage(error))
       errors++
     }
   }
@@ -219,5 +220,5 @@ async function main() {
   console.log(`${'='.repeat(60)}\n`)
 }
 
-main().catch(console.error)
+main().catch((error) => console.error(sanitizeLoggedValue(error)))
 

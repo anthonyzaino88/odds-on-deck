@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Idempotent cleanup of duplicate Featured snapshot rows.
  *
@@ -47,7 +48,7 @@ createdAt per snapshot key. Unique slots are not touched.`)
     .ilike('notes', `%${FEATURED_COHORT_TAG}%`)
     .order('createdAt', { ascending: true })
 
-  if (error) throw new Error(`Featured duplicate lookup failed: ${error.message}`)
+  if (error) throw new Error(`Featured duplicate lookup failed: ${sanitizedErrorMessage(error)}`)
 
   const plan = planFeaturedDuplicateCleanup(data || [])
   console.log(`📌 Featured snapshot slots with a winner: ${plan.keep.length}`)
@@ -69,18 +70,18 @@ createdAt per snapshot key. Unique slots are not touched.`)
       .from('ParlayLeg')
       .delete()
       .eq('parlayId', extra.row.id)
-    if (legError) throw new Error(`Failed to delete legs for ${extra.row.id}: ${legError.message}`)
+    if (legError) throw new Error(`Failed to delete legs for ${extra.row.id}: ${sanitizedErrorMessage(legError)}`)
     const { error: parlayError } = await supabaseAdmin
       .from('Parlay')
       .delete()
       .eq('id', extra.row.id)
-    if (parlayError) throw new Error(`Failed to delete parlay ${extra.row.id}: ${parlayError.message}`)
+    if (parlayError) throw new Error(`Failed to delete parlay ${extra.row.id}: ${sanitizedErrorMessage(parlayError)}`)
     deleted += 1
   }
   console.log(`✅ Retracted ${deleted} duplicate Featured rows`)
 }
 
 main().catch((error) => {
-  console.error('❌ cleanup-duplicate-featured-parlays failed:', error)
+  console.error('❌ cleanup-duplicate-featured-parlays failed:', sanitizeLoggedValue(error))
   process.exit(1)
 })

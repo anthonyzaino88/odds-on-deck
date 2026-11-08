@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * List (default) or clear NFL closes where closeLine moved off the pick
  * threshold. Backs up matching rows to JSONL before any write.
@@ -111,7 +112,7 @@ Anon/public keys are refused. Never prints secrets.`)
     try {
       assertClearBadNflClosesApplyAllowed(env)
     } catch (error) {
-      log.error(`❌ ${error.message}`)
+      log.error(`❌ ${sanitizedErrorMessage(error)}`)
       return { exitCode: 1, rows: [], applied: 0, refusedProd: true }
     }
     if (isOpsWriteQuietPeriod(now)) {
@@ -125,7 +126,7 @@ Anon/public keys are refused. Never prints secrets.`)
     assertClearSecretIsNotPublishable(env)
     supabase = createClient(clearSupabaseEnv(env))
   } catch (error) {
-    log.error(`❌ ${error.message}`)
+    log.error(`❌ ${sanitizedErrorMessage(error)}`)
     return { exitCode: 1, rows: [], applied: 0, missingSecret: true }
   }
 
@@ -139,7 +140,7 @@ Anon/public keys are refused. Never prints secrets.`)
     .lt('date', dayEnd.toISOString())
 
   if (gameError) {
-    log.error(`❌ Game query failed: ${gameError.message}`)
+    log.error(`❌ Game query failed: ${sanitizedErrorMessage(gameError)}`)
     return { exitCode: 1, rows: [], applied: 0 }
   }
 
@@ -159,7 +160,7 @@ Anon/public keys are refused. Never prints secrets.`)
     .order('id', { ascending: true }))
 
   if (pickPage.error) {
-    log.error(`❌ Pick query failed: ${pickPage.error.message}`)
+    log.error(`❌ Pick query failed: ${sanitizedErrorMessage(pickPage.error)}`)
     return { exitCode: 1, rows: [], applied: 0 }
   }
 
@@ -216,7 +217,7 @@ Anon/public keys are refused. Never prints secrets.`)
     )
     if (write?.error) {
       applyErrors += 1
-      log.error(`❌ Write failed for ${row.id}: ${write.error.message}`)
+      log.error(`❌ Write failed for ${row.id}: ${sanitizedErrorMessage(write.error)}`)
       continue
     }
     if (closeUpdateRowCount(write) === 0) {
@@ -251,7 +252,7 @@ if (invokedDirectly()) {
   runClearBadNflCloses().then((result) => {
     process.exit(result.exitCode)
   }).catch((error) => {
-    console.error('Fatal:', error)
+    console.error('Fatal:', sanitizeLoggedValue(error))
     process.exit(1)
   })
 }

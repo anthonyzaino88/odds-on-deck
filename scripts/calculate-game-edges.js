@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 // Calculate betting edges for today's games and store in EdgeSnapshot table
 
 import { config } from 'dotenv'
@@ -53,7 +54,7 @@ async function calculateEdgesForToday() {
       .order('date')
     
     if (gamesError) {
-      console.error('❌ Error fetching games:', gamesError)
+      console.error('❌ Error fetching games:', sanitizeLoggedValue(gamesError))
       return
     }
     
@@ -102,7 +103,7 @@ async function calculateEdgesForToday() {
           .limit(10)
         
         if (oddsError) {
-          console.error(`  ❌ Error fetching odds:`, oddsError)
+          console.error(`  ❌ Error fetching odds:`, sanitizeLoggedValue(oddsError))
           errors++
           continue
         }
@@ -172,7 +173,7 @@ async function calculateEdgesForToday() {
           .insert(edgeSnapshot)
         
         if (insertError) {
-          console.error(`  ❌ Error saving edges:`, insertError)
+          console.error(`  ❌ Error saving edges:`, sanitizeLoggedValue(insertError))
           errors++
           continue
         }
@@ -207,7 +208,7 @@ async function calculateEdgesForToday() {
         processed++
         
       } catch (error) {
-        console.error(`  ❌ Error processing game:`, error.message)
+        console.error(`  ❌ Error processing game:`, sanitizedErrorMessage(error))
         errors++
       }
     }
@@ -218,7 +219,7 @@ async function calculateEdgesForToday() {
     console.log(`\n✅ Edge calculation complete!\n`)
     
   } catch (error) {
-    console.error('❌ Fatal error:', error)
+    console.error('❌ Fatal error:', sanitizeLoggedValue(error))
   }
 }
 

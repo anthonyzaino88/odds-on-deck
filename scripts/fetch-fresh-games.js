@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * FETCH FRESH GAMES FROM ESPN API
@@ -126,7 +127,7 @@ async function fetchScoreboardJson(url) {
 
   if (!response.ok) {
     const text = await response.text()
-    throw new Error(`ESPN API error: ${response.status} - ${text}`)
+    throw new Error(`ESPN API error: ${response.status} - ${sanitizedErrorMessage(text)}`)
   }
 
   return response.json()
@@ -153,7 +154,7 @@ async function fetchGamesFromESPN(sport, date) {
         targetDate.setDate(today.getDate() + i)
         const result = await fetchScoreboardForDate(sportInfo, targetDate, coverageByDate)
         if (!result.ok) {
-          console.warn(`  ⚠️  Error fetching ${targetDate.toLocaleDateString()}: ${result.error.message}`)
+          console.warn(`  ⚠️  Error fetching ${targetDate.toLocaleDateString()}: ${sanitizedErrorMessage(result.error)}`)
         } else if (result.state === 'ok') {
           const eventsWithDate = result.events.map(event => ({
             ...event,
@@ -203,7 +204,7 @@ async function fetchGamesFromESPN(sport, date) {
           const dateKey = targetDate.toISOString().slice(0, 10)
           const result = await fetchScoreboardForDate(sportInfo, targetDate, coverageByDate)
           if (!result.ok) {
-            console.warn(`  ⚠️  Error fetching ${dateKey}: ${result.error.message}`)
+            console.warn(`  ⚠️  Error fetching ${dateKey}: ${sanitizedErrorMessage(result.error)}`)
           } else if (result.state === 'ok') {
             eventsForWeek.push(...result.events)
             console.log(`  📅 ${dateKey}: ${result.events.length} games`)
@@ -233,7 +234,7 @@ async function fetchGamesFromESPN(sport, date) {
         targetDate.setDate(today.getDate() + i)
         const result = await fetchScoreboardForDate(sportInfo, targetDate, coverageByDate)
         if (!result.ok) {
-          console.warn(`  ⚠️  Error fetching ${targetDate.toLocaleDateString()}: ${result.error.message}`)
+          console.warn(`  ⚠️  Error fetching ${targetDate.toLocaleDateString()}: ${sanitizedErrorMessage(result.error)}`)
         } else if (result.state === 'ok') {
           allEvents = [...allEvents, ...result.events]
           console.log(`  📅 ${targetDate.toLocaleDateString()}: ${result.events.length} games`)
@@ -420,7 +421,7 @@ async function fetchGamesFromESPN(sport, date) {
       coverageByDate,
     })
   } catch (error) {
-    console.error(`❌ Error fetching ${sport}:`, error.message)
+    console.error(`❌ Error fetching ${sport}:`, sanitizedErrorMessage(error))
     return attachFetchMeta([], {
       fetchState: 'unavailable',
       coverageByDate: markCoverageUnavailable(coverageByDate),
@@ -469,7 +470,7 @@ async function ensureTeamsExist(sport, games) {
   if (teamsToCreate.length > 0) {
     console.log(`  👥 Creating ${teamsToCreate.length} new ${sport.toUpperCase()} teams...`)
     const { error } = await supabase.from('Team').upsert(teamsToCreate, { onConflict: 'id' })
-    if (error) console.error(`  ❌ Error creating teams: ${error.message}`)
+    if (error) console.error(`  ❌ Error creating teams: ${sanitizedErrorMessage(error)}`)
   }
 
   for (const game of games) {
@@ -495,7 +496,7 @@ async function logPossibleFlipRows(sport, games) {
     .gte('date', `${start}T00:00:00.000Z`)
     .lte('date', `${end}T23:59:59.999Z`)
   if (error) {
-    console.warn(`  ⚠️  possible_flip lookup failed: ${error.message}`)
+    console.warn(`  ⚠️  possible_flip lookup failed: ${sanitizedErrorMessage(error)}`)
     return
   }
   const byReverse = new Map()
@@ -786,7 +787,7 @@ async function saveToSupabase(sport, games, { logPossibleFlips = false } = {}) {
           .eq('gameId', move.fromGameId)
         
         if (oddsUpdateError) {
-          console.warn(`    ⚠️  Error moving odds records: ${oddsUpdateError.message}`)
+          console.warn(`    ⚠️  Error moving odds records: ${sanitizedErrorMessage(oddsUpdateError)}`)
         }
         
         // Update new game with oddsApiEventId
@@ -813,7 +814,7 @@ async function saveToSupabase(sport, games, { logPossibleFlips = false } = {}) {
         .in('id', gamesToDelete)
       
       if (deleteError) {
-        console.warn(`  ⚠️  Error deleting old duplicates: ${deleteError.message}`)
+        console.warn(`  ⚠️  Error deleting old duplicates: ${sanitizedErrorMessage(deleteError)}`)
       } else {
         console.log(`  🗑️  Deleted ${gamesToDelete.length} old duplicate games`)
       }
@@ -823,7 +824,7 @@ async function saveToSupabase(sport, games, { logPossibleFlips = false } = {}) {
     console.log(`✅ Saved ${saved} games (upserted - updates existing, creates new)`)
     return saved
   } catch (error) {
-    console.error(`❌ Error saving ${sport}:`, error.message)
+    console.error(`❌ Error saving ${sport}:`, sanitizedErrorMessage(error))
     return 0
   }
 }
@@ -887,7 +888,7 @@ async function populateMLBGameIds(games) {
 
       await new Promise(r => setTimeout(r, 300))
     } catch (err) {
-      console.warn(`  ❌ Error fetching MLB schedule for ${dateStr}:`, err.message)
+      console.warn(`  ❌ Error fetching MLB schedule for ${dateStr}:`, sanitizedErrorMessage(err))
     }
   }
 
@@ -915,7 +916,7 @@ function parseFetchFreshArgs(argv = []) {
     else if (arg === '--max-pct') {
       const raw = argv[i + 1]
       const parsedPct = parseMaxPctValue(raw)
-      if (parsedPct.error) throw new Error(parsedPct.error)
+      if (parsedPct.error) throw new Error(sanitizedErrorMessage(parsedPct.error))
       maxPct = parsedPct.value
       i += 1
     }
@@ -1046,6 +1047,6 @@ async function sweepStaleAfterFetch(parsed) {
 }
 
 main().catch(error => {
-  console.error('❌ Fatal error:', error)
+  console.error('❌ Fatal error:', sanitizeLoggedValue(error))
   process.exit(1)
 })

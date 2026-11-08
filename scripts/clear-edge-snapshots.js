@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 // Clear all edge snapshots to recalculate with honest models
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
@@ -16,7 +17,7 @@ const { error } = await supabase
   .neq('id', 'none') // Delete all records
 
 if (error) {
-  console.error('❌ Error:', error)
+  console.error('❌ Error:', sanitizeLoggedValue(error))
 } else {
   console.log('✅ All EdgeSnapshot records cleared\n')
 }

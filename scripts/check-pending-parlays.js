@@ -1,3 +1,4 @@
+const { sanitizeLoggedValue } = require('../lib/sanitize-error.server.cjs')
 const { PrismaClient } = require('@prisma/client')
 const prisma = new PrismaClient()
 
@@ -28,5 +29,5 @@ async function checkPendingParlays() {
   await prisma.$disconnect()
 }
 
-checkPendingParlays().catch(console.error)
+checkPendingParlays().catch((error) => console.error(sanitizeLoggedValue(error)))
 

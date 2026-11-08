@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Read-only: stored final Game scores vs ESPN (NFL/NHL/MLB) or
  * MLB StatsAPI schedule+linescore.
@@ -78,7 +79,7 @@ async function loadFinalGames(supabase, { sports, days, gameId, limit }) {
     if (gameId) query = query.eq('id', gameId)
 
     const { data, error } = await query
-    if (error) throw new Error(`Game lookup failed (${sport}): ${error.message}`)
+    if (error) throw new Error(`Game lookup failed (${sport}): ${sanitizedErrorMessage(error)}`)
     rows.push(...(data || []).map(storedRow))
   }
   return rows
@@ -149,7 +150,7 @@ if (isDirect) {
       if (result?.exitCode) process.exit(result.exitCode)
     })
     .catch((error) => {
-      console.error('❌ report-final-score-mismatch failed:', error)
+      console.error('❌ report-final-score-mismatch failed:', sanitizeLoggedValue(error))
       process.exit(1)
     })
 }

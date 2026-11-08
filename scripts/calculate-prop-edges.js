@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * CALCULATE PROP EDGES - HONEST VERSION
@@ -80,7 +81,7 @@ async function main() {
     .eq('isStale', false)
   
   if (error) {
-    console.error('❌ Error fetching props:', error)
+    console.error('❌ Error fetching props:', sanitizeLoggedValue(error))
     return
   }
   
@@ -142,7 +143,7 @@ async function main() {
       }
       
     } catch (err) {
-      console.error(`❌ Error processing prop ${prop.id}:`, err.message)
+      console.error(`❌ Error processing prop ${prop.id}:`, sanitizedErrorMessage(err))
       failed++
     }
   }
@@ -177,6 +178,6 @@ async function main() {
 }
 
 main().catch(error => {
-  console.error('❌ Fatal error:', error)
+  console.error('❌ Fatal error:', sanitizeLoggedValue(error))
   process.exit(1)
 })

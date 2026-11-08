@@ -1,3 +1,4 @@
+const { sanitizedErrorMessage, sanitizeLoggedValue } = require('../lib/sanitize-error.server.cjs')
 // Setup script for automatic data refresh
 // This can be run as a cron job or scheduled task
 
@@ -23,7 +24,7 @@ function makeRequest(url) {
           const result = JSON.parse(data)
           resolve(result)
         } catch (error) {
-          reject(new Error(`Failed to parse response: ${error.message}`))
+          reject(new Error(`Failed to parse response: ${sanitizedErrorMessage(error)}`))
         }
       })
     })
@@ -54,10 +55,10 @@ async function performRefresh() {
       console.log(`   Live Scores: ${result.stats.liveScoresUpdated}`)
       console.log(`   NFL Games: ${result.stats.nflGamesUpdated}`)
     } else {
-      console.error(`[${new Date().toISOString()}] ❌ Refresh failed:`, result.error)
+      console.error(`[${new Date().toISOString()}] ❌ Refresh failed:`, sanitizeLoggedValue(result.error))
     }
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] ❌ Refresh error:`, error.message)
+    console.error(`[${new Date().toISOString()}] ❌ Refresh error:`, sanitizedErrorMessage(error))
   }
 }
 

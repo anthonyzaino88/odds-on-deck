@@ -1,3 +1,4 @@
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../../../lib/sanitize-error.js'
 // Force dynamic rendering (required for Vercel deployment)
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -59,8 +60,8 @@ export async function GET(request) {
     
     return NextResponse.json({ success: true, data })
   } catch (error) {
-    console.error('Error in validation API:', error)
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+    console.error('Error in validation API:', sanitizeLoggedValue(error))
+    return NextResponse.json({ success: false, error: sanitizedErrorMessage(error) }, { status: 500 })
   }
 }
 

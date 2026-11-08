@@ -1,5 +1,6 @@
 'use client'
 
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../../lib/sanitize-error.client.js'
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import { format } from 'date-fns'
@@ -50,8 +51,8 @@ export default function GamesPage() {
           setError(result.error || 'Failed to load games')
         }
       } catch (err) {
-        console.error('❌ Error fetching games:', err)
-        setError(err.message)
+        console.error('❌ Error fetching games:', sanitizeLoggedValue(err))
+        setError(sanitizedErrorMessage(err))
       } finally {
         setLoading(false)
       }

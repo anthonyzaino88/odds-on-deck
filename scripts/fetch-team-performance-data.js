@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 // Daily ESPN team-performance refresh. Safe to run before calculate-game-edges.
 // Uses the secret-key script client. Per-sport API failures do not abort others.
 // Never overwrites stored Team stats with 0 or null from a failed/empty fetch.
@@ -95,7 +96,7 @@ if (invokedDirectly()) {
       process.exit(summary?.exitCode ?? 0)
     })
     .catch((error) => {
-      console.error('❌ Fatal error:', error)
+      console.error('❌ Fatal error:', sanitizeLoggedValue(error))
       process.exit(1)
     })
 }

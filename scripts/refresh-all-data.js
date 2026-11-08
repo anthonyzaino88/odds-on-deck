@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * Master script to refresh all game data daily
@@ -34,7 +35,7 @@ async function cleanupOldDuplicates(sport) {
       .order('espnGameId', { ascending: true })
     
     if (error) {
-      console.warn(`  ⚠️  Could not query games: ${error.message}`)
+      console.warn(`  ⚠️  Could not query games: ${sanitizedErrorMessage(error)}`)
       return
     }
     
@@ -110,13 +111,13 @@ async function cleanupOldDuplicates(sport) {
         .in('id', gamesToDelete)
       
       if (deleteError) {
-        console.warn(`  ⚠️  Error deleting duplicates: ${deleteError.message}`)
+        console.warn(`  ⚠️  Error deleting duplicates: ${sanitizedErrorMessage(deleteError)}`)
       } else {
         console.log(`  ✅ Deleted ${gamesToDelete.length} duplicate games`)
       }
     }
   } catch (error) {
-    console.error(`  ❌ Error cleaning duplicates: ${error.message}`)
+    console.error(`  ❌ Error cleaning duplicates: ${sanitizedErrorMessage(error)}`)
   }
 }
 
@@ -134,14 +135,14 @@ async function runScript(scriptPath, args = []) {
       console.log(stdout)
     }
     if (stderr) {
-      console.error(stderr)
+      console.error(sanitizeLoggedValue(stderr))
     }
     
     return { success: true }
   } catch (error) {
-    console.error(`  ❌ Error running script: ${error.message}`)
+    console.error(`  ❌ Error running script: ${sanitizedErrorMessage(error)}`)
     if (error.stdout) console.log(error.stdout)
-    if (error.stderr) console.error(error.stderr)
+    if (error.stderr) console.error(sanitizeLoggedValue(error.stderr))
     return { success: false, error }
   }
 }
@@ -225,5 +226,5 @@ async function main() {
   console.log(`${'='.repeat(60)}\n`)
 }
 
-main().catch(console.error)
+main().catch((error) => console.error(sanitizeLoggedValue(error)))
 

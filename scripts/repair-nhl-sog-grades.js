@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Preview (default) or apply NHL shots-on-goal grade repairs.
  *
@@ -59,7 +60,7 @@ export async function runRepairNhlSogGrades({
     .eq('status', 'completed')
     .order('id', { ascending: true }))
   if (error) {
-    log.error(`❌ Query error: ${error.message}`)
+    log.error(`❌ Query error: ${sanitizedErrorMessage(error)}`)
     return { exitCode: 1, previews: [], summary: summarizeRepairRows([]) }
   }
 
@@ -113,7 +114,7 @@ export async function runRepairNhlSogGrades({
         .in('gameIdRef', chunk)
         .order('id', { ascending: true }))
       if (page.error) {
-        log.error(`⚠️ ParlayLeg lookup failed: ${page.error.message}`)
+        log.error(`⚠️ ParlayLeg lookup failed: ${sanitizedErrorMessage(page.error)}`)
         break
       }
       legs.push(...page.rows)
@@ -177,7 +178,7 @@ export async function runRepairNhlSogGrades({
     )
     if (write?.error) {
       applyErrors += 1
-      log.error(`❌ Write failed for ${preview.id}: ${write.error.message}`)
+      log.error(`❌ Write failed for ${preview.id}: ${sanitizedErrorMessage(write.error)}`)
       continue
     }
     applied += 1
@@ -207,7 +208,7 @@ if (invokedDirectly()) {
   runRepairNhlSogGrades().then((result) => {
     process.exit(result.exitCode)
   }).catch((error) => {
-    console.error('Fatal:', error)
+    console.error('Fatal:', sanitizeLoggedValue(error))
     process.exit(1)
   })
 }

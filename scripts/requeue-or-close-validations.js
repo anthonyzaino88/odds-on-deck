@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Requeue or close stuck PropValidation rows.
  *
@@ -94,7 +95,7 @@ async function main() {
   try {
     source = requireRequeueSource(args.source)
   } catch (err) {
-    console.error(`❌ ${err.message}`)
+    console.error(`❌ ${sanitizedErrorMessage(err)}`)
     process.exit(1)
   }
 
@@ -112,7 +113,7 @@ async function main() {
   )
 
   if (error) {
-    console.error('❌ Error fetching validations:', error.message)
+    console.error('❌ Error fetching validations:', sanitizedErrorMessage(error))
     process.exit(1)
   }
 
@@ -162,7 +163,7 @@ async function main() {
         .update(payload)
         .eq('id', v.id)
       if (updErr) {
-        console.error(`❌ Update failed for ${v.id}:`, updErr.message)
+        console.error(`❌ Update failed for ${v.id}:`, sanitizedErrorMessage(updErr))
         errors++
         continue
       }
@@ -186,7 +187,7 @@ async function main() {
         .update(payload)
         .eq('id', v.id)
       if (updErr) {
-        console.error(`❌ Update failed for ${v.id}:`, updErr.message)
+        console.error(`❌ Update failed for ${v.id}:`, sanitizedErrorMessage(updErr))
         errors++
         continue
       }
@@ -214,7 +215,7 @@ async function main() {
         .update(payload)
         .eq('id', v.id)
       if (updErr) {
-        console.error(`❌ Update failed for ${v.id}:`, updErr.message)
+        console.error(`❌ Update failed for ${v.id}:`, sanitizedErrorMessage(updErr))
         errors++
         continue
       }
@@ -238,6 +239,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error('❌ Unexpected error:', e)
+  console.error('❌ Unexpected error:', sanitizeLoggedValue(e))
   process.exit(1)
 })

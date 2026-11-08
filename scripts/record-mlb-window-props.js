@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Record MLB Published props (and Featured, if a 3-leg card clears)
  * only inside the 90-minute pre-first-pitch window, after the player
@@ -103,7 +104,7 @@ Schedule at :16 and :46 ET, hours ${MLB_RECORD_HOUR_START}–${MLB_RECORD_HOUR_E
     .gte('date', now.toISOString())
 
   if (gameError) {
-    log.error(`❌ Game query failed: ${gameError.message}`)
+    log.error(`❌ Game query failed: ${sanitizedErrorMessage(gameError)}`)
     return { exitCode: 1, saved: [], featured: [], skippedQuiet: false }
   }
 
@@ -198,7 +199,7 @@ Schedule at :16 and :46 ET, hours ${MLB_RECORD_HOUR_START}–${MLB_RECORD_HOUR_E
     .gte('qualityScore', 40)
 
   if (cacheError) {
-    log.error(`❌ Cache query failed: ${cacheError.message}`)
+    log.error(`❌ Cache query failed: ${sanitizedErrorMessage(cacheError)}`)
     return { exitCode: 1, saved: [], featured: [], skippedQuiet: false, windowGames }
   }
 
@@ -260,7 +261,7 @@ if (invokedDirectly()) {
   runRecordMlbWindowProps().then((result) => {
     process.exit(result.exitCode)
   }).catch((error) => {
-    console.error('❌ record-mlb-window-props failed:', error)
+    console.error('❌ record-mlb-window-props failed:', sanitizeLoggedValue(error))
     process.exit(1)
   })
 }

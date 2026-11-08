@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * Clear and remap all odds event IDs
@@ -29,7 +30,7 @@ async function clearAndRemap(sport) {
     .not('oddsApiEventId', 'is', null)
   
   if (clearError) {
-    console.error(`❌ Error clearing mappings: ${clearError.message}`)
+    console.error(`❌ Error clearing mappings: ${sanitizedErrorMessage(clearError)}`)
     return
   }
   
@@ -56,5 +57,5 @@ async function main() {
   console.log(`   node scripts/fetch-live-odds.js ${sport}`)
 }
 
-main().catch(console.error)
+main().catch((error) => console.error(sanitizeLoggedValue(error)))
 

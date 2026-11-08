@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * Fix NHL game dates by re-fetching from ESPN and updating dates
@@ -23,7 +24,7 @@ async function fixDates() {
     .order('date', { ascending: true })
   
   if (error) {
-    console.error('❌ Error:', error)
+    console.error('❌ Error:', sanitizeLoggedValue(error))
     return
   }
   
@@ -71,7 +72,7 @@ async function fixDates() {
       
       await new Promise(r => setTimeout(r, 200))
     } catch (error) {
-      console.warn(`  ⚠️  Error fetching ${targetDate.toLocaleDateString()}: ${error.message}`)
+      console.warn(`  ⚠️  Error fetching ${targetDate.toLocaleDateString()}: ${sanitizedErrorMessage(error)}`)
     }
   }
   
@@ -97,7 +98,7 @@ async function fixDates() {
         .eq('id', game.id)
       
       if (updateError) {
-        console.error(`  ❌ Error: ${updateError.message}`)
+        console.error(`  ❌ Error: ${sanitizedErrorMessage(updateError)}`)
         errors++
       } else {
         updated++
@@ -111,5 +112,5 @@ async function fixDates() {
   }
 }
 
-fixDates().catch(console.error)
+fixDates().catch((error) => console.error(sanitizeLoggedValue(error)))
 

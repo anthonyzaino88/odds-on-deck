@@ -1,3 +1,4 @@
+import { sanitizeLoggedValue } from '../../../../lib/sanitize-error.js'
 // NFL Roster Management API
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -48,7 +49,7 @@ export async function GET(request) {
     }
     
   } catch (error) {
-    console.error('Error in NFL roster API:', error)
+    console.error('Error in NFL roster API:', sanitizeLoggedValue(error))
     return NextResponse.json(
       { error: 'Failed to process roster request' },
       { status: 500 }
@@ -77,7 +78,7 @@ export async function POST(request) {
     }
     
   } catch (error) {
-    console.error('Error updating NFL rosters:', error)
+    console.error('Error updating NFL rosters:', sanitizeLoggedValue(error))
     return serverError()
   }
 }

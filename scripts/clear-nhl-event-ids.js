@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * CLEAR NHL EVENT IDS
@@ -36,7 +37,7 @@ async function main() {
     .not('oddsApiEventId', 'is', null)
   
   if (error) {
-    console.error('❌ Error querying games:', error)
+    console.error('❌ Error querying games:', sanitizeLoggedValue(error))
     process.exit(1)
   }
   
@@ -89,7 +90,7 @@ async function main() {
       .select()
     
     if (updateError) {
-      console.error('❌ Error updating games:', updateError)
+      console.error('❌ Error updating games:', sanitizeLoggedValue(updateError))
       process.exit(1)
     }
     
@@ -117,7 +118,7 @@ async function main() {
 }
 
 main().catch(error => {
-  console.error('❌ Fatal error:', error)
+  console.error('❌ Fatal error:', sanitizeLoggedValue(error))
   process.exit(1)
 })
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Backfill null/empty NFL Game.season from kickoff date (Jan–Feb → prior
  * year). Dry-run by default. --apply writes a JSON backup to
@@ -50,7 +51,7 @@ if (invokedDirectly()) {
   main().then((result) => {
     process.exit(result.exitCode ?? 0)
   }).catch((error) => {
-    console.error('❌ backfill-nfl-game-season failed:', error)
+    console.error('❌ backfill-nfl-game-season failed:', sanitizeLoggedValue(error))
     process.exit(1)
   })
 }

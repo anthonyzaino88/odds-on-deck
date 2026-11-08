@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Record Published-eligible MLB + NFL + NHL player props into
  * PropValidation (notes=cohort:published). Historical NHL rows tagged
@@ -57,7 +58,7 @@ if (invokedDirectly()) {
   runRecordPublishedProps().then((result) => {
     if (result.exitCode) process.exit(result.exitCode)
   }).catch((error) => {
-    console.error('❌ record-published-props failed:', error)
+    console.error('❌ record-published-props failed:', sanitizeLoggedValue(error))
     process.exit(1)
   })
 }

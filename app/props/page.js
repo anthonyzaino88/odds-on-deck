@@ -1,6 +1,7 @@
-// Player Props Page - Display player prop betting opportunities
-
 'use client'
+
+import { sanitizeLoggedValue } from '../../lib/sanitize-error.client.js'
+// Player Props Page - Display player prop betting opportunities
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
@@ -47,7 +48,7 @@ export default function PropsPage() {
         setError(data.error || 'Failed to load props')
       }
     } catch (err) {
-      console.error('Error fetching props:', err)
+      console.error('Error fetching props:', sanitizeLoggedValue(err))
       setError('Failed to load player props. Please try again later.')
     } finally {
       setLoading(false)

@@ -1,3 +1,4 @@
+const { sanitizedErrorMessage } = require('../../lib/sanitize-error.server.cjs')
 // Verify data freshness after refresh
 
 const { PrismaClient } = require('@prisma/client');
@@ -26,7 +27,7 @@ async function verifyDataFreshness() {
     });
     
   } catch (error) {
-    console.error('Error:', error.message);
+    console.error('Error:', sanitizedErrorMessage(error));
   } finally {
     await prisma.$disconnect();
   }

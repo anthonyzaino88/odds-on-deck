@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage } from '../lib/sanitize-error.js'
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
@@ -76,7 +77,7 @@ async function fetchWeek12Games() {
           })
 
         if (error) {
-          console.log(`❌ Error storing ${game.id}:`, error.message)
+          console.log(`❌ Error storing ${game.id}:`, sanitizedErrorMessage(error))
         } else {
           const dateStr = new Date(game.date).toLocaleDateString()
           console.log(`✅ Stored: ${awayAbbr} @ ${homeAbbr} - ${dateStr}`)
@@ -84,7 +85,7 @@ async function fetchWeek12Games() {
         }
 
       } catch (error) {
-        console.log(`❌ Error processing ${game.id}:`, error.message)
+        console.log(`❌ Error processing ${game.id}:`, sanitizedErrorMessage(error))
         skipped++
       }
     }
@@ -100,7 +101,7 @@ async function fetchWeek12Games() {
     }
 
   } catch (error) {
-    console.error('❌ Error fetching Week 12 games:', error.message)
+    console.error('❌ Error fetching Week 12 games:', sanitizedErrorMessage(error))
   }
 }
 

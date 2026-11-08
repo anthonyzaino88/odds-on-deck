@@ -1,3 +1,4 @@
+import { sanitizeLoggedValue } from '../../../../lib/sanitize-error.js'
 // API endpoint to manually update prop results after games complete
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -52,7 +53,7 @@ export async function POST(request) {
     })
     
   } catch (error) {
-    console.error('Error updating prop result:', error)
+    console.error('Error updating prop result:', sanitizeLoggedValue(error))
     return serverError()
   }
 }
@@ -98,7 +99,7 @@ export async function GET(request) {
     })
     
   } catch (error) {
-    console.error('Error fetching pending props:', error)
+    console.error('Error fetching pending props:', sanitizeLoggedValue(error))
     return serverError()
   }
 }

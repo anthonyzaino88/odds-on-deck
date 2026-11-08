@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Read-only private NHL shadow-published record.
  *
@@ -71,7 +72,7 @@ export async function runReportShadowNhl({
     page = await load(PUBLISHED_STATS_SELECT)
   }
   if (page.error) {
-    log.error(`❌ Query error: ${page.error.message}`)
+    log.error(`❌ Query error: ${sanitizedErrorMessage(page.error)}`)
     return {
       exitCode: 1,
       summary: summarizeShadowPublishedPicks([]),
@@ -113,7 +114,7 @@ if (invokedDirectly()) {
   runReportShadowNhl().then((result) => {
     process.exit(result.exitCode)
   }).catch((error) => {
-    console.error('Fatal:', error)
+    console.error('Fatal:', sanitizeLoggedValue(error))
     process.exit(1)
   })
 }

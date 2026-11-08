@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage } from '../lib/sanitize-error.js'
 
 /**
  * Retire ghost / flipped scheduled MLB games (status=not_needed).
@@ -28,7 +29,7 @@ async function main(argv = process.argv.slice(2)) {
 if (invokedDirectly) {
   main().catch((error) => {
     console.error(RECONCILE_CLI_USAGE)
-    console.error('❌ Fatal error:', error.message)
+    console.error('❌ Fatal error:', sanitizedErrorMessage(error))
     process.exit(1)
   })
 }

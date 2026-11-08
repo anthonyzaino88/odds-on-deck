@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Record today's public sides & totals into PropValidation (source=game_line)
  * and grade any pending game-line rows from Game scores already in the DB.
@@ -40,6 +41,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error('❌ record-game-lines failed:', error)
+  console.error('❌ record-game-lines failed:', sanitizeLoggedValue(error))
   process.exit(1)
 })

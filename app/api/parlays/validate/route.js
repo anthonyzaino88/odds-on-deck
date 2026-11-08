@@ -1,3 +1,4 @@
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../../../../lib/sanitize-error.js'
 // Grade Featured-cleared parlays from settled PropValidation rows.
 // Explorer Builder pending rows are not this track.
 
@@ -32,7 +33,7 @@ export async function POST(request) {
       .ilike('notes', `%${FEATURED_COHORT_TAG}%`)
 
     if (parlaysError) {
-      throw new Error(`Failed to fetch parlays: ${parlaysError.message}`)
+      throw new Error(`Failed to fetch parlays: ${sanitizedErrorMessage(parlaysError)}`)
     }
 
     const pendingParlays = filterFeaturedCohortRows(pendingRows || [])
@@ -62,7 +63,7 @@ export async function POST(request) {
           .order('legOrder', { ascending: true })
 
         if (legsError) {
-          console.error(`⚠️ Error fetching legs for parlay ${parlay.id}:`, legsError.message)
+          console.error(`⚠️ Error fetching legs for parlay ${parlay.id}:`, sanitizedErrorMessage(legsError))
           continue
         }
 
@@ -81,7 +82,7 @@ export async function POST(request) {
             .order('id', { ascending: true })
             .range(from, to))
         if (validationError) {
-          console.error(`⚠️ Error fetching validations for parlay ${parlay.id}:`, validationError.message)
+          console.error(`⚠️ Error fetching validations for parlay ${parlay.id}:`, sanitizedErrorMessage(validationError))
           continue
         }
 
@@ -106,7 +107,7 @@ export async function POST(request) {
           .eq('id', parlay.id)
 
         if (updateError) {
-          console.error(`⚠️ Error updating parlay ${parlay.id}:`, updateError.message)
+          console.error(`⚠️ Error updating parlay ${parlay.id}:`, sanitizedErrorMessage(updateError))
           continue
         }
 
@@ -117,7 +118,7 @@ export async function POST(request) {
 
         console.log(`✅ Featured parlay ${parlay.id}: ${grade.parlayOutcome.toUpperCase()} (${legs.length} legs)`)
       } catch (error) {
-        console.error(`❌ Error validating Featured parlay ${parlay.id}:`, error.message)
+        console.error(`❌ Error validating Featured parlay ${parlay.id}:`, sanitizedErrorMessage(error))
       }
     }
 
@@ -132,7 +133,7 @@ export async function POST(request) {
       message: `Validated ${validatedCount} Featured parlays (${wonCount} won, ${lostCount} lost, ${pushCount} push)`,
     })
   } catch (error) {
-    console.error('❌ Error in Featured parlay validation:', error)
+    console.error('❌ Error in Featured parlay validation:', sanitizeLoggedValue(error))
     return serverError()
   }
 }
@@ -145,7 +146,7 @@ export async function GET() {
       .ilike('notes', `%${FEATURED_COHORT_TAG}%`)
 
     if (error) {
-      throw new Error(`Failed to fetch parlays: ${error.message}`)
+      throw new Error(`Failed to fetch parlays: ${sanitizedErrorMessage(error)}`)
     }
 
     const featured = dedupeFeaturedCohortRows((allParlays || []).filter(isFeaturedCohortRow))
@@ -164,7 +165,7 @@ export async function GET() {
       performance: summary,
     })
   } catch (error) {
-    console.error('❌ Error fetching Featured parlay stats:', error)
+    console.error('❌ Error fetching Featured parlay stats:', sanitizeLoggedValue(error))
     return serverError()
   }
 }

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 // Fix NHL games for 2025-11-17 by syncing with ESPN and mapping to Odds API
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
@@ -120,7 +121,7 @@ async function main() {
     .lt('date', `${targetDate}T23:59:59.999Z`)
 
   if (findError) {
-    console.error('❌ Error finding games to delete:', findError)
+    console.error('❌ Error finding games to delete:', sanitizeLoggedValue(findError))
     return
   }
 
@@ -134,7 +135,7 @@ async function main() {
       .in('id', gameIds)
 
     if (deleteError) {
-      console.error('❌ Error deleting games:', deleteError)
+      console.error('❌ Error deleting games:', sanitizeLoggedValue(deleteError))
       return
     }
     console.log('✅ Deleted existing games\n')
@@ -174,7 +175,7 @@ async function main() {
         })
 
       if (insertError) {
-        console.error(`❌ Error inserting ${game.awayTeam} @ ${game.homeTeam}:`, insertError)
+        console.error(`❌ Error inserting ${game.awayTeam} @ ${game.homeTeam}:`, sanitizeLoggedValue(insertError))
       } else {
         console.log(`✅ Inserted ${game.awayTeam} @ ${game.homeTeam}`)
       }
@@ -205,7 +206,7 @@ async function main() {
         .eq('espnId', espnGame.espnId)
 
       if (updateError) {
-        console.error(`❌ Error updating ${espnGame.awayTeam} @ ${espnGame.homeTeam}:`, updateError)
+        console.error(`❌ Error updating ${espnGame.awayTeam} @ ${espnGame.homeTeam}:`, sanitizeLoggedValue(updateError))
       } else {
         console.log(`✅ Mapped ${espnGame.awayTeam} @ ${espnGame.homeTeam} → ${matchingOddsGame.eventId}`)
       }
@@ -217,4 +218,4 @@ async function main() {
   console.log('\n🎉 Done! NHL games for 2025-11-17 should now be correctly mapped.')
 }
 
-main().catch(console.error)
+main().catch((error) => console.error(sanitizeLoggedValue(error)))

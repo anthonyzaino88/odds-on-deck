@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 /**
  * Preview (default) or apply DNP voids for player props graded as a
  * real 0 when the player did not appear.
@@ -103,7 +104,7 @@ record/units before and after, and an optional CSV diff.
     .in('sport', sports)
     .order('id', { ascending: true }))
   if (error) {
-    log.error(`❌ Query error: ${error.message}`)
+    log.error(`❌ Query error: ${sanitizedErrorMessage(error)}`)
     return { exitCode: 1, previews: [], summary: summarizeDnpPreviews([]) }
   }
 
@@ -173,7 +174,7 @@ record/units before and after, and an optional CSV diff.
     .not('propType', 'in', '(moneyline,total,totals,h2h,ml)')
     .order('id', { ascending: true }))
   if (publishedPage.error) {
-    log.error(`⚠️ Published cohort lookup failed: ${publishedPage.error.message}`)
+    log.error(`⚠️ Published cohort lookup failed: ${sanitizedErrorMessage(publishedPage.error)}`)
   }
   const published = publishedSummariesAfterVoids(publishedPage.rows || [], voidIds)
   const publishedDelta = describePublishedDelta(published.before, published.after)
@@ -267,7 +268,7 @@ record/units before and after, and an optional CSV diff.
     )
     if (write?.error) {
       applyErrors += 1
-      log.error(`❌ Write failed for ${row.id}: ${write.error.message}`)
+      log.error(`❌ Write failed for ${row.id}: ${sanitizedErrorMessage(write.error)}`)
       continue
     }
     applied += 1
@@ -298,7 +299,7 @@ if (invokedDirectly()) {
   runRepairDnpGrades().then((result) => {
     process.exit(result.exitCode)
   }).catch((error) => {
-    console.error('Fatal:', error)
+    console.error('Fatal:', sanitizeLoggedValue(error))
     process.exit(1)
   })
 }

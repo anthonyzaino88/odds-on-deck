@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage, sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 // Fix today's NHL game times by fetching from ESPN and updating database
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
@@ -41,7 +42,7 @@ async function fixTodayNHLTimes() {
     const data = await response.json()
     espnGames = data.events || []
   } catch (error) {
-    console.error('❌ Error fetching from ESPN:', error.message)
+    console.error('❌ Error fetching from ESPN:', sanitizedErrorMessage(error))
     return
   }
 
@@ -63,7 +64,7 @@ async function fixTodayNHLTimes() {
     .lte('date', `${todayStr}T23:59:59Z`)
 
   if (error) {
-    console.error('❌ Database error:', error)
+    console.error('❌ Database error:', sanitizeLoggedValue(error))
     return
   }
 
@@ -95,7 +96,7 @@ async function fixTodayNHLTimes() {
           .eq('id', dbGame.id)
 
         if (updateError) {
-          console.error(`   ❌ Error updating: ${updateError.message}`)
+          console.error(`   ❌ Error updating: ${sanitizedErrorMessage(updateError)}`)
         } else {
           console.log(`   ✅ Updated successfully`)
           updated++
@@ -122,7 +123,7 @@ async function fixTodayNHLTimes() {
   }
 }
 
-fixTodayNHLTimes().catch(console.error)
+fixTodayNHLTimes().catch((error) => console.error(sanitizeLoggedValue(error)))
 
 
 

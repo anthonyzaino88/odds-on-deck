@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizedErrorMessage } from '../lib/sanitize-error.js'
 
 /**
  * Compare how NFL vs NHL games are processed from ESPN
@@ -31,7 +32,7 @@ async function compareTimes() {
       }
     }
   } catch (error) {
-    console.error('   Error:', error.message)
+    console.error('   Error:', sanitizedErrorMessage(error))
   }
   
   // Test NHL
@@ -58,7 +59,7 @@ async function compareTimes() {
       }
     }
   } catch (error) {
-    console.error('   Error:', error.message)
+    console.error('   Error:', sanitizedErrorMessage(error))
   }
   
   console.log('\n💡 Key Difference:')

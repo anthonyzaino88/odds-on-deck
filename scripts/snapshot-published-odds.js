@@ -360,7 +360,7 @@ SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
     assertSnapshotSecretIsNotPublishable(env)
     supabase = createClient(snapshotSupabaseEnv(env))
   } catch (error) {
-    log.error(`❌ ${error.message}`)
+    log.error(`❌ ${sanitizedErrorMessage(error)}`)
     return done({
       snapshotJobs: [],
       calls: 0,
@@ -388,7 +388,7 @@ SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
 
   const pickPage = await loadPublishedPicks()
   if (pickPage.error) {
-    log.error(`❌ Pick query failed: ${pickPage.error.message}`)
+    log.error(`❌ Pick query failed: ${sanitizedErrorMessage(pickPage.error)}`)
     return done({
       snapshotJobs: [],
       calls: 0,
@@ -411,7 +411,7 @@ SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
     .lte('date', horizon.toISOString())
 
   if (gameError) {
-    log.error(`❌ Game query failed: ${gameError.message}`)
+    log.error(`❌ Game query failed: ${sanitizedErrorMessage(gameError)}`)
     return done({
       snapshotJobs: [],
       calls: 0,
@@ -447,7 +447,7 @@ SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
     tableMissing = true
     log.log('⚠️ OddsSnapshot missing (run 011 SQL). Degrading — no crash.')
   } else if (snapshotPage.error) {
-    log.log(`⚠️ OddsSnapshot read failed (${snapshotPage.error.message}); planning without freshness skips.`)
+    log.log(`⚠️ OddsSnapshot read failed (${sanitizedErrorMessage(snapshotPage.error)}); planning without freshness skips.`)
   } else {
     latestSnapshots = latestStampByGameId(snapshotPage.rows)
   }
@@ -761,7 +761,7 @@ SNAPSHOT_EVENTS, CALLS_USED, CREDITS and exits 0.`)
           log.log('⚠️ OddsSnapshot missing on write (run 011 SQL). Degrading — no crash.')
         } else if (write?.error) {
           writeErrors += 1
-          log.error(`❌ OddsSnapshot insert failed: ${write.error.message}`)
+          log.error(`❌ OddsSnapshot insert failed: ${sanitizedErrorMessage(write.error)}`)
         } else {
           log.log(`✅ Wrote ${rows.length} OddsSnapshot row(s).`)
         }

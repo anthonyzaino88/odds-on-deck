@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+const { sanitizedErrorMessage, sanitizeLoggedValue } = require('../lib/sanitize-error.server.cjs')
 /**
  * CLOSE STUCK PARLAYS (one-shot)
  *
@@ -124,7 +125,7 @@ async function loadClosingTotals(gameIds, gamesById = new Map()) {
     const { closingTotalsByGame } = await import('../lib/closing-line.js')
     return closingTotalsByGame(rows || [], gamesById)
   } catch (error) {
-    console.log(`⚠️  ClosingOdds not available (${error.message})`)
+    console.log(`⚠️  ClosingOdds not available (${sanitizedErrorMessage(error)})`)
     return empty
   }
 }
@@ -418,7 +419,7 @@ async function main() {
 
 main()
   .catch((error) => {
-    console.error('❌ Fatal error:', error)
+    console.error('❌ Fatal error:', sanitizeLoggedValue(error))
     process.exit(1)
   })
   .finally(async () => {

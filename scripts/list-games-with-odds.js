@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * List all games that have odds
@@ -22,7 +23,7 @@ async function listGames() {
     .limit(100)
   
   if (error) {
-    console.error('❌ Error:', error)
+    console.error('❌ Error:', sanitizeLoggedValue(error))
     return
   }
   
@@ -55,5 +56,5 @@ async function listGames() {
   })
 }
 
-listGames().catch(console.error)
+listGames().catch((error) => console.error(sanitizeLoggedValue(error)))
 

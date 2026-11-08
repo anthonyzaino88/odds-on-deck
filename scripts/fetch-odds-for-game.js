@@ -42,7 +42,7 @@ async function fetchOddsForGame(gameId) {
   
   if (gameError || !game) {
     console.error(`❌ Game not found: ${gameId}`)
-    console.error(`   Error: ${gameError?.message || 'Game does not exist'}`)
+    console.error(`   Error: ${sanitizedErrorMessage(gameError) || 'Game does not exist'}`)
     return
   }
   
@@ -166,7 +166,7 @@ async function fetchOddsForGame(gameId) {
         }
         
         if (error && !error.code?.includes('23505')) {
-          console.error(`  ❌ Error saving ${bookmaker.title} ${market.key}: ${error.message}`)
+          console.error(`  ❌ Error saving ${bookmaker.title} ${market.key}: ${sanitizedErrorMessage(error)}`)
         } else {
           saved++
         }

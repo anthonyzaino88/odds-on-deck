@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { sanitizeLoggedValue } from '../lib/sanitize-error.js'
 
 /**
  * Copy odds from one game to another
@@ -24,7 +25,7 @@ async function copyOdds() {
     .eq('gameId', sourceGameId)
   
   if (fetchError) {
-    console.error('❌ Error fetching odds:', fetchError)
+    console.error('❌ Error fetching odds:', sanitizeLoggedValue(fetchError))
     return
   }
   
@@ -54,7 +55,7 @@ async function copyOdds() {
     .select()
   
   if (insertError) {
-    console.error('❌ Error inserting odds:', insertError)
+    console.error('❌ Error inserting odds:', sanitizeLoggedValue(insertError))
   } else {
     console.log(`✅ Successfully copied ${insertedOdds?.length || 0} odds records!`)
     console.log(`   Source: ${sourceGameId}`)
@@ -63,7 +64,7 @@ async function copyOdds() {
 }
 
 copyOdds().catch(error => {
-  console.error('❌ Fatal error:', error)
+  console.error('❌ Fatal error:', sanitizeLoggedValue(error))
   process.exit(1)
 })
 
