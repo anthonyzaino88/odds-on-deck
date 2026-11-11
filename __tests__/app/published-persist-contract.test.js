@@ -61,7 +61,7 @@ describe('Published props are recorded when they clear the bar', () => {
     expect(oddsFetch).toMatch(/isPublishedEligibleProp/)
     expect(oddsFetch).toMatch(/persistPublishedEligibleProps/)
     expect(oddsFetch).toMatch(/Reads PlayerPropCache only|no Odds API/)
-    expect(oddsFetch).toMatch(/pickUnmappedOddsGame/)
+    expect(oddsFetch).toMatch(/matchOddsApiEventToGame/)
     expect(oddsFetch).toMatch(/resolveTeamNameFallback/)
     expect(oddsFetch).toMatch(/resolvePropLanding/)
     expect(oddsFetch).toMatch(/oddsInsertPayload/)
