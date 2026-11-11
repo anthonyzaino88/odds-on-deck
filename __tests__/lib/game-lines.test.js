@@ -1,9 +1,15 @@
 import {
   GAME_LINE_CAP,
   GAME_LINE_MIN_EDGE,
+  GAME_LINE_SKIP_REASONS,
   GAME_LINE_SPORTS,
   PUBLISHED_GAME_LINE_SPORTS,
+  RECORDED_GAME_LINE_SPORTS,
+  SIDES_TOTALS_TRACK_SPORTS,
+  bumpGameLineSkip,
   decorateGameLine,
+  emptyGameLineRecorderSummary,
+  formatGameLineRecorderSection,
   gameLineEdgeWhy,
   gameLineValidationWritePlan,
   gradeGameLineFromScores,
@@ -13,6 +19,8 @@ import {
   isGameLineRecord,
   isPublicGameLine,
   isPublishedGameLineSport,
+  isRecordableGameLine,
+  isRecordedGameLineSport,
   isUpcomingGameLine,
   partitionGameLines,
   publicEligibilityAllows,
@@ -192,17 +200,28 @@ describe('selectGameLines', () => {
 
 describe('PUBLISHED_GAME_LINE_SPORTS kill switch', () => {
   test('excludes MLB from public game lines and leaves NFL unchanged', () => {
-    expect(GAME_LINE_SPORTS).toEqual(['mlb', 'nfl'])
+    expect(GAME_LINE_SPORTS).toEqual(['mlb', 'nfl', 'nhl'])
     expect(PUBLISHED_GAME_LINE_SPORTS).toEqual(['nfl'])
+    expect(RECORDED_GAME_LINE_SPORTS).toEqual(['nfl', 'nhl'])
+    expect(SIDES_TOTALS_TRACK_SPORTS).toEqual(['mlb', 'nfl'])
     expect(PUBLISHED_GAME_LINE_SPORTS).not.toContain('mlb')
+    expect(PUBLISHED_GAME_LINE_SPORTS).not.toContain('nhl')
     expect(isPublishedGameLineSport('mlb')).toBe(false)
+    expect(isPublishedGameLineSport('nhl')).toBe(false)
     expect(isPublishedGameLineSport('nfl')).toBe(true)
+    expect(isRecordedGameLineSport('nhl')).toBe(true)
+    expect(isRecordedGameLineSport('mlb')).toBe(false)
     expect(unpublishedGameLineSports()).toEqual(['mlb'])
 
     expect(isPublicGameLine(line({ sport: 'mlb', edge: 0.20 }))).toBe(false)
     expect(isPublicGameLine(publicNflLine({ edge: 0.09 }))).toBe(true)
+    expect(isPublicGameLine(line({ sport: 'nhl', edge: 0.20, pick: 'ANA' }))).toBe(false)
+    expect(isRecordableGameLine(line({ sport: 'nhl', edge: 0.20, pick: 'ANA' }))).toBe(true)
+    expect(isRecordableGameLine(line({ sport: 'nhl', edge: 0.012, pick: 'ANA' }))).toBe(false)
+    expect(isRecordableGameLine(line({ sport: 'mlb', edge: 0.20, pick: 'NYY' }))).toBe(false)
     expect(selectGameLines([
       line({ sport: 'mlb', edge: 0.20, pick: 'NYY' }),
+      line({ sport: 'nhl', edge: 0.20, pick: 'ANA' }),
       publicNflLine({ edge: 0.08, pick: 'KC' }),
     ]).map((row) => row.pick)).toEqual(['KC'])
   })
@@ -325,5 +344,38 @@ describe('gradeGameLineFromScores', () => {
       awayScore: 2,
       sport: 'mlb',
     })).toBe(true)
+  })
+})
+
+describe('game-line recorder sections', () => {
+  test('always prints counts and skip reasons, including unpublished MLB', () => {
+    const mlb = emptyGameLineRecorderSummary('mlb')
+    mlb.unpublished = true
+    bumpGameLineSkip(mlb, GAME_LINE_SKIP_REASONS.UNPUBLISHED)
+    expect(formatGameLineRecorderSection(mlb)).toBe([
+      'MLB',
+      '  skipped (unpublished) — not recorded',
+      '  0 active games, 0 edges read, 0 picks recorded',
+      '  skips: unpublished=1',
+    ].join('\n'))
+
+    const nhl = emptyGameLineRecorderSummary('nhl')
+    nhl.activeGames = 8
+    nhl.edgesRead = 5
+    nhl.recorded = 0
+    bumpGameLineSkip(nhl, GAME_LINE_SKIP_REASONS.BELOW_THRESHOLD, 5)
+    expect(formatGameLineRecorderSection(nhl)).toBe([
+      'NHL',
+      '  8 active games, 5 edges read, 0 picks recorded',
+      '  skips: below_threshold=5',
+    ].join('\n'))
+
+    const nfl = emptyGameLineRecorderSummary('nfl')
+    nfl.activeGames = 1
+    nfl.edgesRead = 1
+    nfl.recorded = 0
+    bumpGameLineSkip(nfl, GAME_LINE_SKIP_REASONS.PUBLIC_INELIGIBLE)
+    expect(formatGameLineRecorderSection(nfl)).toContain('1 active game, 1 edge read, 0 picks recorded')
+    expect(formatGameLineRecorderSection(nfl)).toContain('skips: public_ineligible=1')
   })
 })

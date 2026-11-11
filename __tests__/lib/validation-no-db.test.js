@@ -87,6 +87,56 @@ describe('recordGameLinePrediction respects the public kill switch', () => {
     expect(from).not.toHaveBeenCalled()
   })
 
+  test('records NHL game lines privately with shadow notes', async () => {
+    const inserted = []
+    const chain = createChain()
+    chain.maybeSingle.mockResolvedValue({ data: null, error: null })
+    chain.insert.mockImplementation((payload) => {
+      inserted.push(payload)
+      return chain
+    })
+    chain.single.mockResolvedValue({ data: { id: 'pv-nhl-1' }, error: null })
+    from.mockImplementation(() => chain)
+
+    const result = await recordGameLinePrediction({
+      gameId: 'g-nhl-1',
+      sport: 'nhl',
+      type: 'total',
+      pick: 'over',
+      threshold: 6.5,
+      edge: 0.06,
+      odds: -110,
+      eligibleForPublic: false,
+    })
+
+    expect(result).toEqual({ id: 'pv-nhl-1' })
+    expect(from).toHaveBeenCalledWith('PropValidation')
+    expect(inserted).toHaveLength(1)
+    expect(inserted[0]).toMatchObject({
+      sport: 'nhl',
+      source: 'game_line',
+      propType: 'total',
+      prediction: 'over',
+    })
+    expect(inserted[0].notes).toMatch(/cohort:sides_totals/)
+    expect(inserted[0].notes).toMatch(/cohort:shadow-published/)
+    expect(inserted[0].notes).not.toMatch(/auto-saved/)
+  })
+
+  test('does not persist public-ineligible NFL game lines', async () => {
+    const result = await recordGameLinePrediction({
+      gameId: 'g-nfl-1',
+      sport: 'nfl',
+      type: 'moneyline',
+      pick: 'KC',
+      edge: 0.09,
+      odds: -110,
+      eligibleForPublic: false,
+    })
+    expect(result).toBeNull()
+    expect(from).not.toHaveBeenCalled()
+  })
+
   test('does not recreate, overwrite, or un-void an existing void row', async () => {
     const existing = {
       id: 'pv-void',

@@ -3,33 +3,42 @@ import { join } from 'path'
 import {
   GAME_LINE_SPORTS,
   PUBLISHED_GAME_LINE_SPORTS,
+  RECORDED_GAME_LINE_SPORTS,
   unpublishedGameLineSports,
 } from '../../lib/game-lines.js'
 
 const read = (rel) => readFileSync(join(process.cwd(), rel), 'utf8')
 
 describe('MLB game-line public kill switch wiring', () => {
-  test('record-game-lines records only published sports and logs the MLB skip', () => {
+  test('record-game-lines walks every sport, records NHL privately, and logs the MLB skip', () => {
     const script = read('scripts/record-game-lines.js')
-    expect(script).toMatch(/PUBLISHED_GAME_LINE_SPORTS/)
-    expect(script).toMatch(/unpublishedGameLineSports/)
-    expect(script).toMatch(/Skipping unpublished game-line sports/)
-    expect(script).toMatch(/PUBLISHED_GAME_LINE_SPORTS\.map/)
-    expect(script).not.toMatch(/(?<!PUBLISHED_)GAME_LINE_SPORTS\.map/)
+    expect(script).toMatch(/GAME_LINE_SPORTS\.map/)
+    expect(script).toMatch(/isRecordedGameLineSport/)
+    expect(script).toMatch(/formatGameLineRecorderSection/)
+    expect(script).toMatch(/summary\.unpublished = true/)
+    expect(script).toMatch(/GAME_LINE_SKIP_REASONS\.UNPUBLISHED/)
+    expect(script).not.toMatch(/PUBLISHED_GAME_LINE_SPORTS\.map/)
     expect(unpublishedGameLineSports()).toEqual(['mlb'])
+    expect(PUBLISHED_GAME_LINE_SPORTS).toEqual(['nfl'])
     expect(PUBLISHED_GAME_LINE_SPORTS).not.toContain('mlb')
-    expect(GAME_LINE_SPORTS).toContain('mlb')
+    expect(PUBLISHED_GAME_LINE_SPORTS).not.toContain('nhl')
+    expect(RECORDED_GAME_LINE_SPORTS).toEqual(['nfl', 'nhl'])
+    expect(GAME_LINE_SPORTS).toEqual(['mlb', 'nfl', 'nhl'])
   })
 
   test('public picks and persist paths apply the kill switch', () => {
     const picks = read('lib/picks.js')
     expect(picks).toMatch(/PUBLISHED_GAME_LINE_SPORTS\.map/)
-    expect(picks).toMatch(/if \(!isPublishedGameLineSport\(game\?\.sport\)\) return \[\]/)
+    expect(picks).toMatch(/if \(!isRecordedGameLineSport\(game\?\.sport\)\) return \[\]/)
+    expect(picks).toMatch(/export function inspectGameLineSnapshot/)
+    expect(picks.match(/export \{([^}]+)\}/)?.[1] || '').not.toMatch(/inspectGameLineSnapshot/)
 
     const validation = read('lib/validation.js')
+    expect(validation).toMatch(/isRecordedGameLineSport\(line\.sport\)/)
     expect(validation).toMatch(/isPublishedGameLineSport\(line\.sport\)/)
     expect(validation).toMatch(/gameLineValidationWritePlan/)
     expect(validation).toMatch(/publicEligibilityAllows/)
+    expect(validation).toMatch(/SHADOW_PUBLISHED_COHORT_TAG/)
     expect(validation).not.toMatch(/isPublishedGameLineSport\(row/)
     expect(validation).toMatch(/gradePendingGameLines/)
   })

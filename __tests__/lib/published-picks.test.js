@@ -454,7 +454,18 @@ describe('summarizeSidesTotals', () => {
     }
     expect(isSidesTotalsPick(legacyNhl, { sports: ['nhl'] })).toBe(false)
     expect(isSidesTotalsPick(currentNhl, { sports: ['nhl'] })).toBe(true)
+    expect(isSidesTotalsPick(currentNhl)).toBe(false)
+    expect(summarizeSidesTotals([legacyNhl, currentNhl]).graded).toBe(0)
     expect(summarizeSidesTotals([legacyNhl, currentNhl], { sports: ['nhl'] }).graded).toBe(1)
+
+    const recordedNhl = {
+      ...currentNhl,
+      notes: 'cohort:sides_totals | cohort:shadow-published',
+    }
+    expect(isPrivateShadowPublished(recordedNhl)).toBe(true)
+    expect(isPublishedPick(recordedNhl)).toBe(false)
+    expect(isSidesTotalsPick(recordedNhl)).toBe(false)
+    expect(withoutPrivateShadowPublished([recordedNhl])).toEqual([])
 
     const legacyNfl = publishedBase({
       sport: 'nfl',

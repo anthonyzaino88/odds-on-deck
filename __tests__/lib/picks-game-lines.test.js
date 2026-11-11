@@ -1,4 +1,8 @@
-import { buildGameLinePicksFromSnapshots } from '../../lib/picks.js'
+import {
+  buildGameLinePicksFromSnapshots,
+  inspectGameLineSnapshot,
+} from '../../lib/picks.js'
+import { GAME_LINE_SKIP_REASONS, selectGameLines } from '../../lib/game-lines.js'
 import {
   NFL_SELECTION_MODEL_VERSION,
   calculateNFLSelection,
@@ -140,6 +144,101 @@ describe('buildGameLinePicksFromSnapshots', () => {
     expect(picks).toEqual([])
   })
 
+  test('current NHL snapshots reconstruct privately and stay off the public list', () => {
+    const future = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString()
+    const game = {
+      id: 'g-nhl-1',
+      sport: 'nhl',
+      date: future,
+      status: 'scheduled',
+      home: { abbr: 'ANA' },
+      away: { abbr: 'NSH' },
+    }
+    const oddsRows = [
+      { market: 'h2h', priceHome: -110, priceAway: -110, ts: future },
+      { market: 'totals', total: 6.5, priceHome: -110, priceAway: -110, ts: future },
+    ]
+
+    const below = inspectGameLineSnapshot({
+      game,
+      edge: {
+        modelRun: 'nhl-gd-v0.2.0',
+        edgeTotalO: 0.012,
+        payload: { rawModelProb: 0.54 },
+      },
+      oddsRows,
+    })
+    expect(below.picks).toEqual([])
+    expect(below.skips.map((skip) => skip.reason)).toContain(GAME_LINE_SKIP_REASONS.BELOW_THRESHOLD)
+
+    const qualifying = inspectGameLineSnapshot({
+      game,
+      edge: {
+        modelRun: 'nhl-gd-v0.2.0',
+        edgeMlAway: 0.05,
+        edgeTotalO: 0.06,
+        payload: { rawModelProb: 0.54 },
+      },
+      oddsRows,
+    })
+    expect(qualifying.picks.map((pick) => `${pick.type}:${pick.pick}`).sort()).toEqual([
+      'moneyline:NSH',
+      'total:over',
+    ])
+    expect(qualifying.picks.every((pick) => pick.eligibleForPublic === false)).toBe(true)
+    expect(selectGameLines(qualifying.picks)).toEqual([])
+
+    const mixed = inspectGameLineSnapshot({
+      game,
+      edge: {
+        modelRun: 'nhl-gd-v0.2.0',
+        edgeMlAway: 0.025,
+        edgeTotalO: 0.06,
+        payload: { rawModelProb: 0.54 },
+      },
+      oddsRows,
+    })
+    expect(mixed.picks.map((pick) => `${pick.type}:${pick.pick}`)).toEqual(['total:over'])
+    expect(mixed.skips.map((skip) => skip.reason)).toEqual([GAME_LINE_SKIP_REASONS.BELOW_THRESHOLD])
+  })
+
+  test('NHL lock-time and model-vs-market gap skips are named', () => {
+    const past = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    const locked = inspectGameLineSnapshot({
+      game: {
+        id: 'g-nhl-lock',
+        sport: 'nhl',
+        date: past,
+        status: 'in_progress',
+        home: { abbr: 'ANA' },
+        away: { abbr: 'NSH' },
+      },
+      edge: { modelRun: 'nhl-gd-v0.2.0', edgeTotalO: 0.08 },
+      oddsRows: [{ market: 'totals', total: 6.5, priceHome: -110, priceAway: -110, ts: past }],
+    })
+    expect(locked.picks).toEqual([])
+    expect(locked.skips).toEqual([{ reason: GAME_LINE_SKIP_REASONS.LOCK_TIME }])
+
+    const gapped = inspectGameLineSnapshot({
+      game: {
+        id: 'g-nhl-gap',
+        sport: 'nhl',
+        date: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+        status: 'scheduled',
+        home: { abbr: 'ANA' },
+        away: { abbr: 'NSH' },
+      },
+      edge: {
+        modelRun: 'nhl-gd-v0.2.0',
+        edgeMlAway: 0.05,
+        payload: { rawModelProb: 0.70 },
+      },
+      oddsRows: [{ market: 'h2h', priceHome: -110, priceAway: -110, ts: '2026-11-11T17:00:00.000Z' }],
+    })
+    expect(gapped.picks).toEqual([])
+    expect(gapped.skips).toEqual([{ reason: GAME_LINE_SKIP_REASONS.MODEL_MARKET_GAP }])
+  })
+
   test('MLB reconstruction is withheld from the public list while unpublished', () => {
     const picks = buildGameLinePicksFromSnapshots({
       game: {
@@ -181,6 +280,21 @@ describe('buildGameLinePicksFromSnapshots', () => {
     })
     expect(selection.moneyline.eligibility.eligibleForPublic).toBe(false)
     expect(picks).toEqual([])
+
+    const inspected = inspectGameLineSnapshot({
+      game: {
+        id: 'g-nfl-1',
+        sport: 'nfl',
+        date: '2025-12-21T18:00:00.000Z',
+        status: 'scheduled',
+        home: { abbr: 'KC' },
+        away: { abbr: 'DEN' },
+      },
+      edge: { modelRun: NFL_SELECTION_MODEL_VERSION, payload: selection },
+      oddsRows: [quote],
+    })
+    expect(inspected.picks).toEqual([])
+    expect(inspected.skips).toEqual([{ reason: GAME_LINE_SKIP_REASONS.PUBLIC_INELIGIBLE }])
   })
 
   test('a mismatched totals quote does not disable an independently valid moneyline', () => {
