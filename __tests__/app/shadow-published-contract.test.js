@@ -28,9 +28,8 @@ describe('private NHL shadow-published track stays off Published surfaces', () =
     expect(pkg).toMatch(/"report:shadow-nhl": "node scripts\/report-shadow-nhl\.js"/)
   })
 
-  test('validation and insights show public NHL Published stats like MLB and NFL', () => {
+  test('validation shows public NHL Published stats like MLB and NFL', () => {
     const page = read('app/validation/page.js')
-    const insights = read('app/insights/page.js')
     const card = read('components/PublishedPicksCard.js')
     const published = read('lib/published-picks.js')
     const validation = read('lib/validation.js')
@@ -45,19 +44,14 @@ describe('private NHL shadow-published track stays off Published surfaces', () =
     expect(page).toMatch(/SportCard sport="nhl"/)
     expect(page).not.toMatch(/including juice traps, longshots, NHL/)
     expect(page).toMatch(/NHL Published rows are on the card above/)
-    expect(insights).toMatch(/getValidationStats\(\{ sport: 'nhl' \}\)/)
-    expect(insights).toMatch(/SportPerformance sport="nhl"/)
-    expect(insights).toMatch(/SportPerformance sport="nfl"/)
-    expect(insights).toMatch(/SportPerformance sport="mlb"/)
   })
 
-  test('Published surfaces drop every shadow tag; archive/insights drop shadow-only only', () => {
+  test('Published surfaces drop every shadow tag; archive drops shadow-only only', () => {
     const hook = read('lib/homepage-hook.js')
     const picks = read('lib/picks.js')
     const generator = read('lib/simple-parlay-generator.js')
     const validation = read('lib/validation.js')
     const report = read('scripts/report-published-clv.js')
-    const insights = read('lib/performance-analyzer.js')
     const api = read('app/api/validation/route.js')
     const page = read('app/validation/page.js')
 
@@ -73,7 +67,7 @@ describe('private NHL shadow-published track stays off Published surfaces', () =
     expect(generator).not.toMatch(/SHADOW_PUBLISHED_SPORTS/)
 
     const publishedFetch = validation.slice(
-      validation.indexOf('async function fetchPublishedStatsRecords'),
+      validation.indexOf('async function fetchPublishedStatsPages'),
       validation.indexOf('export async function getPublishedPicksStats'),
     )
     expect(publishedFetch).toMatch(/applyShadowPublishedNotesExclusion/)
@@ -107,8 +101,6 @@ describe('private NHL shadow-published track stays off Published surfaces', () =
     expect(edgeFetch).toMatch(/applyPublicArchiveNotesFilter/)
     expect(edgeFetch).toMatch(/filterPublicArchiveRows/)
 
-    expect(insights).toMatch(/applyPrivateShadowPublishedNotesExclusion/)
-    expect(insights).toMatch(/withoutPrivateShadowPublished/)
     expect(page).toMatch(/getValidationRecords\(\{ limit: 50, excludePending: true \}\)/)
     expect(page).toMatch(/getValidationCounts/)
     expect(api).toMatch(/toPublicValidationRecord/)
@@ -168,7 +160,7 @@ describe('private NHL shadow-published track stays off Published surfaces', () =
 
     const insights = read('app/insights/page.js')
     expect(insights).not.toMatch(/getValidationRecords/)
-    expect(insights).toMatch(/InsightsBreakdown/)
+    expect(insights).toMatch(/permanentRedirect\(['"]\/validation['"]\)/)
     expect(insights).not.toMatch(/records=\{/)
   })
 

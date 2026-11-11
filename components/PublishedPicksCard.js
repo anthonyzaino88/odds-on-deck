@@ -12,6 +12,20 @@ function formatUnits(units) {
   return `${sign}${units.toFixed(2)}`
 }
 
+const CLV_LOW_SAMPLE = 100
+
+function formatClvPp(avgClvProb) {
+  if (typeof avgClvProb !== 'number') return '—'
+  const pp = avgClvProb * 100
+  const sign = pp >= 0 ? '+' : ''
+  return `${sign}${pp.toFixed(1)} pp`
+}
+
+function formatBeatClose(pct) {
+  if (typeof pct !== 'number') return '—'
+  return `${(pct * 100).toFixed(1)}%`
+}
+
 /**
  * Server-rendered Published picks card. ROI / units / sample / avg odds lead;
  * W–L is secondary. Soft tone — methodology locked, sample still building.
@@ -37,7 +51,8 @@ export default function PublishedPicksCard({ stats, windowLabel }) {
           <div>
             <h2 className="text-lg font-semibold text-slate-100">Published picks</h2>
             <p className="text-sm text-slate-400 mt-1 max-w-2xl leading-relaxed">
-              The public track for the curated cohort &mdash; ROI first, then units, sample, and average odds.
+              The public track for the curated cohort &mdash; ROI first, then units, sample, average odds,
+              and closing-line value when a same-line close is stored.
               Methodology is locked. The sample is still building.
             </p>
           </div>
@@ -76,6 +91,8 @@ export default function PublishedPicksCard({ stats, windowLabel }) {
         />
       </div>
 
+      <PublishedClvBlock clv={stats?.clv} />
+
       <div className="px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <p className="text-sm text-slate-500">
           Record (secondary)
@@ -92,6 +109,63 @@ export default function PublishedPicksCard({ stats, windowLabel }) {
         </p>
       </div>
     </section>
+  )
+}
+
+function PublishedClvBlock({ clv }) {
+  const sameLine = Number(clv?.sameLine) || 0
+  const hasClv = sameLine > 0
+  const smallSample = hasClv && sameLine < CLV_LOW_SAMPLE
+  const avgClass = !hasClv
+    ? 'text-slate-100'
+    : clv.avgClvProb >= 0
+      ? 'text-green-400'
+      : 'text-red-400'
+
+  return (
+    <div className="px-4 sm:px-6 py-4 border-t border-white/[0.06] bg-bg/40">
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+          Closing-line value
+        </h3>
+        {smallSample && (
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded-[3px] bg-amber-500/10 text-amber-400 border border-amber-500/20"
+            title="Fewer than 100 Published picks with a same-line close — treat this as directional, not a settled edge"
+          >
+            small sample
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-3 gap-px bg-white/[0.06] rounded-[4px] overflow-hidden border border-white/[0.06]">
+        <StatCell
+          label="Avg CLV"
+          value={hasClv ? formatClvPp(clv.avgClvProb) : '—'}
+          hint="implied(close) − implied(recorded)"
+          valueClass={`text-xl sm:text-2xl ${avgClass}`}
+        />
+        <StatCell
+          label="Beat close"
+          value={hasClv ? formatBeatClose(clv.pctBeatClose) : '—'}
+          hint={hasClv ? `${clv.beatClose} of ${sameLine} same-line` : 'share of same-line closes'}
+          valueClass="text-xl sm:text-2xl text-slate-100"
+        />
+        <StatCell
+          label="Same-line sample"
+          value={hasClv ? String(sameLine) : '0'}
+          hint={hasClv
+            ? 'Published picks with a same-line close'
+            : 'no same-line closes in this window'}
+          valueClass="text-xl sm:text-2xl text-slate-100"
+        />
+      </div>
+      <p className="text-[11px] text-slate-500 leading-relaxed mt-3 max-w-3xl">
+        Average CLV is the implied-probability gap in percentage points between our
+        recorded price and the same-line close, vig included. Picks without a stored
+        same-line close are excluded; a close on a different line does not count.
+        CLV is a price-quality signal, not a claim that the track is profitable.
+      </p>
+    </div>
   )
 }
 
@@ -219,7 +293,9 @@ export function HowPublishedPicks() {
       </ul>
       <p className="text-sm text-slate-400 leading-relaxed mt-3">
         Units and ROI assume a flat 1-unit bet at the recorded odds. Pushes count in the sample
-        and are excluded from the ROI denominator.
+        and are excluded from the ROI denominator. Closing-line value uses only Published
+        picks that have a stored same-line close — not the full graded archive, not
+        shadow NHL, and not sides &amp; totals.
       </p>
     </div>
   )

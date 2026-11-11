@@ -90,7 +90,6 @@ const NAV_LINKS = [
   { href: '/games', label: "Today's Slate" },
   { href: '/parlays', label: 'Parlays' },
   { href: '/validation', label: 'Validation' },
-  { href: '/insights', label: 'Insights' },
 ]
 
 export default function RootLayout({ children }) {

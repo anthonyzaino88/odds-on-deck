@@ -36,6 +36,7 @@ import {
   PUBLISHED_MIN_QUALITY,
   PUBLISHED_STATS_PREFILTER,
   PUBLISHED_STATS_SELECT_FIELDS,
+  PUBLISHED_CLV_SELECT_FIELDS,
   PUBLISHED_PIPELINE_START,
   SHADOW_PUBLISHED_COHORT_TAG,
   SHADOW_PUBLISHED_SPORTS,
@@ -226,6 +227,14 @@ describe('matchesPublishedStatsPrefilter', () => {
       'completedAt',
       'playerName',
     ]))
+    expect(PUBLISHED_STATS_SELECT_FIELDS).not.toContain('closeOdds')
+    expect(PUBLISHED_CLV_SELECT_FIELDS).toEqual(expect.arrayContaining([
+      ...PUBLISHED_STATS_SELECT_FIELDS,
+      'closeOdds',
+      'closeLine',
+      'closeCapturedAt',
+    ]))
+    expect(PUBLISHED_CLV_SELECT_FIELDS).not.toContain('closeBook')
   })
 })
 
@@ -1408,7 +1417,7 @@ describe('shadow published NHL cohort', () => {
     expect(result.filter).toBe(SHADOW_PUBLISHED_NOTES_OR_FILTER)
   })
 
-  test('archive/insights SQL keeps auto-saved rows and drops shadow-only', () => {
+  test('archive SQL keeps auto-saved rows and drops shadow-only', () => {
     const or = jest.fn((filter) => ({ or, filter }))
     const result = applyPrivateShadowPublishedNotesExclusion({ or })
     expect(or).toHaveBeenCalledWith(PRIVATE_SHADOW_PUBLISHED_NOTES_OR_FILTER)
