@@ -94,8 +94,10 @@ describe('MLB stored team codes ATH/CHW', () => {
     expect(espnIds).toMatch(/'ATH': 7/)
     expect(espnIds).not.toMatch(/'OAK': 7/)
     const odds = readFileSync(join(process.cwd(), 'scripts/fetch-live-odds.js'), 'utf8')
-    expect(odds).toMatch(/'CHW', 'CWS'/)
-    expect(odds).toMatch(/'ATH', 'OAK'/)
+    expect(odds).toMatch(/oddsTeamsMatch/)
+    expect(odds).toMatch(/matchOddsApiEventToGame/)
+    expect(MLB_TEAM_CODE_ALIASES.CWS).toBe('CHW')
+    expect(MLB_TEAM_CODE_ALIASES.OAK).toBe('ATH')
   })
 })
 
@@ -110,6 +112,9 @@ describe('NFL full team names', () => {
     expect(resolveNflTeamCode('WAS')).toBe('WSH')
     expect(resolveNflTeamCode('WSH')).toBe('WSH')
     expect(resolveNflTeamCode('Washington Commanders')).toBe('WSH')
+    expect(resolveNflTeamCode('JAC')).toBe('JAX')
+    expect(resolveNflTeamCode('JAX')).toBe('JAX')
+    expect(resolveNflTeamCode('Jacksonville Jaguars')).toBe('JAX')
   })
 })
 

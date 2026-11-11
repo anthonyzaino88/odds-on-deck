@@ -28,13 +28,17 @@ import {
   propSaveDecision,
   oddsInsertPayload,
   insertOddsRowResolvingSchema,
-  pickUnmappedOddsGame,
   msSinceEtMidnight,
   nflAdjacentPropsTtlMs,
   propCacheExpiresAt,
   propsCacheMaxAgeMs,
   resolveTeamNameFallback,
   resolvePropLanding,
+  oddsEventSlateBounds,
+  oddsTeamsMatch,
+  matchOddsApiEventToGame,
+  formatUnmappedOddsEventLine,
+  summarizeUnmappedOddsReasons,
 } from '../lib/live-odds-landing.js'
 import {
   bookmakerQuoteTimeIso,
@@ -51,7 +55,6 @@ import {
 } from '../lib/odds-api-budget.js'
 import { applyEventRemap, planEventRemap, shouldCheckPropsCache } from '../lib/odds-event-remap.js'
 import { isCancelledGameStatus } from '../lib/game-grade-eligibility.js'
-import { mlbTeamCodesEqual, resolveMlbTeamCode } from '../lib/team-mapping.js'
 
 // Game ids whose oddsApiEventId changed during this run (new map, reclaim,
 // re-map). Their cached props belong to a different event, so the props
@@ -153,302 +156,31 @@ const NHL_PROP_MARKETS = [
 // TEAM NAME MATCHING (ESPN ↔ The Odds API)
 // ============================================================================
 
-const TEAM_NAME_VARIATIONS = {
-  nfl: {
-    'Los Angeles Rams': ['LA Rams', 'Rams', 'Los Angeles Rams'],
-    'Los Angeles Chargers': ['LA Chargers', 'Chargers', 'Los Angeles Chargers'],
-    'New York Giants': ['NY Giants', 'Giants', 'New York Giants'],
-    'New York Jets': ['NY Jets', 'Jets', 'New York Jets'],
-  },
-  nhl: {
-    'Montreal Canadiens': ['Montréal Canadiens', 'Montreal Canadiens'],
-    'Vegas Golden Knights': ['Las Vegas Golden Knights', 'Vegas Golden Knights'],
-    'Utah Hockey Club': ['Utah Mammoth', 'Utah HC', 'Utah', 'UTA'],  // New team - Utah Mammoth is the Odds API name
-    'Utah Mammoth': ['Utah Hockey Club', 'Utah HC', 'Utah', 'UTA'],  // Also map from Odds API name
-  },
-  mlb: {
-    'Chicago White Sox': ['Chi White Sox', 'White Sox', 'Chicago White Sox', 'CHW', 'CWS'],
-    'Athletics': ['Oakland Athletics', "A's", 'Athletics', 'Oakland As', 'ATH', 'OAK'],
-    'Chicago Cubs': ['Chi Cubs', 'Cubs', 'Chicago Cubs'],
-    'Los Angeles Dodgers': ['LA Dodgers', 'Dodgers', 'Los Angeles Dodgers'],
-    'Los Angeles Angels': ['LA Angels', 'Angels', 'Los Angeles Angels'],
-  }
-}
-
-// Full team name to abbreviation mapping (for The Odds API)
-const FULL_NAME_TO_ABBR = {
-  nfl: {
-    'arizona cardinals': 'ARI', 'atlanta falcons': 'ATL', 'baltimore ravens': 'BAL',
-    'buffalo bills': 'BUF', 'carolina panthers': 'CAR', 'chicago bears': 'CHI',
-    'cincinnati bengals': 'CIN', 'cleveland browns': 'CLE', 'dallas cowboys': 'DAL',
-    'denver broncos': 'DEN', 'detroit lions': 'DET', 'green bay packers': 'GB',
-    'houston texans': 'HOU', 'indianapolis colts': 'IND', 'jacksonville jaguars': 'JAX',
-    'kansas city chiefs': 'KC', 'las vegas raiders': 'LV', 'los angeles rams': 'LAR',
-    'los angeles chargers': 'LAC', 'miami dolphins': 'MIA', 'minnesota vikings': 'MIN',
-    'new england patriots': 'NE', 'new orleans saints': 'NO', 'new york giants': 'NYG',
-    'new york jets': 'NYJ', 'philadelphia eagles': 'PHI', 'pittsburgh steelers': 'PIT',
-    'san francisco 49ers': 'SF', 'seattle seahawks': 'SEA', 'tampa bay buccaneers': 'TB',
-    'tennessee titans': 'TEN', 'washington commanders': 'WSH', 'washington football team': 'WSH'
-  },
-  nhl: {
-    'anaheim ducks': 'ANA', 'arizona coyotes': 'ARI', 'boston bruins': 'BOS',
-    'buffalo sabres': 'BUF', 'calgary flames': 'CGY', 'carolina hurricanes': 'CAR',
-    'chicago blackhawks': 'CHI', 'colorado avalanche': 'COL', 'columbus blue jackets': 'CBJ',
-    'dallas stars': 'DAL', 'detroit red wings': 'DET', 'edmonton oilers': 'EDM',
-    'florida panthers': 'FLA', 'los angeles kings': 'LAK', 'minnesota wild': 'MIN',
-    'montreal canadiens': 'MTL', 'montréal canadiens': 'MTL', 'nashville predators': 'NSH',
-    'new jersey devils': 'NJD', 'new york islanders': 'NYI', 'new york rangers': 'NYR',
-    'ottawa senators': 'OTT', 'philadelphia flyers': 'PHI', 'pittsburgh penguins': 'PIT',
-    'san jose sharks': 'SJS', 'seattle kraken': 'SEA', 'st louis blues': 'STL',
-    'st. louis blues': 'STL', 'tampa bay lightning': 'TB', 'toronto maple leafs': 'TOR',
-    'utah mammoth': 'UTA', 'utah': 'UTA', 'vancouver canucks': 'VAN',
-    'vegas golden knights': 'VGK', 'washington capitals': 'WSH', 'winnipeg jets': 'WPG'
-  },
-  mlb: {
-    'arizona diamondbacks': 'ARI', 'atlanta braves': 'ATL', 'baltimore orioles': 'BAL',
-    'boston red sox': 'BOS', 'chicago cubs': 'CHC', 'chicago white sox': 'CHW',
-    'cincinnati reds': 'CIN', 'cleveland guardians': 'CLE', 'colorado rockies': 'COL',
-    'detroit tigers': 'DET', 'houston astros': 'HOU', 'kansas city royals': 'KC',
-    'los angeles angels': 'LAA', 'los angeles dodgers': 'LAD', 'miami marlins': 'MIA',
-    'milwaukee brewers': 'MIL', 'minnesota twins': 'MIN', 'new york mets': 'NYM',
-    'new york yankees': 'NYY', 'athletics': 'ATH', 'oakland athletics': 'ATH',
-    'philadelphia phillies': 'PHI', 'pittsburgh pirates': 'PIT', 'san diego padres': 'SD',
-    'san francisco giants': 'SF', 'seattle mariners': 'SEA', 'st louis cardinals': 'STL',
-    'st. louis cardinals': 'STL', 'tampa bay rays': 'TB', 'texas rangers': 'TEX',
-    'toronto blue jays': 'TOR', 'washington nationals': 'WSH'
-  }
-}
-
-// Team name to abbreviation mapping (city-based)
-const TEAM_ABBREVIATIONS = {
-  nfl: {
-    'arizona': 'ARI', 'atlanta': 'ATL', 'baltimore': 'BAL', 'buffalo': 'BUF',
-    'carolina': 'CAR', 'chicago': 'CHI', 'cincinnati': 'CIN', 'cleveland': 'CLE',
-    'dallas': 'DAL', 'denver': 'DEN', 'detroit': 'DET', 'green bay': 'GB',
-    'houston': 'HOU', 'indianapolis': 'IND', 'jacksonville': 'JAX', 'kansas city': 'KC',
-    'las vegas': 'LV', 'la rams': 'LAR', 'los angeles rams': 'LAR', 'la chargers': 'LAC',
-    'los angeles chargers': 'LAC', 'miami': 'MIA', 'minnesota': 'MIN', 'new england': 'NE',
-    'new orleans': 'NO', 'ny giants': 'NYG', 'new york giants': 'NYG',
-    'ny jets': 'NYJ', 'new york jets': 'NYJ', 'philadelphia': 'PHI',
-    'pittsburgh': 'PIT', 'san francisco': 'SF', 'seattle': 'SEA',
-    'tampa bay': 'TB', 'tennessee': 'TEN', 'washington': 'WSH'
-  },
-  nhl: {
-    'anaheim': 'ANA', 'arizona': 'ARI', 'boston': 'BOS', 'buffalo': 'BUF',
-    'calgary': 'CGY', 'carolina': 'CAR', 'chicago': 'CHI', 'colorado': 'COL',
-    'columbus': 'CBJ', 'dallas': 'DAL', 'detroit': 'DET', 'edmonton': 'EDM',
-    'florida': 'FLA', 'los angeles': 'LAK', 'minnesota': 'MIN', 'montreal': 'MTL',
-    'montréal': 'MTL', 'nashville': 'NSH', 'new jersey': 'NJD', 'new york islanders': 'NYI',
-    'new york rangers': 'NYR', 'ottawa': 'OTT', 'philadelphia': 'PHI', 'pittsburgh': 'PIT',
-    'san jose': 'SJS', 'seattle': 'SEA', 'st louis': 'STL', 'st. louis': 'STL',
-    'tampa bay': 'TB', 'toronto': 'TOR', 'utah': 'UTA', 'vancouver': 'VAN',
-    'vegas': 'VGK', 'washington': 'WSH', 'winnipeg': 'WPG'
-  },
-  mlb: {
-    'arizona': 'ARI', 'atlanta': 'ATL', 'baltimore': 'BAL', 'boston': 'BOS',
-    'chicago cubs': 'CHC', 'chicago white sox': 'CHW', 'cincinnati': 'CIN',
-    'cleveland': 'CLE', 'colorado': 'COL', 'detroit': 'DET', 'houston': 'HOU',
-    'kansas city': 'KC', 'los angeles angels': 'LAA', 'la angels': 'LAA',
-    'los angeles dodgers': 'LAD', 'la dodgers': 'LAD', 'miami': 'MIA',
-    'milwaukee': 'MIL', 'minnesota': 'MIN', 'new york mets': 'NYM', 'ny mets': 'NYM',
-    'new york yankees': 'NYY', 'ny yankees': 'NYY', 'oakland': 'ATH', 'athletics': 'ATH',
-    'philadelphia': 'PHI', 'pittsburgh': 'PIT', 'san diego': 'SD',
-    'san francisco': 'SF', 'seattle': 'SEA', 'st louis': 'STL', 'st. louis': 'STL',
-    'tampa bay': 'TB', 'texas': 'TEX', 'toronto': 'TOR', 'washington': 'WSH'
-  }
-}
-
-function fullNameToAbbr(name, sport) {
-  if (!name) return ''
-  const lower = name.toLowerCase().trim()
-  
-  // If it's already a short abbreviation (3-4 chars), don't try to match it to full names
-  // Abbreviations should match abbreviations, not partial strings in full names
-  if (lower.length <= 4) {
-    // Only return if it's an exact match in the map
-    const fullNameMap = FULL_NAME_TO_ABBR[sport] || {}
-    if (fullNameMap[lower]) {
-      const mapped = fullNameMap[lower]
-      return (sport === 'mlb' ? resolveMlbTeamCode(mapped) || mapped : mapped).toLowerCase()
-    }
-    if (sport === 'mlb') {
-      const canonical = resolveMlbTeamCode(lower)
-      if (canonical && canonical.length <= 4) return canonical.toLowerCase()
-    }
-    // Don't try partial matching for short abbreviations
-    return null
-  }
-  
-  // For longer names, try direct full name match first
-  const fullNameMap = FULL_NAME_TO_ABBR[sport] || {}
-  if (fullNameMap[lower]) {
-    return fullNameMap[lower].toLowerCase()
-  }
-  
-  // Try partial match (only for longer names)
-  for (const [fullName, abbr] of Object.entries(fullNameMap)) {
-    // Only match if the input is longer than the abbreviation
-    // This prevents "tor" from matching "toronto maple leafs"
-    if (lower.length > abbr.length && (lower.includes(fullName) || fullName.includes(lower))) {
-      return abbr.toLowerCase()
-    }
-  }
-  
-  return null
-}
-
-function normalizeTeamName(name, sport) {
-  if (!name) return ''
-  
-  let normalized = name.toLowerCase().trim()
-  
-  // Remove common suffixes
-  normalized = normalized
-    .replace(/\s+(cardinals|falcons|ravens|bills|panthers|bears|bengals|browns|cowboys|broncos|lions|packers|texans|colts|jaguars|chiefs|raiders|rams|chargers|dolphins|vikings|patriots|saints|giants|jets|eagles|steelers|49ers|seahawks|buccaneers|titans|commanders)$/i, '')
-    .replace(/\s+at\s+/i, ' @ ')
-  
-  // Check if name matches any canonical or variation
-  const variations = TEAM_NAME_VARIATIONS[sport] || {}
-  for (const [canonical, alts] of Object.entries(variations)) {
-    if (alts.some(alt => alt.toLowerCase() === name.toLowerCase())) {
-      return canonical.toLowerCase()
-    }
-  }
-  
-  // Try to extract city name or use as-is
-  return normalized
-}
-
-function extractTeamIdentifier(name, sport = 'nfl') {
-  if (!name) return ''
-  const lower = name.toLowerCase().trim()
-  
-  // Try to find abbreviation mapping (sport-specific)
-  const sportMap = TEAM_ABBREVIATIONS[sport] || {}
-  for (const [key, abbr] of Object.entries(sportMap)) {
-    if (lower.includes(key)) return abbr.toLowerCase()
-  }
-  
-  // Extract first significant word(s)
-  const words = lower.split(/\s+/)
-  if (words[0] === 'new' && words[1] === 'york') {
-    // For NHL, distinguish between Islanders and Rangers
-    if (sport === 'nhl') {
-      if (lower.includes('islanders')) return 'nyi'
-      if (lower.includes('rangers')) return 'nyr'
-      return 'ny' + (words[2] || '')
-    }
-    return 'ny' + (words[2] || '')
-  }
-  if (words[0] === 'new' && words[1] === 'orleans') return 'no'
-  if (words[0] === 'new' && words[1] === 'england') return 'ne'
-  if (words[0] === 'new' && words[1] === 'jersey') return 'njd'
-  if (words[0] === 'las' && words[1] === 'vegas') return sport === 'nhl' ? 'vgk' : 'lv'
-  if (words[0] === 'los' && words[1] === 'angeles') return sport === 'nhl' ? 'lak' : ('la' + (words[2] || ''))
-  if (words[0] === 'san' && words[1] === 'francisco') return 'sf'
-  if (words[0] === 'san' && words[1] === 'jose') return 'sjs'
-  if (words[0] === 'st' && words[1] === 'louis') return 'stl'
-  if (words[0] === 'tampa' && words[1] === 'bay') return 'tb'
-  if (words[0] === 'green' && words[1] === 'bay') return 'gb'
-  if (words[0] === 'kansas' && words[1] === 'city') return 'kc'
-  
-  return words[0]
+function matchTeams(espnHome, espnAway, oddsHome, oddsAway, sport) {
+  return oddsTeamsMatch(espnHome, espnAway, oddsHome, oddsAway, sport)
 }
 
 // Helper function to find game by team names (for fallback lookup)
 async function findGameByTeamNames(oddsHome, oddsAway, sport, date, eventId) {
   try {
-    const dateStart = new Date(date)
-    dateStart.setHours(0, 0, 0, 0)
-    const dateEnd = new Date(date)
-    dateEnd.setHours(23, 59, 59, 999)
-    
+    const bounds = oddsEventSlateBounds({ sport, date })
     const { data: games } = await supabase
       .from('Game')
       .select('id, oddsApiEventId, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
       .eq('sport', sport)
-      .gte('date', dateStart.toISOString())
-      .lte('date', dateEnd.toISOString())
-    
-    const sameDay = (games || []).filter((game) => {
-      const homeName = (game.home?.abbr || game.home?.name || '').trim()
-      const awayName = (game.away?.abbr || game.away?.name || '').trim()
-      return matchTeams(homeName, awayName, oddsHome, oddsAway, sport)
-    })
-    if (sameDay.length > 0) {
-      return resolveTeamNameFallback(sameDay, [], eventId)
-    }
+      .gte('date', bounds.startIso)
+      .lte('date', bounds.endIso)
 
-    // No same-day team matches — timezone / date-boundary edge only
-    const expandedStart = new Date(dateStart)
-    expandedStart.setDate(expandedStart.getDate() - 1)
-    const expandedEnd = new Date(dateEnd)
-    expandedEnd.setDate(expandedEnd.getDate() + 1)
-    
-    const { data: expandedGames } = await supabase
-      .from('Game')
-      .select('id, oddsApiEventId, home:Team!Game_homeId_fkey(name, abbr), away:Team!Game_awayId_fkey(name, abbr)')
-      .eq('sport', sport)
-      .gte('date', expandedStart.toISOString())
-      .lte('date', expandedEnd.toISOString())
-    
-    const expanded = (expandedGames || []).filter((game) => {
+    const matches = (games || []).filter((game) => {
       const homeName = (game.home?.abbr || game.home?.name || '').trim()
       const awayName = (game.away?.abbr || game.away?.name || '').trim()
       return matchTeams(homeName, awayName, oddsHome, oddsAway, sport)
     })
-    return resolveTeamNameFallback([], expanded, eventId)
+    return resolveTeamNameFallback(matches, [], eventId)
   } catch (error) {
     console.warn(`Error in findGameByTeamNames: ${error.message}`)
     return null
   }
-}
-
-function matchTeams(espnHome, espnAway, oddsHome, oddsAway, sport) {
-  // Normalize team names - handle variations
-  const normalizeName = (name) => {
-    if (!name) return ''
-    return name.toLowerCase()
-      .trim()
-      .replace(/^st\.\s+louis$/i, 'st louis')
-      .replace(/^st\s+louis$/i, 'st louis')
-      .replace(/\s+/g, ' ')
-  }
-  
-  // Helper to check if two team names match
-  const teamsMatch = (team1, team2) => {
-    const norm1 = normalizeName(team1)
-    const norm2 = normalizeName(team2)
-    
-    // Direct match
-    if (norm1 === norm2) return true
-    
-    // Abbreviation match (ATH↔OAK, CHW↔CWS via the shared MLB alias table)
-    if (sport === 'mlb' && mlbTeamCodesEqual(team1, team2)) return true
-
-    const abbr1 = fullNameToAbbr(team1, sport) || extractTeamIdentifier(team1, sport) || norm1
-    const abbr2 = fullNameToAbbr(team2, sport) || extractTeamIdentifier(team2, sport) || norm2
-    
-    if (abbr1 === abbr2) return true
-    if (sport === 'mlb' && mlbTeamCodesEqual(abbr1, abbr2)) return true
-    if (abbr1.includes(abbr2) || abbr2.includes(abbr1)) return true
-    
-    // First word match (city name)
-    const firstWord1 = norm1.split(' ')[0]
-    const firstWord2 = norm2.split(' ')[0]
-    if (firstWord1 === firstWord2 && firstWord1.length > 2) return true
-    
-    return false
-  }
-  
-  // Try normal order (ESPN home vs Odds home, ESPN away vs Odds away)
-  const normalMatch = teamsMatch(espnHome, oddsHome) && teamsMatch(espnAway, oddsAway)
-  
-  // Try reversed order (ESPN home vs Odds away, ESPN away vs Odds home)
-  // ESPN and Odds API sometimes have home/away reversed
-  const reversedMatch = teamsMatch(espnHome, oddsAway) && teamsMatch(espnAway, oddsHome)
-  
-  return normalMatch || reversedMatch
 }
 
 // ============================================================================
@@ -670,16 +402,10 @@ async function fetchGameOdds(sport, date, ignoreCache = false) {
 async function mapAndSaveEventIds(oddsGames, sport, date) {
   console.log(`  🔗 Mapping ESPN games to Odds API events...`)
   
-  // Get ESPN games from database - try ±3 day range to catch all games
-  // Odds API often returns games for multiple days even when querying a specific date
-  // Also, Odds API dates might be +1 day from ESPN dates due to timezone differences
-  const dateObj = new Date(date)
-  const dateStart = new Date(dateObj)
-  dateStart.setHours(0, 0, 0, 0)
-  dateStart.setDate(dateStart.getDate() - 3) // 3 days before (to catch timezone differences)
-  const dateEnd = new Date(dateObj)
-  dateEnd.setHours(23, 59, 59, 999)
-  dateEnd.setDate(dateEnd.getDate() + 4) // 4 days after (to catch timezone differences)
+  // Load Game rows for this sport's mapping window (NFL: current Thu–Mon
+  // week in ET, padded 1 day; MLB/NHL: ±3 / +4 ET days). Host-local
+  // midnight math on YYYY-MM-DD drops Sunday/Monday NFL games on ET.
+  const bounds = oddsEventSlateBounds({ sport, date })
   
   // Get ALL games in the expanded date range (mapped and unmapped) for matching
   // IMPORTANT: Also get games with same ESPN ID across different dates to handle duplicates
@@ -687,8 +413,8 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
     .from('Game')
     .select(MAP_EVENT_GAME_SELECT)
     .eq('sport', sport)
-    .gte('date', dateStart.toISOString())
-    .lte('date', dateEnd.toISOString())
+    .gte('date', bounds.startIso)
+    .lte('date', bounds.endIso)
   
   // Also check for games with the same ESPN IDs that might be on different dates (due to timezone)
   // This helps catch duplicates that weren't cleaned up
@@ -721,11 +447,11 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
   
   if (dbGames && dbGames.length > 0) {
     dbGames = dbGames.filter((g) => !isCancelledGameStatus(g.status))
-    console.log(`  📅 Found ${dbGames.length} games in ±3 day range (${dateStart.toISOString().split('T')[0]} to ${dateEnd.toISOString().split('T')[0]})`)
+    console.log(`  📅 Found ${dbGames.length} games in slate ${bounds.startKey} to ${bounds.endKey} ET`)
   }
   
   if (!dbGames || dbGames.length === 0) {
-    console.log(`  ℹ️  No ${sport.toUpperCase()} games in database for ${date} (±1 day)`)
+    console.log(`  ℹ️  No ${sport.toUpperCase()} games in database for slate ${bounds.startKey} to ${bounds.endKey} ET`)
     console.log(`  💡 Tip: Games may need to be fetched from ESPN API first`)
     return 0
   }
@@ -736,6 +462,7 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
   
   let mapped = 0
   let unmapped = []
+  let unmappedReasons = []
   let alreadyMappedCount = 0
   let remapped = 0
   // Event ids still offered by the Odds API. A row mapped to an id that is
@@ -793,18 +520,13 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
     }
     
     // Match by team names, then pick the DB game closest to the EVENT's commence_time
-    const oddsHome = (oddsGame.home_team || '').trim()
-    const oddsAway = (oddsGame.away_team || '').trim()
-    const eventTime = eventCommenceMs(oddsGame.commence_time, date)
-
-    const teamMatches = dbGames.filter(g => {
-      if (g.oddsApiEventId === oddsGame.id) return false
-      const homeName = (g.home?.abbr || g.home?.name || '').trim()
-      const awayName = (g.away?.abbr || g.away?.name || '').trim()
-      return matchTeams(homeName, awayName, oddsHome, oddsAway, sport)
+    const { game: dbGame, reason: missReason } = matchOddsApiEventToGame({
+      event: oddsGame,
+      sport,
+      date,
+      dbGames,
+      isReclaimable,
     })
-
-    const dbGame = pickUnmappedOddsGame(teamMatches, eventTime, { isReclaimable })
     
     if (dbGame) {
       // Save mapping
@@ -826,9 +548,9 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
         mapped++
       }
     } else {
-      const when = oddsGame.commence_time ? ` (${oddsGame.commence_time})` : ''
-      const why = teamMatches.length > 0 ? ' — no open game within ±6h of event start' : ''
-      unmapped.push(`${oddsGame.away_team} @ ${oddsGame.home_team}${when}${why}`)
+      const reason = missReason || 'not_in_slate'
+      unmappedReasons.push(reason)
+      unmapped.push(formatUnmappedOddsEventLine(oddsGame, reason))
     }
   }
   
@@ -837,8 +559,9 @@ async function mapAndSaveEventIds(oddsGames, sport, date) {
     console.log(`  ℹ️  ${alreadyMappedCount} games already correctly mapped`)
   }
   if (unmapped.length > 0) {
-    console.log(`  ⚠️  Unmapped games (not in ESPN data):`)
+    console.log(`  ⚠️  Unmapped Odds API events:`)
     unmapped.forEach(game => console.log(`     - ${game}`))
+    console.log(`  📊 ${summarizeUnmappedOddsReasons(unmappedReasons).summary}`)
   }
   
   return mapped + alreadyMappedCount  // Return total count of mapped games (new + existing)
@@ -1124,22 +847,16 @@ async function fetchPlayerProps(sport, date, oddsGames, ignoreCache = false) {
     console.log(`  📅 Found ${oddsGames.length} games from Odds API`)
 
     // Only fetch props for Odds API events already mapped to a Game (oddsApiEventId).
-    // Same expanded slate window as mapAndSaveEventIds (±3 days / +4 days).
-    const dateObj = new Date(date)
-    const dateStart = new Date(dateObj)
-    dateStart.setHours(0, 0, 0, 0)
-    dateStart.setDate(dateStart.getDate() - 3)
-    const dateEnd = new Date(dateObj)
-    dateEnd.setHours(23, 59, 59, 999)
-    dateEnd.setDate(dateEnd.getDate() + 4)
+    // Same slate window as mapAndSaveEventIds (NFL week / ET ±3+4).
+    const bounds = oddsEventSlateBounds({ sport, date })
 
     const { data: mappedRows, error: mappedError } = await supabase
       .from('Game')
       .select('id, oddsApiEventId, date')
       .eq('sport', sport)
       .not('oddsApiEventId', 'is', null)
-      .gte('date', dateStart.toISOString())
-      .lte('date', dateEnd.toISOString())
+      .gte('date', bounds.startIso)
+      .lte('date', bounds.endIso)
 
     if (mappedError) {
       console.log(`  ⚠️  Error loading mapped ESPN games for ${sport.toUpperCase()} props: ${mappedError.message}`)
