@@ -30,6 +30,8 @@ describe('MLB game-line public kill switch wiring', () => {
     const picks = read('lib/picks.js')
     expect(picks).toMatch(/PUBLISHED_GAME_LINE_SPORTS\.map/)
     expect(picks).toMatch(/if \(!isRecordedGameLineSport\(game\?\.sport\)\) return \[\]/)
+    expect(picks).toMatch(/export function inspectGameLineSnapshot/)
+    expect(picks.match(/export \{([^}]+)\}/)?.[1] || '').not.toMatch(/inspectGameLineSnapshot/)
 
     const validation = read('lib/validation.js')
     expect(validation).toMatch(/isRecordedGameLineSport\(line\.sport\)/)
