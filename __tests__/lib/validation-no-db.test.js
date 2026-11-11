@@ -1,5 +1,6 @@
 const eqCalls = []
 const orCalls = []
+const selectCalls = []
 const from = jest.fn()
 
 function createChain() {
@@ -7,6 +8,7 @@ function createChain() {
   const passthrough = (name) => jest.fn((...args) => {
     if (name === 'eq') eqCalls.push(args)
     if (name === 'or') orCalls.push(args)
+    if (name === 'select') selectCalls.push(args)
     return chain
   })
   chain.select = passthrough('select')
@@ -41,11 +43,40 @@ import {
   getValidationStats,
   getAccuracyByEdge,
 } from '../../lib/validation.js'
+import { clvFromOdds } from '../../lib/closing-line.js'
 import {
   PUBLISHED_SOURCE,
+  PUBLISHED_CLV_SELECT,
+  PUBLISHED_STATS_SELECT,
   SHADOW_PUBLISHED_NOTES_OR_FILTER,
   PRIVATE_SHADOW_PUBLISHED_NOTES_OR_FILTER,
 } from '../../lib/published-picks.js'
+
+function publishedCloseRow(overrides = {}) {
+  return {
+    id: 'pv-mlb-1',
+    status: 'completed',
+    result: 'correct',
+    prediction: 'over',
+    propType: 'batter_hits',
+    threshold: 0.5,
+    odds: 150,
+    edge: 0.05,
+    qualityScore: 48,
+    sport: 'mlb',
+    source: PUBLISHED_SOURCE,
+    notes: 'cohort:published',
+    completedAt: '2026-07-16T04:00:00.000Z',
+    timestamp: '2026-07-15T18:00:00.000Z',
+    playerName: 'Aaron Judge',
+    probability: 0.58,
+    gameIdRef: 'g-1',
+    closeOdds: 130,
+    closeLine: 0.5,
+    closeCapturedAt: '2026-07-15T23:00:00.000Z',
+    ...overrides,
+  }
+}
 
 describe('recordPropPrediction refuses without a DB call', () => {
   beforeEach(() => {
@@ -198,6 +229,7 @@ describe('getPublishedPicksStats query applies the source filter', () => {
   beforeEach(() => {
     eqCalls.length = 0
     orCalls.length = 0
+    selectCalls.length = 0
     from.mockReset()
     from.mockImplementation(() => createChain())
   })
@@ -213,7 +245,77 @@ describe('getPublishedPicksStats query applies the source filter', () => {
       ['source', PUBLISHED_SOURCE],
     ])
     expect(stats.sample).toBe(0)
+    expect(stats.clv).toMatchObject({ sameLine: 0, avgClvProb: null, pctBeatClose: null })
     expect(orCalls).toEqual([[SHADOW_PUBLISHED_NOTES_OR_FILTER]])
+    expect(selectCalls[0][0]).toBe(PUBLISHED_CLV_SELECT)
+    expect(selectCalls[0][0]).toMatch(/closeOdds/)
+  })
+
+  test('falls back to PUBLISHED_STATS_SELECT when close columns are missing', async () => {
+    let selects = 0
+    from.mockImplementation(() => {
+      const chain = createChain()
+      chain.then = (onFulfilled, onRejected) => {
+        selects += 1
+        const result = selects === 1
+          ? { data: null, error: { code: '42703', message: 'column closeOdds does not exist' } }
+          : { data: [], error: null }
+        return Promise.resolve(result).then(onFulfilled, onRejected)
+      }
+      return chain
+    })
+    const stats = await getPublishedPicksStats()
+    expect(stats.clv.sameLine).toBe(0)
+    expect(selectCalls.map((args) => args[0])).toEqual([
+      PUBLISHED_CLV_SELECT,
+      PUBLISHED_STATS_SELECT,
+    ])
+  })
+
+  test('public CLV uses stored same-line closes and drops shadow plus moved lines', async () => {
+    from.mockImplementation(() => {
+      const chain = createChain()
+      chain.then = (onFulfilled, onRejected) => Promise.resolve({
+        data: [
+          publishedCloseRow(),
+          publishedCloseRow({
+            id: 'pv-moved',
+            closeLine: 1.5,
+            closeOdds: 100,
+          }),
+          publishedCloseRow({
+            id: 'pv-shadow',
+            sport: 'nhl',
+            propType: 'player_shots_on_goal',
+            notes: 'cohort:shadow-published',
+            closeOdds: 110,
+          }),
+          publishedCloseRow({
+            id: 'pv-gl',
+            sport: 'nhl',
+            source: 'game_line',
+            propType: 'moneyline',
+            notes: 'cohort:sides_totals | cohort:shadow-published',
+            closeOdds: 110,
+          }),
+          publishedCloseRow({
+            id: 'pv-open',
+            closeOdds: null,
+            closeLine: null,
+            closeCapturedAt: null,
+          }),
+        ],
+        error: null,
+      }).then(onFulfilled, onRejected)
+      return chain
+    })
+
+    const stats = await getPublishedPicksStats()
+    expect(stats.clv.sameLine).toBe(1)
+    expect(stats.clv.lineMoved).toBe(1)
+    expect(stats.clv.beatClose).toBe(1)
+    expect(stats.clv.avgClvProb).toBeCloseTo(clvFromOdds(150, 130).clvProb, 8)
+    expect(stats.clv.pctBeatClose).toBe(1)
   })
 })
 

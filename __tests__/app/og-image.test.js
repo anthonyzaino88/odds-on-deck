@@ -12,7 +12,6 @@ const METADATA_FILES = [
   'app/props/layout.js',
   'app/games/layout.js',
   'app/parlays/layout.js',
-  'app/insights/page.js',
   'app/dfs/page.js',
   'app/validation/page.js',
 ]

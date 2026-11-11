@@ -47,6 +47,15 @@ const nextConfig = {
       },
     ]
   },
+  async redirects() {
+    return [
+      {
+        source: '/insights',
+        destination: '/validation',
+        permanent: true,
+      },
+    ]
+  },
 }
 
 module.exports = nextConfig

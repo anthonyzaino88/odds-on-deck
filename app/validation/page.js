@@ -14,10 +14,10 @@ export const metadata = {
     canonical: 'https://oddsondeck.com/validation',
   },
   title: 'Validation — Published Picks & Full Record',
-  description: 'ROI, units, sample, and average odds for the published-picks cohort, plus the full graded archive. Methodology locked; sample still building.',
+  description: 'ROI, units, sample, average odds, and closing-line value for the published-picks cohort, plus the full graded archive. Methodology locked; sample still building.',
   openGraph: {
     title: 'Validation — Published Picks & Full Record | Odds on Deck',
-    description: 'Public ROI track for published picks, with the full graded archive below. Methodology locked; sample still building.',
+    description: 'Public ROI and closing-line value for published picks, with the full graded archive below. Methodology locked; sample still building.',
     images: [OG_IMAGE],
   },
 }
@@ -107,21 +107,16 @@ export default async function ValidationDashboard({ searchParams }) {
         </Link>
         <h1 className="text-xl font-semibold text-slate-100">Published picks &amp; full record</h1>
         <p className="text-sm text-slate-400 mt-1.5 max-w-2xl leading-relaxed">
-          The Published card is the curated public track (ROI first). Everything below it is the
+          The Published card is the curated public track (ROI first, plus closing-line
+          value when we have a same-line close). Everything below it is the
           full graded archive &mdash; bulk tracked props, not the brand picks. After each game we
           pull the box score and grade wins, losses, and pushes. See the{' '}
           <Link href="/glossary" className="text-slate-300 underline decoration-white/15 underline-offset-2 hover:text-slate-100">glossary</Link>
           {' '}for how we define{' '}
-          <Link href="/glossary/edge" className="text-slate-300 underline decoration-white/15 underline-offset-2 hover:text-slate-100">edge</Link>.
+          <Link href="/glossary/edge" className="text-slate-300 underline decoration-white/15 underline-offset-2 hover:text-slate-100">edge</Link>
+          {' '}and{' '}
+          <Link href="/glossary/implied-probability" className="text-slate-300 underline decoration-white/15 underline-offset-2 hover:text-slate-100">implied probability</Link>.
         </p>
-        <div className="mt-4">
-          <Link
-            href="/insights"
-            className="inline-flex items-center justify-center px-3 py-2 bg-surface hover:bg-elevated text-slate-200 text-sm font-medium rounded-[4px] border border-white/[0.06] transition-colors duration-100"
-          >
-            View Insights
-          </Link>
-        </div>
       </div>
 
       {/* Time Window Filter */}

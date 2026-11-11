@@ -63,6 +63,7 @@ import {
   closeCaptureJobPriority,
   sortCloseCaptureJobs,
   summarizePublishedClv,
+  summarizePublicPublishedClv,
   updateWithOptionalCloseOdds,
   withoutCloseOddsFields,
   writeGameLineCloses,
@@ -727,6 +728,88 @@ describe('CLV math', () => {
       + clvFromOdds(-110, -120).clvProb
     ) / 2, 8)
     expect(summary.lineMovedAvgClvProb).toBeCloseTo(clvFromOdds(140, 160).clvProb, 8)
+  })
+
+  test('public Published CLV drops shadow, game-line, juice-trap, and moved-line rows', () => {
+    const publishedSameLine = {
+      status: 'completed',
+      result: 'correct',
+      prediction: 'over',
+      propType: 'batter_hits',
+      threshold: 0.5,
+      odds: 150,
+      edge: 0.05,
+      qualityScore: 48,
+      sport: 'mlb',
+      source: 'system_generated',
+      notes: 'cohort:published',
+      timestamp: '2026-07-15T18:00:00.000Z',
+      completedAt: '2026-07-16T04:00:00.000Z',
+      closeOdds: 130,
+      closeLine: 0.5,
+    }
+    const publishedMoved = {
+      ...publishedSameLine,
+      id: 'moved',
+      closeLine: 1.5,
+      closeOdds: 100,
+    }
+    const shadowNhl = {
+      ...publishedSameLine,
+      id: 'shadow',
+      sport: 'nhl',
+      propType: 'player_shots_on_goal',
+      notes: 'cohort:shadow-published',
+      closeOdds: 110,
+      closeLine: 0.5,
+    }
+    const sidesTotals = {
+      ...publishedSameLine,
+      id: 'gl',
+      sport: 'nhl',
+      source: 'game_line',
+      propType: 'moneyline',
+      notes: 'cohort:sides_totals | cohort:shadow-published',
+      closeOdds: 110,
+      closeLine: 0.5,
+    }
+    const juiceTrap = {
+      ...publishedSameLine,
+      id: 'trap',
+      prediction: 'under',
+      threshold: 0.5,
+      closeLine: 0.5,
+      closeOdds: 110,
+    }
+    const nhlPublished = {
+      ...publishedSameLine,
+      id: 'nhl-pub',
+      sport: 'nhl',
+      propType: 'player_shots_on_goal',
+      notes: 'cohort:published',
+      odds: -110,
+      closeOdds: -120,
+      threshold: 2.5,
+      closeLine: 2.5,
+    }
+
+    const summary = summarizePublicPublishedClv([
+      publishedSameLine,
+      publishedMoved,
+      shadowNhl,
+      sidesTotals,
+      juiceTrap,
+      nhlPublished,
+    ])
+    expect(summary.sample).toBe(3)
+    expect(summary.sameLine).toBe(2)
+    expect(summary.lineMoved).toBe(1)
+    expect(summary.beatClose).toBe(2)
+    expect(summary.avgClvProb).toBeCloseTo((
+      clvFromOdds(150, 130).clvProb
+      + clvFromOdds(-110, -120).clvProb
+    ) / 2, 8)
+    expect(summary.pctBeatClose).toBe(1)
   })
 
   test('ignores NHL rows from nfl-nhl-v0.1.0 and leaves NFL CLV unchanged', () => {

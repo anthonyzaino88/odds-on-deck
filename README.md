@@ -48,13 +48,7 @@
 - Performance analytics by prop type
 - Source tracking (User Saved, Parlay Legs, System Generated)
 - Real odds-based ROI calculation
-
-### **💡 Performance Insights**
-- Sport-specific accuracy metrics (NFL, NHL, MLB)
-- Best/worst performing prop types grouped into System, Prop Type, and Player tiers
-- Actionable recommendations with search and filtering
-- Historical trend analysis
-- Break-even tracking (52.4% for standard -110 odds)
+- Closing-line value on the Published card (same-line implied-probability gap, vig included)
 
 ### **💰 DFS Rankings** *(Coming Soon)*
 - Daily Fantasy Sports player values
@@ -182,8 +176,7 @@ Open [http://localhost:3000](http://localhost:3000)
 | Editor's Picks | `/picks` | AI-curated recommendations |
 | Player Props | `/props` | Comprehensive prop analytics |
 | Parlays | `/parlays` | Parlay generator & history |
-| Validation | `/validation` | Accuracy tracking dashboard |
-| Insights | `/insights` | Performance analysis |
+| Validation | `/validation` | Published ROI, CLV, and full graded archive |
 | DFS | `/dfs` | Daily fantasy rankings |
 | Privacy | `/privacy` | Privacy policy |
 | Terms | `/terms` | Terms & disclaimer |
@@ -237,7 +230,7 @@ npm run export:stats # Export performance stats
 - [x] Editor's Picks with AI insights ✅
 - [x] Comprehensive validation system ✅
 - [x] Supabase database migration ✅
-- [x] Performance insights dashboard ✅
+- [x] Performance insights dashboard (retired; `/insights` redirects to Validation) ✅
 - [x] Security hardening (RLS, CSP headers, privacy/terms) ✅
 - [x] Terminal-style design system & brand refresh ✅
 - [ ] Add NBA, Soccer support
