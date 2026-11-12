@@ -175,6 +175,13 @@ describe('oddsTeamsMatch NFL aliases and full names', () => {
     expect(oddsTeamsMatch('CHW', 'ATH', 'CWS', 'OAK', 'mlb')).toBe(true)
     expect(oddsTeamsMatch('TBL', 'UTA', 'Tampa Bay Lightning', 'Utah Mammoth', 'nhl')).toBe(true)
   })
+
+  test('St Louis Blues @ Utah Mammoth maps onto STL @ UTA', () => {
+    expect(oddsTeamsMatch('UTA', 'STL', 'Utah Mammoth', 'St Louis Blues', 'nhl')).toBe(true)
+    expect(oddsTeamsMatch('UTA', 'STL', 'Utah Hockey Club', 'St. Louis Blues', 'nhl')).toBe(true)
+    expect(oddsTeamsMatch('UTA', 'STL', 'Utah HC', 'St Louis Blues', 'nhl')).toBe(true)
+    expect(oddsTeamsMatch('UTA', 'STL', 'Utah', 'St. Louis Blues', 'nhl')).toBe(true)
+  })
 })
 
 describe('classifyUnmappedOddsEvent', () => {
@@ -198,6 +205,38 @@ describe('classifyUnmappedOddsEvent', () => {
       eventTime: Date.parse(TNF),
       dbGames: [sunday],
     }).reason).toBe(UNMAPPED_ODDS_REASONS.TEAM_MAP_MISS)
+  })
+
+  test('St Louis Blues @ Utah Mammoth is not a team_map_miss', () => {
+    const commence = '2026-11-13T02:00:00.000Z' // Thu 2026-11-12, 9:00 PM ET
+    const utahHome = {
+      id: 'STL_at_UTA_2026-11-12',
+      date: '2026-11-13T02:00:00.000',
+      status: 'scheduled',
+      oddsApiEventId: null,
+      home: { abbr: 'UTA', name: 'Utah Hockey Club' },
+      away: { abbr: 'STL', name: 'St. Louis Blues' },
+    }
+    expect(classifyUnmappedOddsEvent({
+      oddsHome: 'Utah Mammoth',
+      oddsAway: 'St Louis Blues',
+      sport: 'nhl',
+      eventTime: Date.parse(commence),
+      dbGames: [utahHome],
+    }).reason).not.toBe(UNMAPPED_ODDS_REASONS.TEAM_MAP_MISS)
+    const mapped = matchOddsApiEventToGame({
+      event: {
+        id: 'evt-stl-uta',
+        home_team: 'Utah Mammoth',
+        away_team: 'St Louis Blues',
+        commence_time: commence,
+      },
+      sport: 'nhl',
+      date: '2026-11-12',
+      dbGames: [utahHome],
+    })
+    expect(mapped.reason).toBeNull()
+    expect(mapped.game.id).toBe('STL_at_UTA_2026-11-12')
   })
 
   test('time_mismatch when the matchup exists but start is outside ±6h', () => {
