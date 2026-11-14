@@ -182,6 +182,12 @@ describe('oddsTeamsMatch NFL aliases and full names', () => {
     expect(oddsTeamsMatch('UTA', 'STL', 'Utah HC', 'St Louis Blues', 'nhl')).toBe(true)
     expect(oddsTeamsMatch('UTA', 'STL', 'Utah', 'St. Louis Blues', 'nhl')).toBe(true)
   })
+
+  test('Colorado Avalanche @ Montréal Canadiens maps onto COL @ MTL', () => {
+    expect(oddsTeamsMatch('MTL', 'COL', 'Montréal Canadiens', 'Colorado Avalanche', 'nhl')).toBe(true)
+    expect(oddsTeamsMatch('MTL', 'COL', 'Montreal Canadiens', 'Colorado Avalanche', 'nhl')).toBe(true)
+    expect(oddsTeamsMatch('MTL', 'COL', 'MONTRÉAL CANADIENS', 'Colorado Avalanche', 'nhl')).toBe(true)
+  })
 })
 
 describe('classifyUnmappedOddsEvent', () => {
@@ -237,6 +243,38 @@ describe('classifyUnmappedOddsEvent', () => {
     })
     expect(mapped.reason).toBeNull()
     expect(mapped.game.id).toBe('STL_at_UTA_2026-11-12')
+  })
+
+  test('Colorado Avalanche @ Montréal Canadiens is not a team_map_miss', () => {
+    const commence = '2026-11-15T00:00:00.000Z' // Fri 2026-11-14, 7:00 PM ET
+    const mtlHome = {
+      id: 'COL_at_MTL_2026-11-14',
+      date: '2026-11-15T00:00:00.000',
+      status: 'scheduled',
+      oddsApiEventId: null,
+      home: { abbr: 'MTL', name: 'Montreal Canadiens' },
+      away: { abbr: 'COL', name: 'Colorado Avalanche' },
+    }
+    expect(classifyUnmappedOddsEvent({
+      oddsHome: 'Montréal Canadiens',
+      oddsAway: 'Colorado Avalanche',
+      sport: 'nhl',
+      eventTime: Date.parse(commence),
+      dbGames: [mtlHome],
+    }).reason).not.toBe(UNMAPPED_ODDS_REASONS.TEAM_MAP_MISS)
+    const mapped = matchOddsApiEventToGame({
+      event: {
+        id: 'evt-col-mtl',
+        home_team: 'Montréal Canadiens',
+        away_team: 'Colorado Avalanche',
+        commence_time: commence,
+      },
+      sport: 'nhl',
+      date: '2026-11-14',
+      dbGames: [mtlHome],
+    })
+    expect(mapped.reason).toBeNull()
+    expect(mapped.game.id).toBe('COL_at_MTL_2026-11-14')
   })
 
   test('time_mismatch when the matchup exists but start is outside ±6h', () => {
