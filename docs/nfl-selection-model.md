@@ -1,25 +1,39 @@
-# NFL moneyline and totals selection model
+# NFL moneyline, spread, and totals selection model
 
-Status: **unvalidated research heuristic**. Public NFL sides and totals stay disabled.
+Status: **unvalidated research heuristic**. Public NFL sides, spreads, and totals stay disabled.
 
-Model version: `nfl-selection-v1.0.1`  
+Current research model: `nfl-selection-v1.1.0`  
+Previous heuristic (still scoreable, never public): `nfl-selection-v1.0.1`  
 Legacy heuristic (do not present as this model): `nfl-nhl-v0.1.0`
 
-## What this model uses
+Publish bars, lock time, and graduation: `docs/game-line-model-rules.md`.
+Walk-forward: `node scripts/backtest-game-lines.js --summary`.
 
-Moneyline research path (only when data eligibility passes):
+## What v1.1.0 uses
+
+Moneyline / spread / totals research path (only when data eligibility passes):
 
 - Season win-loss record. The Team column `last10Record` is a **season** record from ESPN, not a last-10 window.
+- Season point differential from `avgPointsLast10` / `avgPointsAllowedLast10` (those columns are season PPG).
 - `gamesPlayed`, `season`, `dataThrough`, and `statsCapturedAt`.
-- The two-way moneyline quote captured at prediction time.
+- One home-field logit (not venue W-L records).
+- Pre-lock recent form, rest, and matchup history when rebuilt from finals whose result was written before pick-lock.
+- Pre-lock ESPN injuries and starting QB names when their timestamps are ≤ lock (`scripts/fetch-injuries.js`).
+- The two-way quote captured at prediction time. The model then **blends 35% of the model–market gap** and **clamps the rest to 8pp** (12pp only if a starting QB is out). That is what stops 25-point win-probability gaps.
+
+Totals: season points-for/against as a Normal mean, unvalidated σ = 13.5, continuity-corrected onto integer scores, then the same blend/clamp toward the totals market.
+
+Spreads: convert the blended win probability to an expected margin (same unvalidated σ) and score the posted home spread, then blend/clamp.
+
+None of the blend, clamp, or σ values are fitted. They are safeguards. `eligibleForPublic` stays false.
 
 ## What this model does not use
 
 - Venue (home/away) records as a second strength factor (that was the double-count).
-- Genuine last-10 game windows (those columns are season averages).
-- Quarterbacks, injuries, weather, or efficiency metrics — those inputs do not exist here.
-- Point differential (available on the Team row, unused until validated).
-- A fitted home-field advantage or logistic scale.
+- Treating `last10Record` as a genuine last-10 window.
+- Weather, efficiency / EPA / DVOA.
+- The closing line as an input (it is a score only).
+- A fitted home-field, blend, or logistic scale.
 
 ## Eligibility
 
@@ -86,7 +100,7 @@ P(win | decisive) = P(win) / (1 − P(push))
 gap = P(win | decisive) − fair two-way market
 ```
 
-If `P(push) = 1`, the decisive mass is zero and the gap is unavailable (`zero_decisive_probability`). The gap is uncapped.
+If `P(push) = 1`, the decisive mass is zero and the gap is unavailable (`zero_decisive_probability`). v1.0.1 left the gap uncapped. v1.1.0 blends 35% of the gap toward the market and clamps the rest to 8pp (12pp with a starting QB out).
 
 Estimated EV stays on the unconditional probabilities (a refunded push contributes 0):
 
@@ -98,26 +112,30 @@ Display caps are UI-only and are never stored as the model estimate.
 
 ## Totals
 
-A projected point total is not an over/under probability. Production does not supply a fitted scoring distribution, so NFL totals are ineligible (`missing_validated_scoring_distribution`).
+A projected point total is not an over/under probability. v1.1.0 builds a **research** Normal from season points-for/against (unvalidated σ = 13.5) when those averages pass the lock-time freshness gates. That path is still `eligibleForPublic=false`. Without scoring averages the reason remains `missing_validated_scoring_distribution`.
 
-The library can evaluate an **injected** Normal approximation (continuity-corrected onto integer scores) for tests:
+The library can also evaluate an **injected** Normal approximation (continuity-corrected onto integer scores) for tests:
 
 - Integer line `L`: `P(push) = P(T = L)`
 - Half-line: `P(push) = 0`
 - `P(over) + P(under) + P(push) = 1`
 - Raising the line cannot increase `P(over)`
 
-Do not treat that helper as a validated NFL scoring model. No σ was estimated from historical games.
+Do not treat σ = 13.5 as a fitted NFL scoring model. No σ was estimated from historical games.
+
+## Spreads
+
+v1.1.0 converts the blended moneyline probability to an expected margin (same unvalidated σ) and scores the posted home spread. Research only. Spreads are stored on the payload and are not a public `GAME_LINE_TYPES` market.
 
 ## Traceability
 
 Each research evaluation carries model version, input snapshot, event, market, line, sportsbook, decimal/American odds, and timestamps. Public output must reuse that prediction and quote. A later Odds row is rejected.
 
-`EdgeSnapshot` stores `edgeMl*` / `edgeTotal*` / `modelRun` plus pairing columns (`payload`, `oddsSnapshotId`, `inputSnapshotId`, `quotedAt`, `eligibleForPublic`). NFL writes `modelRun = nfl-selection-v1.0.1`, **null** edge floats, the selection payload, and the quote used at prediction time. `eligibleForPublic` stays false. Apply the SQL in `scripts/migrations/004_team_freshness_and_edge_traceability.sql` before relying on those columns in a database. See `docs/migrations/004_edge_snapshot_traceability.md`.
+`EdgeSnapshot` stores `edgeMl*` / `edgeTotal*` / `modelRun` plus pairing columns (`payload`, `oddsSnapshotId`, `inputSnapshotId`, `quotedAt`, `eligibleForPublic`). NFL writes `modelRun = nfl-selection-v1.1.0`, **null** edge floats, the selection payload (including spreads), and the quote used at prediction time. `eligibleForPublic` stays false. Apply the SQL in `scripts/migrations/004_team_freshness_and_edge_traceability.sql` before relying on those columns in a database. See `docs/migrations/004_edge_snapshot_traceability.md`.
 
 ## Validation blockers
 
-No chronological out-of-sample study is in this repo. Do not invent calibration, CLV, or ROI. Closing-line comparison can use the stored quote pairing after the 004 columns are applied; it is not computed here.
+The walk-forward harness is `scripts/backtest-game-lines.js`. It does not invent calibration. If the stored sample is under 200 games it prints `SAMPLE_TOO_SMALL`. Closing-line comparison uses saved `Odds.quotedAt`, `ClosingOdds` `clvclose:` rows, `OddsSnapshot`, and `EdgeSnapshot` payloads. Zero Odds API credits.
 
 Ask before adding paid data services.
 
@@ -127,4 +145,4 @@ Ask before adding paid data services.
 
 1. Team freshness / season / data-through columns are applied in the target database and populated by a core ESPN extract (`statsDataThrough` comes from ESPN `previousEvent` when present, otherwise the team's latest same-sport final `Game` on or after the sport's regular-season start, withheld only when DB finals exceed ESPN `gamesPlayed` by more than 2).
 2. A chronological out-of-sample evaluation reports sample size, calibration, probability score vs the market, and a defined staking rule.
-3. Totals have a fitted or empirically validated mapping that handles NFL scoring variance and integer pushes.
+3. Totals have a walk-forward that beats the close on the same bars as moneyline. The v1.1.0 Normal is a research start, not that study.

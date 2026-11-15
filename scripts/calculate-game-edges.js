@@ -9,6 +9,7 @@ import { evaluateMatchupTeamStatsForEdge } from '../lib/team-performance-stats.j
 import { ensurePrismaClient } from '../lib/prisma-preflight.js'
 import crypto from 'crypto'
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
+import { isMissingInjuryTableError } from '../lib/injury-availability.js'
 
 config({ path: '.env.local' })
 
@@ -42,6 +43,9 @@ async function calculateEdgesForToday() {
         status,
         homeId,
         awayId,
+        week,
+        homeStartingQB,
+        awayStartingQB,
         home:Team!Game_homeId_fkey(*),
         away:Team!Game_awayId_fkey(*),
         probableHomePitcher:Player!Game_probableHomePitcherId_fkey(*),
@@ -138,6 +142,7 @@ async function calculateEdgesForToday() {
           }
         } else if (game.sport === 'nfl') {
           // Isolated NFL model. Public edges stay null until validated.
+          game.pregameInjuries = await loadPregameInjuries(supabase, game)
           edges = calculateNFLEdges(game, odds)
         } else if (game.sport === 'nhl') {
           edges = calculateNHLEdges(game, odds)
@@ -219,6 +224,29 @@ async function calculateEdgesForToday() {
     
   } catch (error) {
     console.error('❌ Fatal error:', error)
+  }
+}
+
+async function loadPregameInjuries(client, game) {
+  const abbrs = [game?.home?.abbr, game?.away?.abbr].filter(Boolean)
+  if (!abbrs.length) return []
+  try {
+    const { data, error } = await client
+      .from('InjuryReport')
+      .select('*')
+      .eq('sport', 'nfl')
+      .in('teamAbbr', abbrs)
+      .order('fetchedAt', { ascending: false })
+      .limit(80)
+    if (error) {
+      if (isMissingInjuryTableError(error)) return []
+      console.log(`  ℹ️  InjuryReport skipped: ${error.message}`)
+      return []
+    }
+    return data || []
+  } catch (error) {
+    if (isMissingInjuryTableError(error)) return []
+    return []
   }
 }
 
