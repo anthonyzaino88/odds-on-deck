@@ -112,7 +112,7 @@ Display caps are UI-only and are never stored as the model estimate.
 
 ## Totals
 
-A projected point total is not an over/under probability. v1.1.0 builds a **research** Normal from season points-for/against (unvalidated σ = 13.5) when those averages pass the lock-time freshness gates. That path is still `eligibleForPublic=false`. Without scoring averages the reason remains `missing_validated_scoring_distribution`.
+A projected point total is not an over/under probability. v1.1.0 builds a **research** Normal from season points-for/against (unvalidated σ = 13.5) when those averages pass the **same** lock-time freshness gates as moneyline. That path is still `eligibleForPublic=false`. Without scoring averages the reason remains `missing_validated_scoring_distribution`. A fitted or injected distribution does not skip season / captured-at / data-through / sample checks.
 
 The library can also evaluate an **injected** Normal approximation (continuity-corrected onto integer scores) for tests:
 

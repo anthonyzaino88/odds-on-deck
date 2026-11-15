@@ -231,6 +231,8 @@ async function loadPregameInjuries(client, game) {
   const abbrs = [game?.home?.abbr, game?.away?.abbr].filter(Boolean)
   if (!abbrs.length) return []
   try {
+    // Newest rows first. injuryFeatures keeps the latest status per player
+    // at lock, so a later Active report replaces an older Out.
     const { data, error } = await client
       .from('InjuryReport')
       .select('*')

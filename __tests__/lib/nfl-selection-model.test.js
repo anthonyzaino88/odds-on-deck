@@ -271,6 +271,36 @@ describe('NFL eligibility and moneyline safeguards', () => {
       { gameId: 'g-1', market: 'h2h', ts: '2025-12-15T17:00:00.000Z' },
     )).toEqual({ ok: false, reason: 'stale_or_mismatched_quote' })
   })
+
+  test('totals and spreads still require lock-time freshness even with a scoring distribution', () => {
+    const staleHome = interpretEligible('KC', '12-4', {
+      capturedAt: '2025-01-01T00:00:00.000Z',
+      pointsForPerGame: 28,
+      pointsAgainstPerGame: 17,
+    })
+    const staleAway = interpretEligible('DEN', '4-12', {
+      capturedAt: '2025-01-01T00:00:00.000Z',
+      pointsForPerGame: 17,
+      pointsAgainstPerGame: 28,
+    })
+    const distribution = { mean: 47, variance: 64, line: 44.5 }
+    expect(evaluateNflDataEligibility({
+      home: staleHome,
+      away: staleAway,
+      game: { season: '2025' },
+      now: NOW,
+      market: 'totals',
+      totalsDistribution: distribution,
+    }).reason).toBe('stale_team_data')
+    expect(evaluateNflDataEligibility({
+      home: staleHome,
+      away: staleAway,
+      game: { season: '2025' },
+      now: NOW,
+      market: 'spreads',
+      totalsDistribution: distribution,
+    }).reason).toBe('stale_team_data')
+  })
 })
 
 function interpretEligible(abbr, record, extras = {}) {

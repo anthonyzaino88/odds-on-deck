@@ -34,7 +34,7 @@ It is not imputed.
 | **Matchup history** | Prior finals between these two teams whose result was already written before lock. | A current `Team` row, or `NFLMatchupHistory` with no pre-lock write time. |
 | **Recent form** | Last completed games for each team whose result was written before lock. Rebuilt from `Game` / `ArchivedGame` scores. | ESPN `last10Record` / `avgPointsLast10` as a trailing 10-game window. Those columns are **season** totals. Season W-L and season points-for/against may be used as season strength when `statsDataThrough` and `statsCapturedAt` are both ≤ lock. |
 | **Rest / travel** | ET days from each team's previous final start to this frozen start, using only a previous final whose result was available before lock. Unknown stays unknown. | Assuming a bye because the previous game is missing. |
-| **Injuries** | `InjuryReport` rows from `scripts/fetch-injuries.js` (ESPN). `fetchedAt` is `observedAt`, `asOfDate` is `dataThrough`. Both ≤ lock. | A snapshot fetched after lock. A missing snapshot stays missing. |
+| **Injuries** | `InjuryReport` rows from `scripts/fetch-injuries.js` (ESPN). `fetchedAt` is `observedAt`, `asOfDate` is `dataThrough`. Both ≤ lock. For each player, only the **latest** status at lock counts, so a later Active report replaces an older Out. | A snapshot fetched after lock. ORing every historical Out row. A missing snapshot stays missing. |
 | **Starters / QB** | NFL: `Game.homeStartingQB` / `awayStartingQB` only when that row was written before lock. NHL: `NhlStartingGoalie` with `fetchedAt` ≤ lock; unconfirmed stays unconfirmed. MLB: probable pitchers only with a pre-lock write time. | Archive QB / pitcher fields with no pre-lock timestamp. |
 | **Home / away** | The scheduled home team at the frozen start. One home-field term, not a second copy of home/away records. | Double-counting venue records on top of overall W-L. |
 
@@ -79,9 +79,12 @@ postpone that moves the game does not slide the event into a later week.
 The close is loaded only after the model probability is frozen.
 
 Walk-forward folds: NFL is one `Game.week` (or the ET Monday–Sunday of
-the frozen start). NHL and MLB are one ET date. Training labels need a
-24-hour embargo before the test lock. The first fold is warmup and does
-not count toward sample size.
+the frozen start). NHL and MLB are one ET date. Training labels (season
+W-L, form, matchup history, points) need a 24-hour embargo before the
+test lock. Rest still uses the previous final whose result was already
+written, even if that score is inside the embargo. The first fold is
+warmup and does not count toward sample size. The next four folds are
+development. Publish bars use the holdout after that.
 
 ---
 
@@ -93,7 +96,7 @@ gates:
 | Bar | Threshold | Why this number |
 | --- | --- | --- |
 | **Sample** | ≥ **200** decided games on the holdout, across ≥ **4** holdout folds (NFL weeks or NHL/MLB dates), with ≥ **4** development folds left before that holdout. | NFL plays 272 regular-season games. 200 is most of one season after bye/warmup weeks. A 200-game CLV average has a standard error around 0.3–0.4pp; smaller samples cannot tell +1pp from noise. NHL and MLB reach 200 faster; we do not lower the bar for them. |
-| **Closing-line value** | Mean `clvProb` ≥ **+1.0 percentage point**, **and** at least **52%** of same-line bets beat the close. | Anthony's rule is "beat the close." `clvProb` is `implied(close) − implied(posted)`, vig still inside both, same as production. +1.0pp is a real gap after juice. 52% beat-close share is better than a coin flip with room for one cold week. Line-moved totals are reported separately and excluded from this average. |
+| **Closing-line value** | Mean `clvProb` ≥ **+1.0 percentage point**, **and** at least **52%** of same-line bets beat the close. | Anthony's rule is "beat the close." `clvProb` is `implied(close) − implied(posted)`, vig still inside both, same as production. +1.0pp is a real gap after juice. 52% beat-close share is better than a coin flip with room for one cold week. Line-moved totals **and spreads** (lock line ≠ close line) are reported separately and excluded from this average. |
 | **Accuracy** | Hit rate is **reported** (wins / (wins + losses); pushes out). No hard hit-rate floor. | Efficient markets can have a 51% hit rate at plus money and still be +EV. A 55% floor would reject honest favorites. |
 | **Calibration** | Brier and log-loss of the model's lock-time probability **both beat** the no-vig closing probability on the same decided games. | If the close is a better probability than the model, we have no business publishing. Pushes are omitted from Brier/log-loss. No-bets stay in. Log-loss clips probabilities to `[0.001, 0.999]`. |
 
@@ -153,7 +156,9 @@ Still **unvalidated**. Production writes `eligibleForPublic=false`.
   unvalidated σ = 13.5, continuity-corrected onto integer scores, then
   blend/clamp toward the totals market. This is the first totals path;
   it replaces `missing_validated_scoring_distribution` only when both
-  teams have scoring averages that pass the lock-time freshness gates.
+  teams have scoring averages **and** pass the same lock-time freshness
+  gates as moneyline (season, captured-at, data-through, four-game
+  sample). An injected scoring distribution does not skip those gates.
 
 None of those σ values or blend weights are fitted on a holdout. They
 are safeguards so the research numbers cannot run away from the market

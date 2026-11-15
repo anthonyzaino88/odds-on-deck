@@ -13,7 +13,9 @@ import {
 } from '../../lib/game-line-model-rules.js'
 import {
   gamesAvailableBeforeLock,
+  gamesAvailableForTraining,
   injuryFeatures,
+  rebuildTeamSeasonStats,
   teamRecentForm,
 } from '../../lib/nfl-pregame-features.js'
 import {
@@ -180,6 +182,59 @@ describe('no look-ahead in form, injuries, or team stats', () => {
     ], 'KC', { lockAt: LOCK, startingQB: 'Patrick Mahomes' })
     expect(features.qbOut).toBe(true)
     expect(features.strongEvidence).toBe(true)
+  })
+
+  test('a later Active report replaces an older Out for the same player', () => {
+    const features = injuryFeatures([
+      {
+        id: 'inj-old-out',
+        sport: 'nfl',
+        teamAbbr: 'KC',
+        playerName: 'Patrick Mahomes',
+        position: 'QB',
+        status: 'Out',
+        fetchedAt: '2025-10-01T12:00:00.000Z',
+        asOfDate: '2025-10-01',
+      },
+      {
+        id: 'inj-new-active',
+        sport: 'nfl',
+        teamAbbr: 'KC',
+        playerName: 'Patrick Mahomes',
+        position: 'QB',
+        status: 'Active',
+        fetchedAt: '2025-11-16T12:00:00.000Z',
+        asOfDate: '2025-11-15',
+      },
+    ], 'KC', { lockAt: LOCK, startingQB: 'Patrick Mahomes' })
+    expect(features.qbOut).toBe(false)
+    expect(features.strongEvidence).toBe(false)
+    expect(features.injuryCount).toBe(1)
+  })
+
+  test('a result inside the 24h embargo is not a training label', () => {
+    const fresh = finalGame({
+      id: 'g-last-night',
+      date: '2025-11-16T01:00:00.000Z',
+      lastUpdate: '2025-11-16T16:00:00.000Z',
+      resultAvailableAt: '2025-11-16T16:00:00.000Z',
+    })
+    expect(gamesAvailableBeforeLock([fresh], LOCK).map((game) => game.id)).toEqual(['g-last-night'])
+    expect(gamesAvailableForTraining([fresh], LOCK)).toEqual([])
+    expect(teamRecentForm([fresh], 'KC', LOCK).ids).toEqual([])
+  })
+
+  test('a tie still counts as a game played', () => {
+    const tie = finalGame({
+      id: 'g-tie',
+      homeScore: 20,
+      awayScore: 20,
+    })
+    const stats = rebuildTeamSeasonStats([tie], 'KC', { lockAt: LOCK, season: '2025' })
+    expect(stats.ties).toBe(1)
+    expect(stats.gamesPlayed).toBe(1)
+    expect(stats.pointsForPerGame).toBe(20)
+    expect(stats.last10Record).toBe('0-0-1')
   })
 
   test('assertNoLookAhead rejects stats written after lock', () => {
@@ -374,6 +429,29 @@ describe('NFL v1.1.0 market shrink', () => {
     const withQb = blendModelProbTowardMarket(0.80, 0.50, { strongEvidence: true })
     expect(Math.abs(withQb.p - 0.50)).toBeLessThanOrEqual(0.12 + 1e-9)
     expect(Math.abs(withQb.p - 0.50)).toBeGreaterThan(0.08)
+  })
+
+  test('the 20/80 floor does not reopen a capped gap versus a big underdog market', () => {
+    const shrunk = blendModelProbTowardMarket(0.40, 0.10, { strongEvidence: false })
+    expect(Math.abs(shrunk.p - 0.10)).toBeLessThanOrEqual(0.08 + 1e-9)
+    expect(shrunk.p).toBeLessThan(0.20)
+  })
+
+  test('a moved spread line is excluded from CLV', () => {
+    const game = upcoming()
+    const close = selectCloseQuote([{
+      id: 'clvclose:g-week2:spreads',
+      gameId: 'g-week2',
+      book: 'DraftKings',
+      market: 'spreads',
+      spread: -7,
+      priceHome: -110,
+      priceAway: -110,
+      ts: '2025-11-16T17:50:00.000Z',
+      quotedAt: '2025-11-16T17:48:00.000Z',
+    }], { game, market: 'spreads', lockLine: -3.5 })
+    expect(close.lineMoved).toBe(true)
+    expect(close.reason).toBe('line_moved')
   })
 })
 
