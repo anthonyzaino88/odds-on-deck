@@ -1,5 +1,6 @@
 import {
   assertNoLookAhead,
+  etFoldKey,
   formatBacktestReport,
   noVigPair,
   pickLockTime,
@@ -97,6 +98,17 @@ function quote(overrides = {}) {
     ...overrides,
   }
 }
+
+describe('NFL fold keys', () => {
+  test('a Game with a week number and an ArchivedGame without one share the ET Monday', () => {
+    const tagged = upcoming({ week: 11, season: '2025' })
+    const archived = upcoming({ week: undefined, season: undefined, id: 'g-archived' })
+    delete archived.week
+    delete archived.season
+    expect(etFoldKey(tagged)).toBe(etFoldKey(archived))
+    expect(etFoldKey(tagged)).toMatch(/^nfl-\d{4}-\d{2}-\d{2}$/)
+  })
+})
 
 describe('lock time rejects look-ahead quotes', () => {
   test('a quote timestamped after lock is not the lock quote', () => {

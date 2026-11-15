@@ -80,4 +80,21 @@ describe('game-line model rules constants', () => {
     expect(split.holdout[0]).toBe('nfl-2025-w6')
     expect(split.holdout).toContain('nfl-2025-w10')
   })
+
+  test('NFL Monday keys and leftover week keys sort on one timeline', () => {
+    const split = splitWalkForwardFolds([
+      'nfl-2025-w10',
+      'nfl-2025-12-29',
+      'nfl-2025-09-08',
+      'nfl-2025-2025-09-15',
+      'nhl-2025-10-14',
+    ])
+    expect(split.all).toEqual([
+      'nfl-2025-09-08',
+      'nfl-2025-2025-09-15',
+      'nhl-2025-10-14',
+      'nfl-2025-w10',
+      'nfl-2025-12-29',
+    ])
+  })
 })
