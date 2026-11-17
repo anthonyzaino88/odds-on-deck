@@ -379,6 +379,65 @@ describe('recordGameLinePrediction respects the public kill switch', () => {
     expect(eqCalls).toEqual(expect.arrayContaining([['id', 'pv-nhl-legacy']]))
     expect(result.id).toBe('pv-nhl-legacy')
   })
+
+  test('voids extra pending NHL sides for the same game and market', async () => {
+    const over = {
+      id: 'pv-over',
+      propId: 'gl-g-nhl-1-total-over-6.5',
+      gameIdRef: 'g-nhl-1',
+      sport: 'nhl',
+      source: 'game_line',
+      propType: 'total',
+      prediction: 'over',
+      status: 'pending',
+      notes: 'cohort:sides_totals | cohort:shadow-published',
+    }
+    const under = {
+      ...over,
+      id: 'pv-under',
+      propId: 'gl-g-nhl-1-total-under-6.5',
+      prediction: 'under',
+    }
+    const updates = []
+    const chain = createChain()
+    chain.maybeSingle.mockResolvedValue({ data: null, error: null })
+    chain.then = (onFulfilled, onRejected) => (
+      Promise.resolve({ data: [over, under], error: null }).then(onFulfilled, onRejected)
+    )
+    chain.update.mockImplementation((payload) => {
+      updates.push(payload)
+      return chain
+    })
+    chain.single.mockResolvedValue({
+      data: { id: 'pv-under', propId: 'gl-shadow-g-nhl-1-total-nhl-gd-v0.2.0' },
+      error: null,
+    })
+    from.mockImplementation(() => chain)
+
+    const result = await recordGameLinePrediction({
+      gameId: 'g-nhl-1',
+      sport: 'nhl',
+      type: 'total',
+      pick: 'under',
+      threshold: 6.5,
+      edge: 0.03,
+      odds: -110,
+      eligibleForPublic: false,
+      shadow: true,
+      modelVersion: 'nhl-gd-v0.2.0',
+    })
+
+    expect(chain.insert).not.toHaveBeenCalled()
+    expect(result.id).toBe('pv-under')
+    expect(updates[0].propId).toBe('gl-shadow-g-nhl-1-total-nhl-gd-v0.2.0')
+    expect(updates[0].prediction).toBe('under')
+    expect(updates[1].result).toBe('void')
+    expect(updates[1].status).toBe('manual_closed')
+    expect(eqCalls).toEqual(expect.arrayContaining([
+      ['id', 'pv-under'],
+      ['id', 'pv-over'],
+    ]))
+  })
 })
 
 describe('getPublishedPicksStats query applies the source filter', () => {

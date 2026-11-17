@@ -12,8 +12,11 @@ import {
   GAME_LINE_SHADOW_SPORTS,
   GAME_LINE_TOTALS_HEURISTIC_TAG,
   attachShadowGameLineCloses,
+  chooseShadowGameLineSurvivor,
+  duplicateShadowGameLineVoidPatch,
   gameLineShadowPersistNotes,
   gameLineShadowPropId,
+  isReportableShadowGameLineRecord,
   isReusableShadowGameLineRow,
   inspectGameLineShadowSnapshot,
   isShadowGameLineRecord,
@@ -283,6 +286,45 @@ describe('inspectGameLineShadowSnapshot', () => {
       sport: 'nfl',
       notes: 'cohort:sides_totals',
     }, { ...line, sport: 'nfl' })).toBe(false)
+  })
+
+  test('keeps one pending total and marks the opposite-side gl- row as extra', () => {
+    const line = {
+      gameId: 'g-nhl-1',
+      sport: 'nhl',
+      type: 'total',
+      pick: 'under',
+      modelVersion: 'nhl-gd-v0.2.0',
+    }
+    const over = {
+      id: 'pv-over',
+      propId: 'gl-g-nhl-1-total-over-6.5',
+      gameIdRef: 'g-nhl-1',
+      sport: 'nhl',
+      source: 'game_line',
+      propType: 'total',
+      prediction: 'over',
+      status: 'pending',
+      notes: 'cohort:sides_totals | cohort:shadow-published',
+    }
+    const under = {
+      ...over,
+      id: 'pv-under',
+      propId: 'gl-g-nhl-1-total-under-6.5',
+      prediction: 'under',
+    }
+    const chosen = chooseShadowGameLineSurvivor([over, under], line)
+    expect(chosen.survivor.id).toBe('pv-under')
+    expect(chosen.extras.map((row) => row.id)).toEqual(['pv-over'])
+    const voided = duplicateShadowGameLineVoidPatch(over, 'gl-shadow-g-nhl-1-total-nhl-gd-v0.2.0')
+    expect(voided.result).toBe('void')
+    expect(voided.status).toBe('manual_closed')
+    expect(voided.notes).toMatch(/Duplicate game-line shadow/)
+    expect(voided.notes).toMatch(/cohort:shadow-published/)
+    expect(isReportableShadowGameLineRecord({
+      ...over,
+      ...voided,
+    })).toBe(false)
   })
 })
 

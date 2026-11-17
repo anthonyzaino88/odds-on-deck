@@ -24,7 +24,7 @@ import {
 import { GAME_LINE_SOURCE, gameLineMarketType } from '../lib/game-lines.js'
 import {
   GAME_LINE_SHADOW_SPORTS,
-  isShadowGameLineRecord,
+  isReportableShadowGameLineRecord,
   modelVersionFromNotes,
 } from '../lib/game-line-shadow.js'
 import { isMissingColumnError } from '../lib/grade-audit.js'
@@ -56,7 +56,7 @@ export function groupGameLineShadowPicks(rows) {
     }
   }
   for (const row of rows || []) {
-    if (!isShadowGameLineRecord(row)) continue
+    if (!isReportableShadowGameLineRecord(row)) continue
     const key = gameLineShadowGroupKey(row)
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key).push(row)
@@ -127,7 +127,7 @@ export async function runReportGameLineShadow({
     return { exitCode: 1, groups: {}, picks: [] }
   }
 
-  const picks = (page.rows || []).filter((row) => isShadowGameLineRecord(row))
+  const picks = (page.rows || []).filter((row) => isReportableShadowGameLineRecord(row))
   const grouped = groupGameLineShadowPicks(picks)
 
   log.log('\n🔒 GAME-LINE SHADOW (private, read-only)')
