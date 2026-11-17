@@ -326,6 +326,28 @@ describe('inspectGameLineShadowSnapshot', () => {
       ...voided,
     })).toBe(false)
   })
+
+  test('voided extras without a shadow tag still stay off public archive', () => {
+    const untagged = {
+      id: 'pv-over',
+      sport: 'nhl',
+      source: 'game_line',
+      propType: 'total',
+      prediction: 'over',
+      status: 'pending',
+      notes: 'cohort:sides_totals',
+    }
+    const voided = duplicateShadowGameLineVoidPatch(
+      untagged,
+      'gl-shadow-g-nhl-1-total-nhl-gd-v0.2.0',
+    )
+    const row = { ...untagged, ...voided }
+    expect(voided.notes).toMatch(SHADOW_PUBLISHED_COHORT_TAG)
+    expect(voided.notes).not.toMatch(/auto-saved/)
+    expect(isPrivateShadowPublished(row)).toBe(true)
+    expect(filterPublicArchiveRows([row])).toEqual([])
+    expect(isReportableShadowGameLineRecord(row)).toBe(false)
+  })
 })
 
 describe('shadow notes and public exclusion', () => {
