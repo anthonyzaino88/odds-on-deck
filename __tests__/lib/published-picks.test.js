@@ -474,6 +474,8 @@ describe('summarizeSidesTotals', () => {
     expect(isPrivateShadowPublished(recordedNhl)).toBe(true)
     expect(isPublishedPick(recordedNhl)).toBe(false)
     expect(isSidesTotalsPick(recordedNhl)).toBe(false)
+    expect(isSidesTotalsPick(recordedNhl, { sports: ['nhl'] })).toBe(false)
+    expect(isSidesTotalsPick(recordedNhl, { sports: ['nhl'], includeShadow: true })).toBe(true)
     expect(withoutPrivateShadowPublished([recordedNhl])).toEqual([])
 
     const legacyNfl = publishedBase({
