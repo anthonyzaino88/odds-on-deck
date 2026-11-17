@@ -14,6 +14,7 @@ import {
   attachShadowGameLineCloses,
   gameLineShadowPersistNotes,
   gameLineShadowPropId,
+  isReusableShadowGameLineRow,
   inspectGameLineShadowSnapshot,
   isShadowGameLineRecord,
   matchShadowGameLineClosingOdds,
@@ -251,6 +252,37 @@ describe('inspectGameLineShadowSnapshot', () => {
     expect(a).toBe(b)
     expect(a).toBe('gl-shadow-g-nfl-1-moneyline-nfl-selection-v1.0.1')
     expect(later).toBe('gl-shadow-g-nfl-1-moneyline-nfl-selection-v1.1.0')
+  })
+
+  test('reuses a pending legacy NHL gl- id for the same game, market, and model', () => {
+    const line = {
+      gameId: 'g-nhl-1',
+      sport: 'nhl',
+      type: 'total',
+      modelVersion: 'nhl-gd-v0.2.0',
+    }
+    const legacy = {
+      id: 'pv-old',
+      propId: 'gl-g-nhl-1-total-over-6.5',
+      gameIdRef: 'g-nhl-1',
+      sport: 'nhl',
+      source: 'game_line',
+      propType: 'total',
+      status: 'pending',
+      notes: 'cohort:sides_totals | cohort:shadow-published',
+    }
+    expect(isReusableShadowGameLineRow(legacy, line)).toBe(true)
+    expect(isReusableShadowGameLineRow({ ...legacy, status: 'completed' }, line)).toBe(false)
+    expect(isReusableShadowGameLineRow({ ...legacy, propType: 'moneyline' }, line)).toBe(false)
+    expect(isReusableShadowGameLineRow({
+      ...legacy,
+      notes: 'cohort:sides_totals | cohort:shadow-published | model:nhl-gd-v0.1.0',
+    }, line)).toBe(false)
+    expect(isReusableShadowGameLineRow({
+      ...legacy,
+      sport: 'nfl',
+      notes: 'cohort:sides_totals',
+    }, { ...line, sport: 'nfl' })).toBe(false)
   })
 })
 

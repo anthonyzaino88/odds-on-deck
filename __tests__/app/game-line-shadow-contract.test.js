@@ -55,9 +55,14 @@ describe('private NFL/NHL game-line shadow track stays off public surfaces', () 
     const validation = read('lib/validation.js')
     const capture = read('scripts/capture-published-closes.js')
     const validate = read('scripts/validate-pending-props.js')
+    const persist = validation.slice(
+      validation.indexOf('export async function persistGameLines'),
+      validation.indexOf('async function findExistingGameLineRow'),
+    )
     expect(validation).toMatch(/gradePendingGameLines/)
-    expect(validation).toMatch(/attachShadowGameLineCloses/)
     expect(validation).toMatch(/gameLineShadowPropId/)
+    expect(validation).toMatch(/isReusableShadowGameLineRow/)
+    expect(persist).not.toMatch(/attachShadowGameLineCloses/)
     expect(validate).toMatch(/gradePendingGameLines/)
     expect(capture).toMatch(/attachShadowGameLineCloses/)
     expect(capture).toMatch(/0 Odds API/)
