@@ -205,6 +205,22 @@ describe('inspectGameLineShadowSnapshot', () => {
     expect(shadow.skips[0].gameId).toBe('g-nfl-1')
   })
 
+  test('skips missing, empty, and unparseable start times', () => {
+    const selection = nflSelection()
+    const edge = { modelRun: NFL_SELECTION_MODEL_VERSION, payload: selection, eligibleForPublic: false }
+    for (const date of [undefined, '', 'not-a-date']) {
+      const game = nflGame({ date })
+      const shadow = inspectGameLineShadowSnapshot({
+        game,
+        edge,
+        oddsRows: [h2h, totals],
+        now: NOW,
+      })
+      expect(shadow.picks).toEqual([])
+      expect(shadow.skips[0].reason).toBe(GAME_LINE_SKIP_REASONS.LOCK_TIME)
+    }
+  })
+
   test('skips NFL totals when no scoring estimate exists and still records moneyline', () => {
     const game = nflGame({
       home: scoringTeam('KC', '12-4', { avgPointsLast10: null, avgPointsAllowedLast10: null }),
