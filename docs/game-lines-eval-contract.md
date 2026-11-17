@@ -21,7 +21,7 @@ Production row counts and date ranges are **not in the repository**. This checko
 
 `GAME_LINE_TYPES` is `moneyline` and `total`. `GAME_LINE_MIN_EDGE` is `0.05`. `GAME_LINE_CAP` is `8`. `GAME_LINE_SOURCE` is `game_line`.
 
-`npm run record:game-lines` (`scripts/record-game-lines.js`) reads `EdgeSnapshot`, `Odds`, and `Game` only. It does not call The Odds API. It records only sports in `PUBLISHED_GAME_LINE_SPORTS` after `selectGameLines`. Homepage and `/api/picks` do not insert game-line rows.
+`npm run record:game-lines` (`scripts/record-game-lines.js`) reads `EdgeSnapshot`, `Odds`, and `Game` only. It does not call The Odds API. It writes **private** NFL and NHL moneyline and game-total rows (`cohort:shadow-published`, `shadow: true`) and does not call `selectGameLines`. It does not insert new public NFL lines. The graded sides/totals card on `/validation` and homepage will stop receiving new public NFL rows from this job; already-recorded public MLB/NFL game-line rows still grade. Homepage and `/api/picks` do not insert game-line rows. MLB stays unpublished (no new rows).
 
 ### Stored tables the harness may read
 

@@ -191,6 +191,18 @@ describe('selectGameLines', () => {
     expect(isPublicGameLine(publicNflLine({ status: 'not_needed', edge: 0.20, gameTime: future }))).toBe(false)
   })
 
+  test('a stale scheduled status after kickoff is not upcoming', () => {
+    const now = new Date('2025-12-15T18:00:00.000Z')
+    const past = '2025-12-15T17:00:00.000Z'
+    const future = '2025-12-15T19:00:00.000Z'
+    expect(isUpcomingGameLine(line({ status: 'scheduled', gameTime: past }), now)).toBe(false)
+    expect(isUpcomingGameLine(line({ status: 'pre-game', gameTime: past, date: past }), now)).toBe(false)
+    expect(isUpcomingGameLine({ status: 'scheduled', date: past }, now)).toBe(false)
+    expect(isUpcomingGameLine(publicNflLine({ status: 'scheduled', gameTime: past, edge: 0.20 }), now)).toBe(false)
+    expect(isPublicGameLine(publicNflLine({ status: 'scheduled', gameTime: past, edge: 0.20 }), now)).toBe(false)
+    expect(isUpcomingGameLine(line({ status: 'scheduled', gameTime: future }), now)).toBe(true)
+  })
+
   test('requires the generatePicksFromSupabase min edge floor', () => {
     expect(GAME_LINE_MIN_EDGE).toBe(0.05)
     expect(isPublicGameLine(publicNflLine({ edge: 0.049 }))).toBe(false)

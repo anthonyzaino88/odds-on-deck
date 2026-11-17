@@ -191,6 +191,20 @@ describe('inspectGameLineShadowSnapshot', () => {
     expect(shadow.skips[0].gameId).toBe('g-nhl-1')
   })
 
+  test('skips a stale scheduled status after kickoff', () => {
+    const game = nflGame({ date: '2025-12-15T17:00:00.000Z', status: 'scheduled' })
+    const selection = nflSelection(game)
+    const shadow = inspectGameLineShadowSnapshot({
+      game,
+      edge: { modelRun: NFL_SELECTION_MODEL_VERSION, payload: selection, eligibleForPublic: false },
+      oddsRows: [h2h, totals],
+      now: NOW,
+    })
+    expect(shadow.picks).toEqual([])
+    expect(shadow.skips[0].reason).toBe(GAME_LINE_SKIP_REASONS.LOCK_TIME)
+    expect(shadow.skips[0].gameId).toBe('g-nfl-1')
+  })
+
   test('skips NFL totals when no scoring estimate exists and still records moneyline', () => {
     const game = nflGame({
       home: scoringTeam('KC', '12-4', { avgPointsLast10: null, avgPointsAllowedLast10: null }),

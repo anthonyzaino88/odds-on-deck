@@ -292,6 +292,7 @@ describe('buildGameLinePicksFromSnapshots', () => {
       },
       edge: { modelRun: NFL_SELECTION_MODEL_VERSION, payload: selection },
       oddsRows: [quote],
+      now: NOW,
     })
     expect(inspected.picks).toEqual([])
     expect(inspected.skips).toEqual([{ reason: GAME_LINE_SKIP_REASONS.PUBLIC_INELIGIBLE }])

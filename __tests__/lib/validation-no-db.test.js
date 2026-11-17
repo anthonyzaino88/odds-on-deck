@@ -319,6 +319,8 @@ describe('recordGameLinePrediction respects the public kill switch', () => {
       pick: 'DEN',
       edge: 0.02,
       odds: 105,
+      gameTime: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(),
+      status: 'scheduled',
       eligibleForPublic: false,
       shadow: true,
       modelVersion: 'nfl-selection-v1.0.1',
@@ -330,6 +332,41 @@ describe('recordGameLinePrediction respects the public kill switch', () => {
     expect(updates[0].odds).toBe(105)
     expect(eqCalls).toEqual(expect.arrayContaining([['id', 'pv-shadow-open']]))
     expect(result.id).toBe('pv-shadow-open')
+  })
+
+  test('post-kickoff rerun leaves the original pending shadow row untouched', async () => {
+    const existing = {
+      id: 'pv-shadow-locked',
+      propId: 'gl-shadow-g-nfl-1-moneyline-nfl-selection-v1.0.1',
+      status: 'pending',
+      source: 'game_line',
+      prediction: 'KC',
+      odds: -110,
+      notes: 'cohort:sides_totals | cohort:shadow-published | model:nfl-selection-v1.0.1',
+    }
+    const chain = createChain()
+    chain.maybeSingle.mockResolvedValue({ data: existing, error: null })
+    from.mockImplementation(() => chain)
+
+    const result = await recordGameLinePrediction({
+      gameId: 'g-nfl-1',
+      sport: 'nfl',
+      type: 'moneyline',
+      pick: 'DEN',
+      edge: 0.04,
+      odds: 120,
+      gameTime: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      status: 'scheduled',
+      eligibleForPublic: false,
+      shadow: true,
+      modelVersion: 'nfl-selection-v1.0.1',
+    })
+
+    expect(result).toEqual(existing)
+    expect(result.prediction).toBe('KC')
+    expect(result.odds).toBe(-110)
+    expect(chain.insert).not.toHaveBeenCalled()
+    expect(chain.update).not.toHaveBeenCalled()
   })
 
   test('adopts a pending legacy NHL gl- row instead of inserting a shadow duplicate', async () => {
