@@ -20,6 +20,7 @@ function createChain() {
   chain.or = passthrough('or')
   chain.order = passthrough('order')
   chain.range = passthrough('range')
+  chain.limit = passthrough('limit')
   chain.maybeSingle = jest.fn(async () => ({ data: null, error: null }))
   chain.single = jest.fn(async () => ({ data: null, error: null }))
   chain.update = jest.fn(() => chain)
@@ -40,6 +41,7 @@ import {
   recordPropPrediction,
   recordGameLinePrediction,
   getPublishedPicksStats,
+  getSidesTotalsStats,
   getValidationStats,
   getAccuracyByEdge,
 } from '../../lib/validation.js'
@@ -154,7 +156,7 @@ describe('recordGameLinePrediction respects the public kill switch', () => {
     expect(inserted[0].notes).not.toMatch(/auto-saved/)
   })
 
-  test('does not persist public-ineligible NFL game lines', async () => {
+  test('does not persist public-ineligible NFL game lines without the shadow flag', async () => {
     const result = await recordGameLinePrediction({
       gameId: 'g-nfl-1',
       sport: 'nfl',
@@ -166,6 +168,40 @@ describe('recordGameLinePrediction respects the public kill switch', () => {
     })
     expect(result).toBeNull()
     expect(from).not.toHaveBeenCalled()
+  })
+
+  test('records public-ineligible NFL game lines when shadow=true', async () => {
+    const inserted = []
+    const chain = createChain()
+    chain.maybeSingle.mockResolvedValue({ data: null, error: null })
+    chain.insert.mockImplementation((payload) => {
+      inserted.push(payload)
+      return chain
+    })
+    chain.single.mockResolvedValue({ data: { id: 'pv-nfl-shadow' }, error: null })
+    from.mockImplementation(() => chain)
+
+    const result = await recordGameLinePrediction({
+      gameId: 'g-nfl-1',
+      sport: 'nfl',
+      type: 'moneyline',
+      pick: 'KC',
+      edge: 0.012,
+      odds: -110,
+      probability: 0.54,
+      marketFairProb: 0.528,
+      eligibleForPublic: false,
+      shadow: true,
+      modelVersion: 'nfl-selection-v1.0.1',
+    })
+
+    expect(result).toEqual({ id: 'pv-nfl-shadow' })
+    expect(inserted).toHaveLength(1)
+    expect(inserted[0].propId).toBe('gl-shadow-g-nfl-1-moneyline-nfl-selection-v1.0.1')
+    expect(inserted[0].notes).toMatch(/cohort:shadow-published/)
+    expect(inserted[0].notes).toMatch(/model:nfl-selection-v1.0.1/)
+    expect(inserted[0].notes).not.toMatch(/auto-saved/)
+    expect(inserted[0].source).toBe('game_line')
   })
 
   test('does not recreate, overwrite, or un-void an existing void row', async () => {
@@ -222,6 +258,222 @@ describe('recordGameLinePrediction respects the public kill switch', () => {
     expect(result).toEqual(existing)
     expect(chain.update).not.toHaveBeenCalled()
     expect(chain.insert).not.toHaveBeenCalled()
+  })
+
+  test('re-running a shadow pick after close capture does not insert a second row', async () => {
+    const existing = {
+      id: 'pv-shadow-1',
+      propId: 'gl-shadow-g-nfl-1-moneyline-nfl-selection-v1.0.1',
+      status: 'pending',
+      source: 'game_line',
+      notes: 'cohort:sides_totals | cohort:shadow-published | model:nfl-selection-v1.0.1',
+      closeOdds: -105,
+      closeCapturedAt: '2025-12-21T17:55:00.000Z',
+    }
+    const chain = createChain()
+    chain.maybeSingle.mockResolvedValue({ data: existing, error: null })
+    from.mockImplementation(() => chain)
+
+    const result = await recordGameLinePrediction({
+      gameId: 'g-nfl-1',
+      sport: 'nfl',
+      type: 'moneyline',
+      pick: 'KC',
+      edge: 0.012,
+      odds: -110,
+      eligibleForPublic: false,
+      shadow: true,
+      modelVersion: 'nfl-selection-v1.0.1',
+    })
+
+    expect(result).toEqual(existing)
+    expect(eqCalls).toEqual(expect.arrayContaining([
+      ['propId', 'gl-shadow-g-nfl-1-moneyline-nfl-selection-v1.0.1'],
+    ]))
+    expect(chain.insert).not.toHaveBeenCalled()
+    expect(chain.update).not.toHaveBeenCalled()
+  })
+
+  test('pending shadow without a close still updates the same row', async () => {
+    const existing = {
+      id: 'pv-shadow-open',
+      propId: 'gl-shadow-g-nfl-1-moneyline-nfl-selection-v1.0.1',
+      status: 'pending',
+      source: 'game_line',
+      notes: 'cohort:sides_totals | cohort:shadow-published | model:nfl-selection-v1.0.1',
+    }
+    const updates = []
+    const chain = createChain()
+    chain.maybeSingle.mockResolvedValue({ data: existing, error: null })
+    chain.update.mockImplementation((payload) => {
+      updates.push(payload)
+      return chain
+    })
+    chain.single.mockResolvedValue({ data: { id: existing.id, ...updates[0] }, error: null })
+    from.mockImplementation(() => chain)
+
+    const result = await recordGameLinePrediction({
+      gameId: 'g-nfl-1',
+      sport: 'nfl',
+      type: 'moneyline',
+      pick: 'DEN',
+      edge: 0.02,
+      odds: 105,
+      gameTime: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(),
+      status: 'scheduled',
+      eligibleForPublic: false,
+      shadow: true,
+      modelVersion: 'nfl-selection-v1.0.1',
+    })
+
+    expect(chain.insert).not.toHaveBeenCalled()
+    expect(updates).toHaveLength(1)
+    expect(updates[0].prediction).toBe('DEN')
+    expect(updates[0].odds).toBe(105)
+    expect(eqCalls).toEqual(expect.arrayContaining([['id', 'pv-shadow-open']]))
+    expect(result.id).toBe('pv-shadow-open')
+  })
+
+  test('post-kickoff rerun leaves the original pending shadow row untouched', async () => {
+    const existing = {
+      id: 'pv-shadow-locked',
+      propId: 'gl-shadow-g-nfl-1-moneyline-nfl-selection-v1.0.1',
+      status: 'pending',
+      source: 'game_line',
+      prediction: 'KC',
+      odds: -110,
+      notes: 'cohort:sides_totals | cohort:shadow-published | model:nfl-selection-v1.0.1',
+    }
+    const chain = createChain()
+    chain.maybeSingle.mockResolvedValue({ data: existing, error: null })
+    from.mockImplementation(() => chain)
+
+    const result = await recordGameLinePrediction({
+      gameId: 'g-nfl-1',
+      sport: 'nfl',
+      type: 'moneyline',
+      pick: 'DEN',
+      edge: 0.04,
+      odds: 120,
+      gameTime: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      status: 'scheduled',
+      eligibleForPublic: false,
+      shadow: true,
+      modelVersion: 'nfl-selection-v1.0.1',
+    })
+
+    expect(result).toEqual(existing)
+    expect(result.prediction).toBe('KC')
+    expect(result.odds).toBe(-110)
+    expect(chain.insert).not.toHaveBeenCalled()
+    expect(chain.update).not.toHaveBeenCalled()
+  })
+
+  test('adopts a pending legacy NHL gl- row instead of inserting a shadow duplicate', async () => {
+    const legacy = {
+      id: 'pv-nhl-legacy',
+      propId: 'gl-g-nhl-1-total-over-6.5',
+      gameIdRef: 'g-nhl-1',
+      sport: 'nhl',
+      source: 'game_line',
+      propType: 'total',
+      status: 'pending',
+      notes: 'cohort:sides_totals | cohort:shadow-published',
+    }
+    const updates = []
+    const chain = createChain()
+    chain.maybeSingle.mockResolvedValue({ data: null, error: null })
+    chain.then = (onFulfilled, onRejected) => (
+      Promise.resolve({ data: [legacy], error: null }).then(onFulfilled, onRejected)
+    )
+    chain.update.mockImplementation((payload) => {
+      updates.push(payload)
+      return chain
+    })
+    chain.single.mockResolvedValue({
+      data: { id: legacy.id, propId: 'gl-shadow-g-nhl-1-total-nhl-gd-v0.2.0' },
+      error: null,
+    })
+    from.mockImplementation(() => chain)
+
+    const result = await recordGameLinePrediction({
+      gameId: 'g-nhl-1',
+      sport: 'nhl',
+      type: 'total',
+      pick: 'under',
+      threshold: 6.5,
+      edge: 0.03,
+      odds: -110,
+      eligibleForPublic: false,
+      shadow: true,
+      modelVersion: 'nhl-gd-v0.2.0',
+    })
+
+    expect(chain.insert).not.toHaveBeenCalled()
+    expect(updates).toHaveLength(1)
+    expect(updates[0].propId).toBe('gl-shadow-g-nhl-1-total-nhl-gd-v0.2.0')
+    expect(updates[0].prediction).toBe('under')
+    expect(eqCalls).toEqual(expect.arrayContaining([['id', 'pv-nhl-legacy']]))
+    expect(result.id).toBe('pv-nhl-legacy')
+  })
+
+  test('voids extra pending NHL sides for the same game and market', async () => {
+    const over = {
+      id: 'pv-over',
+      propId: 'gl-g-nhl-1-total-over-6.5',
+      gameIdRef: 'g-nhl-1',
+      sport: 'nhl',
+      source: 'game_line',
+      propType: 'total',
+      prediction: 'over',
+      status: 'pending',
+      notes: 'cohort:sides_totals | cohort:shadow-published',
+    }
+    const under = {
+      ...over,
+      id: 'pv-under',
+      propId: 'gl-g-nhl-1-total-under-6.5',
+      prediction: 'under',
+    }
+    const updates = []
+    const chain = createChain()
+    chain.maybeSingle.mockResolvedValue({ data: null, error: null })
+    chain.then = (onFulfilled, onRejected) => (
+      Promise.resolve({ data: [over, under], error: null }).then(onFulfilled, onRejected)
+    )
+    chain.update.mockImplementation((payload) => {
+      updates.push(payload)
+      return chain
+    })
+    chain.single.mockResolvedValue({
+      data: { id: 'pv-under', propId: 'gl-shadow-g-nhl-1-total-nhl-gd-v0.2.0' },
+      error: null,
+    })
+    from.mockImplementation(() => chain)
+
+    const result = await recordGameLinePrediction({
+      gameId: 'g-nhl-1',
+      sport: 'nhl',
+      type: 'total',
+      pick: 'under',
+      threshold: 6.5,
+      edge: 0.03,
+      odds: -110,
+      eligibleForPublic: false,
+      shadow: true,
+      modelVersion: 'nhl-gd-v0.2.0',
+    })
+
+    expect(chain.insert).not.toHaveBeenCalled()
+    expect(result.id).toBe('pv-under')
+    expect(updates[0].propId).toBe('gl-shadow-g-nhl-1-total-nhl-gd-v0.2.0')
+    expect(updates[0].prediction).toBe('under')
+    expect(updates[1].result).toBe('void')
+    expect(updates[1].status).toBe('manual_closed')
+    expect(eqCalls).toEqual(expect.arrayContaining([
+      ['id', 'pv-under'],
+      ['id', 'pv-over'],
+    ]))
   })
 })
 
@@ -335,5 +587,14 @@ describe('public archive queries drop shadow-only rows and keep auto-saved', () 
     orCalls.length = 0
     await getAccuracyByEdge()
     expect(orCalls).toEqual([[PRIVATE_SHADOW_PUBLISHED_NOTES_OR_FILTER]])
+  })
+
+  test('public sides/totals stats drop every shadow-tagged game-line row', async () => {
+    await getSidesTotalsStats()
+    expect(orCalls).toEqual([[SHADOW_PUBLISHED_NOTES_OR_FILTER]])
+    expect(eqCalls).toEqual(expect.arrayContaining([
+      ['status', 'completed'],
+      ['source', 'game_line'],
+    ]))
   })
 })

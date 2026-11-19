@@ -3,13 +3,17 @@
  * Record today's sides & totals into PropValidation (source=game_line)
  * and grade any pending game-line rows from Game scores already in the DB.
  *
- * NFL: public persist gates (eligibleForPublic, threshold, lock time).
- * NHL: same threshold / lock / model-vs-market gap checks, stored privately
- *      (cohort:shadow-published, no auto-saved). Off the public board.
- * MLB: unpublished on purpose — no new rows. Already-recorded pending MLB
- *      game lines still grade via persistGameLines → gradePendingGameLines.
+ * NFL + NHL: private shadow mode. One moneyline and one total per game
+ * at lock (upcoming), as long as the model produced a probability and
+ * market odds exist. Ignores public gates and the 5% edge floor.
+ * Tagged cohort:shadow-published — never public. Model version lives
+ * on the row so a later research tag can plug in beside the live one.
  *
- * Every sport prints a section (edges read, picks recorded, skips by reason).
+ * MLB: unpublished on purpose — no new rows. Already-recorded pending MLB
+ * game lines still grade via persistGameLines → gradePendingGameLines.
+ *
+ * Every sport prints a section (edges read, picks recorded, skips by
+ * reason, plus one skip line per game/market with no pick).
  * Reads EdgeSnapshot + Odds + Game only — does not call The Odds API.
  * Homepage / /api/picks no longer persist on render. Run after the morning
  * odds pull (and again after scores update if you want same-day grades).
@@ -23,17 +27,13 @@ config({ path: '.env.local' })
 
 async function main() {
   const {
-    GAME_LINE_MIN_EDGE,
     GAME_LINE_SKIP_REASONS,
     GAME_LINE_SPORTS,
     bumpGameLineSkip,
     emptyGameLineRecorderSummary,
     formatGameLineRecorderSection,
     generatePicksFromSupabase,
-    isPublishedGameLineSport,
-    isRecordableGameLine,
     isRecordedGameLineSport,
-    selectGameLines,
   } = await import('../lib/picks.js')
   const { persistGameLines } = await import('../lib/validation.js')
 
@@ -48,25 +48,13 @@ async function main() {
       continue
     }
 
-    const picks = await generatePicksFromSupabase(sport, null, GAME_LINE_MIN_EDGE, {
+    const picks = await generatePicksFromSupabase(sport, null, 0, {
       quiet: true,
       diagnostics: summary,
+      shadow: true,
     })
-    const selected = isPublishedGameLineSport(sport)
-      ? selectGameLines(picks)
-      : picks.filter((line) => isRecordableGameLine(line))
-    if (picks.length > selected.length) {
-      const dropped = picks.length - selected.length
-      bumpGameLineSkip(
-        summary,
-        isPublishedGameLineSport(sport)
-          ? GAME_LINE_SKIP_REASONS.PUBLIC_INELIGIBLE
-          : GAME_LINE_SKIP_REASONS.LOCK_TIME,
-        dropped,
-      )
-    }
-    summary.picks = selected.length
-    persistBatch.push(...selected)
+    summary.picks = picks.length
+    persistBatch.push(...picks)
   }
 
   const saved = await persistGameLines(persistBatch)
@@ -87,7 +75,7 @@ async function main() {
     console.log(formatGameLineRecorderSection(summary))
   }
 
-  console.log(`📌 Game-line track: recorded ${saved.length} PropValidation row(s) from ${persistBatch.length} candidate line(s)`)
+  console.log(`📌 Game-line shadow track: recorded ${saved.length} private PropValidation row(s) from ${persistBatch.length} candidate line(s)`)
 }
 
 main().catch((error) => {

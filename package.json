@@ -52,6 +52,7 @@
     "backtest:game-lines": "node scripts/backtest-game-lines.js --summary",
     "clear:bad-nfl-closes": "node scripts/clear-bad-nfl-closes.js",
     "report:shadow-nhl": "node scripts/report-shadow-nhl.js",
+    "report:game-line-shadow": "node scripts/report-game-line-shadow.js",
     "repair:dnp": "node scripts/repair-dnp-grades.js",
     "restore:dnp": "node scripts/restore-dnp-grades.js",
     "check-validations": "node scripts/check-pending-validations.js",

@@ -17,6 +17,8 @@ describe('MLB game-line public kill switch wiring', () => {
     expect(script).toMatch(/formatGameLineRecorderSection/)
     expect(script).toMatch(/summary\.unpublished = true/)
     expect(script).toMatch(/GAME_LINE_SKIP_REASONS\.UNPUBLISHED/)
+    expect(script).toMatch(/shadow: true/)
+    expect(script).not.toMatch(/selectGameLines\(picks\)/)
     expect(script).not.toMatch(/PUBLISHED_GAME_LINE_SPORTS\.map/)
     expect(unpublishedGameLineSports()).toEqual(['mlb'])
     expect(PUBLISHED_GAME_LINE_SPORTS).toEqual(['nfl'])

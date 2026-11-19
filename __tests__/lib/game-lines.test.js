@@ -1,3 +1,4 @@
+import { spawnSync } from 'child_process'
 import {
   GAME_LINE_CAP,
   GAME_LINE_MIN_EDGE,
@@ -11,6 +12,7 @@ import {
   emptyGameLineRecorderSummary,
   formatGameLineRecorderSection,
   gameLineEdgeWhy,
+  gameLineKickoff,
   gameLineValidationWritePlan,
   gradeGameLineFromScores,
   isFinalGameStatus,
@@ -189,6 +191,69 @@ describe('selectGameLines', () => {
     expect(isUpcomingGameLine(line({ status: 'cancelled', gameTime: future }))).toBe(false)
     expect(isUpcomingGameLine(publicNflLine({ status: 'not_needed', edge: 0.20, gameTime: future }))).toBe(false)
     expect(isPublicGameLine(publicNflLine({ status: 'not_needed', edge: 0.20, gameTime: future }))).toBe(false)
+  })
+
+  test('a stale scheduled status after kickoff is not upcoming', () => {
+    const now = new Date('2025-12-15T18:00:00.000Z')
+    const past = '2025-12-15T17:00:00.000Z'
+    const future = '2025-12-15T19:00:00.000Z'
+    expect(isUpcomingGameLine(line({ status: 'scheduled', gameTime: past }), now)).toBe(false)
+    expect(isUpcomingGameLine(line({ status: 'pre-game', gameTime: past, date: past }), now)).toBe(false)
+    expect(isUpcomingGameLine({ status: 'scheduled', date: past }, now)).toBe(false)
+    expect(isUpcomingGameLine(publicNflLine({ status: 'scheduled', gameTime: past, edge: 0.20 }), now)).toBe(false)
+    expect(isPublicGameLine(publicNflLine({ status: 'scheduled', gameTime: past, edge: 0.20 }), now)).toBe(false)
+    expect(isUpcomingGameLine(line({ status: 'scheduled', gameTime: future }), now)).toBe(true)
+  })
+
+  test('missing, empty, and unparseable start times are not upcoming', () => {
+    const now = new Date('2025-12-21T16:00:00.000Z')
+    expect(isUpcomingGameLine({ status: 'scheduled' }, now)).toBe(false)
+    expect(isUpcomingGameLine(line({ status: 'scheduled', gameTime: '' }), now)).toBe(false)
+    expect(isUpcomingGameLine(line({ status: 'scheduled', gameTime: 'not-a-date' }), now)).toBe(false)
+    expect(isUpcomingGameLine(line({ status: 'pre-game', gameTime: '   ' }), now)).toBe(false)
+    expect(gameLineKickoff({ status: 'scheduled' })).toBeNull()
+    expect(gameLineKickoff({ gameTime: '' })).toBeNull()
+    expect(gameLineKickoff({ date: 'not-a-date' })).toBeNull()
+    expect(isPublicGameLine(publicNflLine({ gameTime: '', edge: 0.20 }), now)).toBe(false)
+  })
+
+  test('a timezone-less start uses the UTC clock in Eastern time and UTC', () => {
+    const script = `
+      import { gameLineKickoff, isUpcomingGameLine } from './lib/game-lines.js'
+      const zoneless = '2025-12-21T17:00:00'
+      const scheduled = { status: 'scheduled', gameTime: zoneless }
+      const afterKickoff = new Date('2025-12-21T18:00:00.000Z')
+      const beforeKickoff = new Date('2025-12-21T16:00:00.000Z')
+      process.stdout.write(JSON.stringify({
+        iso: gameLineKickoff(scheduled)?.toISOString() || null,
+        missing: isUpcomingGameLine({ status: 'scheduled' }, beforeKickoff),
+        empty: isUpcomingGameLine({ status: 'scheduled', gameTime: '' }, beforeKickoff),
+        invalid: isUpcomingGameLine({ status: 'scheduled', gameTime: 'not-a-date' }, beforeKickoff),
+        afterKickoff: isUpcomingGameLine(scheduled, afterKickoff),
+        beforeKickoff: isUpcomingGameLine(scheduled, beforeKickoff),
+      }))
+    `
+    const run = (tz) => {
+      const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+        cwd: process.cwd(),
+        env: { ...process.env, TZ: tz, NODE_NO_WARNINGS: '1' },
+        encoding: 'utf8',
+      })
+      expect(result.status).toBe(0)
+      const line = result.stdout.trim().split('\n').filter(Boolean).at(-1)
+      return JSON.parse(line)
+    }
+    const eastern = run('America/New_York')
+    const utc = run('UTC')
+    expect(eastern).toEqual(utc)
+    expect(eastern).toMatchObject({
+      iso: '2025-12-21T17:00:00.000Z',
+      missing: false,
+      empty: false,
+      invalid: false,
+      afterKickoff: false,
+      beforeKickoff: true,
+    })
   })
 
   test('requires the generatePicksFromSupabase min edge floor', () => {
