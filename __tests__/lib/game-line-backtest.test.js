@@ -141,6 +141,15 @@ describe('NFL fold keys', () => {
     expect(etFoldKey(mnf)).toBe('nfl-2025-11-17')
     expect(etFoldKey(nextThu)).toBe('nfl-2025-11-24')
     expect(etFoldKey(mnf)).not.toBe(etFoldKey(nextThu))
+
+    const postponedTue = upcoming({
+      id: 'g-mnf-tue',
+      date: '2025-11-19T01:15:00.000Z',
+      week: 11,
+    })
+    expect(etFoldKey(postponedTue)).toBe(etFoldKey(mnf))
+    expect(etFoldKey(postponedTue)).toBe('nfl-2025-11-17')
+    expect(etFoldKey(postponedTue)).not.toBe(etFoldKey(nextThu))
   })
 })
 
@@ -351,7 +360,7 @@ describe('no look-ahead in form, injuries, or team stats', () => {
 })
 
 describe('walk-forward does not feed the close into the model', () => {
-  test('the committed NFL fixture never uses the close as a lock quote', () => {
+  test('the committed NFL fixture never uses the close as a lock quote and scores a bet', () => {
     const kickoff = BACKTEST_NFL_FIXTURE.games.find((game) => game.id === 'g-week2')
     const lock = pickLockTime(kickoff, BACKTEST_NFL_FIXTURE.odds, { market: 'moneyline' })
     expect(lock.quote.id).toBe('odd-h2h-lock')
@@ -362,7 +371,12 @@ describe('walk-forward does not feed the close into the model', () => {
       model: NFL_SELECTION_MODEL_VERSION,
     })
     expect(result.lookAheadRejected).toEqual([])
-    expect(result.inventory.games).toBe(2)
+    expect(result.inventory.games).toBe(9)
+    const row = result.rows.find((item) => item.gameId === 'g-week2' && item.market === 'moneyline')
+    expect(row).toBeTruthy()
+    expect(row.pClose).not.toBeNull()
+    expect(row.outcome).toMatch(/^(win|loss|push)$/)
+    expect(row.lockAt).toBe(LOCK)
   })
 
   test('scoring uses the close while the model only sees the lock quote', () => {

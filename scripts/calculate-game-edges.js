@@ -5,6 +5,7 @@ import { config } from 'dotenv'
 import { calculateGameEdges, MODEL_VERSION } from '../lib/edge.js'
 import { calculateNHLEdges, toNhlEdgeSnapshotInsert } from '../lib/edge-nfl-nhl.js' // NHL heuristic + team-stats skip
 import { calculateNFLEdges, toNflEdgeSnapshotInsert } from '../lib/edge-nfl.js' // isolated NFL model
+import { loadCompletedNflGames, completedNflGamesForGame } from '../lib/nfl-completed-games.js'
 import { evaluateMatchupTeamStatsForEdge } from '../lib/team-performance-stats.js'
 import { ensurePrismaClient } from '../lib/prisma-preflight.js'
 import crypto from 'crypto'
@@ -67,6 +68,9 @@ async function calculateEdgesForToday() {
     }
     
     console.log(`📊 Found ${games.length} games to process\n`)
+
+    const hasNfl = games.some((game) => String(game.sport || '').toLowerCase() === 'nfl')
+    const completedNflPool = hasNfl ? await loadCompletedNflGames(supabase) : []
     
     let processed = 0
     let errors = 0
@@ -143,7 +147,7 @@ async function calculateEdgesForToday() {
         } else if (game.sport === 'nfl') {
           // Isolated NFL model. Public edges stay null until validated.
           game.pregameInjuries = await loadPregameInjuries(supabase, game)
-          const completedGames = await loadCompletedNflGames(supabase, game)
+          const completedGames = completedNflGamesForGame(completedNflPool, game, odds)
           edges = calculateNFLEdges(game, odds, { completedGames })
         } else if (game.sport === 'nhl') {
           edges = calculateNHLEdges(game, odds)
@@ -225,42 +229,6 @@ async function calculateEdgesForToday() {
     
   } catch (error) {
     console.error('❌ Fatal error:', error)
-  }
-}
-
-async function loadCompletedNflGames(client, game) {
-  const cutoff = game?.date || new Date().toISOString()
-  try {
-    const { data, error } = await client
-      .from('Game')
-      .select(`
-        id,
-        sport,
-        season,
-        date,
-        status,
-        week,
-        homeScore,
-        awayScore,
-        lastUpdate,
-        homeId,
-        awayId,
-        home:Team!Game_homeId_fkey(id, abbr),
-        away:Team!Game_awayId_fkey(id, abbr)
-      `)
-      .eq('sport', 'nfl')
-      .in('status', ['final', 'closed', 'completed', 'official', 'final/ot'])
-      .lt('date', cutoff)
-      .order('date', { ascending: false })
-      .limit(400)
-    if (error) {
-      console.log(`  ℹ️  completedGames skipped: ${error.message}`)
-      return []
-    }
-    return data || []
-  } catch (error) {
-    console.log(`  ℹ️  completedGames skipped: ${error.message}`)
-    return []
   }
 }
 

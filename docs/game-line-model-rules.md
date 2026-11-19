@@ -80,7 +80,8 @@ The close is loaded only after the model probability is frozen.
 
 Walk-forward folds: NFL is Thursday through Monday, keyed by the ET
 Monday that **ends** that week. TNF, Sunday, and MNF share a fold; MNF
-is not grouped with the next Thursday. A `Game` with a week number and
+is not grouped with the next Thursday. A postponed MNF played on Tuesday
+stays in that same week. A `Game` with a week number and
 an `ArchivedGame` without one still share a fold if they kick off in
 the same week. NHL and MLB are one ET date. Training labels (season
 W-L, form, matchup history, points) need a 24-hour embargo before the
