@@ -161,7 +161,7 @@ describe('completed NFL Game query is once per run', () => {
   })
 })
 
-describe('completed-games cutoff is lock, then kickoff', () => {
+describe('completed-games cutoff is lock, then start minus lead', () => {
   test('a final between lock and kickoff is excluded when a lock quote exists', () => {
     const game = sundayGame()
     const odds = [lockQuote(game.id)]
@@ -175,15 +175,55 @@ describe('completed-games cutoff is lock, then kickoff', () => {
     expect(completedNflGamesForGame([london], game, odds).map((row) => row.id)).toEqual([])
   })
 
-  test('without a lock quote the cutoff is kickoff, so that same final is eligible', () => {
+  test('a result between pick-lock and kickoff is excluded when only close-window quotes exist', () => {
     const game = sundayGame()
+    const closeOnly = [{
+      id: 'clvclose:g-sun-1:h2h',
+      gameId: game.id,
+      book: 'DraftKings',
+      market: 'h2h',
+      priceHome: -170,
+      priceAway: 145,
+      ts: '2025-11-16T17:50:00.000Z',
+      quotedAt: '2025-11-16T17:48:00.000Z',
+    }]
     const london = finalGame({
       id: 'g-london',
       date: '2025-11-16T17:20:00.000Z',
       lastUpdate: '2025-11-16T17:45:00.000Z',
       resultAvailableAt: '2025-11-16T17:45:00.000Z',
     })
-    expect(pickCompletedGamesCutoff(game, [])).toBe(KICKOFF)
-    expect(completedNflGamesForGame([london], game, []).map((row) => row.id)).toEqual(['g-london'])
+    expect(pickCompletedGamesCutoff(game, closeOnly)).toBe(LOCK)
+    expect(completedNflGamesForGame([london], game, closeOnly).map((row) => row.id)).toEqual([])
+  })
+
+  test('with no lock quote at all, cutoff is start minus the pick-lock lead', () => {
+    const game = sundayGame()
+    const prior = finalGame()
+    const london = finalGame({
+      id: 'g-london',
+      date: '2025-11-16T17:20:00.000Z',
+      lastUpdate: '2025-11-16T17:45:00.000Z',
+      resultAvailableAt: '2025-11-16T17:45:00.000Z',
+    })
+    expect(pickCompletedGamesCutoff(game, [])).toBe(LOCK)
+    const ids = completedNflGamesForGame([prior, london], game, []).map((row) => row.id)
+    expect(ids).toEqual(['g-prior'])
+    expect(ids).not.toContain('g-london')
+  })
+
+  test('a missing or invalid start returns an empty completed-games list', () => {
+    const prior = finalGame()
+    const missing = sundayGame()
+    delete missing.date
+    delete missing.frozenStart
+    delete missing.gameDate
+    delete missing.commence_time
+    expect(pickCompletedGamesCutoff(missing, [])).toBeNull()
+    expect(completedNflGamesForGame([prior], missing, [])).toEqual([])
+
+    const invalid = sundayGame({ date: 'not-a-kickoff' })
+    expect(pickCompletedGamesCutoff(invalid, [lockQuote(invalid.id)])).toBeNull()
+    expect(completedNflGamesForGame([prior], invalid, [lockQuote(invalid.id)])).toEqual([])
   })
 })

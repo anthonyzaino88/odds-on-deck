@@ -110,8 +110,9 @@ and calibration still fails a human review, but the coded bars above
 are CLV, beat-close share, Brier, log-loss, and sample.
 
 If the holdout cannot supply 200 games, the market **fails for sample
-size**. The harness does not lower the gate. The report must print
-`SAMPLE_TOO_SMALL` in that case.
+size**. The harness does not lower the gate. The report prints
+`SAMPLE_EMPTY` when nothing scored and `SAMPLE_TOO_SMALL` when the
+holdout is below 200.
 
 ---
 
@@ -210,8 +211,9 @@ node scripts/backtest-game-lines.js --summary
 ```
 
 Read-only. Zero Odds API credits. Prints counts, metrics by sport /
-market / model version, and `SAMPLE_TOO_SMALL` when the holdout is
-under 200 games. `--dry-run` is the same compact report without a
-per-game dump. `--verbose` prints one line per scored game.
+market / model version, `SAMPLE_EMPTY` when nothing scored, and
+`SAMPLE_TOO_SMALL` when the holdout is under 200 games. `--dry-run`
+is the same compact report without a per-game dump. `--verbose`
+prints one line per scored game.
 
 See `lib/game-line-backtest.js` and `lib/game-line-model-rules.js`.

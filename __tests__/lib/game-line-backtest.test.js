@@ -402,7 +402,7 @@ describe('walk-forward does not feed the close into the model', () => {
     expect(row.pClose).not.toBeNull()
     expect(row.clvProb).not.toBeNull()
     expect(result.lookAheadRejected).toEqual([])
-    expect(formatBacktestReport(result)).toMatch(/SAMPLE_TOO_SMALL|sample /)
+    expect(formatBacktestReport(result)).toMatch(/SAMPLE_EMPTY|SAMPLE_TOO_SMALL|sample /)
   })
 
   test('a future final cannot leak into an earlier fold', () => {
@@ -460,7 +460,8 @@ describe('publish bars', () => {
       nhlNotes: [],
     })
     expect(printed).toMatch(/avgCLV=n\/a/)
-    expect(printed).toMatch(/SAMPLE_TOO_SMALL|SAMPLE_EMPTY|no scored games/)
+    expect(printed).toMatch(/SAMPLE_EMPTY/)
+    expect(printed).not.toMatch(/SAMPLE_TOO_SMALL/)
   })
 })
 
