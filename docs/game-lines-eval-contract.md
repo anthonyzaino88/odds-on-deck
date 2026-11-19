@@ -2,6 +2,11 @@
 
 Status: **contract only**. This document does not change models, allowlists, or jobs.
 
+Operational rules, publish bars, and the walk-forward command live in
+`docs/game-line-model-rules.md`. The research NFL model is now
+`nfl-selection-v1.1.0` (`eligibleForPublic=false`). `nfl-selection-v1.0.1`
+remains a previous heuristic and is not pooled with v1.1.0.
+
 Markets in scope: **moneyline** and **game total** for NFL, NHL, NBA, and MLB. Spreads are out of scope even where a `spreads` quote is stored.
 
 No step in this contract may call The Odds API. Training, scoring, and any later harness read rows already in Supabase or in the operator's local archive. If a required row is missing, the game is excluded. It is not filled with a live fetch.
@@ -14,7 +19,7 @@ Production row counts and date ranges are **not in the repository**. This checko
 
 | Sport | Game-line model | Public today | Totals |
 | --- | --- | --- | --- |
-| NFL | `nfl-selection-v1.0.1` (`lib/nfl-selection-model.js`). Legacy heuristic `nfl-nhl-v0.1.0` must not be scored as this model. | `PUBLISHED_GAME_LINE_SPORTS` is `['nfl']`, but `nflGameLineMeetsPublicGates` requires `eligibleForPublic === true`. Production does not set that flag (`docs/nfl-selection-model.md`). | Ineligible: `missing_validated_scoring_distribution`. No fitted scoring distribution in the repo. |
+| NFL | `nfl-selection-v1.1.0` (`lib/nfl-selection-model.js`). Previous heuristic `nfl-selection-v1.0.1` and legacy `nfl-nhl-v0.1.0` must not be scored as this model. | `PUBLISHED_GAME_LINE_SPORTS` is `['nfl']`, but `nflGameLineMeetsPublicGates` requires `eligibleForPublic === true`. Production does not set that flag (`docs/nfl-selection-model.md`). | Research Normal from season PPG (unvalidated σ = 13.5), still public-ineligible. |
 | NHL | `nhl-gd-v0.2.0` (`lib/edge-nfl-nhl.js`). Legacy `nfl-nhl-v0.1.0`. Cutover instant used only for unversioned `source=game_line` rows: `2026-10-27T15:02:00.000Z`. | Not in `GAME_LINE_SPORTS` or `PUBLISHED_GAME_LINE_SPORTS`. | Heuristic runs only when the moneyline path does not skip. A moneyline skip nulls the total. |
 | MLB | `v0.2.0` (`lib/edge.js`). Skips the game when either probable pitcher is missing. | In `GAME_LINE_SPORTS` (tracked, still graded if a row exists). Not in `PUBLISHED_GAME_LINE_SPORTS`. `record-game-lines.js` does not insert new MLB rows. | Negative-binomial run model. Variance constant `TEAM_NB_R = 5` is not fitted on stored finals. |
 | NBA | None. | None. `Game.sport` comment and `fetch-fresh-games.js` are `mlb`, `nfl`, `nhl` only. | None. |

@@ -1,6 +1,7 @@
 import { calculateNFLNHLEdges } from '../../lib/edge-nfl-nhl.js'
 import { calculateNFLEdges } from '../../lib/edge-nfl.js'
 import {
+  NFL_SELECTION_MODEL_V101,
   NFL_SELECTION_MODEL_VERSION,
   NFL_TOTALS_INELIGIBLE_REASON,
   calculateNFLSelection,
@@ -201,6 +202,34 @@ describe('NFL eligibility and moneyline safeguards', () => {
     expect(toPublicNflGameLines(selection)).toEqual([])
   })
 
+  test('v1.0.1 returns a selection when scoring averages exist and does not throw', () => {
+    const game = {
+      id: 'g-nfl-1',
+      sport: 'nfl',
+      season: '2025',
+      home: eligibleTeam('KC', '12-4', {
+        avgPointsLast10: 28,
+        avgPointsAllowedLast10: 17,
+        gamesPlayed: 16,
+      }),
+      away: eligibleTeam('DEN', '4-12', {
+        avgPointsLast10: 17,
+        avgPointsAllowedLast10: 28,
+        gamesPlayed: 16,
+      }),
+    }
+    const selection = calculateNFLSelection(game, [evenH2h(), evenTotals()], {
+      now: NOW,
+      modelVersion: NFL_SELECTION_MODEL_V101,
+    })
+    expect(selection).toBeTruthy()
+    expect(selection.modelVersion).toBe(NFL_SELECTION_MODEL_V101)
+    expect(selection.moneyline.model).not.toBeNull()
+    expect(selection.totals.model).toBeNull()
+    expect(selection.totals.reason).toBe(NFL_TOTALS_INELIGIBLE_REASON)
+    expect(selection.eligibility.eligibleForPublic).toBe(false)
+  })
+
   test('CAR@GB moneyline is not skipped for missing_season when Game.season is present', () => {
     // calculate-game-edges used to omit Game.season from its select, so
     // game.season was always undefined even when Team.season and a quote
@@ -270,6 +299,36 @@ describe('NFL eligibility and moneyline safeguards', () => {
       { gameId: 'g-1', market: 'h2h', quotedAt: '2025-12-15T12:00:00.000Z' },
       { gameId: 'g-1', market: 'h2h', ts: '2025-12-15T17:00:00.000Z' },
     )).toEqual({ ok: false, reason: 'stale_or_mismatched_quote' })
+  })
+
+  test('totals and spreads still require lock-time freshness even with a scoring distribution', () => {
+    const staleHome = interpretEligible('KC', '12-4', {
+      capturedAt: '2025-01-01T00:00:00.000Z',
+      pointsForPerGame: 28,
+      pointsAgainstPerGame: 17,
+    })
+    const staleAway = interpretEligible('DEN', '4-12', {
+      capturedAt: '2025-01-01T00:00:00.000Z',
+      pointsForPerGame: 17,
+      pointsAgainstPerGame: 28,
+    })
+    const distribution = { mean: 47, variance: 64, line: 44.5 }
+    expect(evaluateNflDataEligibility({
+      home: staleHome,
+      away: staleAway,
+      game: { season: '2025' },
+      now: NOW,
+      market: 'totals',
+      totalsDistribution: distribution,
+    }).reason).toBe('stale_team_data')
+    expect(evaluateNflDataEligibility({
+      home: staleHome,
+      away: staleAway,
+      game: { season: '2025' },
+      now: NOW,
+      market: 'spreads',
+      totalsDistribution: distribution,
+    }).reason).toBe('stale_team_data')
   })
 })
 
