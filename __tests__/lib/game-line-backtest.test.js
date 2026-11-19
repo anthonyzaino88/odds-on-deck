@@ -25,6 +25,12 @@ import {
   calculateNFLSelection,
 } from '../../lib/nfl-selection-model.js'
 import { runBacktestGameLines } from '../../scripts/backtest-game-lines.js'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+const BACKTEST_NFL_FIXTURE = JSON.parse(
+  readFileSync(join(process.cwd(), '__tests__/fixtures/game-line-backtest-nfl.json'), 'utf8'),
+)
 
 const LOCK = '2025-11-16T17:00:00.000Z'
 const KICKOFF = '2025-11-16T18:00:00.000Z'
@@ -108,6 +114,34 @@ describe('NFL fold keys', () => {
     expect(etFoldKey(tagged)).toBe(etFoldKey(archived))
     expect(etFoldKey(tagged)).toMatch(/^nfl-\d{4}-\d{2}-\d{2}$/)
   })
+
+  test('TNF, Sunday, and MNF of one week share a fold and MNF is not grouped with next Thursday', () => {
+    const tnf = upcoming({
+      id: 'g-tnf',
+      date: '2025-11-14T01:15:00.000Z',
+      week: 11,
+    })
+    const sunday = upcoming({
+      id: 'g-sun',
+      date: '2025-11-16T18:00:00.000Z',
+      week: 11,
+    })
+    const mnf = upcoming({
+      id: 'g-mnf',
+      date: '2025-11-18T01:15:00.000Z',
+      week: 11,
+    })
+    const nextThu = upcoming({
+      id: 'g-next-tnf',
+      date: '2025-11-21T01:15:00.000Z',
+      week: 12,
+    })
+    expect(etFoldKey(tnf)).toBe(etFoldKey(sunday))
+    expect(etFoldKey(sunday)).toBe(etFoldKey(mnf))
+    expect(etFoldKey(mnf)).toBe('nfl-2025-11-17')
+    expect(etFoldKey(nextThu)).toBe('nfl-2025-11-24')
+    expect(etFoldKey(mnf)).not.toBe(etFoldKey(nextThu))
+  })
 })
 
 describe('lock time rejects look-ahead quotes', () => {
@@ -139,6 +173,23 @@ describe('lock time rejects look-ahead quotes', () => {
 
     const close = selectCloseQuote([closeQuote], { game, market: 'moneyline' })
     expect(close.quote.id).toBe('clvclose:g-week2:h2h')
+  })
+
+  test('a zone-less Game.date never selects the clvclose quote as lock', () => {
+    const game = upcoming({ date: '2025-11-16T18:00:00' })
+    const lockQuote = quote()
+    const closeQuote = quote({
+      id: 'clvclose:g-week2:h2h',
+      ts: '2025-11-16T17:50:00.000Z',
+      quotedAt: '2025-11-16T17:48:00.000Z',
+      priceHome: -170,
+      priceAway: 145,
+    })
+    const lock = pickLockTime(game, [lockQuote, closeQuote], { market: 'moneyline' })
+    expect(lock.quote).toBeTruthy()
+    expect(lock.quote.id).not.toMatch(/^clvclose:/)
+    expect(lock.quote.id).toBe('odd-h2h-lock')
+    expect(lock.lockAt).toBe(LOCK)
   })
 })
 
@@ -262,9 +313,58 @@ describe('no look-ahead in form, injuries, or team stats', () => {
       label: 'team_stats',
     }).ok).toBe(true)
   })
+
+  test('a prior whose dataThrough is after lock is excluded from features', () => {
+    const leaky = finalGame({
+      id: 'g-leaky',
+      frozenStart: '2025-11-09T18:00:00.000Z',
+      date: '2025-11-16T18:30:00.000Z',
+      lastUpdate: '2025-11-09T21:00:00.000Z',
+      resultAvailableAt: '2025-11-09T21:00:00.000Z',
+      homeScore: 40,
+      awayScore: 3,
+    })
+    const week2 = upcoming()
+    const result = walkForwardBacktest({
+      games: [...priorFinals('KC', 'SEA'), ...priorFinals('LV', 'NYJ'), leaky, week2],
+      odds: [quote()],
+      closingOdds: [quote({
+        id: 'clvclose:g-week2:h2h',
+        ts: '2025-11-16T17:50:00.000Z',
+        quotedAt: '2025-11-16T17:48:00.000Z',
+      })],
+    }, { sport: 'nfl', market: 'moneyline' })
+    expect(result.lookAheadRejected.some((row) => row.priorId === 'g-leaky')).toBe(true)
+    expect(result.inventory.lookAheadRejected).toBeGreaterThan(0)
+    const available = gamesAvailableBeforeLock([leaky, week2], LOCK)
+      .filter((game) => game.id !== 'g-week2')
+    expect(available.map((game) => game.id)).toContain('g-leaky')
+    const safe = available.filter((game) => assertNoLookAhead({
+      observedAt: game.resultAvailableAt || game.lastUpdate || game.archivedAt,
+      dataThrough: game.date,
+      lockAt: LOCK,
+      label: 'prior_final',
+    }).ok)
+    expect(safe.map((game) => game.id)).not.toContain('g-leaky')
+    expect(teamRecentForm(safe, 'KC', LOCK).ids).not.toContain('g-leaky')
+  })
 })
 
 describe('walk-forward does not feed the close into the model', () => {
+  test('the committed NFL fixture never uses the close as a lock quote', () => {
+    const kickoff = BACKTEST_NFL_FIXTURE.games.find((game) => game.id === 'g-week2')
+    const lock = pickLockTime(kickoff, BACKTEST_NFL_FIXTURE.odds, { market: 'moneyline' })
+    expect(lock.quote.id).toBe('odd-h2h-lock')
+    expect(lock.quote.id).not.toMatch(/^clvclose:/)
+    const result = walkForwardBacktest(BACKTEST_NFL_FIXTURE, {
+      sport: 'nfl',
+      market: 'moneyline',
+      model: NFL_SELECTION_MODEL_VERSION,
+    })
+    expect(result.lookAheadRejected).toEqual([])
+    expect(result.inventory.games).toBe(2)
+  })
+
   test('scoring uses the close while the model only sees the lock quote', () => {
     const week2 = upcoming()
     const lockQuote = quote()

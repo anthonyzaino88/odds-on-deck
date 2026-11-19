@@ -143,7 +143,8 @@ async function calculateEdgesForToday() {
         } else if (game.sport === 'nfl') {
           // Isolated NFL model. Public edges stay null until validated.
           game.pregameInjuries = await loadPregameInjuries(supabase, game)
-          edges = calculateNFLEdges(game, odds)
+          const completedGames = await loadCompletedNflGames(supabase, game)
+          edges = calculateNFLEdges(game, odds, { completedGames })
         } else if (game.sport === 'nhl') {
           edges = calculateNHLEdges(game, odds)
           if (edges.skipped) {
@@ -224,6 +225,42 @@ async function calculateEdgesForToday() {
     
   } catch (error) {
     console.error('❌ Fatal error:', error)
+  }
+}
+
+async function loadCompletedNflGames(client, game) {
+  const cutoff = game?.date || new Date().toISOString()
+  try {
+    const { data, error } = await client
+      .from('Game')
+      .select(`
+        id,
+        sport,
+        season,
+        date,
+        status,
+        week,
+        homeScore,
+        awayScore,
+        lastUpdate,
+        homeId,
+        awayId,
+        home:Team!Game_homeId_fkey(id, abbr),
+        away:Team!Game_awayId_fkey(id, abbr)
+      `)
+      .eq('sport', 'nfl')
+      .in('status', ['final', 'closed', 'completed', 'official', 'final/ot'])
+      .lt('date', cutoff)
+      .order('date', { ascending: false })
+      .limit(400)
+    if (error) {
+      console.log(`  ℹ️  completedGames skipped: ${error.message}`)
+      return []
+    }
+    return data || []
+  } catch (error) {
+    console.log(`  ℹ️  completedGames skipped: ${error.message}`)
+    return []
   }
 }
 

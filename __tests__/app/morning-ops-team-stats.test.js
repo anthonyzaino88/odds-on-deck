@@ -59,7 +59,8 @@ describe('morning ops team-stats refresh', () => {
   test('calculate-game-edges Game select includes season for the NFL selection model', () => {
     const script = read('scripts/calculate-game-edges.js')
     expect(script).toMatch(/\.from\('Game'\)[\s\S]*?\.select\(`[^`]*\bseason\b[^`]*`\)/)
-    expect(script).toMatch(/calculateNFLEdges\(game, odds\)/)
+    expect(script).toMatch(/calculateNFLEdges\(game, odds, \{ completedGames \}\)/)
+    expect(script).toMatch(/loadCompletedNflGames/)
   })
 
   test('calculate-game-edges writes NHL model inputs on the existing payload column', () => {

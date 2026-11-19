@@ -1,6 +1,7 @@
 import { calculateNFLNHLEdges } from '../../lib/edge-nfl-nhl.js'
 import { calculateNFLEdges } from '../../lib/edge-nfl.js'
 import {
+  NFL_SELECTION_MODEL_V101,
   NFL_SELECTION_MODEL_VERSION,
   NFL_TOTALS_INELIGIBLE_REASON,
   calculateNFLSelection,
@@ -199,6 +200,34 @@ describe('NFL eligibility and moneyline safeguards', () => {
     expect(selection.moneyline.eligibility.eligibleForPublic).toBe(false)
     expect(selection.moneyline.eligibility.reason).toBe('unvalidated_heuristic')
     expect(toPublicNflGameLines(selection)).toEqual([])
+  })
+
+  test('v1.0.1 returns a selection when scoring averages exist and does not throw', () => {
+    const game = {
+      id: 'g-nfl-1',
+      sport: 'nfl',
+      season: '2025',
+      home: eligibleTeam('KC', '12-4', {
+        avgPointsLast10: 28,
+        avgPointsAllowedLast10: 17,
+        gamesPlayed: 16,
+      }),
+      away: eligibleTeam('DEN', '4-12', {
+        avgPointsLast10: 17,
+        avgPointsAllowedLast10: 28,
+        gamesPlayed: 16,
+      }),
+    }
+    const selection = calculateNFLSelection(game, [evenH2h(), evenTotals()], {
+      now: NOW,
+      modelVersion: NFL_SELECTION_MODEL_V101,
+    })
+    expect(selection).toBeTruthy()
+    expect(selection.modelVersion).toBe(NFL_SELECTION_MODEL_V101)
+    expect(selection.moneyline.model).not.toBeNull()
+    expect(selection.totals.model).toBeNull()
+    expect(selection.totals.reason).toBe(NFL_TOTALS_INELIGIBLE_REASON)
+    expect(selection.eligibility.eligibleForPublic).toBe(false)
   })
 
   test('CAR@GB moneyline is not skipped for missing_season when Game.season is present', () => {

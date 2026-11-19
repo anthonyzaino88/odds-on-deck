@@ -113,7 +113,7 @@ function nhlGame(overrides = {}) {
 }
 
 describe('inspectGameLineShadowSnapshot', () => {
-  test('records one NFL moneyline and one heuristic total while public inspect stays empty', () => {
+  test('records one NFL moneyline and one v1.1.0 total while public inspect stays empty', () => {
     const game = nflGame()
     const selection = nflSelection(game)
     const edge = {
@@ -145,7 +145,7 @@ describe('inspectGameLineShadowSnapshot', () => {
     expect(shadow.picks.filter((pick) => pick.type === 'moneyline')).toHaveLength(1)
     expect(shadow.picks.filter((pick) => pick.type === 'total')).toHaveLength(1)
     const total = shadow.picks.find((pick) => pick.type === 'total')
-    expect(total.totalsHeuristic).toBe(true)
+    expect(total.totalsHeuristic).toBe(false)
     expect(total.threshold).toBe(44.5)
     expect(shadow.picks.every((pick) => isPublicGameLine(pick, NOW))).toBe(false)
   })
