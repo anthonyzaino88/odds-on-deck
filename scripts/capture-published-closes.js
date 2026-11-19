@@ -82,8 +82,14 @@ import { paginateSupabaseSelect } from '../lib/unplayed-game-grades.js'
 import {
   CLOSE_CAPTURE_SPORTS,
   PUBLISHED_STATS_PREFILTER,
+  isPrivateShadowPublished,
   parseRecordInstant,
 } from '../lib/published-picks.js'
+import { GAME_LINE_SOURCE } from '../lib/game-lines.js'
+import {
+  attachShadowGameLineCloses,
+  loadShadowGameLineClosingOdds,
+} from '../lib/game-line-shadow.js'
 import { isMissingColumnError } from '../lib/grade-audit.js'
 import {
   CLOSE_CAPTURE_PASS_NEAR_START,
@@ -1637,6 +1643,44 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       }
       if (skippedQuietDuringRun) break
     }
+  }
+
+  try {
+    log.log('🔒 Attaching same-line ClosingOdds onto private NFL/NHL game-line shadow picks (0 Odds API).')
+    const shadowPage = await paginateSupabaseSelect(() => supabase
+      .from('PropValidation')
+      .select(closeColumnsMissing ? PICK_SELECT_BASE : PICK_SELECT)
+      .eq('source', GAME_LINE_SOURCE)
+      .in('propType', ['moneyline', 'total'])
+      .in('sport', ['nfl', 'nhl'])
+      .order('id', { ascending: true }))
+    const shadowPicks = (shadowPage.rows || []).filter((row) => isPrivateShadowPublished(row))
+    const shadowGameIds = [...new Set(shadowPicks.map((row) => row.gameIdRef).filter(Boolean))]
+    if (shadowPicks.length && shadowGameIds.length) {
+      const loadedCloses = await loadShadowGameLineClosingOdds(supabase, shadowGameIds)
+      const { data: shadowGames } = await supabase
+        .from('Game')
+        .select(`
+          id, date, sport,
+          home:Team!Game_homeId_fkey(abbr),
+          away:Team!Game_awayId_fkey(abbr)
+        `)
+        .in('id', shadowGameIds)
+      const attached = await attachShadowGameLineCloses({
+        supabase,
+        picks: shadowPicks,
+        closingOddsRows: loadedCloses.rows || [],
+        games: shadowGames || [],
+        now: nowFn(),
+        apply: args.apply,
+        log,
+      })
+      log.log(`  shadow game-line closes attached=${attached.length}`)
+    } else {
+      log.log('  no pending private game-line shadow picks')
+    }
+  } catch (error) {
+    log.error(`⚠️ shadow game-line close attach skipped: ${sanitizedErrorMessage(error, apiKey)}`)
   }
 
   if (lastQuota.remaining != null) {
