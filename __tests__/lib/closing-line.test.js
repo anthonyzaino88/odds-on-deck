@@ -10,6 +10,7 @@ import {
   closeCapturePassForGame,
   closeCaptureRoutineMissesNearStart,
   formatCloseCaptureCounts,
+  formatCloseCaptureQuietOverride,
   formatCloseCaptureStatus,
   nearStartKickoffMinutesCoveredByRoutine,
   CLOSE_ODDS_FIELDS,
@@ -24,6 +25,9 @@ import {
   groupCaptureJobsByOddsApiEventId,
   hasCloseAlready,
   isCloseCaptureCandidate,
+  isNflKickoffQuietOverrideEligibleCluster,
+  isNflKickoffQuietOverrideEligibleGame,
+  isNflKickoffQuietOverrideEligibleJob,
   isOpsWriteQuietPeriod,
   shouldSkipPaidCloseCaptureFetch,
   CLOSE_CAPTURE_PAID_FETCH_CUTOFF_SECOND,
@@ -96,6 +100,8 @@ import { join } from 'node:path'
 beforeEach(() => {
   resetCloseColumnCache()
   resetClosingOddsWriteGuard()
+  // Pin outside :05–:15 ET so writeGameLineCloses tests do not depend on wall clock.
+  setClosingOddsClock(() => new Date('2026-07-15T22:50:00.000Z'))
 })
 
 describe('odds API market mapping', () => {
@@ -325,6 +331,52 @@ describe('quiet period and close window', () => {
       skippedWindow: 2,
       credits: 6,
     })).toBe('CLOSE_CAPTURE_CAPTURED=3 CLOSE_CAPTURE_SKIPPED_BUDGET=1 CLOSE_CAPTURE_SKIPPED_QUIET=4 CLOSE_CAPTURE_SKIPPED_WINDOW=2 CLOSE_CAPTURE_CREDITS=6')
+    expect(formatCloseCaptureQuietOverride()).toBe('CLOSE_CAPTURE_QUIET_OVERRIDE=off')
+    expect(formatCloseCaptureQuietOverride({ active: false, jobs: 4 })).toBe('CLOSE_CAPTURE_QUIET_OVERRIDE=off')
+    expect(formatCloseCaptureQuietOverride({ active: true, jobs: 2 })).toBe(
+      'CLOSE_CAPTURE_QUIET_OVERRIDE=nfl_kickoff jobs=2',
+    )
+    expect(formatCloseCaptureQuietOverride({ active: true, jobs: 0 })).toBe(
+      'CLOSE_CAPTURE_QUIET_OVERRIDE=nfl_kickoff jobs=0',
+    )
+  })
+
+  test('NFL kickoff quiet override is NFL near-start pre-start only and fails closed', () => {
+    const now = new Date('2026-11-20T01:10:00.000Z')
+    const nflNear = {
+      id: 'IND_at_HOU',
+      sport: 'nfl',
+      date: '2026-11-20T01:15:00.000Z',
+      status: 'scheduled',
+    }
+    const nflEarly = {
+      ...nflNear,
+      id: 'KC_at_BUF',
+      date: '2026-11-20T01:40:00.000Z',
+    }
+    const nhlNear = {
+      ...nflNear,
+      id: 'TOR_at_BOS',
+      sport: 'nhl',
+    }
+    const liveNfl = { ...nflNear, status: 'in_progress' }
+    const badDate = { ...nflNear, date: 'not-a-kickoff' }
+    expect(isNflKickoffQuietOverrideEligibleGame(nflNear, now)).toBe(true)
+    expect(isNflKickoffQuietOverrideEligibleGame(nflEarly, now)).toBe(false)
+    expect(isNflKickoffQuietOverrideEligibleGame(nhlNear, now)).toBe(false)
+    expect(isNflKickoffQuietOverrideEligibleGame(liveNfl, now)).toBe(false)
+    expect(isNflKickoffQuietOverrideEligibleGame(badDate, now)).toBe(false)
+    expect(isNflKickoffQuietOverrideEligibleGame(nflNear, new Date('invalid'))).toBe(false)
+    expect(isNflKickoffQuietOverrideEligibleJob({ game: nflNear }, now)).toBe(true)
+    expect(isNflKickoffQuietOverrideEligibleJob({ game: nhlNear }, now)).toBe(false)
+    expect(isNflKickoffQuietOverrideEligibleJob(null, now)).toBe(false)
+    expect(isNflKickoffQuietOverrideEligibleCluster({
+      targets: [{ game: nflNear }],
+    }, now)).toBe(true)
+    expect(isNflKickoffQuietOverrideEligibleCluster({
+      targets: [{ game: nflNear }, { game: nhlNear }],
+    }, now)).toBe(false)
+    expect(isNflKickoffQuietOverrideEligibleCluster({ targets: [] }, now)).toBe(false)
   })
 
   test('isCloseCaptureCandidate requires a pre-start status and the window', () => {
@@ -2047,9 +2099,11 @@ describe('game-line close capture for NHL, MLB, and NFL', () => {
       },
     }
     resetClosingOddsWriteGuard()
+    setClosingOddsClock(() => new Date('2026-07-15T22:50:00.000Z'))
     const first = await writeGameLineCloses(supabase, rows)
     expect(first.inserted).toBe(2)
     resetClosingOddsWriteGuard()
+    setClosingOddsClock(() => new Date('2026-07-15T22:50:00.000Z'))
     const second = await writeGameLineCloses(supabase, rows)
     expect(second.inserted).toBe(0)
     expect(second.skipped).toBe(2)
@@ -2385,6 +2439,43 @@ describe('game-line close capture for NHL, MLB, and NFL', () => {
       expect(written.quiet).toBe(true)
       expect(written.inserted).toBe(0)
       expect(inserts).toEqual([])
+    } finally {
+      resetClosingOddsWriteGuard()
+    }
+  })
+
+  test('allowQuietPeriod writes ClosingOdds during the quiet window', async () => {
+    setClosingOddsClock(() => new Date('2026-07-15T16:09:00.000Z'))
+    const row = {
+      id: 'clvclose:ind_at_hou|fanduel|h2h',
+      game_id: 'IND_at_HOU',
+      book: 'FanDuel',
+      market: 'h2h',
+      price_home: -150,
+      price_away: 130,
+      snapshot_at: '2026-11-20T01:10:00.000Z',
+      quoted_at: '2026-11-20T01:08:00.000Z',
+    }
+    const inserts = []
+    const query = {
+      select() { return query },
+      in() { return query },
+      order() { return query },
+      range() { return Promise.resolve({ data: [], error: null }) },
+      insert(body) {
+        inserts.push(...body)
+        return Promise.resolve({ data: body, error: null })
+      },
+    }
+    const supabase = { from() { return query } }
+    try {
+      const blocked = await writeGameLineCloses(supabase, [row])
+      expect(blocked.quiet).toBe(true)
+      expect(inserts).toEqual([])
+      const written = await writeGameLineCloses(supabase, [row], { allowQuietPeriod: true })
+      expect(written.quiet).toBeUndefined()
+      expect(written.inserted).toBe(1)
+      expect(inserts).toHaveLength(1)
     } finally {
       resetClosingOddsWriteGuard()
     }

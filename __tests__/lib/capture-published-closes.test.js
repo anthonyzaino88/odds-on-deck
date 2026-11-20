@@ -319,6 +319,18 @@ describe('parseCaptureClosesArgs', () => {
     expect(parseCaptureClosesArgs(['--nfl-alls']).unknown).toEqual(['--nfl-alls'])
     expect(parseCaptureClosesArgs(['--nhl-all']).unknown).toEqual([])
     expect(parseCaptureClosesArgs(['--nhl-alls']).unknown).toEqual(['--nhl-alls'])
+    expect(parseCaptureClosesArgs([]).nflKickoffQuietOverride).toBe(false)
+    expect(parseCaptureClosesArgs(['--nfl-kickoff-quiet-override'])).toMatchObject({
+      nflKickoffQuietOverride: true,
+      unknown: [],
+    })
+    expect(parseCaptureClosesArgs(['--nfl-kickoff-quiet-overrides']).unknown).toEqual([
+      '--nfl-kickoff-quiet-overrides',
+    ])
+    expect(parseCaptureClosesArgs(['--nfl-kickoff-quiet-override=false'])).toMatchObject({
+      nflKickoffQuietOverride: false,
+      unknown: ['--nfl-kickoff-quiet-override=false'],
+    })
   })
 })
 
@@ -341,6 +353,7 @@ describe('runCapturePublishedCloses', () => {
     expect(log.lines[0]).toBe('MODE: APPLY')
     expect(log.lines.join('\n')).toMatch(/quiet period/)
     expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_STATUS=partial/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_QUIET_OVERRIDE=off/)
   })
 
   test('dry-run lists in-window picks and never fetches or writes', async () => {
@@ -1979,6 +1992,7 @@ describe('runCapturePublishedCloses', () => {
     expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_QUIET=/)
     expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_WINDOW=/)
     expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_CREDITS=0/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_QUIET_OVERRIDE=off/)
     expect(log.lines.join('\n')).not.toMatch(/test-key/)
   })
 
@@ -3625,5 +3639,653 @@ describe('runCapturePublishedCloses', () => {
     expect(fetchEventOdds).toHaveBeenCalledTimes(1)
     expect(budget.todayGameLineCredits()).toBe(0)
     expect(budget.todayGameLineCaptures()).toBe(0)
+  })
+})
+
+describe('--nfl-kickoff-quiet-override', () => {
+  // Thursday 2026-11-19 8:10 PM EST — TNF 8:15 PM ET analog inside :05–:15.
+  const TNF_QUIET = new Date('2026-11-20T01:10:00.000Z')
+  const TNF_04 = new Date('2026-11-20T01:04:00.000Z')
+  const TNF_05 = new Date('2026-11-20T01:05:00.000Z')
+  const TNF_0510 = new Date('2026-11-20T01:05:10.000Z')
+  const TNF_15 = new Date('2026-11-20T01:15:00.000Z')
+  const TNF_KICKOFF = '2026-11-20T01:15:00.000Z'
+  const NFL_EARLY_KICKOFF = '2026-11-20T01:40:00.000Z'
+  const OVERRIDE_ARGV = [
+    '--nfl-all', '--nhl-all', '--game-lines', '--spreads', '--nfl-kickoff-quiet-override',
+  ]
+  const OVERRIDE_APPLY = ['--apply', ...OVERRIDE_ARGV]
+
+  function tnfGame(overrides = {}) {
+    return nflWindowGame({
+      id: 'IND_at_HOU_2026-11-19',
+      date: TNF_KICKOFF,
+      oddsApiEventId: 'evt-ind-hou',
+      ...overrides,
+    })
+  }
+
+  function tnfPick(overrides = {}) {
+    return nflPendingPick({
+      id: 'pv-taylor',
+      propId: 'prop-taylor',
+      gameIdRef: 'IND_at_HOU_2026-11-19',
+      playerName: 'Jonathan Taylor',
+      ...overrides,
+    })
+  }
+
+  function tnfPublishedPick(overrides = {}) {
+    return publishedPick({
+      id: 'pv-downs',
+      propId: 'prop-downs',
+      gameIdRef: 'IND_at_HOU_2026-11-19',
+      playerName: 'Josh Downs',
+      propType: 'player_receptions',
+      threshold: 3.5,
+      sport: 'nfl',
+      ...overrides,
+    })
+  }
+
+  function tnfShadowPick(overrides = {}) {
+    return publishedPick({
+      id: 'pv-pittman',
+      propId: 'prop-pittman',
+      gameIdRef: 'IND_at_HOU_2026-11-19',
+      playerName: 'Michael Pittman',
+      propType: 'player_receptions',
+      threshold: 4.5,
+      sport: 'nfl',
+      notes: SHADOW_PUBLISHED_COHORT_TAG,
+      ...overrides,
+    })
+  }
+
+  function nhlNearStartGame(overrides = {}) {
+    return windowGame({
+      id: 'TOR_at_BOS_2026-11-19',
+      sport: 'nhl',
+      date: TNF_KICKOFF,
+      oddsApiEventId: 'evt-tor-bos-tnf',
+      ...overrides,
+    })
+  }
+
+  function nhlNearStartPick(overrides = {}) {
+    return publishedPick({
+      id: 'pv-matthews-tnf',
+      gameIdRef: 'TOR_at_BOS_2026-11-19',
+      playerName: 'Auston Matthews',
+      propType: 'player_shots_on_goal',
+      threshold: 2.5,
+      sport: 'nhl',
+      ...overrides,
+    })
+  }
+
+  function nflEarlyGame(overrides = {}) {
+    return nflWindowGame({
+      id: 'KC_at_BUF_2026-11-19',
+      date: NFL_EARLY_KICKOFF,
+      oddsApiEventId: 'evt-kc-buf-early',
+      ...overrides,
+    })
+  }
+
+  function clientWithoutGameWrites(opts = {}) {
+    const inner = mockClient(opts)
+    const writes = []
+    return {
+      gameWrites: writes,
+      from(table) {
+        const query = inner.from(table)
+        if (table !== 'Game') return query
+        query.update = (body) => {
+          writes.push(['update', body])
+          throw new Error('Game update must not run during close capture')
+        }
+        query.insert = (body) => {
+          writes.push(['insert', body])
+          throw new Error('Game insert must not run during close capture')
+        }
+        query.upsert = (body) => {
+          writes.push(['upsert', body])
+          throw new Error('Game upsert must not run during close capture')
+        }
+        query.delete = () => {
+          writes.push(['delete'])
+          throw new Error('Game delete must not run during close capture')
+        }
+        return query
+      },
+    }
+  }
+
+  function tnfEventOdds(lastUpdate = '2026-11-20T01:08:00.000Z') {
+    return {
+      commence_time: TNF_KICKOFF,
+      home_team: 'Houston Texans',
+      away_team: 'Indianapolis Colts',
+      bookmakers: [{
+        title: 'FanDuel',
+        last_update: lastUpdate,
+        markets: [
+          {
+            key: 'player_receptions',
+            last_update: lastUpdate,
+            outcomes: [
+              { name: 'Over', description: 'Jonathan Taylor', point: 5.5, price: -115 },
+              { name: 'Over', description: 'Josh Downs', point: 3.5, price: -112 },
+              { name: 'Over', description: 'Michael Pittman', point: 4.5, price: -110 },
+            ],
+          },
+          {
+            key: 'h2h',
+            last_update: lastUpdate,
+            outcomes: [
+              { name: 'Houston Texans', price: -150 },
+              { name: 'Indianapolis Colts', price: 130 },
+            ],
+          },
+          {
+            key: 'spreads',
+            last_update: lastUpdate,
+            outcomes: [
+              { name: 'Houston Texans', price: -110, point: -3.5 },
+              { name: 'Indianapolis Colts', price: -110, point: 3.5 },
+            ],
+          },
+          {
+            key: 'totals',
+            last_update: lastUpdate,
+            outcomes: [
+              { name: 'Over', price: -108, point: 47.5 },
+              { name: 'Under', price: -112, point: 47.5 },
+            ],
+          },
+        ],
+      }],
+    }
+  }
+
+  const mixedGames = () => [
+    tnfGame(),
+    nhlNearStartGame(),
+    nflEarlyGame(),
+  ]
+  const mixedPicks = () => [
+    tnfPick(),
+    tnfPublishedPick(),
+    tnfShadowPick(),
+    nhlNearStartPick(),
+    nflPendingPick({
+      id: 'pv-kelce-early',
+      gameIdRef: 'KC_at_BUF_2026-11-19',
+    }),
+  ]
+
+  test('quiet window without the flag still skips everything', async () => {
+    const fetchEventOdds = jest.fn()
+    const createClient = jest.fn()
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--nfl-all', '--nhl-all', '--game-lines', '--spreads'],
+      now: TNF_QUIET,
+      createClient,
+      fetchEventOdds,
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result).toMatchObject({
+      exitCode: 0,
+      calls: 0,
+      skippedQuiet: true,
+      captureStatus: 'partial',
+      quietOverrideActive: false,
+    })
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(createClient).not.toHaveBeenCalled()
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_QUIET_OVERRIDE=off/)
+    expect(log.lines.join('\n')).not.toMatch(/nfl_kickoff/)
+  })
+
+  test('quiet window with the flag captures only NFL near-start jobs and skips NHL and early-pass', async () => {
+    const updates = []
+    const closingInserts = []
+    const fetchEventOdds = jest.fn(async ({ url }) => {
+      expect(url).toContain('/sports/americanfootball_nfl/events/evt-ind-hou/odds')
+      expect(url).not.toContain('icehockey_nhl')
+      expect(url).not.toContain('evt-tor-bos')
+      expect(url).not.toContain('evt-kc-buf-early')
+      return {
+        data: tnfEventOdds(),
+        quota: { remaining: 18000, used: 2000, last: 4 },
+      }
+    })
+    const log = memoryLog()
+    const client = clientWithoutGameWrites({
+      games: mixedGames(),
+      picks: mixedPicks(),
+      updates,
+      closingInserts,
+    })
+    const result = await runCapturePublishedCloses({
+      argv: OVERRIDE_APPLY,
+      now: TNF_QUIET,
+      createClient: () => client,
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.quietOverrideActive).toBe(true)
+    expect(result.quietOverrideJobs).toBe(1)
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(result.calls).toBe(2)
+    expect(result.updates.map((row) => row.id).sort()).toEqual([
+      'pv-downs', 'pv-pittman', 'pv-taylor',
+    ])
+    expect(updates.some((row) => row.closeOdds === -115)).toBe(true)
+    expect(closingInserts.length).toBeGreaterThan(0)
+    expect(closingInserts.every((row) => row.game_id === 'IND_at_HOU_2026-11-19')).toBe(true)
+    expect(client.gameWrites).toEqual([])
+    const text = log.lines.join('\n')
+    expect(text).toMatch(/CLOSE_CAPTURE_QUIET_OVERRIDE=nfl_kickoff jobs=1/)
+    expect(text).toMatch(/CLOSE_CAPTURE_SKIPPED_QUIET=[1-9]/)
+    expect(text).not.toMatch(/evt-tor-bos-tnf/)
+    expect(text).not.toMatch(/would fetch/)
+  })
+
+  test('dry-run during quiet with the flag shows the same NFL near-start plan apply would use', async () => {
+    const fetchEventOdds = jest.fn()
+    const dryLog = memoryLog()
+    const applyLog = memoryLog()
+    const games = mixedGames()
+    const picks = mixedPicks()
+    const dry = await runCapturePublishedCloses({
+      argv: OVERRIDE_ARGV,
+      now: TNF_QUIET,
+      createClient: () => mockClient({ games, picks }),
+      fetchEventOdds,
+      log: dryLog,
+    })
+    const apply = await runCapturePublishedCloses({
+      argv: OVERRIDE_APPLY,
+      now: TNF_QUIET,
+      createClient: () => mockClient({ games, picks }),
+      fetchEventOdds: async ({ url }) => {
+        expect(url).toContain('evt-ind-hou')
+        return {
+          data: tnfEventOdds(),
+          quota: { remaining: 18000, used: 2000, last: 4 },
+        }
+      },
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log: applyLog,
+    })
+    expect(dry.calls).toBe(0)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(dry.quietOverrideJobs).toBe(1)
+    expect(apply.quietOverrideJobs).toBe(1)
+    expect((dry.captureJobs || []).map((job) => job.eventId)).toEqual(['evt-ind-hou'])
+    expect((apply.captureJobs || []).map((job) => job.eventId)).toEqual(['evt-ind-hou'])
+    expect((dry.captureJobs || [])[0]?.pass).toBe('near-start')
+    expect(dryLog.lines.join('\n')).toMatch(/would fetch IND_at_HOU_2026-11-19/)
+    expect(dryLog.lines.join('\n')).toMatch(/pass=near-start/)
+    expect(dryLog.lines.join('\n')).toMatch(/CLOSE_CAPTURE_QUIET_OVERRIDE=nfl_kickoff jobs=1/)
+    expect(dryLog.lines.join('\n')).not.toMatch(/TOR_at_BOS_2026-11-19/)
+    expect(dryLog.lines.join('\n')).not.toMatch(/KC_at_BUF_2026-11-19/)
+  })
+
+  test('flag with no qualifying NFL game makes 0 Odds API calls and 0 writes', async () => {
+    const fetchEventOdds = jest.fn()
+    const probeQuota = jest.fn()
+    const updates = []
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: OVERRIDE_APPLY,
+      now: TNF_QUIET,
+      createClient: () => mockClient({
+        games: [nhlNearStartGame(), nflEarlyGame()],
+        picks: [
+          nhlNearStartPick(),
+          nflPendingPick({ id: 'pv-kelce-early', gameIdRef: 'KC_at_BUF_2026-11-19' }),
+        ],
+        updates,
+      }),
+      fetchEventOdds,
+      probeQuota,
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.calls).toBe(0)
+    expect(result.quietOverrideJobs).toBe(0)
+    expect(result.updates).toHaveLength(0)
+    expect(updates).toHaveLength(0)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(probeQuota).not.toHaveBeenCalled()
+    expect(log.lines.join('\n')).toMatch(/found no NFL near-start games/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_QUIET_OVERRIDE=nfl_kickoff jobs=0/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_SKIPPED_QUIET=[1-9]/)
+  })
+
+  test('flag outside the quiet window is a no-op and runs the normal plan', async () => {
+    const fetchEventOdds = jest.fn(async ({ url }) => ({
+      data: url.includes('americanfootball_nfl')
+        ? { ...tnfEventOdds(), commence_time: nflWindowGame().date }
+        : {
+          commence_time: windowGame().date,
+          bookmakers: [{
+            title: 'FanDuel',
+            last_update: '2026-07-15T22:40:00.000Z',
+            markets: [{
+              key: 'player_shots_on_goal',
+              last_update: '2026-07-15T22:40:00.000Z',
+              outcomes: [
+                { name: 'Over', description: 'Auston Matthews', point: 2.5, price: -120 },
+              ],
+            }],
+          }],
+        },
+      quota: { remaining: 18000, used: 2000, last: 2 },
+    }))
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--nfl-all', '--nhl-all', '--nfl-kickoff-quiet-override'],
+      now: IN_WINDOW,
+      createClient: () => mockClient({
+        games: [
+          nflWindowGame(),
+          windowGame({
+            id: 'TOR_at_BOS_2026-07-15',
+            sport: 'nhl',
+            oddsApiEventId: 'evt-tor-bos-july',
+          }),
+        ],
+        picks: [
+          nflPendingPick(),
+          publishedPick({
+            id: 'pv-matthews-july',
+            gameIdRef: 'TOR_at_BOS_2026-07-15',
+            playerName: 'Auston Matthews',
+            propType: 'player_shots_on_goal',
+            threshold: 2.5,
+            sport: 'nhl',
+          }),
+        ],
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.quietOverrideActive).toBe(false)
+    const urls = fetchEventOdds.mock.calls.map((call) => String(call[0]?.url || ''))
+    expect(urls.some((url) => url.includes('americanfootball_nfl'))).toBe(true)
+    expect(urls.some((url) => url.includes('icehockey_nhl'))).toBe(true)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_QUIET_OVERRIDE=off/)
+  })
+
+  test('in-progress and already-started NFL games are never captured', async () => {
+    const fetchEventOdds = jest.fn()
+    const probeQuota = jest.fn()
+    const live = tnfGame({ id: 'IND_LIVE', status: 'in_progress', oddsApiEventId: 'evt-live' })
+    const started = tnfGame({
+      id: 'IND_STARTED',
+      date: '2026-11-20T01:00:00.000Z',
+      oddsApiEventId: 'evt-started',
+    })
+    const badDate = tnfGame({
+      id: 'IND_BAD_DATE',
+      date: 'not-a-kickoff',
+      oddsApiEventId: 'evt-bad-date',
+    })
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: OVERRIDE_APPLY,
+      now: TNF_QUIET,
+      createClient: () => mockClient({
+        games: [live, started, badDate],
+        picks: [
+          tnfPick({ id: 'pv-live', gameIdRef: live.id }),
+          tnfPick({ id: 'pv-started', gameIdRef: started.id }),
+          tnfPick({ id: 'pv-bad', gameIdRef: badDate.id }),
+        ],
+      }),
+      fetchEventOdds,
+      probeQuota,
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.calls).toBe(0)
+    expect(result.quietOverrideJobs).toBe(0)
+    expect(result.updates).toHaveLength(0)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(probeQuota).not.toHaveBeenCalled()
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_QUIET_OVERRIDE=nfl_kickoff jobs=0/)
+  })
+
+  test('budget caps still stop an override run', async () => {
+    const fetchEventOdds = jest.fn()
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: [...OVERRIDE_APPLY, '--max-calls', '0'],
+      now: TNF_QUIET,
+      createClient: () => mockClient({
+        games: [tnfGame()],
+        picks: [tnfPick()],
+      }),
+      fetchEventOdds,
+      probeQuota: jest.fn(),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(result.calls).toBe(0)
+    expect(result.quietOverrideActive).toBe(true)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_QUIET_OVERRIDE=nfl_kickoff/)
+    expect(log.lines.join('\n')).toMatch(/--max-calls 0/)
+  })
+
+  test('--nfl-kickoff-quiet-override=false fails closed with no Odds API calls', async () => {
+    const fetchEventOdds = jest.fn()
+    const createClient = jest.fn()
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: ['--apply', '--nfl-all', '--nfl-kickoff-quiet-override=false'],
+      now: TNF_QUIET,
+      createClient,
+      fetchEventOdds,
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.captureStatus).toBe('failed')
+    expect(result.unknown).toEqual(['--nfl-kickoff-quiet-override=false'])
+    expect(result.calls).toBe(0)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(createClient).not.toHaveBeenCalled()
+    expect(log.lines.join('\n')).toMatch(/Unknown argument/)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_STATUS=failed/)
+    expect(log.lines.join('\n')).not.toContain('false')
+  })
+
+  test('flag at :04 ET is a no-op: early-pass TNF, footer=off', async () => {
+    const fetchEventOdds = jest.fn(async () => ({
+      data: tnfEventOdds(),
+      quota: { remaining: 18000, used: 2000, last: 4 },
+    }))
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: OVERRIDE_APPLY,
+      now: TNF_04,
+      createClient: () => mockClient({
+        games: [tnfGame()],
+        picks: [tnfPick(), tnfPublishedPick()],
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.quietOverrideActive).toBe(false)
+    expect(result.captureJobs?.[0]?.pass).toBe('early')
+    expect(fetchEventOdds).toHaveBeenCalled()
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_QUIET_OVERRIDE=off/)
+    expect(log.lines.join('\n')).not.toMatch(/nfl_kickoff/)
+  })
+
+  test('flag at :05:00 ET captures NFL near-start TNF', async () => {
+    const updates = []
+    const closingInserts = []
+    const fetchEventOdds = jest.fn(async ({ url }) => {
+      expect(url).toContain('/sports/americanfootball_nfl/events/evt-ind-hou/odds')
+      expect(url).not.toContain('icehockey_nhl')
+      return {
+        data: tnfEventOdds('2026-11-20T01:04:00.000Z'),
+        quota: { remaining: 18000, used: 2000, last: 4 },
+      }
+    })
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: OVERRIDE_APPLY,
+      now: TNF_05,
+      createClient: () => mockClient({
+        games: mixedGames(),
+        picks: mixedPicks(),
+        updates,
+        closingInserts,
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.quietOverrideActive).toBe(true)
+    expect(result.captureJobs?.[0]?.pass).toBe('near-start')
+    expect(fetchEventOdds).toHaveBeenCalledTimes(1)
+    expect(result.updates.map((row) => row.id).sort()).toEqual([
+      'pv-downs', 'pv-pittman', 'pv-taylor',
+    ])
+    expect(closingInserts.length).toBeGreaterThan(0)
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_QUIET_OVERRIDE=nfl_kickoff jobs=1/)
+  })
+
+  test('flag at :15:00 ET makes 0 Odds API calls and 0 writes', async () => {
+    const fetchEventOdds = jest.fn()
+    const probeQuota = jest.fn()
+    const updates = []
+    const closingInserts = []
+    const log = memoryLog()
+    const result = await runCapturePublishedCloses({
+      argv: OVERRIDE_APPLY,
+      now: TNF_15,
+      createClient: () => mockClient({
+        games: mixedGames(),
+        picks: mixedPicks(),
+        updates,
+        closingInserts,
+      }),
+      fetchEventOdds,
+      probeQuota,
+      apiKey: 'test-key',
+      log,
+    })
+    expect(result.quietOverrideActive).toBe(true)
+    expect(result.calls).toBe(0)
+    expect(result.updates).toHaveLength(0)
+    expect(updates).toHaveLength(0)
+    expect(closingInserts).toHaveLength(0)
+    expect(fetchEventOdds).not.toHaveBeenCalled()
+    expect(probeQuota).not.toHaveBeenCalled()
+    expect(log.lines.join('\n')).toMatch(/CLOSE_CAPTURE_QUIET_OVERRIDE=nfl_kickoff jobs=0/)
+  })
+
+  test(':04-start with the flag that straddles into :05 matches no-flag: 0 extra fetches or writes', async () => {
+    const runStraddle = async (withFlag) => {
+      let ticks = 0
+      const fetchEventOdds = jest.fn(async () => ({
+        data: tnfEventOdds(),
+        quota: { remaining: 18000, used: 2000, last: 4 },
+      }))
+      const updates = []
+      const closingInserts = []
+      const log = memoryLog()
+      const result = await runCapturePublishedCloses({
+        argv: withFlag
+          ? OVERRIDE_APPLY
+          : ['--apply', '--nfl-all', '--nhl-all', '--game-lines', '--spreads'],
+        clock: () => {
+          ticks += 1
+          return ticks === 1 ? TNF_04 : TNF_0510
+        },
+        createClient: () => mockClient({
+          games: mixedGames(),
+          picks: mixedPicks(),
+          updates,
+          closingInserts,
+        }),
+        fetchEventOdds,
+        probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+        apiKey: 'test-key',
+        log,
+      })
+      return { result, fetchEventOdds, updates, closingInserts, log }
+    }
+
+    const withFlag = await runStraddle(true)
+    const withoutFlag = await runStraddle(false)
+
+    expect(withFlag.result.quietOverrideActive).toBe(false)
+    expect(withoutFlag.result.quietOverrideActive).toBe(false)
+    expect(withFlag.fetchEventOdds).not.toHaveBeenCalled()
+    expect(withoutFlag.fetchEventOdds).not.toHaveBeenCalled()
+    expect(withFlag.fetchEventOdds.mock.calls.length).toBe(withoutFlag.fetchEventOdds.mock.calls.length)
+    expect(withFlag.closingInserts).toHaveLength(0)
+    expect(withoutFlag.closingInserts).toHaveLength(0)
+    expect(withFlag.closingInserts.length).toBe(withoutFlag.closingInserts.length)
+    expect(withFlag.updates).toHaveLength(0)
+    expect(withoutFlag.updates).toHaveLength(0)
+    const withText = withFlag.log.lines.join('\n')
+    const withoutText = withoutFlag.log.lines.join('\n')
+    expect(withText).toMatch(/CLOSE_CAPTURE_QUIET_OVERRIDE=off/)
+    expect(withoutText).toMatch(/CLOSE_CAPTURE_QUIET_OVERRIDE=off/)
+    expect(withText).toMatch(/Attaching same-line ClosingOdds/)
+    expect(withoutText).toMatch(/Attaching same-line ClosingOdds/)
+    expect(withText).not.toMatch(/Skipping private game-line shadow attach/)
+    expect(withoutText).not.toMatch(/Skipping private game-line shadow attach/)
+    expect(withText).toMatch(/stopping before further writes/)
+    expect(withoutText).toMatch(/stopping before further writes/)
+  })
+
+  test('override near-start does not overwrite a pending NFL prop that already has a close', async () => {
+    const updates = []
+    const fetchEventOdds = jest.fn(async () => ({
+      data: tnfEventOdds(),
+      quota: { remaining: 18000, used: 2000, last: 4 },
+    }))
+    const result = await runCapturePublishedCloses({
+      argv: OVERRIDE_APPLY,
+      now: TNF_QUIET,
+      createClient: () => mockClient({
+        games: [tnfGame()],
+        picks: [
+          tnfPick({
+            closeOdds: -110,
+            closeCapturedAt: '2026-11-20T00:46:00.000Z',
+          }),
+          tnfPublishedPick(),
+        ],
+        updates,
+      }),
+      fetchEventOdds,
+      probeQuota: async () => ({ remaining: 9000, used: 1, last: 0 }),
+      apiKey: 'test-key',
+      log: memoryLog(),
+    })
+    expect(result.updates.map((row) => row.id)).toEqual(['pv-downs'])
+    expect(updates.every((row) => row.id !== 'pv-taylor')).toBe(true)
   })
 })

@@ -55,6 +55,7 @@
  *   node scripts/capture-published-closes.js --nfl-all --apply
  *   node scripts/capture-published-closes.js --nhl-all --apply
  *   node scripts/capture-published-closes.js --nhl-all --spreads --apply
+ *   node scripts/capture-published-closes.js --nfl-all --nhl-all --game-lines --spreads --apply --max-calls 10 --max-credits 150 --nfl-kickoff-quiet-override
  *   npm run capture:published-closes:apply              # PowerShell-safe apply
  *   npm run capture:published-closes:nfl-all:apply
  *   npm run capture:published-closes:nhl-all:apply
@@ -65,6 +66,12 @@
  * kickoffs (see operations/README.md for TZ=America/New_York
  * 0,4,16,26,36,46,56 8-22 * * *). Empty window costs 0 credits.
  * No-ops during :05–:15 ET. CLOSING_CAPTURE=0 disables.
+ * --nfl-kickoff-quiet-override (opt-in): during :05–:15 ET only, lift
+ * the quiet guard for NFL near-start (T−10..T−1, pre-start) jobs so a
+ * ~8:10 PM ET run can close TNF/MNF :15 kickoffs. NHL, MLB, early-pass,
+ * and in-play games stay skipped. Outside the quiet window the flag is
+ * a no-op. Budget/cap/ledger/reserve guards are unchanged. Writes stay
+ * on PropValidation + ClosingOdds; Game is select-only.
  * Uses createScriptSupabaseClient with SUPABASE_REQUIRE_SECRET_KEY=1.
  * Do not run --apply from CI.
  */
@@ -116,6 +123,7 @@ import {
   formatCallsUsed,
   formatCloseCaptureAlerts,
   formatCloseCaptureCounts,
+  formatCloseCaptureQuietOverride,
   formatCloseCaptureStatus,
   formatCreditsUsed,
   formatGameLineCloseCounts,
@@ -128,6 +136,9 @@ import {
   groupCaptureJobsByOddsApiEventId,
   includeNflWindowGamesForGameLines,
   includeNhlWindowGamesForGameLines,
+  isNflAllPendingProp,
+  isNflKickoffQuietOverrideEligibleCluster,
+  isNflKickoffQuietOverrideEligibleGame,
   isNflSport,
   isNhlSport,
   isOpsWriteQuietPeriod,
@@ -201,6 +212,7 @@ export function shouldRecaptureStoredClose(game, now, minutes = ALREADY_CLOSED_R
 const KNOWN_FLAGS = new Set([
   '--dry-run', '--apply', '--help', '-h', '--max-calls', '--min-remaining',
   '--max-credits', '--nfl-all', '--nhl-all', '--game-lines', '--spreads', '--deadline',
+  '--nfl-kickoff-quiet-override',
 ])
 const FLAGS_WITH_VALUE = new Set(['--max-calls', '--min-remaining', '--max-credits', '--deadline'])
 const DEADLINE_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/
@@ -328,6 +340,7 @@ export function parseCaptureClosesArgs(argv = [], env = process.env) {
     nhlAll: args.includes('--nhl-all'),
     gameLines: args.includes('--game-lines'),
     spreads: args.includes('--spreads'),
+    nflKickoffQuietOverride: args.includes('--nfl-kickoff-quiet-override'),
     deadlineMs: deadline.value,
     disabled: isClosingCaptureDisabled(env),
     unknown,
@@ -394,6 +407,14 @@ export async function runCapturePublishedCloses({
     purpose: 'close-capture',
   })
   let skippedAlreadyClosed = 0
+  let quietOverrideJobs = 0
+  let skippedQuietFromOverride = 0
+  const quietOverrideRequested = Boolean(args.nflKickoffQuietOverride)
+  const quietOverrideActive = quietOverrideRequested && isOpsWriteQuietPeriod(startedAt)
+  const nflKickoffQuietOverrideAllows = (game, at = nowFn()) => (
+    quietOverrideActive
+    && isNflKickoffQuietOverrideEligibleGame(game, at, windowOpts)
+  )
   const missingGameIds = []
   const missingMarketNotes = []
   const done = (result) => {
@@ -404,9 +425,14 @@ export async function runCapturePublishedCloses({
         || result.skippedQuota || oddsBudget.status() === 'close_cap')
         ? Number(result.skippedBudgetCount) || 0
         : 0)
-    const skippedQuietCount = Number(result.skippedQuietCount) || 0
+    const skippedQuietCount = Number(
+      result.skippedQuietCount != null ? result.skippedQuietCount : skippedQuietFromOverride,
+    ) || 0
     const skippedWindow = result.skippedWindow ?? 0
     const credits = result.creditsUsed ?? 0
+    const overrideJobs = Number(
+      result.quietOverrideJobs != null ? result.quietOverrideJobs : quietOverrideJobs,
+    ) || 0
     let captureStatus = result.captureStatus
     if (!captureStatus) {
       if (result.unknown || result.invalidFlags || result.missingSecret
@@ -425,6 +451,10 @@ export async function runCapturePublishedCloses({
       skippedQuiet: skippedQuietCount,
       skippedWindow,
       credits,
+    }))
+    log.log(formatCloseCaptureQuietOverride({
+      active: quietOverrideActive,
+      jobs: overrideJobs,
     }))
     log.log(`SKIPPED_ALREADY_CLOSED=${skippedClosed}`)
     const gamesMissing = result.missingGameIds || missingGameIds
@@ -459,10 +489,12 @@ export async function runCapturePublishedCloses({
       skippedWindow,
       skippedAlreadyClosed: skippedClosed,
       creditsUsed: credits,
+      quietOverrideActive,
+      quietOverrideJobs: overrideJobs,
     }
   }
   if (args.help) {
-    log.log(`Usage: node scripts/capture-published-closes.js [--dry-run|--apply] [--nfl-all] [--nhl-all] [--game-lines] [--spreads] [--max-calls N] [--max-credits N] [--min-remaining N]
+    log.log(`Usage: node scripts/capture-published-closes.js [--dry-run|--apply] [--nfl-all] [--nhl-all] [--game-lines] [--spreads] [--nfl-kickoff-quiet-override] [--max-calls N] [--max-credits N] [--min-remaining N]
 
 Dry-run (default): list in-window Published and shadow-published picks.
 NHL shares this --max-calls budget; NFL jobs run first so a busy NHL
@@ -518,6 +550,14 @@ Windows: early T−${windowOpts.windowMinutes}..T−${windowOpts.nearStartMinute
 near-start T−${windowOpts.nearStartMinutes}..T−1 (pre-start only).
 No-ops during :05–:15 ET; a :00/:04 run re-checks before each write
 and stops at :05. Does not start a paid fetch after :04:30 ET.
+--nfl-kickoff-quiet-override: during :05–:15 ET only, capture NFL
+near-start (pre-start) props and game lines so TNF/MNF :15 kickoffs
+get a T−10..T−1 close. NHL, MLB, early-pass, and in-play stays
+skipped and counted as quiet skips. Outside quiet the flag is a
+no-op. If no NFL near-start game qualifies: 0 Odds API calls, 0
+writes. Budget, cap, ledger, reserve, and --max-calls/--max-credits
+are unchanged. Footer CLOSE_CAPTURE_QUIET_OVERRIDE=nfl_kickoff
+jobs=<n> or =off.
 Schedule TZ=America/New_York
 ${CLOSE_CAPTURE_RECOMMENDED_CRON} after record-mlb-window-props
 during 11–22. Empty window costs 0 credits (no Odds API calls).
@@ -557,7 +597,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     return done({ updates: [], calls: 0, skippedDisabled: true })
   }
 
-  if (isOpsWriteQuietPeriod(startedAt)) {
+  if (isOpsWriteQuietPeriod(startedAt) && !quietOverrideRequested) {
     log.log('⏸️  Ops quiet period (:05–:15 ET) — no close capture writes or Odds API calls.')
     return done({ updates: [], calls: 0, skippedQuiet: true })
   }
@@ -603,13 +643,8 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     })
   }
 
-  const classified = classifyCloseCaptureGames(games || [], startedAt, windowOpts)
-  const windowGames = [...classified.early, ...classified.nearStart]
-  const gamesById = new Map(windowGames.map((game) => [game.id, game]))
-  const passByGameId = new Map([
-    ...classified.early.map((game) => [game.id, 'early']),
-    ...classified.nearStart.map((game) => [game.id, CLOSE_CAPTURE_PASS_NEAR_START]),
-  ])
+  let classified = classifyCloseCaptureGames(games || [], startedAt, windowOpts)
+  let windowGames = [...classified.early, ...classified.nearStart]
   const skippedWindow = classified.skippedWindow.length
   if (windowGames.length === 0) {
     log.log('✅ No games in the close-capture window.')
@@ -621,6 +656,40 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       skippedWindow,
     })
   }
+  if (quietOverrideActive) {
+    const eligible = classified.nearStart.filter((game) => (
+      isNflKickoffQuietOverrideEligibleGame(game, startedAt, windowOpts)
+    ))
+    skippedQuietFromOverride = windowGames.length - eligible.length
+    if (eligible.length === 0) {
+      log.log(
+        '⏸️  Ops quiet period (:05–:15 ET) — --nfl-kickoff-quiet-override found no NFL near-start games. '
+        + 'No Odds API calls.',
+      )
+      return done({
+        updates: [],
+        calls: 0,
+        skippedQuietCount: skippedQuietFromOverride,
+        skippedWindow,
+        quietOverrideJobs: 0,
+      })
+    }
+    classified = {
+      early: [],
+      nearStart: eligible,
+      skippedWindow: classified.skippedWindow,
+    }
+    windowGames = eligible
+    log.log(
+      `NFL kickoff quiet override: ${eligible.length} NFL near-start game(s); `
+      + `${skippedQuietFromOverride} in-window game(s) still skipped by the quiet guard.`,
+    )
+  }
+  const gamesById = new Map(windowGames.map((game) => [game.id, game]))
+  const passByGameId = new Map([
+    ...classified.early.map((game) => [game.id, 'early']),
+    ...classified.nearStart.map((game) => [game.id, CLOSE_CAPTURE_PASS_NEAR_START]),
+  ])
 
   async function loadPublishedPicks(select) {
     return paginateSupabaseSelect(() => supabase
@@ -731,11 +800,14 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       return false
     }
     const overwrite = passByGameId.get(row.gameIdRef) === CLOSE_CAPTURE_PASS_NEAR_START
-    return isTargetedCloseCapturePick(row, {
+    if (isTargetedCloseCapturePick(row, {
       nflAll: args.nflAll,
       nhlAll: args.nhlAll,
       overwrite,
-    })
+    })) return true
+    // Near-start overwrite targeting skips --nfl-all pending props.
+    // The kickoff quiet override still captures those empty pending NFL props.
+    return quietOverrideActive && args.nflAll && isNflAllPendingProp(row)
   })
 
   const closingOddsGameIds = []
@@ -783,10 +855,14 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     }
   }
 
-  let byGame = includeNflWindowGamesForGameLines(new Map(), classified.early, {
-    nflAll: args.nflAll,
-    capturedGameIds,
-  })
+  let byGame = includeNflWindowGamesForGameLines(
+    new Map(),
+    quietOverrideActive ? classified.nearStart : classified.early,
+    {
+      nflAll: args.nflAll,
+      capturedGameIds,
+    },
+  )
   byGame = includeNhlWindowGamesForGameLines(byGame, windowGames, {
     nhlAll: args.nhlAll,
     capturedGameIds,
@@ -889,6 +965,9 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     })
   }
   const gameLineClusters = gameLinePlan.clusters
+  if (quietOverrideActive) {
+    quietOverrideJobs = captureJobs.length + gameLineClusters.length
+  }
   const reportedCalls = gameLinePlan.plannedCalls
   const reportedCredits = gameLinePlan.plannedCredits
   const skippedBudgetTotal = skippedBudgetCount + (gameLinePlan.skipped || 0)
@@ -1147,14 +1226,22 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
 
   const gameLineWrites = []
   let skippedQuietDuringRun = false
-  let skippedQuietCount = 0
+  let skippedQuietCount = skippedQuietFromOverride
   const markQuietStop = (jobIndex) => {
     skippedQuietDuringRun = true
     skippedQuietCount += captureJobs.length - jobIndex
   }
+  const quietWindowBlocks = (game, at = nowFn()) => (
+    isOpsWriteQuietPeriod(at) && !nflKickoffQuietOverrideAllows(game, at)
+  )
   for (let jobIndex = 0; jobIndex < captureJobs.length; jobIndex += 1) {
     const job = captureJobs[jobIndex]
-    if (isOpsWriteQuietPeriod(nowFn())) {
+    if (quietWindowBlocks(job.game)) {
+      if (quietOverrideActive) {
+        log.log('⏸️  Ops quiet period (:05–:15 ET) — skipping job (not NFL near-start).')
+        skippedQuietCount += 1
+        continue
+      }
       log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
       markQuietStop(jobIndex)
       break
@@ -1310,7 +1397,12 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       if (reservedPropLost) {
         calls -= 1
         creditsUsed -= activeCredits
-        if (isOpsWriteQuietPeriod(nowFn())) {
+        if (quietWindowBlocks(job.game)) {
+          if (quietOverrideActive) {
+            log.log('⏸️  Ops quiet period (:05–:15 ET) — not starting the line-only retry.')
+            skippedQuietCount += 1
+            continue
+          }
           log.log('⏸️  Ops quiet period (:05–:15 ET) — not starting the line-only retry.')
           markQuietStop(jobIndex)
           break
@@ -1389,7 +1481,12 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
             missingMarketNotes.push(`${row.game_id}:${row.market}`)
           }
         }
-        if (isOpsWriteQuietPeriod(nowFn())) {
+        if (quietWindowBlocks(job.game)) {
+          if (quietOverrideActive) {
+            log.log('⏸️  Ops quiet period (:05–:15 ET) — skipping job (not NFL near-start).')
+            skippedQuietCount += 1
+            continue
+          }
           log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
           markQuietStop(jobIndex)
           break
@@ -1397,6 +1494,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
         const writtenLines = await writeGameLineCloses(supabase, gameLineRows, {
           gamesById,
           overwrite,
+          allowQuietPeriod: nflKickoffQuietOverrideAllows(job.game),
         })
         if (writtenLines.error) {
           writeErrors += 1
@@ -1437,7 +1535,12 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
         log.log(`  skipped ${pick.id} unconvertible close price`)
         continue
       }
-      if (isOpsWriteQuietPeriod(nowFn())) {
+      if (quietWindowBlocks(job.game)) {
+        if (quietOverrideActive) {
+          log.log('⏸️  Ops quiet period (:05–:15 ET) — skipping job (not NFL near-start).')
+          skippedQuietCount += 1
+          break
+        }
         log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
         markQuietStop(jobIndex)
         break
@@ -1490,10 +1593,23 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
         continue
       }
       if (isOpsWriteQuietPeriod(nowFn())) {
-        log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
-        skippedQuietDuringRun = true
-        skippedQuietCount += gameLineClusters.length - clusterIndex
-        break
+        const clusterAllowed = quietOverrideActive
+          && isNflKickoffQuietOverrideEligibleCluster(
+            { ...cluster, targets: dueTargets },
+            nowFn(),
+            windowOpts,
+          )
+        if (!clusterAllowed && quietOverrideActive) {
+          log.log('⏸️  Ops quiet period (:05–:15 ET) — skipping game-line cluster (not NFL near-start).')
+          skippedQuietCount += 1
+          continue
+        }
+        if (!clusterAllowed) {
+          log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
+          skippedQuietDuringRun = true
+          skippedQuietCount += gameLineClusters.length - clusterIndex
+          break
+        }
       }
       if (shouldSkipPaidCloseCaptureFetch(nowFn())) {
         log.log('⏸️  After :04:30 ET — not starting a paid fetch that quiet :05 would block.')
@@ -1613,7 +1729,12 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
             markets: cluster.markets || gameLineMarkets,
             log,
           })
-        if (isOpsWriteQuietPeriod(nowFn())) {
+        if (quietWindowBlocks(item.target.game)) {
+          if (quietOverrideActive) {
+            log.log('⏸️  Ops quiet period (:05–:15 ET) — skipping game-line write (not NFL near-start).')
+            skippedQuietCount += 1
+            continue
+          }
           log.log('⏸️  Ops quiet period (:05–:15 ET) — stopping before further writes.')
           skippedQuietDuringRun = true
           skippedQuietCount += 1
@@ -1622,6 +1743,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
         const writtenLines = await writeGameLineCloses(supabase, rows, {
           gamesById,
           overwrite,
+          allowQuietPeriod: nflKickoffQuietOverrideAllows(item.target.game),
         })
         if (writtenLines.error) {
           writeErrors += 1
@@ -1645,42 +1767,46 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
     }
   }
 
-  try {
-    log.log('🔒 Attaching same-line ClosingOdds onto private NFL/NHL game-line shadow picks (0 Odds API).')
-    const shadowPage = await paginateSupabaseSelect(() => supabase
-      .from('PropValidation')
-      .select(closeColumnsMissing ? PICK_SELECT_BASE : PICK_SELECT)
-      .eq('source', GAME_LINE_SOURCE)
-      .in('propType', ['moneyline', 'total'])
-      .in('sport', ['nfl', 'nhl'])
-      .order('id', { ascending: true }))
-    const shadowPicks = (shadowPage.rows || []).filter((row) => isPrivateShadowPublished(row))
-    const shadowGameIds = [...new Set(shadowPicks.map((row) => row.gameIdRef).filter(Boolean))]
-    if (shadowPicks.length && shadowGameIds.length) {
-      const loadedCloses = await loadShadowGameLineClosingOdds(supabase, shadowGameIds)
-      const { data: shadowGames } = await supabase
-        .from('Game')
-        .select(`
+  if (quietOverrideActive) {
+    log.log('🔒 Skipping private game-line shadow attach during NFL kickoff quiet override.')
+  } else {
+    try {
+      log.log('🔒 Attaching same-line ClosingOdds onto private NFL/NHL game-line shadow picks (0 Odds API).')
+      const shadowPage = await paginateSupabaseSelect(() => supabase
+        .from('PropValidation')
+        .select(closeColumnsMissing ? PICK_SELECT_BASE : PICK_SELECT)
+        .eq('source', GAME_LINE_SOURCE)
+        .in('propType', ['moneyline', 'total'])
+        .in('sport', ['nfl', 'nhl'])
+        .order('id', { ascending: true }))
+      const shadowPicks = (shadowPage.rows || []).filter((row) => isPrivateShadowPublished(row))
+      const shadowGameIds = [...new Set(shadowPicks.map((row) => row.gameIdRef).filter(Boolean))]
+      if (shadowPicks.length && shadowGameIds.length) {
+        const loadedCloses = await loadShadowGameLineClosingOdds(supabase, shadowGameIds)
+        const { data: shadowGames } = await supabase
+          .from('Game')
+          .select(`
           id, date, sport,
           home:Team!Game_homeId_fkey(abbr),
           away:Team!Game_awayId_fkey(abbr)
         `)
-        .in('id', shadowGameIds)
-      const attached = await attachShadowGameLineCloses({
-        supabase,
-        picks: shadowPicks,
-        closingOddsRows: loadedCloses.rows || [],
-        games: shadowGames || [],
-        now: nowFn(),
-        apply: args.apply,
-        log,
-      })
-      log.log(`  shadow game-line closes attached=${attached.length}`)
-    } else {
-      log.log('  no pending private game-line shadow picks')
+          .in('id', shadowGameIds)
+        const attached = await attachShadowGameLineCloses({
+          supabase,
+          picks: shadowPicks,
+          closingOddsRows: loadedCloses.rows || [],
+          games: shadowGames || [],
+          now: nowFn(),
+          apply: args.apply,
+          log,
+        })
+        log.log(`  shadow game-line closes attached=${attached.length}`)
+      } else {
+        log.log('  no pending private game-line shadow picks')
+      }
+    } catch (error) {
+      log.error(`⚠️ shadow game-line close attach skipped: ${sanitizedErrorMessage(error, apiKey)}`)
     }
-  } catch (error) {
-    log.error(`⚠️ shadow game-line close attach skipped: ${sanitizedErrorMessage(error, apiKey)}`)
   }
 
   if (lastQuota.remaining != null) {

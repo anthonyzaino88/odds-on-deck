@@ -287,22 +287,44 @@ The laptop task at **:16 and :46 ET (11:16–22:46)** covers the
 early pass (35 minutes, interval 30 < window 35). It **misses most
 T−10..T−1 kickoffs** — with min lead 1, only start minutes :18–:26
 and :48–:56 fall in the near-start window at those run times. Quiet
-`:05–:15` ET cannot host a run. A **:04** run covers **:06–:14
+`:05–:15` ET cannot host a run, **except** the NFL prime-time
+`:15` kickoff exception below. A **:04** run covers **:06–:14
 kickoffs** and stops writing at `:05`. **:05** kickoffs are covered
 by **:56 / :00**. Remaining near-start gaps are **:15–:17** and
 **:27 / :37 / :47 / :57** — those still get their close from the
 **early pass** (~T−15 or later, e.g. `:00` for `:15–:17`, `:16`
-for `:27`). An 11:00 start also misses morning games (London NFL
-9:30 AM ET); 08:56 is T−34 (early pass) and 09:26 is near-start.
+for `:27`). NFL TNF/MNF **8:15 PM ET** kickoffs are the exception:
+their whole T−10..T−1 window (8:05–8:14) sits inside quiet, so
+the last regular run is `:56` (T−19, early pass only). An 11:00
+start also misses morning games (London NFL 9:30 AM ET); 08:56 is
+T−34 (early pass) and 09:26 is near-start.
 
-**Recommended cron** (still skip quiet `:05–:15`; empty window costs
-0 credits): `TZ=America/New_York` + `0,4,16,26,36,46,56 8-22 * * *`.
+**NFL 8:15 PM ET kickoffs (TNF / MNF):** owner-approved extra close
+capture at about **8:10 PM ET**, opt-in via
+`--nfl-kickoff-quiet-override`. Call `node` directly — do not use
+`scheduled-close-capture.ps1`, which still skips ET minutes 05–15.
+The flag only lifts the quiet-window guard, and only for NFL
+near-start (pre-start) prop and game-line jobs. NHL, MLB, early-pass,
+and in-play games stay skipped. If no NFL near-start game qualifies:
+0 Odds API calls and 0 writes. Budget, cap, ledger, reserve, and
+`--max-calls` / `--max-credits` are unchanged. Outside `:05–:15` ET
+the flag is a no-op.
+
+```bash
+node scripts/capture-published-closes.js --nfl-all --nhl-all --game-lines --spreads --nfl-kickoff-quiet-override --dry-run
+node scripts/capture-published-closes.js --nfl-all --nhl-all --game-lines --spreads --apply --max-calls 10 --max-credits 150 --nfl-kickoff-quiet-override
+```
+
+**Recommended cron** (still skip quiet `:05–:15` except that 8:10
+NFL override; empty window costs 0 credits): `TZ=America/New_York` +
+`0,4,16,26,36,46,56 8-22 * * *`.
 
 Footer (always **exit 0**):
 
 ```
 CLOSE_CAPTURE_STATUS=ok|partial|failed
 CLOSE_CAPTURE_CAPTURED=<n> CLOSE_CAPTURE_SKIPPED_BUDGET=<n> CLOSE_CAPTURE_SKIPPED_QUIET=<n> CLOSE_CAPTURE_SKIPPED_WINDOW=<n> CLOSE_CAPTURE_CREDITS=<n>
+CLOSE_CAPTURE_QUIET_OVERRIDE=nfl_kickoff jobs=<n>|off
 ```
 
 Any status other than `ok` is WARN in the hourly report.
