@@ -208,6 +208,9 @@ npm run capture:published-closes:nfl-all  # dry-run + every pending NFL prop and
 npm run capture:published-closes:nfl-all:apply
 # Or: node scripts/capture-published-closes.js --nfl-all --dry-run
 #     node scripts/capture-published-closes.js --nfl-all --apply --max-calls 8 --max-credits 24
+# TNF/MNF 8:15 PM ET kickoffs: extra ~8:10 PM ET run with
+# --nfl-kickoff-quiet-override (lifts :05–:15 quiet for NFL near-start
+# only). See operations/README.md.
 # Close capture is idempotent (clvclose: ids; onConflict id uses the TEXT PK).
 # Windows ops laptop: Task Scheduler, not a bot routine. See operations/README.md.
 # powershell -File scripts/ops/register-close-capture-task.ps1

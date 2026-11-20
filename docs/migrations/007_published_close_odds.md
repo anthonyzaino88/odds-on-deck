@@ -126,6 +126,7 @@ node scripts/capture-published-closes.js --dry-run
 node scripts/capture-published-closes.js --apply
 node scripts/capture-published-closes.js --nfl-all --dry-run
 node scripts/capture-published-closes.js --nfl-all --apply --max-credits 24
+node scripts/capture-published-closes.js --nfl-all --nhl-all --game-lines --spreads --apply --max-calls 10 --max-credits 150 --nfl-kickoff-quiet-override
 npm run capture:published-closes:apply
 npm run capture:published-closes:nfl-all:apply
 CLV_APPLY=1 node scripts/capture-published-closes.js
