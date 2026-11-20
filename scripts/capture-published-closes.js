@@ -412,7 +412,7 @@ export async function runCapturePublishedCloses({
   const quietOverrideRequested = Boolean(args.nflKickoffQuietOverride)
   const quietOverrideActive = quietOverrideRequested && isOpsWriteQuietPeriod(startedAt)
   const nflKickoffQuietOverrideAllows = (game, at = nowFn()) => (
-    quietOverrideRequested
+    quietOverrideActive
     && isNflKickoffQuietOverrideEligibleGame(game, at, windowOpts)
   )
   const missingGameIds = []
@@ -806,13 +806,8 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
       overwrite,
     })) return true
     // Near-start overwrite targeting skips --nfl-all pending props.
-    // The kickoff quiet override still captures those NFL props.
-    if (!quietOverrideActive || !args.nflAll || !isNflSport(row.sport)) return false
-    if (isNflAllPendingProp(row)) return true
-    if (!overwrite) return false
-    if (String(row.status || '').toLowerCase().trim() !== 'pending') return false
-    if (String(row.source || '').toLowerCase().trim() === GAME_LINE_SOURCE) return false
-    return true
+    // The kickoff quiet override still captures those empty pending NFL props.
+    return quietOverrideActive && args.nflAll && isNflAllPendingProp(row)
   })
 
   const closingOddsGameIds = []
@@ -1242,7 +1237,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
   for (let jobIndex = 0; jobIndex < captureJobs.length; jobIndex += 1) {
     const job = captureJobs[jobIndex]
     if (quietWindowBlocks(job.game)) {
-      if (quietOverrideRequested) {
+      if (quietOverrideActive) {
         log.log('⏸️  Ops quiet period (:05–:15 ET) — skipping job (not NFL near-start).')
         skippedQuietCount += 1
         continue
@@ -1403,7 +1398,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
         calls -= 1
         creditsUsed -= activeCredits
         if (quietWindowBlocks(job.game)) {
-          if (quietOverrideRequested) {
+          if (quietOverrideActive) {
             log.log('⏸️  Ops quiet period (:05–:15 ET) — not starting the line-only retry.')
             skippedQuietCount += 1
             continue
@@ -1487,7 +1482,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
           }
         }
         if (quietWindowBlocks(job.game)) {
-          if (quietOverrideRequested) {
+          if (quietOverrideActive) {
             log.log('⏸️  Ops quiet period (:05–:15 ET) — skipping job (not NFL near-start).')
             skippedQuietCount += 1
             continue
@@ -1541,7 +1536,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
         continue
       }
       if (quietWindowBlocks(job.game)) {
-        if (quietOverrideRequested) {
+        if (quietOverrideActive) {
           log.log('⏸️  Ops quiet period (:05–:15 ET) — skipping job (not NFL near-start).')
           skippedQuietCount += 1
           break
@@ -1598,13 +1593,13 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
         continue
       }
       if (isOpsWriteQuietPeriod(nowFn())) {
-        const clusterAllowed = quietOverrideRequested
+        const clusterAllowed = quietOverrideActive
           && isNflKickoffQuietOverrideEligibleCluster(
             { ...cluster, targets: dueTargets },
             nowFn(),
             windowOpts,
           )
-        if (!clusterAllowed && quietOverrideRequested) {
+        if (!clusterAllowed && quietOverrideActive) {
           log.log('⏸️  Ops quiet period (:05–:15 ET) — skipping game-line cluster (not NFL near-start).')
           skippedQuietCount += 1
           continue
@@ -1735,7 +1730,7 @@ check, plus planned credits. CALLS_USED=<n> / CREDITS_USED=<n>.`)
             log,
           })
         if (quietWindowBlocks(item.target.game)) {
-          if (quietOverrideRequested) {
+          if (quietOverrideActive) {
             log.log('⏸️  Ops quiet period (:05–:15 ET) — skipping game-line write (not NFL near-start).')
             skippedQuietCount += 1
             continue
