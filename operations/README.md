@@ -802,6 +802,7 @@ scripts/
 ├── fetch-live-odds.js          # Fetch odds/props from Odds API (PAID)
 ├── fetch-published-nfl-alt-lines.js # Published NFL alt lines (PAID, dry-run default)
 ├── fetch-team-performance-data.js # ESPN team records / PPG (run before edges)
+├── merge-duplicate-nfl-team.js # One-time duplicate Team merge (dry-run default; --backup --apply)
 ├── update-scores-safely.js     # Live score updates (FREE)
 ├── calculate-game-edges.js     # Calculate edges (requires secret key)
 ├── check-validation-status.js  # Check validation results
@@ -811,6 +812,41 @@ scripts/
 operations/
 └── backfill-nfl-game-season.mjs # Null NFL Game.season backfill (dry-run default; --apply)
 ```
+
+### One-time: merge duplicate Washington Commanders Team
+
+Two Washington Commanders `Team` rows existed in prod (verified read-only
+2026-11-21):
+
+- Live: `id=NFL_28`, `abbr=WSH`. Games point here (`CIN_at_WSH_2026-11-23`
+  `homeId=NFL_28`). 0 `Player` / 0 `NFLRosterEntry`.
+- Orphan: `id=4BBSVXpZwZ4sWqGP`, `abbr=WAS`, stats null, 0 games. All 52
+  `Player` and 52 `NFLRosterEntry` rows pointed here. Morning team-stats
+  resolved that CUID as an ESPN id and logged `No usable ESPN fields for WAS`.
+
+Code now canonicalizes Commanders to **WSH**, `ensureTeamsExist` runs
+`canonicalizeNflAbbr()`, and NFL/NHL team-stats **skip** non-numeric ESPN
+ids instead of fetching `/teams/<cuid>`. MLB mapping is unchanged.
+
+**Do not run `--apply` from CI or during `:05–:15` ET.** Dry-run first.
+
+```bash
+# Dry-run (default): print FK counts + unique-constraint conflicts. No writes.
+node scripts/merge-duplicate-nfl-team.js --from 4BBSVXpZwZ4sWqGP --to NFL_28
+
+# JSON backup of the from-team row and every affected FK row → .local/backups/
+# (.local/ is gitignored). Still no DB writes.
+node scripts/merge-duplicate-nfl-team.js --from 4BBSVXpZwZ4sWqGP --to NFL_28 --backup
+
+# Remap FKs onto NFL_28 in one transaction, then delete the orphan only if
+# nothing still references it. --backup is required in the same run.
+# Needs SUPABASE_SECRET_KEY (read) and DATABASE_URL (Prisma transaction).
+node scripts/merge-duplicate-nfl-team.js --from 4BBSVXpZwZ4sWqGP --to NFL_28 --backup --apply
+```
+
+The script is generic (`--from` / `--to` any Team ids). It refuses `--apply`
+without `--backup` in the same run, refuses the quiet window, and never
+prints secrets.
 
 ## 🔗 Related Docs
 
