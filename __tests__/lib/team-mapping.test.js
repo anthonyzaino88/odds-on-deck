@@ -4,13 +4,16 @@ import {
   aliasedTeamCodes,
   MLB_TEAM_CODE_ALIASES,
   MLB_TEAM_NAMES,
+  NFL_TEAM_NAMES,
   canonicalizeMlbAbbr,
+  canonicalizeNflAbbr,
   createGameId,
   espnEventSeasonYear,
   getTeamAbbr,
   getTeamName,
   lookupByMlbAbbr,
   mlbTeamCodesEqual,
+  planEnsureTeamsExist,
   resolveMlbTeamCode,
   resolveNflTeamCode,
   parseGameIdTeams,
@@ -115,6 +118,33 @@ describe('NFL full team names', () => {
     expect(resolveNflTeamCode('JAC')).toBe('JAX')
     expect(resolveNflTeamCode('JAX')).toBe('JAX')
     expect(resolveNflTeamCode('Jacksonville Jaguars')).toBe('JAX')
+  })
+
+  test('Commanders names store WSH and ensureTeamsExist will not recreate WAS', () => {
+    expect(NFL_TEAM_NAMES['Washington Commanders']).toBe('WSH')
+    expect(NFL_TEAM_NAMES['Washington Football Team']).toBe('WSH')
+    expect(NFL_TEAM_NAMES['Washington Redskins']).toBe('WSH')
+    expect(canonicalizeNflAbbr('WAS')).toBe('WSH')
+
+    const existing = [
+      { id: '4BBSVXpZwZ4sWqGP', abbr: 'WAS', sport: 'nfl' },
+      { id: 'NFL_28', abbr: 'WSH', sport: 'nfl' },
+    ]
+    const wasIncoming = planEnsureTeamsExist('nfl', existing, [
+      { id: '28', abbreviation: 'WAS', displayName: 'Washington Commanders' },
+    ], { canonicalizeAbbr: canonicalizeNflAbbr })
+    expect(wasIncoming.teamsToCreate).toEqual([])
+    expect(wasIncoming.espnIdMap.NFL_28).toBe('NFL_28')
+
+    const wshIncoming = planEnsureTeamsExist('nfl', [existing[1]], [
+      { id: '28', abbreviation: 'WAS', displayName: 'Washington Commanders' },
+    ], { canonicalizeAbbr: canonicalizeNflAbbr })
+    expect(wshIncoming.teamsToCreate).toEqual([])
+    expect(wshIncoming.espnIdMap.NFL_28).toBe('NFL_28')
+
+    const fresh = readFileSync(join(process.cwd(), 'scripts/fetch-fresh-games.js'), 'utf8')
+    expect(fresh).toMatch(/canonicalizeNflAbbr/)
+    expect(fresh).toMatch(/planEnsureTeamsExist/)
   })
 })
 

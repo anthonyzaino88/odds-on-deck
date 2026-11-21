@@ -38,7 +38,14 @@
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
 import { config } from 'dotenv'
-import { createGameId, espnEventSeasonYear, canonicalizeMlbAbbr } from '../lib/team-mapping.js'
+import {
+  createGameId,
+  espnEventSeasonYear,
+  canonicalizeMlbAbbr,
+  canonicalizeNflAbbr,
+  canonicalizeNhlAbbr,
+  planEnsureTeamsExist,
+} from '../lib/team-mapping.js'
 import { nflSeasonForUpsert, resolveNflGameSeason } from '../lib/nfl-season.js'
 import {
   espnHomeAwayCompetitors,
@@ -429,42 +436,28 @@ async function fetchGamesFromESPN(sport, date) {
 }
 
 async function ensureTeamsExist(sport, games) {
-  const prefix = sport.toUpperCase() + '_'
-
   const { data: existingTeams } = await supabase
     .from('Team')
     .select('id, abbr')
     .eq('sport', sport.toLowerCase())
 
-  const abbrToId = {}
-  if (existingTeams) {
-    existingTeams.forEach(t => { abbrToId[t.abbr] = t.id })
+  const canonicalizeAbbr = sport.toLowerCase() === 'nfl'
+    ? canonicalizeNflAbbr
+    : sport.toLowerCase() === 'nhl'
+      ? canonicalizeNhlAbbr
+      : canonicalizeMlbAbbr
+
+  const incoming = []
+  for (const game of games || []) {
+    incoming.push(game._homeTeam, game._awayTeam)
   }
 
-  const teamsToCreate = []
-  const espnIdMap = {}
-
-  for (const game of games) {
-    for (const team of [game._homeTeam, game._awayTeam]) {
-      if (!team) continue
-      const abbr = team.abbreviation || team.abbr
-      const espnId = `${prefix}${team.id}`
-      if (!abbr) continue
-
-      if (abbrToId[abbr]) {
-        espnIdMap[espnId] = abbrToId[abbr]
-      } else if (!teamsToCreate.find(t => t.abbr === abbr)) {
-        teamsToCreate.push({
-          id: espnId,
-          name: team.displayName || team.name || team.shortDisplayName || 'Unknown',
-          abbr,
-          sport: sport.toLowerCase()
-        })
-        abbrToId[abbr] = espnId
-        espnIdMap[espnId] = espnId
-      }
-    }
-  }
+  const { abbrToId, teamsToCreate, espnIdMap } = planEnsureTeamsExist(
+    sport,
+    existingTeams || [],
+    incoming,
+    { canonicalizeAbbr },
+  )
 
   if (teamsToCreate.length > 0) {
     console.log(`  👥 Creating ${teamsToCreate.length} new ${sport.toUpperCase()} teams...`)

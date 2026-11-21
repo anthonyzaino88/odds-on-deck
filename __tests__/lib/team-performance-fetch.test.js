@@ -1,9 +1,11 @@
 import {
   fetchAndUpdateTeam,
   fetchTeamPerformanceForSports,
+  isNumericEspnTeamId,
   isPlaceholderTeam,
   planTeamPerformanceWrite,
   resolveEspnTeamId,
+  shouldSkipNonEspnTeamId,
 } from '../../lib/team-performance-fetch.js'
 import {
   extractEspnTeamPerformance,
@@ -126,6 +128,57 @@ describe('resolveEspnTeamId', () => {
     expect(resolveEspnTeamId({ id: '133', sport: 'mlb', name: 'Athletics' })).toBe('11')
     expect(resolveEspnTeamId({ id: 'MLB_133', sport: 'mlb' })).toBe('11')
     expect(resolveEspnTeamId({ id: 'NFL_1', sport: 'nfl', espnId: '1' })).toBe('1')
+  })
+})
+
+describe('numeric ESPN team id guard', () => {
+  const orphan = {
+    id: '4BBSVXpZwZ4sWqGP',
+    abbr: 'WAS',
+    sport: 'nfl',
+    name: 'Washington Commanders',
+  }
+  const live = { id: 'NFL_28', abbr: 'WSH', sport: 'nfl', name: 'Washington Commanders' }
+  const nhlOrphan = { id: 'ckleftover', abbr: 'WSH', sport: 'nhl' }
+
+  test('NFL/NHL skip non-numeric resolved ids; MLB mapping is unchanged', () => {
+    expect(isNumericEspnTeamId('28')).toBe(true)
+    expect(isNumericEspnTeamId('4BBSVXpZwZ4sWqGP')).toBe(false)
+    expect(isNumericEspnTeamId('-1')).toBe(false)
+    expect(resolveEspnTeamId(orphan)).toBe('4BBSVXpZwZ4sWqGP')
+    expect(resolveEspnTeamId(live)).toBe('28')
+    expect(shouldSkipNonEspnTeamId(orphan)).toBe(true)
+    expect(shouldSkipNonEspnTeamId(live)).toBe(false)
+    expect(shouldSkipNonEspnTeamId(nhlOrphan)).toBe(true)
+    expect(shouldSkipNonEspnTeamId({ id: 'NHL_1', sport: 'nhl', abbr: 'BOS' })).toBe(false)
+    expect(shouldSkipNonEspnTeamId({ id: 'NHL_-1', sport: 'nhl', abbr: 'TBD' })).toBe(false)
+    expect(shouldSkipNonEspnTeamId({ id: 'not-espn', sport: 'mlb', abbr: 'NYY' })).toBe(false)
+    expect(resolveEspnTeamId({ id: 'MLB_147', sport: 'mlb' })).toBe('10')
+  })
+
+  test('orphan WAS is skipped with a clear log and never fetched', async () => {
+    const logger = { log: jest.fn(), error: jest.fn() }
+    const fetchImpl = jest.fn(async () => ({ ok: true, json: async () => ({}) }))
+    const supabase = createSupabase({
+      teamsBySport: { nfl: [orphan, live], nhl: [], mlb: [] },
+    })
+    const result = await fetchAndUpdateTeam(orphan, { supabase, fetchImpl, logger })
+    expect(result.updated).toBe(false)
+    expect(result.reason).toBe('non_espn_team_id')
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(logger.log.mock.calls.flat().join('\n')).toMatch(/skipped non-ESPN team id/)
+    expect(logger.log.mock.calls.flat().join('\n')).not.toMatch(/No usable ESPN fields/)
+
+    const summary = await fetchTeamPerformanceForSports({
+      supabase: createSupabase({ teamsBySport: { nfl: [orphan], nhl: [], mlb: [] } }),
+      sports: ['nfl'],
+      fetchImpl,
+      delayMs: 0,
+      logger,
+    })
+    expect(summary.results[0].skipped).toBe(1)
+    expect(summary.results[0].errors).toBe(0)
+    expect(fetchImpl).not.toHaveBeenCalled()
   })
 })
 
