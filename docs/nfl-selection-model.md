@@ -74,7 +74,7 @@ A statistic is eligible only when every check below passes. Fetch time and last-
 
 With n < 4 the maximum-likelihood win percentage lives on `{0, 1/3, 1/2, 2/3, 1}`. That is not a probability model, so we refuse a point estimate. Four games is a mathematical floor, not a slate-clearing sample and not a claim that n ≥ 4 is sufficient. Public recommendations stay off regardless of n because the heuristic is unvalidated. Preseason finals do not count toward that floor.
 
-New NFL v1.1.0 shadow rows are tagged `features:regular-season-finals`. Existing v1.1.0 shadow picks scored on mixed preseason+regular records stay in a `pre-regular-season-filter` report group until a separate dry-run retag (`operations/preview-nfl-v110-pre-rs-filter.mjs`) is applied. This PR does not write those notes.
+New NFL v1.1.0 shadow rows are tagged `features:regular-season-finals` only when a non-empty completed-game pool rebuilt regular-season finals. Team-row evaluations (empty or omitted pool) and existing mixed-record v1.1.0 shadow picks stay in a `pre-regular-season-filter` report group until a separate dry-run retag (`operations/preview-nfl-v110-pre-rs-filter.mjs`) is applied. This PR does not write those notes.
 
 ## Moneyline formulas (research only)
 
