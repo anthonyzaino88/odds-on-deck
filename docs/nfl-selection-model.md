@@ -45,12 +45,12 @@ Missing, stale, mismatched, or insufficient data returns an unavailable result w
 | `missing_season` | Season id missing on a team or the game |
 | `season_mismatch` | Team season ≠ game season |
 | `unknown_data_freshness` | No `statsCapturedAt` (column exists; fetch writes it only on a full extract) |
-| `stale_team_data` | Captured-at older than 7 days, in the future, or unparseable |
+| `stale_team_data` | ESPN fetch (`Team.statsCapturedAt`) older than 7 days, in the future, or unparseable |
 | `missing_data_through` | No data-through date |
 | `invalid_data_through` | Data-through is not a real timestamp |
 | `data_through_in_future` | Data-through is after evaluation time |
-| `stale_data_through` | Data-through is older than 7 days relative to prediction time |
-| `data_through_older_than_fetch_window` | A recent fetch timestamp cannot make older statistics current |
+| `stale_data_through` | v1.1.0: a newer same-season FINAL exists that rebuilt stats missed. Without a completed-game pool (v1.0.1 / Team-row only): data-through older than 7 days |
+| `data_through_older_than_fetch_window` | Team-row path only: a recent fetch timestamp cannot make older statistics current |
 | `data_through_season_mismatch` | Data-through is outside the game's NFL season year |
 | `early_season_insufficient_sample` | Either team has fewer than 4 season games |
 | `missing_validated_scoring_distribution` | NFL totals have no fitted P(total) |
@@ -60,13 +60,14 @@ Moneyline and totals are evaluated independently. Missing moneyline odds do not 
 
 ### Freshness policy
 
-A statistic is eligible only when every check below passes. A later `statsCapturedAt` does **not** refresh an old `dataThrough`.
+A statistic is eligible only when every check below passes. Fetch time and last-kickoff time are different clocks.
 
 1. `dataThrough` and `statsCapturedAt` must parse as real timestamps. Invalid strings are rejected (`invalid_data_through` / `stale_team_data`), not ignored.
 2. Neither timestamp may be after prediction time.
-3. Both must be within 7 days of prediction time (`NFL_STATS_MAX_AGE_MS`). That window is operational, not a fitted parameter.
+3. **Fetch freshness:** `Team.statsCapturedAt` (the ESPN refresh) must be within 7 days of prediction time (`NFL_STATS_MAX_AGE_MS`). v1.1.0 does not copy the last final's `Game.lastUpdate` onto this field.
 4. `dataThrough` must fall in the game's NFL season year, or January–February of the next calendar year (regular-season / playoff spillover).
-5. If `statsCapturedAt − dataThrough` exceeds 7 days, the row is ineligible (`data_through_older_than_fetch_window`). Fetching yesterday cannot make last month's record current.
+5. **Data-through freshness (v1.1.0):** do not use wall-clock age of the last kickoff. A bye or Thursday rest (last final 10–14 days ago, no later final) is eligible. Rebuilt `dataThrough` is stale only if the completed-game pool has a newer same-season FINAL for that team that kicked off before the game being evaluated and is not included in the rebuilt stats.
+6. **Data-through freshness (v1.0.1 / no completed-game pool):** keep the 7-day window, including `statsCapturedAt − dataThrough` (`data_through_older_than_fetch_window`). Fetching yesterday cannot make last month's Team-row record current.
 
 ### Early-season policy
 

@@ -16,6 +16,7 @@ import {
   gamesAvailableBeforeLock,
   gamesAvailableForTraining,
   injuryFeatures,
+  hasMissingNewerFinal,
   rebuildTeamSeasonStats,
   teamRecentForm,
 } from '../../lib/nfl-pregame-features.js'
@@ -307,6 +308,35 @@ describe('no look-ahead in form, injuries, or team stats', () => {
     expect(stats.gamesPlayed).toBe(1)
     expect(stats.pointsForPerGame).toBe(20)
     expect(stats.last10Record).toBe('0-0-1')
+    expect(stats.dataThrough).toBe(tie.date)
+    expect(stats.resultAvailableAt).toBe(tie.resultAvailableAt)
+    expect(stats).not.toHaveProperty('capturedAt')
+  })
+
+  test('a newer same-season final after dataThrough is missing from rebuilt stats', () => {
+    const prior = finalGame({
+      id: 'g-old',
+      date: '2025-11-02T18:00:00.000Z',
+      lastUpdate: '2025-11-02T21:00:00.000Z',
+      resultAvailableAt: '2025-11-02T21:00:00.000Z',
+    })
+    const missed = finalGame({
+      id: 'g-missed',
+      date: '2025-11-09T18:00:00.000Z',
+      lastUpdate: null,
+      resultAvailableAt: null,
+    })
+    const upcomingGame = upcoming({ date: KICKOFF, status: 'scheduled' })
+    expect(hasMissingNewerFinal([prior, missed], 'KC', {
+      dataThrough: prior.date,
+      season: '2025',
+      evaluatedGame: upcomingGame,
+    })).toBe(true)
+    expect(hasMissingNewerFinal([prior], 'KC', {
+      dataThrough: prior.date,
+      season: '2025',
+      evaluatedGame: upcomingGame,
+    })).toBe(false)
   })
 
   test('assertNoLookAhead rejects stats written after lock', () => {
