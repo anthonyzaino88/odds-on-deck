@@ -821,6 +821,32 @@ describe('v1.1.0 rebuilt-stats freshness (bye / Thursday rest)', () => {
     })
     expect(selection.moneyline.reason).toBe('stale_data_through')
   })
+
+  test('an empty completedGames pool keeps the 7-day data-through wall clock', () => {
+    const game = sundayGame('DET', 'TB', 14, [])
+    expect(evaluateDataThroughDate({
+      dataThrough: isoDaysAgo(14),
+      capturedAt: fetchAt,
+      season: '2026',
+      now,
+      completedGames: [],
+      team: game.home,
+      evaluatedGame: game,
+    }).reason).toBe('stale_data_through')
+
+    const omitted = calculateNFLSelection({
+      id: 'g-nfl-1',
+      sport: 'nfl',
+      season: '2026',
+      date: kickoff,
+      home: teamRow('DET', '6-4', 14),
+      away: teamRow('TB', '5-5', 14),
+    }, [evenH2h()], { now })
+    expect(omitted.moneyline.reason).toBe('stale_data_through')
+
+    const empty = calculateNFLSelection(game, [evenH2h()], { now, completedGames: [] })
+    expect(empty.moneyline.reason).toBe('stale_data_through')
+  })
 })
 
 describe('integer-total gap uses conditional model probability', () => {

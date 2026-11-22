@@ -49,7 +49,7 @@ Missing, stale, mismatched, or insufficient data returns an unavailable result w
 | `missing_data_through` | No data-through date |
 | `invalid_data_through` | Data-through is not a real timestamp |
 | `data_through_in_future` | Data-through is after evaluation time |
-| `stale_data_through` | v1.1.0: a newer same-season FINAL exists that rebuilt stats missed. Without a completed-game pool (v1.0.1 / Team-row only): data-through older than 7 days |
+| `stale_data_through` | v1.1.0 with a non-empty completed-game pool: a newer same-season FINAL exists that rebuilt stats missed. Empty pool / v1.0.1 / Team-row only: data-through older than 7 days |
 | `data_through_older_than_fetch_window` | Team-row path only: a recent fetch timestamp cannot make older statistics current |
 | `data_through_season_mismatch` | Data-through is outside the game's NFL season year |
 | `early_season_insufficient_sample` | Either team has fewer than 4 season games |
@@ -66,7 +66,7 @@ A statistic is eligible only when every check below passes. Fetch time and last-
 2. Neither timestamp may be after prediction time.
 3. **Fetch freshness:** `Team.statsCapturedAt` (the ESPN refresh) must be within 7 days of prediction time (`NFL_STATS_MAX_AGE_MS`). v1.1.0 does not copy the last final's `Game.lastUpdate` onto this field.
 4. `dataThrough` must fall in the game's NFL season year, or January–February of the next calendar year (regular-season / playoff spillover).
-5. **Data-through freshness (v1.1.0):** do not use wall-clock age of the last kickoff. A bye or Thursday rest (last final 10–14 days ago, no later final) is eligible. Rebuilt `dataThrough` is stale only if the completed-game pool has a newer same-season FINAL for that team that kicked off before the game being evaluated and is not included in the rebuilt stats.
+5. **Data-through freshness (v1.1.0):** when a non-empty completed-game pool is present, do not use wall-clock age of the last kickoff. A bye or Thursday rest (last final 10–14 days ago, no later final) is eligible. Rebuilt `dataThrough` is stale only if that pool has a newer same-season FINAL for that team that kicked off before the game being evaluated and is not included in the rebuilt stats. An empty pool is not a pool — fall back to the 7-day window.
 6. **Data-through freshness (v1.0.1 / no completed-game pool):** keep the 7-day window, including `statsCapturedAt − dataThrough` (`data_through_older_than_fetch_window`). Fetching yesterday cannot make last month's Team-row record current.
 
 ### Early-season policy
