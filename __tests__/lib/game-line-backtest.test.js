@@ -2,6 +2,7 @@ import {
   assertNoLookAhead,
   etFoldKey,
   formatBacktestReport,
+  nflFetchClockAtLock,
   noVigPair,
   pickLockTime,
   selectCloseQuote,
@@ -16,6 +17,8 @@ import {
   gamesAvailableBeforeLock,
   gamesAvailableForTraining,
   injuryFeatures,
+  hasMissingNewerFinal,
+  isNflPreseasonKickoff,
   rebuildTeamSeasonStats,
   teamRecentForm,
 } from '../../lib/nfl-pregame-features.js'
@@ -307,6 +310,108 @@ describe('no look-ahead in form, injuries, or team stats', () => {
     expect(stats.gamesPlayed).toBe(1)
     expect(stats.pointsForPerGame).toBe(20)
     expect(stats.last10Record).toBe('0-0-1')
+    expect(stats.dataThrough).toBe(tie.date)
+    expect(stats.resultAvailableAt).toBe(tie.resultAvailableAt)
+    expect(stats).not.toHaveProperty('capturedAt')
+  })
+
+  test('a newer same-season final after dataThrough is missing from rebuilt stats', () => {
+    const prior = finalGame({
+      id: 'g-old',
+      date: '2025-11-02T18:00:00.000Z',
+      lastUpdate: '2025-11-02T21:00:00.000Z',
+      resultAvailableAt: '2025-11-02T21:00:00.000Z',
+    })
+    const missed = finalGame({
+      id: 'g-missed',
+      date: '2025-11-09T18:00:00.000Z',
+      lastUpdate: null,
+      resultAvailableAt: null,
+    })
+    const upcomingGame = upcoming({ date: KICKOFF, status: 'scheduled' })
+    expect(hasMissingNewerFinal([prior, missed], 'KC', {
+      dataThrough: prior.date,
+      season: '2025',
+      evaluatedGame: upcomingGame,
+    })).toBe(true)
+    expect(hasMissingNewerFinal([prior], 'KC', {
+      dataThrough: prior.date,
+      season: '2025',
+      evaluatedGame: upcomingGame,
+    })).toBe(false)
+  })
+
+  test('an August preseason final plus a September week-1 final rebuilds as 1-0, not 2-0', () => {
+    const preseason = finalGame({
+      id: 'g-preseason',
+      week: 3,
+      date: '2025-08-16T00:00:00.000Z',
+      lastUpdate: '2025-08-16T03:00:00.000Z',
+      resultAvailableAt: '2025-08-16T03:00:00.000Z',
+      homeScore: 24,
+      awayScore: 10,
+    })
+    const week1 = finalGame({
+      id: 'g-week1-rs',
+      week: 1,
+      date: '2025-09-07T17:00:00.000Z',
+      lastUpdate: '2025-09-07T20:00:00.000Z',
+      resultAvailableAt: '2025-09-07T20:00:00.000Z',
+      homeScore: 27,
+      awayScore: 17,
+    })
+    expect(isNflPreseasonKickoff(preseason, '2025')).toBe(true)
+    expect(isNflPreseasonKickoff(week1, '2025')).toBe(false)
+    const stats = rebuildTeamSeasonStats([preseason, week1], 'KC', {
+      lockAt: '2025-09-14T17:00:00.000Z',
+      season: '2025',
+      sport: 'nfl',
+    })
+    expect(stats.gamesPlayed).toBe(1)
+    expect(stats.wins).toBe(1)
+    expect(stats.losses).toBe(0)
+    expect(stats.last10Record).toBe('1-0')
+    expect(stats.dataThrough).toBe(week1.date)
+
+    const week2 = upcoming({
+      date: '2025-09-14T18:00:00.000Z',
+      week: 2,
+    })
+    expect(hasMissingNewerFinal([preseason, week1], 'KC', {
+      dataThrough: week1.date,
+      season: '2025',
+      evaluatedGame: week2,
+      sport: 'nfl',
+      lockAt: '2025-09-14T17:00:00.000Z',
+    })).toBe(false)
+    expect(hasMissingNewerFinal([preseason], 'KC', {
+      dataThrough: '2025-01-01T00:00:00.000Z',
+      season: '2025',
+      evaluatedGame: week1,
+      sport: 'nfl',
+    })).toBe(false)
+  })
+
+  test('hasMissingNewerFinal ignores a final that kicks off after lock', () => {
+    const prior = finalGame({
+      id: 'g-old',
+      date: '2025-11-02T18:00:00.000Z',
+      lastUpdate: '2025-11-02T21:00:00.000Z',
+      resultAvailableAt: '2025-11-02T21:00:00.000Z',
+    })
+    const afterLock = finalGame({
+      id: 'g-after-lock',
+      date: '2025-11-16T18:00:00.000Z',
+      lastUpdate: '2025-11-16T21:00:00.000Z',
+      resultAvailableAt: '2025-11-16T21:00:00.000Z',
+    })
+    const upcomingGame = upcoming({ status: 'scheduled' })
+    expect(hasMissingNewerFinal([prior, afterLock], 'KC', {
+      dataThrough: prior.date,
+      season: '2025',
+      evaluatedGame: upcomingGame,
+      lockAt: LOCK,
+    })).toBe(false)
   })
 
   test('assertNoLookAhead rejects stats written after lock', () => {
@@ -377,6 +482,49 @@ describe('walk-forward does not feed the close into the model', () => {
     expect(row.pClose).not.toBeNull()
     expect(row.outcome).toMatch(/^(win|loss|push)$/)
     expect(row.lockAt).toBe(LOCK)
+    expect(row.featureTag).toBe('regular-season-finals')
+    expect(result.summaries[0].featureTag).toBe('regular-season-finals')
+  })
+
+  test('NFL statsCapturedAt after lock uses the lock as the fetch clock', () => {
+    expect(nflFetchClockAtLock('2025-12-01T00:00:00.000Z', LOCK)).toBe(LOCK)
+    expect(nflFetchClockAtLock('2025-11-16T16:00:00.000Z', LOCK)).toBe('2025-11-16T16:00:00.000Z')
+    expect(nflFetchClockAtLock(null, LOCK)).toBe(LOCK)
+
+    const week2 = upcoming({
+      home: {
+        id: 'NFL_KC',
+        abbr: 'KC',
+        last10Record: '4-0',
+        season: '2025',
+        statsKind: 'season',
+        statsCapturedAt: '2025-12-01T00:00:00.000Z',
+        statsDataThrough: '2025-11-09T18:00:00.000Z',
+      },
+      away: {
+        id: 'NFL_LV',
+        abbr: 'LV',
+        last10Record: '4-0',
+        season: '2025',
+        statsKind: 'season',
+        statsCapturedAt: '2025-12-01T00:00:00.000Z',
+        statsDataThrough: '2025-11-09T18:00:00.000Z',
+      },
+    })
+    const result = walkForwardBacktest({
+      games: [...priorFinals('KC', 'SEA'), ...priorFinals('LV', 'NYJ'), week2],
+      odds: [quote()],
+      closingOdds: [quote({
+        id: 'clvclose:g-week2:h2h',
+        ts: '2025-11-16T17:50:00.000Z',
+        quotedAt: '2025-11-16T17:48:00.000Z',
+      })],
+    }, { sport: 'nfl', market: 'moneyline', model: NFL_SELECTION_MODEL_VERSION })
+    expect(result.skips.some((row) => row.reason === 'stale_team_data')).toBe(false)
+    const row = result.rows.find((item) => item.gameId === 'g-week2' && item.market === 'moneyline')
+    expect(row).toBeTruthy()
+    expect(row.featureTag).toBe('regular-season-finals')
+    expect(result.summaries.every((summary) => summary.publish.eligibleForPublic === false)).toBe(true)
   })
 
   test('scoring uses the close while the model only sees the lock quote', () => {

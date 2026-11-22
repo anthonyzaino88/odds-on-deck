@@ -599,6 +599,318 @@ describe('data-through freshness', () => {
   })
 })
 
+describe('v1.1.0 rebuilt-stats freshness (bye / Thursday rest)', () => {
+  const now = new Date('2026-11-22T18:00:00.000Z')
+  const fetchAt = '2026-11-22T13:47:00.000Z'
+  const kickoff = '2026-11-22T18:00:00.000Z'
+
+  function isoDaysAgo(days) {
+    return new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString()
+  }
+
+  function finalGame({
+    id,
+    homeAbbr,
+    awayAbbr,
+    daysAgo,
+    homeScore = 24,
+    awayScore = 17,
+    extras = {},
+  }) {
+    const start = isoDaysAgo(daysAgo)
+    const done = new Date(Date.parse(start) + 3 * 60 * 60 * 1000).toISOString()
+    return {
+      id,
+      sport: 'nfl',
+      season: '2026',
+      date: start,
+      status: 'final',
+      home: { id: `NFL_${homeAbbr}`, abbr: homeAbbr },
+      away: { id: `NFL_${awayAbbr}`, abbr: awayAbbr },
+      homeScore,
+      awayScore,
+      lastUpdate: done,
+      resultAvailableAt: done,
+      ...extras,
+    }
+  }
+
+  function priors(abbr, opponentAbbr, lastGameDaysAgo, count = 5) {
+    const rows = []
+    for (let i = 0; i < count; i++) {
+      rows.push(finalGame({
+        id: `g-${abbr}-${i}`,
+        homeAbbr: abbr,
+        awayAbbr: opponentAbbr,
+        daysAgo: lastGameDaysAgo + i * 7,
+      }))
+    }
+    return rows
+  }
+
+  function teamRow(abbr, record, lastGameDaysAgo, extras = {}) {
+    return eligibleTeam(abbr, record, {
+      season: '2026',
+      statsCapturedAt: fetchAt,
+      dataThrough: isoDaysAgo(lastGameDaysAgo),
+      avgPointsLast10: 24,
+      avgPointsAllowedLast10: 20,
+      gamesPlayed: 10,
+      ...extras,
+    })
+  }
+
+  function sundayGame(homeAbbr, awayAbbr, lastGameDaysAgo, completedGames) {
+    return {
+      id: 'g-nfl-1',
+      sport: 'nfl',
+      season: '2026',
+      date: kickoff,
+      status: 'scheduled',
+      home: teamRow(homeAbbr, '6-4', lastGameDaysAgo),
+      away: teamRow(awayAbbr, '5-5', lastGameDaysAgo),
+      completedGames,
+    }
+  }
+
+  test('a bye team (last final 14 days ago, no newer final) is data-eligible', () => {
+    const completedGames = [
+      ...priors('DET', 'ARI', 14),
+      ...priors('TB', 'SF', 14),
+    ]
+    const game = sundayGame('DET', 'TB', 14, completedGames)
+    const through = evaluateDataThroughDate({
+      dataThrough: isoDaysAgo(14),
+      capturedAt: fetchAt,
+      season: '2026',
+      now,
+      completedGames,
+      team: game.home,
+      evaluatedGame: game,
+    })
+    expect(through).toEqual({ ok: true, reason: null })
+
+    const eligibility = evaluateNflDataEligibility({
+      home: interpretEligible('DET', '6-4', {
+        season: '2026',
+        capturedAt: fetchAt,
+        dataThrough: isoDaysAgo(14),
+      }),
+      away: interpretEligible('TB', '5-5', {
+        season: '2026',
+        capturedAt: fetchAt,
+        dataThrough: isoDaysAgo(14),
+      }),
+      game,
+      now,
+      market: 'moneyline',
+      completedGames,
+    })
+    expect(eligibility).toEqual({ ok: true, reason: null })
+
+    const selection = calculateNFLSelection(game, [evenH2h(), evenTotals()], { now, completedGames })
+    expect(selection.moneyline.eligibility.dataEligible).toBe(true)
+    expect(selection.totals.eligibility.dataEligible).toBe(true)
+    expect(selection.moneyline.reason).toBe('unvalidated_heuristic')
+    expect(selection.totals.reason).toBe('unvalidated_heuristic')
+    expect(selection.eligibility.eligibleForPublic).toBe(false)
+    expect(selection.inputSnapshot.home.capturedAt).toBe(fetchAt)
+    expect(selection.inputSnapshot.away.capturedAt).toBe(fetchAt)
+    expect(selection.inputSnapshot.home.dataThrough).toBe(isoDaysAgo(14))
+    expect(selection.inputSnapshot.home.resultAvailableAt).toBeTruthy()
+    expect(selection.inputSnapshot.home.capturedAt).not.toBe(selection.inputSnapshot.home.resultAvailableAt)
+    expect(toPublicNflGameLines(selection)).toEqual([])
+  })
+
+  test('a Thursday-rest team (last final ~10 days ago) is data-eligible', () => {
+    const completedGames = [
+      ...priors('NYG', 'CHI', 10),
+      ...priors('JAX', 'LAC', 7),
+    ]
+    const game = sundayGame('NYG', 'JAX', 10, completedGames)
+    game.away = teamRow('JAX', '5-5', 7)
+    const selection = calculateNFLSelection(game, [evenH2h(), evenTotals()], { now, completedGames })
+    expect(selection.moneyline.eligibility.dataEligible).toBe(true)
+    expect(selection.totals.eligibility.dataEligible).toBe(true)
+    expect(selection.eligibility.eligibleForPublic).toBe(false)
+  })
+
+  test('a newer FINAL missing from rebuilt stats is stale_data_through', () => {
+    const included = [
+      ...priors('KC', 'LV', 14),
+      ...priors('DEN', 'DAL', 14),
+    ]
+    const missed = finalGame({
+      id: 'g-kc-missed',
+      homeAbbr: 'KC',
+      awayAbbr: 'TEN',
+      daysAgo: 7,
+      extras: { lastUpdate: null, resultAvailableAt: null },
+    })
+    const completedGames = [...included, missed]
+    const game = sundayGame('KC', 'DEN', 14, completedGames)
+
+    expect(evaluateNflDataEligibility({
+      home: interpretEligible('KC', '6-4', {
+        season: '2026',
+        capturedAt: fetchAt,
+        dataThrough: isoDaysAgo(14),
+      }),
+      away: interpretEligible('DEN', '5-5', {
+        season: '2026',
+        capturedAt: fetchAt,
+        dataThrough: isoDaysAgo(14),
+      }),
+      game,
+      now,
+      market: 'moneyline',
+      completedGames,
+    }).reason).toBe('stale_data_through')
+
+    const selection = calculateNFLSelection(game, [evenH2h(), evenTotals()], { now, completedGames })
+    expect(selection.moneyline.eligibility.dataEligible).toBe(false)
+    expect(selection.moneyline.reason).toBe('stale_data_through')
+    expect(selection.totals.reason).toBe('stale_data_through')
+    expect(selection.eligibility.eligibleForPublic).toBe(false)
+  })
+
+  test('statsCapturedAt older than 7 days is stale_team_data even after a bye rest', () => {
+    const completedGames = [
+      ...priors('WSH', 'MIA', 10),
+      ...priors('CIN', 'PIT', 7),
+    ]
+    const game = sundayGame('WSH', 'CIN', 10, completedGames)
+    game.home = teamRow('WSH', '6-4', 10, { statsCapturedAt: isoDaysAgo(8) })
+    game.away = teamRow('CIN', '5-5', 7, { statsCapturedAt: isoDaysAgo(8) })
+
+    expect(evaluateNflDataEligibility({
+      home: interpretEligible('WSH', '6-4', {
+        season: '2026',
+        capturedAt: isoDaysAgo(8),
+        dataThrough: isoDaysAgo(10),
+      }),
+      away: interpretEligible('CIN', '5-5', {
+        season: '2026',
+        capturedAt: isoDaysAgo(8),
+        dataThrough: isoDaysAgo(7),
+      }),
+      game,
+      now,
+      market: 'moneyline',
+      completedGames,
+    }).reason).toBe('stale_team_data')
+
+    const selection = calculateNFLSelection(game, [evenH2h(), evenTotals()], { now, completedGames })
+    expect(selection.moneyline.reason).toBe('stale_team_data')
+    expect(selection.totals.reason).toBe('stale_team_data')
+    expect(selection.inputSnapshot.home.capturedAt).toBe(isoDaysAgo(8))
+  })
+
+  test('v1.0.1 still uses the 7-day data-through wall clock', () => {
+    const game = {
+      id: 'g-nfl-1',
+      sport: 'nfl',
+      season: '2026',
+      date: kickoff,
+      home: teamRow('DET', '6-4', 14),
+      away: teamRow('TB', '5-5', 14),
+    }
+    const selection = calculateNFLSelection(game, [evenH2h()], {
+      now,
+      modelVersion: NFL_SELECTION_MODEL_V101,
+    })
+    expect(selection.moneyline.reason).toBe('stale_data_through')
+  })
+
+  test('an empty completedGames pool keeps the 7-day data-through wall clock', () => {
+    const game = sundayGame('DET', 'TB', 14, [])
+    expect(evaluateDataThroughDate({
+      dataThrough: isoDaysAgo(14),
+      capturedAt: fetchAt,
+      season: '2026',
+      now,
+      completedGames: [],
+      team: game.home,
+      evaluatedGame: game,
+    }).reason).toBe('stale_data_through')
+
+    const omitted = calculateNFLSelection({
+      id: 'g-nfl-1',
+      sport: 'nfl',
+      season: '2026',
+      date: kickoff,
+      home: teamRow('DET', '6-4', 14),
+      away: teamRow('TB', '5-5', 14),
+    }, [evenH2h()], { now })
+    expect(omitted.moneyline.reason).toBe('stale_data_through')
+
+    const empty = calculateNFLSelection(game, [evenH2h()], { now, completedGames: [] })
+    expect(empty.moneyline.reason).toBe('stale_data_through')
+  })
+
+  test('preseason finals alone cannot pass the week-1 four-game gate', () => {
+    const week1Kickoff = '2025-09-07T17:00:00.000Z'
+    const week1Now = new Date('2025-09-07T16:00:00.000Z')
+    const preseason = []
+    for (let i = 0; i < 4; i++) {
+      const start = new Date(Date.UTC(2025, 7, 8 + i * 7, 0, 0, 0)).toISOString()
+      const done = new Date(Date.parse(start) + 3 * 60 * 60 * 1000).toISOString()
+      preseason.push({
+        id: `g-pre-${i}`,
+        sport: 'nfl',
+        season: '2025',
+        date: start,
+        status: 'final',
+        home: { id: 'NFL_KC', abbr: 'KC' },
+        away: { id: `NFL_PRE${i}`, abbr: `P${i}` },
+        homeScore: 24,
+        awayScore: 10,
+        lastUpdate: done,
+        resultAvailableAt: done,
+      })
+    }
+    const game = {
+      id: 'g-week1',
+      sport: 'nfl',
+      season: '2025',
+      date: week1Kickoff,
+      status: 'scheduled',
+      home: eligibleTeam('KC', '4-0', {
+        season: '2025',
+        statsCapturedAt: week1Now.toISOString(),
+        dataThrough: preseason[3].date,
+        gamesPlayed: 4,
+        avgPointsLast10: 24,
+        avgPointsAllowedLast10: 20,
+      }),
+      away: eligibleTeam('DEN', '4-0', {
+        season: '2025',
+        statsCapturedAt: week1Now.toISOString(),
+        dataThrough: preseason[3].date,
+        gamesPlayed: 4,
+        avgPointsLast10: 20,
+        avgPointsAllowedLast10: 24,
+      }),
+    }
+    const denPre = preseason.map((row, i) => ({
+      ...row,
+      id: `g-den-pre-${i}`,
+      home: { id: 'NFL_DEN', abbr: 'DEN' },
+      away: { id: `NFL_DPRE${i}`, abbr: `D${i}` },
+    }))
+    const selection = calculateNFLSelection(game, [evenH2h({ gameId: 'g-week1' })], {
+      now: week1Now,
+      lockAt: week1Now.toISOString(),
+      completedGames: [...preseason, ...denPre],
+    })
+    expect(selection.inputSnapshot.regularSeasonFinals).toBe(true)
+    expect(selection.inputSnapshot.home.gamesPlayed).toBe(0)
+    expect(selection.moneyline.eligibility.dataEligible).toBe(false)
+    expect(['missing_team_data', 'early_season_insufficient_sample']).toContain(selection.moneyline.reason)
+    expect(selection.eligibility.eligibleForPublic).toBe(false)
+  })
+})
+
 describe('integer-total gap uses conditional model probability', () => {
   test('compares P(win|decisive) to the two-way market and keeps EV unconditional', () => {
     const integer = nflTotalOutcomeProbabilities({ mean: 44, variance: 64, line: 44 })

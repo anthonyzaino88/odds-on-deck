@@ -24,8 +24,10 @@ import {
 import { GAME_LINE_SOURCE, gameLineMarketType } from '../lib/game-lines.js'
 import {
   GAME_LINE_SHADOW_SPORTS,
+  NFL_PRE_RS_FILTER_FEATURE,
   isReportableShadowGameLineRecord,
   modelVersionFromNotes,
+  nflV110ShadowFeatureGroup,
 } from '../lib/game-line-shadow.js'
 import { isMissingColumnError } from '../lib/grade-audit.js'
 import { summarizePublishedClv } from '../lib/closing-line.js'
@@ -45,6 +47,10 @@ function formatSigned(n, digits = 2) {
 export function gameLineShadowGroupKey(row) {
   const sport = String(row?.sport || '').toLowerCase().trim()
   const market = gameLineMarketType(row) || 'line'
+  const feature = nflV110ShadowFeatureGroup(row)
+  if (feature === NFL_PRE_RS_FILTER_FEATURE) {
+    return `${sport}:${market}:${feature}`
+  }
   return `${sport}:${market}`
 }
 
@@ -80,7 +86,7 @@ export function summarizeGameLineShadowGroup(rows, sport) {
   return { record, clv, versions, n: record.graded }
 }
 
-export function formatGameLineShadowGroup({ sport, market, record, clv, versions }) {
+export function formatGameLineShadowGroup({ sport, market, record, clv, versions, feature = null }) {
   const clvLine = formatClvSummary(clv)
   const avgClv = clv.avgClvProb == null
     ? 'n/a'
@@ -89,7 +95,7 @@ export function formatGameLineShadowGroup({ sport, market, record, clv, versions
     ? 'n/a'
     : `${(clv.pctBeatClose * 100).toFixed(1)}%`
   return {
-    header: `${sport.toUpperCase()} ${market}`,
+    header: `${sport.toUpperCase()} ${market}${feature ? ` (${feature})` : ''}`,
     n: `n: ${record.graded}`,
     record: `W-L-P: ${record.record}`,
     roi: `ROI: ${formatSigned(record.roi * 100, 1)}%   units: ${formatSigned(record.units, 2)}u`,
@@ -138,7 +144,7 @@ export async function runReportGameLineShadow({
 
   const summaries = {}
   for (const [key, rows] of grouped) {
-    const [sport, market] = key.split(':')
+    const [sport, market, feature] = key.split(':')
     const summary = summarizeGameLineShadowGroup(rows, sport)
     summaries[key] = summary
     const formatted = formatGameLineShadowGroup({
@@ -147,6 +153,7 @@ export async function runReportGameLineShadow({
       record: summary.record,
       clv: summary.clv,
       versions: summary.versions,
+      feature: feature || null,
     })
     log.log('')
     log.log(formatted.header)

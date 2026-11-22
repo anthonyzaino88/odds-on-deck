@@ -7,6 +7,7 @@ import {
   isMissingNflSeason,
   nflSeasonBackupFileName,
   nflSeasonForUpsert,
+  nflRegularSeasonOpenerUtc,
   nflSeasonYearFromDate,
   parseBackfillNflGameSeasonArgs,
   planNflSeasonBackfill,
@@ -64,6 +65,9 @@ describe('NFL season year format', () => {
     expect(nflSeasonYearFromDate('2027-01-17T01:20:00.000Z')).toBe('2026')
     expect(nflSeasonYearFromDate('2027-02-14T23:30:00.000Z')).toBe('2026')
     expect(nflSeasonYearFromDate('2027-03-01T17:00:00.000Z')).toBe('2027')
+    expect(nflRegularSeasonOpenerUtc('2025').toISOString()).toBe('2025-09-01T00:00:00.000Z')
+    expect(nflRegularSeasonOpenerUtc(2026).toISOString()).toBe('2026-09-01T00:00:00.000Z')
+    expect(nflRegularSeasonOpenerUtc('n/a')).toBeNull()
     expect(resolveNflGameSeason({
       event: { season: { year: 2026, type: 2 } },
       date: '2027-02-14T23:30:00.000Z',
