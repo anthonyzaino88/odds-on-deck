@@ -847,6 +847,68 @@ describe('v1.1.0 rebuilt-stats freshness (bye / Thursday rest)', () => {
     const empty = calculateNFLSelection(game, [evenH2h()], { now, completedGames: [] })
     expect(empty.moneyline.reason).toBe('stale_data_through')
   })
+
+  test('preseason finals alone cannot pass the week-1 four-game gate', () => {
+    const week1Kickoff = '2025-09-07T17:00:00.000Z'
+    const week1Now = new Date('2025-09-07T16:00:00.000Z')
+    const preseason = []
+    for (let i = 0; i < 4; i++) {
+      const start = new Date(Date.UTC(2025, 7, 8 + i * 7, 0, 0, 0)).toISOString()
+      const done = new Date(Date.parse(start) + 3 * 60 * 60 * 1000).toISOString()
+      preseason.push({
+        id: `g-pre-${i}`,
+        sport: 'nfl',
+        season: '2025',
+        date: start,
+        status: 'final',
+        home: { id: 'NFL_KC', abbr: 'KC' },
+        away: { id: `NFL_PRE${i}`, abbr: `P${i}` },
+        homeScore: 24,
+        awayScore: 10,
+        lastUpdate: done,
+        resultAvailableAt: done,
+      })
+    }
+    const game = {
+      id: 'g-week1',
+      sport: 'nfl',
+      season: '2025',
+      date: week1Kickoff,
+      status: 'scheduled',
+      home: eligibleTeam('KC', '4-0', {
+        season: '2025',
+        statsCapturedAt: week1Now.toISOString(),
+        dataThrough: preseason[3].date,
+        gamesPlayed: 4,
+        avgPointsLast10: 24,
+        avgPointsAllowedLast10: 20,
+      }),
+      away: eligibleTeam('DEN', '4-0', {
+        season: '2025',
+        statsCapturedAt: week1Now.toISOString(),
+        dataThrough: preseason[3].date,
+        gamesPlayed: 4,
+        avgPointsLast10: 20,
+        avgPointsAllowedLast10: 24,
+      }),
+    }
+    const denPre = preseason.map((row, i) => ({
+      ...row,
+      id: `g-den-pre-${i}`,
+      home: { id: 'NFL_DEN', abbr: 'DEN' },
+      away: { id: `NFL_DPRE${i}`, abbr: `D${i}` },
+    }))
+    const selection = calculateNFLSelection(game, [evenH2h({ gameId: 'g-week1' })], {
+      now: week1Now,
+      lockAt: week1Now.toISOString(),
+      completedGames: [...preseason, ...denPre],
+    })
+    expect(selection.inputSnapshot.regularSeasonFinals).toBe(true)
+    expect(selection.inputSnapshot.home.gamesPlayed).toBe(0)
+    expect(selection.moneyline.eligibility.dataEligible).toBe(false)
+    expect(['missing_team_data', 'early_season_insufficient_sample']).toContain(selection.moneyline.reason)
+    expect(selection.eligibility.eligibleForPublic).toBe(false)
+  })
 })
 
 describe('integer-total gap uses conditional model probability', () => {

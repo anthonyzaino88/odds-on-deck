@@ -14,8 +14,12 @@ import {
   attachShadowGameLineCloses,
   chooseShadowGameLineSurvivor,
   duplicateShadowGameLineVoidPatch,
+  NFL_PRE_RS_FILTER_FEATURE,
+  NFL_REGULAR_SEASON_FINALS_NOTES_TAG,
   gameLineShadowPersistNotes,
   gameLineShadowPropId,
+  nflV110ShadowFeatureGroup,
+  planNflV110PreRsFilterRetag,
   isReportableShadowGameLineRecord,
   isReusableShadowGameLineRow,
   inspectGameLineShadowSnapshot,
@@ -393,6 +397,62 @@ describe('shadow notes and public exclusion', () => {
     expect(notes).toMatch(GAME_LINE_TOTALS_HEURISTIC_TAG)
     expect(notes).not.toMatch(/auto-saved/)
     expect(modelVersionFromNotes(notes)).toBe('nfl-selection-v1.0.1')
+    expect(notes).not.toMatch(NFL_REGULAR_SEASON_FINALS_NOTES_TAG)
+  })
+
+  test('new NFL v1.1.0 notes carry the regular-season-finals feature tag', () => {
+    const notes = gameLineShadowPersistNotes(null, {
+      sport: 'nfl',
+      modelVersion: NFL_SELECTION_MODEL_VERSION,
+      regularSeasonFinals: true,
+    })
+    expect(notes).toMatch(NFL_REGULAR_SEASON_FINALS_NOTES_TAG)
+    expect(nflV110ShadowFeatureGroup({
+      sport: 'nfl',
+      notes,
+      modelRun: NFL_SELECTION_MODEL_VERSION,
+    })).toBe('regular-season-finals')
+  })
+
+  test('untagged v1.1.0 shadow rows are a pre-regular-season-filter group', () => {
+    const mixed = {
+      sport: 'nfl',
+      source: 'game_line',
+      propType: 'moneyline',
+      prediction: 'KC',
+      status: 'completed',
+      result: 'correct',
+      odds: -110,
+      edge: 0.02,
+      notes: `${SIDES_TOTALS_COHORT_TAG} | ${SHADOW_PUBLISHED_COHORT_TAG} | model:${NFL_SELECTION_MODEL_VERSION}`,
+    }
+    const tagged = {
+      ...mixed,
+      id: 'new-row',
+      notes: gameLineShadowPersistNotes(null, {
+        sport: 'nfl',
+        modelVersion: NFL_SELECTION_MODEL_VERSION,
+        regularSeasonFinals: true,
+      }),
+    }
+    const v101 = {
+      ...mixed,
+      notes: `${SIDES_TOTALS_COHORT_TAG} | ${SHADOW_PUBLISHED_COHORT_TAG} | model:nfl-selection-v1.0.1`,
+    }
+    expect(nflV110ShadowFeatureGroup(mixed)).toBe(NFL_PRE_RS_FILTER_FEATURE)
+    const grouped = groupGameLineShadowPicks([mixed, tagged, v101])
+    expect(grouped.get('nfl:moneyline:pre-regular-season-filter')).toHaveLength(1)
+    expect(grouped.get('nfl:moneyline').map((row) => row.notes)).toEqual(
+      expect.arrayContaining([tagged.notes, v101.notes]),
+    )
+    expect(grouped.get('nfl:moneyline')).toHaveLength(2)
+    expect(planNflV110PreRsFilterRetag([{ ...mixed, id: 'old-1' }])).toEqual([
+      expect.objectContaining({
+        id: 'old-1',
+        nextNotes: expect.stringContaining('features:pre-regular-season-filter'),
+      }),
+    ])
+    expect(planNflV110PreRsFilterRetag([tagged])).toEqual([])
   })
 
   test('public Published, archive, and sides/totals filters drop shadow NFL game lines', () => {
@@ -691,5 +751,27 @@ describe('recorder skip details and report grouping', () => {
     expect(lines.join('\n')).toMatch(/NFL moneyline/)
     expect(lines.join('\n')).toMatch(/NHL total/)
     expect(lines.join('\n')).toMatch(/Does not write/)
+  })
+})
+
+describe('NFL v1.1.0 pre-regular-season-filter dry-run', () => {
+  test('operations script refuses --apply and does not call The Odds API', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const src = readFileSync(join(process.cwd(), 'operations/preview-nfl-v110-pre-rs-filter.mjs'), 'utf8')
+    expect(src).toMatch(/Dry-run only/)
+    expect(src).toMatch(/Refusing --apply/)
+    expect(src).not.toMatch(/the-odds-api|ODDS_API_KEY/)
+    const { runPreviewNflV110PreRsFilter } = await import('../../operations/preview-nfl-v110-pre-rs-filter.mjs')
+    const errors = []
+    const result = await runPreviewNflV110PreRsFilter({
+      argv: ['--apply'],
+      log: { log() {}, error: (...args) => errors.push(args.join(' ')) },
+      loadRows: async () => [{ id: 'should-not-load' }],
+    })
+    expect(result.exitCode).toBe(2)
+    expect(result.wrote).toBe(false)
+    expect(result.planned).toEqual([])
+    expect(errors.join(' ')).toMatch(/Dry-run only/)
   })
 })

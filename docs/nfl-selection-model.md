@@ -66,12 +66,15 @@ A statistic is eligible only when every check below passes. Fetch time and last-
 2. Neither timestamp may be after prediction time.
 3. **Fetch freshness:** `Team.statsCapturedAt` (the ESPN refresh) must be within 7 days of prediction time (`NFL_STATS_MAX_AGE_MS`). v1.1.0 does not copy the last final's `Game.lastUpdate` onto this field.
 4. `dataThrough` must fall in the game's NFL season year, or January–February of the next calendar year (regular-season / playoff spillover).
-5. **Data-through freshness (v1.1.0):** when a non-empty completed-game pool is present, do not use wall-clock age of the last kickoff. A bye or Thursday rest (last final 10–14 days ago, no later final) is eligible. Rebuilt `dataThrough` is stale only if that pool has a newer same-season FINAL for that team that kicked off before the game being evaluated and is not included in the rebuilt stats. An empty pool is not a pool — fall back to the 7-day window.
+5. **Data-through freshness (v1.1.0):** when a non-empty completed-game pool is present, do not use wall-clock age of the last kickoff. A bye or Thursday rest (last final 10–14 days ago, no later final) is eligible. Rebuilt `dataThrough` is stale only if that pool has a newer same-season FINAL for that team that kicked off before the game being evaluated and is not included in the rebuilt stats. An empty pool is not a pool — fall back to the 7-day window. NFL kickoffs before 1 Sep UTC of the season year are preseason and are excluded from both the rebuild and this missing-final check (live and backtest share the rule). `hasMissingNewerFinal` must only receive a lock-filtered pool.
 6. **Data-through freshness (v1.0.1 / no completed-game pool):** keep the 7-day window, including `statsCapturedAt − dataThrough` (`data_through_older_than_fetch_window`). Fetching yesterday cannot make last month's Team-row record current.
+7. **Backtest fetch clock:** if live `Team.statsCapturedAt` is after the historical lock, the walk-forward uses the lock instant as the fetch time so old locks are not marked `stale_team_data`.
 
 ### Early-season policy
 
-With n < 4 the maximum-likelihood win percentage lives on `{0, 1/3, 1/2, 2/3, 1}`. That is not a probability model, so we refuse a point estimate. Four games is a mathematical floor, not a slate-clearing sample and not a claim that n ≥ 4 is sufficient. Public recommendations stay off regardless of n because the heuristic is unvalidated.
+With n < 4 the maximum-likelihood win percentage lives on `{0, 1/3, 1/2, 2/3, 1}`. That is not a probability model, so we refuse a point estimate. Four games is a mathematical floor, not a slate-clearing sample and not a claim that n ≥ 4 is sufficient. Public recommendations stay off regardless of n because the heuristic is unvalidated. Preseason finals do not count toward that floor.
+
+New NFL v1.1.0 shadow rows are tagged `features:regular-season-finals`. Existing v1.1.0 shadow picks scored on mixed preseason+regular records stay in a `pre-regular-season-filter` report group until a separate dry-run retag (`operations/preview-nfl-v110-pre-rs-filter.mjs`) is applied. This PR does not write those notes.
 
 ## Moneyline formulas (research only)
 
