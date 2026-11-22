@@ -20,6 +20,7 @@ import {
   gameLineShadowPropId,
   nflV110ShadowFeatureGroup,
   planNflV110PreRsFilterRetag,
+  shouldTagNflRegularSeasonFinals,
   isReportableShadowGameLineRecord,
   isReusableShadowGameLineRow,
   inspectGameLineShadowSnapshot,
@@ -412,6 +413,28 @@ describe('shadow notes and public exclusion', () => {
       notes,
       modelRun: NFL_SELECTION_MODEL_VERSION,
     })).toBe('regular-season-finals')
+  })
+
+  test('v1.1.0 Team-row evaluations without a rebuild do not get the clean tag', () => {
+    expect(shouldTagNflRegularSeasonFinals({
+      sport: 'nfl',
+      modelVersion: NFL_SELECTION_MODEL_VERSION,
+    })).toBe(false)
+    expect(shouldTagNflRegularSeasonFinals({
+      sport: 'nfl',
+      modelVersion: NFL_SELECTION_MODEL_VERSION,
+      regularSeasonFinals: false,
+    })).toBe(false)
+    const notes = gameLineShadowPersistNotes(null, {
+      sport: 'nfl',
+      modelVersion: NFL_SELECTION_MODEL_VERSION,
+    })
+    expect(notes).not.toMatch(NFL_REGULAR_SEASON_FINALS_NOTES_TAG)
+    expect(nflV110ShadowFeatureGroup({
+      sport: 'nfl',
+      notes,
+      modelRun: NFL_SELECTION_MODEL_VERSION,
+    })).toBe(NFL_PRE_RS_FILTER_FEATURE)
   })
 
   test('untagged v1.1.0 shadow rows are a pre-regular-season-filter group', () => {

@@ -843,9 +843,11 @@ describe('v1.1.0 rebuilt-stats freshness (bye / Thursday rest)', () => {
       away: teamRow('TB', '5-5', 14),
     }, [evenH2h()], { now })
     expect(omitted.moneyline.reason).toBe('stale_data_through')
+    expect(omitted.inputSnapshot.regularSeasonFinals).toBe(false)
 
     const empty = calculateNFLSelection(game, [evenH2h()], { now, completedGames: [] })
     expect(empty.moneyline.reason).toBe('stale_data_through')
+    expect(empty.inputSnapshot.regularSeasonFinals).toBe(false)
   })
 
   test('preseason finals alone cannot pass the week-1 four-game gate', () => {
