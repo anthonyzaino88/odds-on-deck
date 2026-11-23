@@ -15,13 +15,28 @@ database (same reason 007 close columns stay SQL-only).
 
 Writers retry without the new columns on `PGRST204` / `42703`.
 
+## How to check (read-only)
+
+```
+node scripts/report-line-shop-schema.js
+npm run report:line-shop-schema
+node scripts/report-line-shop-schema.js --json
+```
+
+Probes the three columns via PostgREST (`SELECT … LIMIT 1`). `STATUS=ok`
+means they exist. `STATUS=missing` means apply the SQL below.
+Populate counts (`quotes populated: N / total`) can be zero after a
+successful apply — 010 does not backfill; the next morning fetch writes
+ladders. Does not write. Does not apply SQL. Does not call The Odds API.
+
 ## How to apply (do not run from this PR)
 
 1. Open Supabase → SQL Editor.
 2. Paste `scripts/migrations/010_line_shop_quotes.sql`.
 3. Run it in a planned ops window. The script is `IF NOT EXISTS` /
    additive and can be re-run.
-4. Confirm with the `information_schema.columns` check in that file.
+4. Re-run `node scripts/report-line-shop-schema.js`, or confirm with the
+   `information_schema.columns` check in that SQL file.
 
 Do **not** apply from CI. Do not backfill discarded ladders. Do not
 regrade. Do not change CLV (`implied(close) − implied(recorded)`).
