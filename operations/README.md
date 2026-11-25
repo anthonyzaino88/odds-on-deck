@@ -41,6 +41,10 @@ node scripts/fetch-injuries.js
 
 # 3. Fetch odds with proper gameTime mapping
 node scripts/fetch-live-odds.js all --cache-fresh
+# One game only (event-odds endpoint; still budgeted; does not refetch the slate):
+# node scripts/fetch-live-odds.js --game GB_at_LAR_2026-11-25
+# node scripts/fetch-live-odds.js --event <oddsApiEventId> nfl
+# Back-compat: node scripts/fetch-odds-for-game.js <gameId>
 # Footer prints ODDS_BUDGET_STATUS=ok|floor|daily_cap|monthly_cap|probe_failed (exit 0).
 # Any value other than ok is WARN in the morning report.
 
@@ -800,6 +804,7 @@ scripts/
 ├── fetch-fresh-games.js        # ESPN slate; vanish writes with --apply-vanish (never --apply-stale)
 ├── reconcile-games.js          # Retire ghost / flipped MLB games (dry-run default; --apply writes)
 ├── fetch-live-odds.js          # Fetch odds/props from Odds API (PAID)
+│                               # --game / --event: one game's lines + props (budgeted)
 ├── fetch-published-nfl-alt-lines.js # Published NFL alt lines (PAID, dry-run default)
 ├── fetch-team-performance-data.js # ESPN team records / PPG (run before edges)
 ├── merge-duplicate-nfl-team.js # One-time duplicate Team merge (dry-run default; --backup --apply)

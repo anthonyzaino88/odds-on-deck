@@ -194,6 +194,14 @@ npm run start        # Start production server
 npm run lint         # Run ESLint
 npm run test         # Run Jest tests
 
+# Odds (laptop ops; paid Odds API credits)
+# node scripts/fetch-live-odds.js all --cache-fresh
+# node scripts/fetch-live-odds.js --game GB_at_LAR_2026-11-25
+# node scripts/fetch-live-odds.js --event <oddsApiEventId> nfl
+# --game / --event fetch that game's lines (h2h, spreads, totals) and
+# player props through the credit budget + injury/roster guard.
+# Same as: node scripts/fetch-odds-for-game.js <gameId>
+
 # Validation & Data
 npm run validate     # Validate pending props
 npm run validate:parlays  # Validate saved parlays (after props)

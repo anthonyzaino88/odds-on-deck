@@ -11,11 +11,20 @@
  *   node scripts/fetch-live-odds.js nfl --date 2025-11-02 --dry-run
  *   node scripts/fetch-live-odds.js mlb
  *   node scripts/fetch-live-odds.js all
+ *   node scripts/fetch-live-odds.js --game GB_at_LAR_2026-11-25
+ *   node scripts/fetch-live-odds.js --event <oddsApiEventId> nfl
  * 
  * FLAGS:
  *   --dry-run      Don't save to DB, just show what would happen
  *   --date         Specific date to fetch (YYYY-MM-DD)
  *   --cache-fresh  Ignore cache, force fresh fetch from API
+ *   --game         Fetch game lines + player props for one Game.id
+ *   --event        Same, keyed by The Odds API event id
+ *   --help         Print usage
+ *
+ * --game / --event use the event-odds endpoint (not the sport-wide feed),
+ * count against the credit budget, apply the injury/roster guard, and do
+ * not refetch other games. Prefer this over scripts/fetch-odds-for-game.js.
  */
 
 import { createScriptSupabaseClient } from '../lib/supabase-script-client.js'
@@ -39,7 +48,15 @@ import {
   matchOddsApiEventToGame,
   formatUnmappedOddsEventLine,
   summarizeUnmappedOddsReasons,
+  isOddsCacheFresh,
+  spreadPointFromOddsApiOutcomes,
+  oddsApiEventOddsEndpoint,
+  normalizeOddsApiEventPayload,
+  parseLiveOddsArgs,
+  LIVE_ODDS_USAGE,
 } from '../lib/live-odds-landing.js'
+import { formatEtDateKey } from '../lib/todays-games.js'
+import { parseStoredGameDate } from '../lib/score-updater.js'
 import {
   bookmakerQuoteTimeIso,
   oddsTableHasQuotedAt,
@@ -183,41 +200,8 @@ async function findGameByTeamNames(oddsHome, oddsAway, sport, date, eventId) {
   }
 }
 
-// ============================================================================
-// ARGUMENT PARSING
-// ============================================================================
-
-function parseArguments() {
-  const args = process.argv.slice(2)
-  
-  let sport = 'all'
-  // Use EST date to avoid timezone issues
-  const estDate = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })
-  const today = new Date(estDate)
-  let date = today.toISOString().split('T')[0]
-  let dryRun = false
-  let cacheFresh = false
-  
-  // Check if first argument is a date (YYYY-MM-DD) or sport
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    
-    if (arg === '--dry-run') {
-      dryRun = true
-    } else if (arg === '--cache-fresh') {
-      cacheFresh = true
-    } else if (arg === '--date' && args[i + 1]) {
-      date = args[++i]
-    } else if (/^\d{4}-\d{2}-\d{2}$/.test(arg)) {
-      // Argument is a date format
-      date = arg
-    } else if (!arg.startsWith('--') && sport === 'all') {
-      // First non-flag argument is sport
-      sport = arg.toLowerCase()
-    }
-  }
-  
-  return { sport, date, dryRun, cacheFresh }
+function parseArguments(argv = process.argv.slice(2)) {
+  return parseLiveOddsArgs(argv)
 }
 
 // ============================================================================
@@ -283,9 +267,8 @@ async function checkCache(table, where, maxAgeMs, ignoreCache = false, tsColumn 
       .limit(1)
     
     if (data?.[0]) {
-      const age = Date.now() - new Date(data[0][tsColumn]).getTime()
-      if (age < maxAgeMs) {
-        return true  // Cache is fresh
+      if (isOddsCacheFresh(data[0][tsColumn], maxAgeMs)) {
+        return true  // Cache is fresh (zone-less DB timestamps parsed as UTC)
       }
     }
   } catch (error) {
@@ -753,7 +736,7 @@ async function saveGameOdds(games, sport, date) {
           } else if (market.key === 'spreads' && outcomes.length >= 2) {
             const home = outcomes.find(o => o.name === game.home_team) || outcomes.find(o => o.name === 'Home' || o.name?.includes('Home'))
             const away = outcomes.find(o => o.name === game.away_team) || outcomes.find(o => o.name === 'Away' || o.name?.includes('Away'))
-            spread = market.description ? parseFloat(market.description) : null
+            spread = spreadPointFromOddsApiOutcomes(outcomes, game.home_team, game.away_team)
             priceAway = away?.price
             priceHome = home?.price
           } else if (market.key === 'totals' && outcomes.length >= 2) {
@@ -1455,17 +1438,132 @@ async function autoSavePublishedPropsForValidation(sport) {
 }
 
 // ============================================================================
+// SINGLE-GAME FETCH (--game / --event)
+// ============================================================================
+
+const SINGLE_GAME_SELECT = `
+  id, sport, date, status, oddsApiEventId, homeId, awayId,
+  home:Team!Game_homeId_fkey(name, abbr),
+  away:Team!Game_awayId_fkey(name, abbr)
+`
+
+async function loadSingleGameTarget({ gameId, eventId, sport }) {
+  let query = supabase.from('Game').select(SINGLE_GAME_SELECT)
+  if (gameId) query = query.eq('id', gameId)
+  else query = query.eq('oddsApiEventId', eventId)
+  if (sport && sport !== 'all') query = query.eq('sport', sport)
+
+  const { data, error } = await query.limit(1)
+  if (error) {
+    console.error(`❌ Game lookup failed: ${error.message}`)
+    return null
+  }
+  const game = Array.isArray(data) ? data[0] : data
+  return game || null
+}
+
+async function fetchSingleGameOdds(game, { eventId, cacheFresh } = {}) {
+  const sportConfig = SPORTS[game.sport]
+  const resolvedEventId = eventId || game.oddsApiEventId
+  if (!sportConfig || !resolvedEventId) return []
+
+  const isCached = await checkCache(
+    'Odds',
+    { gameId: game.id, market: 'h2h' },
+    CACHE_DURATION.MONEYLINE,
+    cacheFresh,
+  )
+  if (isCached) {
+    console.log(`  ✅ Cache hit for ${game.id} moneyline — skipping sport-wide odds feed`)
+    return [{
+      id: resolvedEventId,
+      gameId: game.id,
+      home_team: game.home?.name || '',
+      away_team: game.away?.name || '',
+      commence_time: game.date,
+      bookmakers: [],
+    }]
+  }
+
+  const endpoint = oddsApiEventOddsEndpoint(sportConfig.id, resolvedEventId)
+  const oddsData = await callOddsAPI(endpoint)
+  if (!oddsData) {
+    console.log(`  ⏸️  Single-game odds skipped (${formatOddsBudgetStatus(getOddsBudget().status())})`)
+    return []
+  }
+  const games = normalizeOddsApiEventPayload(oddsData)
+  console.log(`  ✅ Fetched event odds for ${game.id} (${games.length} event${games.length === 1 ? '' : 's'})`)
+  return games
+}
+
+async function runSingleGameFetch({ sport, date, dryRun, cacheFresh, gameId, eventId }) {
+  const game = await loadSingleGameTarget({ gameId, eventId, sport })
+  if (!game) {
+    console.error(`❌ Game not found${gameId ? `: ${gameId}` : eventId ? ` for event ${eventId}` : ''}`)
+    if (gameId && !eventId) {
+      console.error('   Usage: node scripts/fetch-live-odds.js --game <gameId>')
+    }
+    process.exit(1)
+  }
+
+  const sportKey = game.sport
+  const sportConfig = SPORTS[sportKey]
+  if (!sportConfig) {
+    console.error(`❌ Unknown sport: ${sportKey}`)
+    process.exit(1)
+  }
+
+  const resolvedEventId = eventId || game.oddsApiEventId
+  if (!resolvedEventId) {
+    console.error(`❌ Game is not mapped to Odds API event ID: ${game.id}`)
+    console.error(`   Run: node scripts/fetch-live-odds.js ${sportKey} --cache-fresh`)
+    process.exit(1)
+  }
+
+  const parsedDate = parseStoredGameDate(game.date)
+  const gameDate = parsedDate ? formatEtDateKey(parsedDate) : date
+  const awayAbbr = game.away?.abbr || game.away?.name || '?'
+  const homeAbbr = game.home?.abbr || game.home?.name || '?'
+
+  console.log(`🎯 Single-game: ${awayAbbr} @ ${homeAbbr} (${game.id})`)
+  console.log(`   Event: ${resolvedEventId}`)
+  console.log(`   Sport: ${sportKey.toUpperCase()}  Date: ${gameDate}`)
+
+  const games = await fetchSingleGameOdds(game, { eventId: resolvedEventId, cacheFresh })
+  const fetchedBookmakers = games.some((g) => (g.bookmakers || []).length > 0)
+  if (!dryRun && fetchedBookmakers) {
+    await saveGameOdds(games, sportKey, gameDate)
+  }
+
+  const gameProps = await fetchPlayerProps(sportKey, gameDate, games, cacheFresh)
+  if (!dryRun && gameProps.length > 0) {
+    await savePlayerProps(gameProps, sportKey)
+    await autoSaveTopPropsForValidation(sportKey)
+  }
+  if (!dryRun) {
+    await autoSavePublishedPropsForValidation(sportKey)
+  }
+}
+
+// ============================================================================
 // MAIN
 // ============================================================================
 
 async function main() {
-  const { sport, date, dryRun, cacheFresh } = parseArguments()
+  const { sport, date, dryRun, cacheFresh, gameId, eventId, help } = parseArguments()
+
+  if (help) {
+    console.log(LIVE_ODDS_USAGE)
+    process.exit(0)
+  }
   
   console.log('\n' + '='.repeat(60))
   console.log('⚡ ODDS FETCHER - LOCAL SCRIPT')
   console.log('='.repeat(60))
   console.log(`📅 Date: ${date}`)
   console.log(`🎮 Sport: ${sport}`)
+  if (gameId) console.log(`🎯 Game: ${gameId}`)
+  if (eventId) console.log(`🎯 Event: ${eventId}`)
   console.log(`🏗️  Mode: ${dryRun ? 'DRY RUN (no DB saves)' : 'PRODUCTION'}`)
   console.log(`🔄 Cache: ${cacheFresh ? 'IGNORE (force fresh)' : 'CHECK (use if fresh)'}`)
   console.log('='.repeat(60))
@@ -1484,28 +1582,32 @@ async function main() {
       log: console,
     })
 
-    const sports = sport === 'all' ? Object.keys(SPORTS) : [sport]
-    
-    for (const s of sports) {
-      // 1. Fetch and save game odds
-      const games = await fetchGameOdds(s, date, cacheFresh)
-      if (!dryRun && games.length > 0) {
-        await saveGameOdds(games, s, date)
-      }
+    if (gameId || eventId) {
+      await runSingleGameFetch({ sport, date, dryRun, cacheFresh, gameId, eventId })
+    } else {
+      const sports = sport === 'all' ? Object.keys(SPORTS) : [sport]
       
-      // 2. Fetch and save player props (using The Odds API event IDs from games)
-      const gameProps = await fetchPlayerProps(s, date, games, cacheFresh)
-      if (!dryRun && gameProps.length > 0) {
-        await savePlayerProps(gameProps, s)
+      for (const s of sports) {
+        // 1. Fetch and save game odds
+        const games = await fetchGameOdds(s, date, cacheFresh)
+        if (!dryRun && games.length > 0) {
+          await saveGameOdds(games, s, date)
+        }
         
-        // 3. Auto-save top props for validation tracking
-        await autoSaveTopPropsForValidation(s)
-      }
+        // 2. Fetch and save player props (using The Odds API event IDs from games)
+        const gameProps = await fetchPlayerProps(s, date, games, cacheFresh)
+        if (!dryRun && gameProps.length > 0) {
+          await savePlayerProps(gameProps, s)
+          
+          // 3. Auto-save top props for validation tracking
+          await autoSaveTopPropsForValidation(s)
+        }
 
-      // Published track: record bar-clearing MLB/NFL/NHL props even on a
-      // cache-hit morning. Reads PlayerPropCache only — no Odds API.
-      if (!dryRun) {
-        await autoSavePublishedPropsForValidation(s)
+        // Published track: record bar-clearing MLB/NFL/NHL props even on a
+        // cache-hit morning. Reads PlayerPropCache only — no Odds API.
+        if (!dryRun) {
+          await autoSavePublishedPropsForValidation(s)
+        }
       }
     }
     
