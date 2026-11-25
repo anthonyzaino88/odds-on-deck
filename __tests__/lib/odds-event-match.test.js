@@ -94,7 +94,8 @@ describe('oddsEventSlateBounds NFL week', () => {
       date: WEDNESDAY,
       now: WEDNESDAY_MORNING,
     })
-    expect(bounds.startKey).toBe('2026-11-11')
+    // Wednesday now starts today (padded −1 ET day = Tuesday), not next Thursday.
+    expect(bounds.startKey).toBe('2026-11-10')
     expect(bounds.endKey).toBe('2026-11-17')
     const start = Date.parse(bounds.startIso)
     const end = Date.parse(bounds.endIso)
