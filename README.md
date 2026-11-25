@@ -200,6 +200,7 @@ npm run test         # Run Jest tests
 # node scripts/fetch-live-odds.js --event <oddsApiEventId> nfl
 # --game / --event fetch that game's lines (h2h, spreads, totals) and
 # player props through the credit budget + injury/roster guard.
+# --dry-run spends 0 paid Odds API credits (logs the plan / cache).
 # Same as: node scripts/fetch-odds-for-game.js <gameId>
 
 # Validation & Data

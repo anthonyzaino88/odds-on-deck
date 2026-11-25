@@ -9,6 +9,7 @@
  * Fetches that game's lines (h2h, spreads, totals) and player props,
  * counts against the Odds API credit budget, and applies the
  * injury/roster guard. Does not refetch other games.
+ * --dry-run spends 0 paid Odds API credits (delegates to fetch-live-odds).
  *
  * Usage:
  *   node scripts/fetch-odds-for-game.js VAN_at_NSH_2025-11-04

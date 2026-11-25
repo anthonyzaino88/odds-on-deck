@@ -52,9 +52,11 @@ describe('NFL week includes Monday night games when the host is UTC', () => {
     // Live CHI @ SEA window: Monday 2026-11-02 8:15 PM ET = 2026-11-03T01:15:00Z
     const week = getNFLWeekBounds(new Date('2026-11-03T01:00:00Z'))
     expect(week.mondayKey).toBe('2026-11-02')
-    expect(week.thursdayKey).toBe('2026-10-29')
+    expect(week.startKey).toBe('2026-10-29')
+    expect(week.thursdayKey).toBe(week.startKey)
     expect(week.monday.toISOString()).toBe('2026-11-03T04:59:59.999Z')
-    expect(week.thursday.toISOString()).toBe('2026-10-29T04:00:00.000Z')
+    expect(week.start.toISOString()).toBe('2026-10-29T04:00:00.000Z')
+    expect(week.thursday.toISOString()).toBe(week.start.toISOString())
 
     expect(isGameInNflWeek(new Date('2026-11-03T01:15:00Z'), week)).toBe(true)
     expect(isGameInNflWeek(new Date('2026-11-04T01:00:00Z'), week)).toBe(false)
@@ -77,9 +79,11 @@ describe('NFL week includes Tuesday/Wednesday games', () => {
     expect(process.env.TZ).toBe('UTC')
     // Noon ET Wednesday 2026-11-25
     const week = getNFLWeekBounds(new Date('2026-11-25T17:00:00Z'))
-    expect(week.thursdayKey).toBe('2026-11-25')
+    expect(week.startKey).toBe('2026-11-25')
+    expect(week.thursdayKey).toBe(week.startKey)
     expect(week.mondayKey).toBe('2026-11-30')
-    expect(week.thursday.toISOString()).toBe('2026-11-25T05:00:00.000Z')
+    expect(week.start.toISOString()).toBe('2026-11-25T05:00:00.000Z')
+    expect(week.thursday.toISOString()).toBe(week.start.toISOString())
     expect(week.monday.toISOString()).toBe('2026-12-01T04:59:59.999Z')
 
     // GB @ LAR Wednesday 8:00 PM ET = 2026-11-26T01:00:00Z
@@ -99,7 +103,8 @@ describe('NFL week includes Tuesday/Wednesday games', () => {
 
   test('Tuesday starts today through the following Monday', () => {
     const week = getNFLWeekBounds(new Date('2026-11-24T17:00:00Z'))
-    expect(week.thursdayKey).toBe('2026-11-24')
+    expect(week.startKey).toBe('2026-11-24')
+    expect(week.thursdayKey).toBe(week.startKey)
     expect(week.mondayKey).toBe('2026-11-30')
     expect(isGameInNflWeek(new Date('2026-11-24T17:00:00Z'), week)).toBe(true)
     expect(nflWeekEtDateKeys(new Date('2026-11-24T17:00:00Z'))[0]).toBe('2026-11-24')
@@ -107,7 +112,8 @@ describe('NFL week includes Tuesday/Wednesday games', () => {
 
   test('Thursday is still Thu–Mon', () => {
     const week = getNFLWeekBounds(new Date('2026-11-26T17:00:00Z'))
-    expect(week.thursdayKey).toBe('2026-11-26')
+    expect(week.startKey).toBe('2026-11-26')
+    expect(week.thursdayKey).toBe(week.startKey)
     expect(week.mondayKey).toBe('2026-11-30')
     expect(isGameInNflWeek(new Date('2026-11-25T17:00:00Z'), week)).toBe(false)
     expect(nflWeekEtDateKeys(new Date('2026-11-26T17:00:00Z'))).toEqual([
@@ -121,13 +127,15 @@ describe('NFL week includes Tuesday/Wednesday games', () => {
 
   test('Sunday looks back to Thursday', () => {
     const week = getNFLWeekBounds(new Date('2026-11-29T18:00:00Z'))
-    expect(week.thursdayKey).toBe('2026-11-26')
+    expect(week.startKey).toBe('2026-11-26')
+    expect(week.thursdayKey).toBe(week.startKey)
     expect(week.mondayKey).toBe('2026-11-30')
   })
 
   test('Monday night still belongs to the Thu–Mon week', () => {
     const week = getNFLWeekBounds(new Date('2026-11-30T17:00:00Z'))
-    expect(week.thursdayKey).toBe('2026-11-26')
+    expect(week.startKey).toBe('2026-11-26')
+    expect(week.thursdayKey).toBe(week.startKey)
     expect(week.mondayKey).toBe('2026-11-30')
     expect(isGameInNflWeek(new Date('2026-12-01T01:15:00Z'), week)).toBe(true)
   })

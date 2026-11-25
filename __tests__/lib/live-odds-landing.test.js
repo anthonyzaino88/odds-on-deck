@@ -26,6 +26,7 @@ import {
   oddsApiEventOddsEndpoint,
   normalizeOddsApiEventPayload,
   parseLiveOddsArgs,
+  planSingleGameOddsCalls,
   LIVE_ODDS_USAGE,
   ODDS_API_GAME_LINE_MARKETS,
 } from '../../lib/live-odds-landing.js'
@@ -536,6 +537,14 @@ describe('Odds API spread point', () => {
 })
 
 describe('parseLiveOddsArgs --game / --event', () => {
+  test('bare --game / --event is an error, not a full-slate fetch', () => {
+    expect(parseLiveOddsArgs(['--game']).flagError).toMatch(/--game requires/)
+    expect(parseLiveOddsArgs(['--game']).singleGame).toBe(false)
+    expect(parseLiveOddsArgs(['--event']).flagError).toMatch(/--event requires/)
+    expect(parseLiveOddsArgs(['--help', '--game']).help).toBe(true)
+    expect(parseLiveOddsArgs(['--help', '--game']).flagError).toBeNull()
+  })
+
   test('parses --game and --event without treating them as sport', () => {
     expect(parseLiveOddsArgs(['--game', 'GB_at_LAR_2026-11-25'])).toMatchObject({
       gameId: 'GB_at_LAR_2026-11-25',
@@ -597,6 +606,74 @@ describe('fetch-live-odds wiring for cache, spread, and single-game fetch', () =
     expect(src).toMatch(/checkCache\('PlayerPropCache'/)
   })
 
+  test('--game / --event dry-run plans paid fetches but spends 0 credits', () => {
+    const nflProps = [
+      'player_pass_yds', 'player_pass_tds',
+      'player_rush_yds', 'player_receptions', 'player_reception_yds',
+    ]
+    const dryStale = planSingleGameOddsCalls({
+      sportId: 'americanfootball_nfl',
+      eventId: 'evt-gb-lar',
+      dryRun: true,
+      cacheFresh: true,
+      gameLinesCached: false,
+      propsCached: false,
+      propMarkets: nflProps,
+    })
+    expect(dryStale.wouldFetchGameLines).toBe(true)
+    expect(dryStale.wouldFetchProps).toBe(true)
+    expect(dryStale.totalCreditsIfFetched).toBe(8)
+    expect(dryStale.paidCalls).toEqual([])
+    expect(dryStale.spendCredits).toBe(0)
+
+    const dryCached = planSingleGameOddsCalls({
+      sportId: 'americanfootball_nfl',
+      eventId: 'evt-gb-lar',
+      dryRun: true,
+      cacheFresh: false,
+      gameLinesCached: true,
+      propsCached: true,
+      propMarkets: nflProps,
+    })
+    expect(dryCached.wouldFetchGameLines).toBe(false)
+    expect(dryCached.useGameLineCache).toBe(true)
+    expect(dryCached.paidCalls).toEqual([])
+    expect(dryCached.spendCredits).toBe(0)
+
+    const live = planSingleGameOddsCalls({
+      sportId: 'americanfootball_nfl',
+      eventId: 'evt-gb-lar',
+      dryRun: false,
+      cacheFresh: true,
+      gameLinesCached: false,
+      propsCached: false,
+      propMarkets: nflProps,
+    })
+    expect(live.paidCalls).toHaveLength(2)
+    expect(live.spendCredits).toBe(8)
+  })
+
+  test('--help and bare --game exit before env/DB init', () => {
+    const help = spawnSync(process.execPath, ['scripts/fetch-live-odds.js', '--help'], {
+      cwd: join(__dirname, '../..'),
+      env: { PATH: process.env.PATH },
+      encoding: 'utf8',
+    })
+    expect(help.status).toBe(0)
+    expect(help.stdout).toMatch(/--game <gameId>/)
+    expect(`${help.stdout}\n${help.stderr}`).not.toMatch(/Missing NEXT_PUBLIC_SUPABASE_URL/)
+
+    const bare = spawnSync(process.execPath, ['scripts/fetch-live-odds.js', '--game'], {
+      cwd: join(__dirname, '../..'),
+      env: { PATH: process.env.PATH },
+      encoding: 'utf8',
+    })
+    expect(bare.status).toBe(1)
+    expect(`${bare.stdout}\n${bare.stderr}`).toMatch(/--game requires/)
+    expect(`${bare.stdout}\n${bare.stderr}`).not.toMatch(/Missing NEXT_PUBLIC_SUPABASE_URL/)
+    expect(`${bare.stdout}\n${bare.stderr}`).not.toMatch(/Fetching nfl/i)
+  })
+
   test('--game / --event uses the event endpoint, budget, props, and injury guard', () => {
     expect(src).toMatch(/parseLiveOddsArgs/)
     expect(src).toMatch(/oddsApiEventOddsEndpoint/)
@@ -607,6 +684,13 @@ describe('fetch-live-odds wiring for cache, spread, and single-game fetch', () =
     expect(src).toMatch(/applyInjuryAvailability/)
     expect(src).toMatch(/createOddsApiBudget/)
     expect(src).toMatch(/oddsApiEventOddsEndpoint\(sportConfig\.id, resolvedEventId\)/)
+    expect(src).toMatch(/planSingleGameOddsCalls/)
+    expect(src).toMatch(/skipPaidOdds/)
+    expect(src).toMatch(/paid API calls: 0/)
+    expect(src).toMatch(/parseLiveOddsArgs\(process\.argv\.slice\(2\)\)/)
+    expect(src).toMatch(/cli\.help/)
+    expect(src.indexOf('cli.help')).toBeLessThan(src.indexOf("config({ path: '.env.local' })"))
+    expect(src.indexOf('cli.help')).toBeLessThan(src.indexOf('createScriptSupabaseClient()'))
     expect(src).toMatch(/\/v4\/sports\/\$\{sportConfig\.id\}\/odds/)
     expect(wrapper).toMatch(/fetch-live-odds\.js/)
     expect(wrapper).toMatch(/--game/)

@@ -44,6 +44,7 @@ node scripts/fetch-live-odds.js all --cache-fresh
 # One game only (event-odds endpoint; still budgeted; does not refetch the slate):
 # node scripts/fetch-live-odds.js --game GB_at_LAR_2026-11-25
 # node scripts/fetch-live-odds.js --event <oddsApiEventId> nfl
+# --dry-run spends 0 paid Odds API credits (logs event, markets, estimated credits).
 # Back-compat: node scripts/fetch-odds-for-game.js <gameId>
 # Footer prints ODDS_BUDGET_STATUS=ok|floor|daily_cap|monthly_cap|probe_failed (exit 0).
 # Any value other than ok is WARN in the morning report.

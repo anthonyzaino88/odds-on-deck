@@ -15,12 +15,12 @@
  *   node scripts/fetch-live-odds.js --event <oddsApiEventId> nfl
  * 
  * FLAGS:
- *   --dry-run      Don't save to DB, just show what would happen
+ *   --dry-run      Print the plan; no DB writes and no paid Odds API calls
  *   --date         Specific date to fetch (YYYY-MM-DD)
  *   --cache-fresh  Ignore cache, force fresh fetch from API
  *   --game         Fetch game lines + player props for one Game.id
  *   --event        Same, keyed by The Odds API event id
- *   --help         Print usage
+ *   --help         Print usage (no env / DB required)
  *
  * --game / --event use the event-odds endpoint (not the sport-wide feed),
  * count against the credit budget, apply the injury/roster guard, and do
@@ -54,6 +54,7 @@ import {
   normalizeOddsApiEventPayload,
   parseLiveOddsArgs,
   LIVE_ODDS_USAGE,
+  planSingleGameOddsCalls,
 } from '../lib/live-odds-landing.js'
 import { formatEtDateKey } from '../lib/todays-games.js'
 import { parseStoredGameDate } from '../lib/score-updater.js'
@@ -101,6 +102,17 @@ import crypto from 'crypto'
 // Helper to generate unique IDs
 function generateId() {
   return crypto.randomBytes(12).toString('base64url')
+}
+
+const cli = parseLiveOddsArgs(process.argv.slice(2))
+if (cli.help) {
+  console.log(LIVE_ODDS_USAGE)
+  process.exit(0)
+}
+if (cli.flagError) {
+  console.error(`❌ ${cli.flagError}`)
+  console.error(LIVE_ODDS_USAGE)
+  process.exit(1)
 }
 
 config({ path: '.env.local' })
@@ -168,6 +180,13 @@ const NHL_PROP_MARKETS = [
   'player_points', 'player_assists',
   'player_shots_on_goal', 'player_blocked_shots'
 ]
+
+function propMarketsForSport(sport) {
+  if (sport === 'nfl') return NFL_PROP_MARKETS
+  if (sport === 'mlb') return MLB_PROP_MARKETS
+  if (sport === 'nhl') return NHL_PROP_MARKETS
+  return []
+}
 
 // ============================================================================
 // TEAM NAME MATCHING (ESPN ↔ The Odds API)
@@ -1529,20 +1548,59 @@ async function runSingleGameFetch({ sport, date, dryRun, cacheFresh, gameId, eve
   console.log(`   Event: ${resolvedEventId}`)
   console.log(`   Sport: ${sportKey.toUpperCase()}  Date: ${gameDate}`)
 
+  const gameLinesCached = await checkCache(
+    'Odds',
+    { gameId: game.id, market: 'h2h' },
+    CACHE_DURATION.MONEYLINE,
+    cacheFresh,
+  )
+  const propsTtl = propsCacheMaxAgeMs({
+    sport: sportKey,
+    gameInstant: game.date,
+    now: new Date(),
+    todayMaxAgeMs: Math.min(CACHE_DURATION.PROPS, msSinceEtMidnight()),
+    adjacentMaxAgeMs: nflAdjacentPropsTtlMs(),
+  })
+  const propsCached = await checkCache(
+    'PlayerPropCache',
+    { gameId: game.id },
+    propsTtl,
+    cacheFresh,
+    'fetchedAt',
+  )
+  const plan = planSingleGameOddsCalls({
+    sportId: sportConfig.id,
+    eventId: resolvedEventId,
+    dryRun,
+    cacheFresh,
+    gameLinesCached,
+    propsCached,
+    propMarkets: propMarketsForSport(sportKey),
+  })
+
+  if (dryRun) {
+    console.log('💡 DRY RUN — no paid Odds API calls (0 credits)')
+    console.log(`   Event: ${plan.eventId}`)
+    console.log(`   Game lines (${plan.gameLineMarkets}): ${plan.wouldFetchGameLines ? 'WOULD FETCH' : 'would use cache'} (~${plan.gameLineCredits} credits)`)
+    const propList = plan.propMarkets.join(',') || '(none)'
+    console.log(`   Player props (${propList}): ${plan.wouldFetchProps ? 'WOULD FETCH' : 'would use cache'} (~${plan.propCredits} credits)`)
+    console.log(`   Estimated credits if applied: ${plan.totalCreditsIfFetched}`)
+    console.log(`   Paid calls this run: ${plan.paidCalls.length} (spendCredits=${plan.spendCredits})`)
+    return
+  }
+
   const games = await fetchSingleGameOdds(game, { eventId: resolvedEventId, cacheFresh })
   const fetchedBookmakers = games.some((g) => (g.bookmakers || []).length > 0)
-  if (!dryRun && fetchedBookmakers) {
+  if (fetchedBookmakers) {
     await saveGameOdds(games, sportKey, gameDate)
   }
 
   const gameProps = await fetchPlayerProps(sportKey, gameDate, games, cacheFresh)
-  if (!dryRun && gameProps.length > 0) {
+  if (gameProps.length > 0) {
     await savePlayerProps(gameProps, sportKey)
     await autoSaveTopPropsForValidation(sportKey)
   }
-  if (!dryRun) {
-    await autoSavePublishedPropsForValidation(sportKey)
-  }
+  await autoSavePublishedPropsForValidation(sportKey)
 }
 
 // ============================================================================
@@ -1550,12 +1608,8 @@ async function runSingleGameFetch({ sport, date, dryRun, cacheFresh, gameId, eve
 // ============================================================================
 
 async function main() {
-  const { sport, date, dryRun, cacheFresh, gameId, eventId, help } = parseArguments()
-
-  if (help) {
-    console.log(LIVE_ODDS_USAGE)
-    process.exit(0)
-  }
+  const { sport, date, dryRun, cacheFresh, gameId, eventId } = cli
+  const skipPaidOdds = Boolean(dryRun && (gameId || eventId))
   
   console.log('\n' + '='.repeat(60))
   console.log('⚡ ODDS FETCHER - LOCAL SCRIPT')
@@ -1564,17 +1618,25 @@ async function main() {
   console.log(`🎮 Sport: ${sport}`)
   if (gameId) console.log(`🎯 Game: ${gameId}`)
   if (eventId) console.log(`🎯 Event: ${eventId}`)
-  console.log(`🏗️  Mode: ${dryRun ? 'DRY RUN (no DB saves)' : 'PRODUCTION'}`)
+  console.log(`🏗️  Mode: ${dryRun ? 'DRY RUN (no paid Odds API, no DB saves)' : 'PRODUCTION'}`)
   console.log(`🔄 Cache: ${cacheFresh ? 'IGNORE (force fresh)' : 'CHECK (use if fresh)'}`)
   console.log('='.repeat(60))
   
-  if (!ODDS_API_KEY) {
+  if (!skipPaidOdds && !ODDS_API_KEY) {
     console.error('❌ ODDS_API_KEY not found in .env.local')
     console.error('   Get one at https://the-odds-api.com/clients/dashboard')
     process.exit(1)
   }
 
   try {
+    if (skipPaidOdds) {
+      await runSingleGameFetch({ sport, date, dryRun, cacheFresh, gameId, eventId })
+      console.log('\n' + '='.repeat(60))
+      console.log('✅ Complete! DRY RUN — paid API calls: 0')
+      console.log('='.repeat(60))
+      return
+    }
+
     const budget = getOddsBudget()
     await runOddsQuotaProbe({
       apiKey: ODDS_API_KEY,
